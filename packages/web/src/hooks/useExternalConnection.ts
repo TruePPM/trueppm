@@ -51,6 +51,12 @@ export interface ExternalConnectionSummary {
   jql: string;
   project_keys: string[];
   /**
+   * Whether the background poll picks this connection up (#3104, ADR-0097 §4).
+   * Server-owned state, never inferred client-side — a connection that was
+   * opted in from another device must read as on here.
+   */
+  poll_enabled: boolean;
+  /**
    * What the last pull did — counts, and whether a cap truncated it (#2925).
    * `null` until the first pull completes, which is a different state from a
    * pull that completed and stored nothing.
@@ -77,9 +83,7 @@ export function useExternalConnection(source: string, enabled = true) {
     retry: false,
     queryFn: async () => {
       try {
-        const res = await apiClient.get<ExternalConnectionSummary>(
-          `/me/connections/${source}/`,
-        );
+        const res = await apiClient.get<ExternalConnectionSummary>(`/me/connections/${source}/`);
         return res.data;
       } catch {
         // Fail-soft: any error → "not connected", never a surfaced failure.
@@ -126,6 +130,12 @@ export interface ConnectExternalSourceInput {
   account_email?: string;
   jql?: string;
   project_keys?: string[];
+  /**
+   * Opt this connection into the background poll (#3104). Omit to leave the
+   * existing setting alone — the backend preserves it across a re-connect, so a
+   * token rotation never silently stops a connection polling.
+   */
+  poll_enabled?: boolean;
 }
 
 export function externalItemsKey(): string[] {
@@ -165,9 +175,9 @@ export function useExternalItems(enabled = true) {
     retry: false,
     queryFn: async () => {
       try {
-        const res = await apiClient.get<
-          ExternalWorkItem[] | { results?: ExternalWorkItem[] }
-        >('/me/external-items/');
+        const res = await apiClient.get<ExternalWorkItem[] | { results?: ExternalWorkItem[] }>(
+          '/me/external-items/',
+        );
         // The list view is paginated (`{count,results}`) but a caller could also
         // receive a bare array from a stub — accept both shapes.
         return Array.isArray(res.data) ? res.data : (res.data.results ?? []);
@@ -219,14 +229,46 @@ export function useSyncExternalSource(
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<{ queued: boolean }>(
-        `/me/connections/${source}/sync/`,
-      );
+      const res = await apiClient.post<{ queued: boolean }>(`/me/connections/${source}/sync/`);
       return res.data;
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: externalConnectionKey(source) });
       void qc.invalidateQueries({ queryKey: externalItemsKey() });
+    },
+  });
+}
+
+/**
+ * `PATCH /me/connections/<source>/` — flip the background-poll opt-in (#3104).
+ *
+ * A separate call from `useConnectExternalSource` because the `PUT` requires the
+ * user's API token, which is write-only and can never be read back — a toggle
+ * that reused it would demand the PAT again to change one boolean.
+ *
+ * The response *is* the connection summary, so `setQueryData` seeds it directly
+ * and there is deliberately **no** `invalidateQueries` beside it. Adding one
+ * would cost a second request per flip against a view whose throttle bucket
+ * (`credential_rotate`, 10/min) covers `GET` as well as `PATCH` — and the read
+ * hook is fail-soft by design, so a throttled refetch resolves to `null` and
+ * collapses a live connection to "Not connected" with nothing shown to explain
+ * it. `externalConnectionKey` has one consumer (`useExternalConnection`); My
+ * Work's freshness line is served by `/me/work/` under a different key, which no
+ * invalidation here would have reached anyway.
+ */
+export function useSetExternalPoll(
+  source: string,
+): UseMutationResult<ExternalConnectionSummary, unknown, boolean> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (pollEnabled: boolean) => {
+      const res = await apiClient.patch<ExternalConnectionSummary>(`/me/connections/${source}/`, {
+        poll_enabled: pollEnabled,
+      });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(externalConnectionKey(source), data);
     },
   });
 }

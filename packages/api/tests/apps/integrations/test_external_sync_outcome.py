@@ -525,7 +525,11 @@ def test_summary_does_not_echo_unknown_config_keys(
     body = client.get("/api/v1/me/connections/jira/").json()
 
     assert "some_future_secret" not in body
-    assert "poll_enabled" not in body
+    # ``poll_enabled`` became a *reviewed* key in #3104 — it is the owner's own
+    # setting and the switch that writes it has to read its state back. The rule
+    # this test guards is unchanged: a key reaches a client only by being
+    # projected explicitly in ``_summary``, never by ``config`` being echoed.
+    assert body["poll_enabled"] is True
     assert "config" not in body
     assert "secret" not in body and "secret_ciphertext" not in body
 

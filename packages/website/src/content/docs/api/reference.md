@@ -1756,7 +1756,7 @@ the disclosure the change removes — and enforces no webhook-specific body cap.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET / POST / DELETE | `/api/v1/me/credentials/{provider}/` | Connect, read, or revoke your own credential for an external provider (ADR-0049) |
-| GET / PUT / DELETE | `/api/v1/me/connections/{source}/` | Your personal, read-only external task-source connection (ADR-0097 §3 — the OSS carve-out: user-scoped and one-way) |
+| GET / PUT / PATCH / DELETE | `/api/v1/me/connections/{source}/` | Your personal, read-only external task-source connection (ADR-0097 §3 — the OSS carve-out: user-scoped and one-way). `PATCH` takes `poll_enabled` alone |
 | POST | `/api/v1/me/connections/{source}/sync/` | Trigger a manual pull of your connection; returns `202 {"queued": true}` |
 | GET | `/api/v1/me/external-items/` | Your cached external work items, for the My Work external section |
 | GET / PUT | `/api/v1/integrations/projects/{project_id}/git-automation/` | A project's Git-event board-automation config (Admin+, ADR-0158) |
@@ -1796,6 +1796,26 @@ that no longer applies. `PUT` returns the same summary object as `GET`.
 
 The same `last_sync` object rides on each `external_sources` row of
 `GET /api/v1/me/work/`.
+
+`PATCH /api/v1/me/connections/{source}/` takes exactly one field,
+`poll_enabled`, and turns the background poll (ADR-0097 §4) on or off for your
+connection. It is a separate verb from `PUT` because `PUT` requires `secret`,
+which is write-only and can never be read back — reusing it would make
+re-entering your API token the price of changing one boolean. Anything else in
+the body is ignored, so this endpoint cannot rewrite a host, a token, or a
+filter. It returns the same summary object as `GET`, and `404`s when you have no
+connection to that source; a connection belonging to another user is a `404` for
+the same reason every other action here is scoped — the `(user, source)` filter
+is the only lookup.
+
+`poll_enabled` also appears on the summary and is accepted by `PUT`. On `PUT` it
+is the one config key that is **preserved when omitted**: the rest of the stored
+config is rebuilt from the payload, but silently switching a connection's polling
+off on every token rotation would be a change the caller never asked for. Send
+`poll_enabled: false` explicitly to turn it off. A connection whose `status` is
+`auth_failed` or `invalid_filter` is skipped by the poll regardless of the flag —
+those states need a re-connect, and polling them would spend a request per tick to
+fail the same way.
 
 The org-wide, admin-configured, bidirectional Integration Hub is Enterprise;
 everything in this table is the OSS carve-out — a personal, one-way credential

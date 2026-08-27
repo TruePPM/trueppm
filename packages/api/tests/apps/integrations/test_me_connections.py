@@ -358,3 +358,214 @@ def test_connect_accepts_a_balanced_grouped_jql(client: APIClient) -> None:
         format="json",
     )
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# poll_enabled — the background-poll opt-in (#3104, ADR-0097 §4)
+# ---------------------------------------------------------------------------
+
+
+def _poll_flag(user: AbstractBaseUser) -> object:
+    """Read the stored opt-in straight off the row, not off the echoed summary."""
+    row = IntegrationCredential.objects.get(user=user, provider="jira")
+    return (row.config or {}).get("poll_enabled")
+
+
+def test_connect_defaults_polling_off(client: APIClient, user: AbstractBaseUser) -> None:
+    """A connection nobody opted in is default-off (ADR-0097 §4) — both in the
+    stored config the poll worker filters on, and in the summary the switch reads."""
+    body = client.put("/api/v1/me/connections/jira/", _connect_body(), format="json").json()
+    assert body["poll_enabled"] is False
+    assert _poll_flag(user) is False
+
+
+def test_connect_can_opt_in_at_connect_time(client: APIClient, user: AbstractBaseUser) -> None:
+    response = client.put(
+        "/api/v1/me/connections/jira/", _connect_body(poll_enabled=True), format="json"
+    )
+    assert response.status_code == 200
+    assert response.json()["poll_enabled"] is True
+    assert _poll_flag(user) is True
+
+
+def test_reconnect_without_the_field_keeps_polling_on(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """Rotating a token must not silently stop a connection polling.
+
+    The PUT rebuilds ``config`` wholesale, so an omitted ``poll_enabled`` that
+    defaulted to False would switch the poll off on every re-connect — with
+    nothing in the UI to say it had happened. The connect wizard does not carry
+    the switch, so this is the *normal* re-connect path, not an edge case.
+    """
+    client.put("/api/v1/me/connections/jira/", _connect_body(poll_enabled=True), format="json")
+
+    body = client.put("/api/v1/me/connections/jira/", _connect_body(), format="json").json()
+
+    assert body["poll_enabled"] is True
+    assert _poll_flag(user) is True
+
+
+def test_reconnect_can_still_turn_polling_off_explicitly(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """Preserve-on-omit is not preserve-always — an explicit false still wins."""
+    client.put("/api/v1/me/connections/jira/", _connect_body(poll_enabled=True), format="json")
+
+    body = client.put(
+        "/api/v1/me/connections/jira/", _connect_body(poll_enabled=False), format="json"
+    ).json()
+
+    assert body["poll_enabled"] is False
+    assert _poll_flag(user) is False
+
+
+def test_patch_round_trips_the_opt_in_without_the_secret(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """The whole point of the PATCH: flip the switch with no credential in hand."""
+    client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
+
+    response = client.patch("/api/v1/me/connections/jira/", {"poll_enabled": True}, format="json")
+
+    assert response.status_code == 200
+    assert response.json()["poll_enabled"] is True
+    assert _poll_flag(user) is True
+
+    off = client.patch("/api/v1/me/connections/jira/", {"poll_enabled": False}, format="json")
+    assert off.json()["poll_enabled"] is False
+    assert _poll_flag(user) is False
+
+
+def test_patch_leaves_the_credential_and_filter_untouched(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """The one-field serializer must not become a back door onto the connection.
+
+    Anything besides ``poll_enabled`` in the body is ignored, so this endpoint can
+    never rewrite a host, a token, or a filter — the fields the connect wizard
+    verifies before storing.
+    """
+    client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(jql="assignee = currentUser()", project_keys=["RIV"]),
+        format="json",
+    )
+    before = IntegrationCredential.objects.get(user=user, provider="jira")
+    before_secret, before_url = bytes(before.secret_ciphertext), before.base_url
+
+    client.patch(
+        "/api/v1/me/connections/jira/",
+        {
+            "poll_enabled": True,
+            "base_url": "https://evil.example.com",
+            "secret": "stolen",
+            "jql": "project = SECRET",
+            "project_keys": ["SECRET"],
+        },
+        format="json",
+    )
+
+    after = IntegrationCredential.objects.get(user=user, provider="jira")
+    assert after.base_url == before_url
+    assert bytes(after.secret_ciphertext) == before_secret
+    assert after.config["jql"] == "assignee = currentUser()"
+    assert after.config["project_keys"] == ["RIV"]
+    assert after.config["poll_enabled"] is True
+
+
+def test_patch_without_a_connection_is_404(client: APIClient) -> None:
+    response = client.patch("/api/v1/me/connections/jira/", {"poll_enabled": True}, format="json")
+    assert response.status_code == 404
+    assert not IntegrationCredential.objects.filter(provider="jira").exists()
+
+
+def test_patch_unknown_source_is_400(client: APIClient) -> None:
+    assert (
+        client.patch(
+            "/api/v1/me/connections/nope/", {"poll_enabled": True}, format="json"
+        ).status_code
+        == 400
+    )
+
+
+@pytest.mark.parametrize("payload", [{}, {"poll_enabled": "sometimes"}, {"poll_enabled": None}])
+def test_patch_rejects_a_missing_or_non_boolean_flag(
+    client: APIClient, payload: dict[str, object]
+) -> None:
+    """Fail loudly rather than storing a value the poll's own filter cannot read.
+
+    ``_do_poll`` filters on ``config__poll_enabled=True`` in the DB, so a stored
+    string would drop the connection out of the poll while the switch rendered on.
+    """
+    client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
+    assert client.patch("/api/v1/me/connections/jira/", payload, format="json").status_code == 400
+
+
+def test_patch_requires_authentication() -> None:
+    assert APIClient().patch(
+        "/api/v1/me/connections/jira/", {"poll_enabled": True}, format="json"
+    ).status_code in (401, 403)
+
+
+def test_patch_cannot_enable_polling_on_another_users_connection(
+    client: APIClient, user: AbstractBaseUser, other_user: AbstractBaseUser
+) -> None:
+    """The IDOR boundary: polling is a spend against *someone else's* Jira quota.
+
+    ``self._row`` filters ``(user, provider)`` like every other action here, so a
+    connection another user owns simply does not exist for this caller — a 404
+    that says "you have no such connection", never "someone else does".
+    """
+    client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
+
+    other = APIClient()
+    other.force_authenticate(user=other_user)
+    response = other.patch("/api/v1/me/connections/jira/", {"poll_enabled": True}, format="json")
+
+    assert response.status_code == 404
+    assert _poll_flag(user) is False
+
+
+def test_opted_in_connection_is_picked_up_by_the_poll(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """End-to-end on the seam this ticket exists to close.
+
+    The poll task, the beat entry, and the ``poll_enabled`` filter all shipped in
+    #1419 — but nothing in the product could write the key, so the task fanned out
+    zero pulls on every install. Asserting the switch's write is *the* thing
+    ``_do_poll`` selects on is what proves the wiring, not that the field persists.
+    """
+    from trueppm_api.apps.integrations.models import ExternalSyncRequest
+    from trueppm_api.apps.integrations.tasks import _do_poll
+
+    client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
+    ExternalSyncRequest.objects.all().delete()
+
+    _do_poll()
+    assert not ExternalSyncRequest.objects.filter(user=user, source="jira").exists()
+
+    client.patch("/api/v1/me/connections/jira/", {"poll_enabled": True}, format="json")
+    _do_poll()
+
+    assert ExternalSyncRequest.objects.filter(user=user, source="jira").exists()
+
+
+def test_summary_reports_a_non_boolean_flag_as_off(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """The summary must agree with the poll, not with Python truthiness.
+
+    ``config`` is schemaless and shared, and ``_do_poll`` selects on
+    ``config__poll_enabled=True`` — strict JSON equality. A hand-edited (or
+    Enterprise-written) row carrying the *string* ``"false"`` is truthy in Python
+    and is not something the poll will ever match, so reporting it as on would
+    render a switch claiming a refresh that never happens.
+    """
+    client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
+    row = IntegrationCredential.objects.get(user=user, provider="jira")
+    row.config = {**row.config, "poll_enabled": "false"}
+    row.save(update_fields=["config"])
+
+    assert client.get("/api/v1/me/connections/jira/").json()["poll_enabled"] is False

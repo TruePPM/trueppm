@@ -41,9 +41,11 @@ import {
   useDisconnectExternalSource,
   useExternalConnection,
   useExternalItems,
+  useSetExternalPoll,
   useSyncExternalSource,
   type ExternalConnectionSummary,
 } from '@/hooks/useExternalConnection';
+import { Toggle } from '@/features/settings/components/Toggle';
 import { ExternalSourceConnectDialog } from './ExternalSourceConnectDialog';
 
 type DialogMode = 'connect' | 'rotate' | 'revoke';
@@ -93,7 +95,9 @@ export function ConnectedAccountsPage() {
           Couldn&apos;t load connected accounts.{' '}
           <button
             type="button"
-            onClick={() => { void refetch(); }}
+            onClick={() => {
+              void refetch();
+            }}
             className="text-brand-primary underline-offset-2 hover:underline"
           >
             Retry
@@ -106,18 +110,13 @@ export function ConnectedAccountsPage() {
   const allEmpty = credentials.every((c) => !c.exists);
 
   return (
-    <section
-      aria-label="Connected accounts"
-      className="flex flex-col gap-6 p-6 max-w-3xl mx-auto"
-    >
+    <section aria-label="Connected accounts" className="flex flex-col gap-6 p-6 max-w-3xl mx-auto">
       <header className="flex flex-col gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-neutral-text-primary">
-            Connected accounts
-          </h1>
+          <h1 className="text-lg font-semibold text-neutral-text-primary">Connected accounts</h1>
           <p className="mt-1 text-sm text-neutral-text-secondary">
-            Connect GitLab or GitHub to unlock on-demand previews of task links.
-            Credentials are stored encrypted and never returned to your browser.{' '}
+            Connect GitLab or GitHub to unlock on-demand previews of task links. Credentials are
+            stored encrypted and never returned to your browser.{' '}
             <a
               href={docsUrl('features/connected-accounts')}
               className="text-brand-primary underline-offset-2 hover:underline"
@@ -147,8 +146,8 @@ export function ConnectedAccountsPage() {
       <EnterpriseProviderSlots />
 
       <p className="text-xs text-neutral-text-secondary">
-        Credentials power task-link previews (#637). Other integration types
-        (project webhooks, API tokens) live under{' '}
+        Credentials power task-link previews (#637). Other integration types (project webhooks, API
+        tokens) live under{' '}
         <a
           href="/settings/integrations"
           className="text-brand-primary underline-offset-2 hover:underline"
@@ -168,10 +167,7 @@ export function ConnectedAccountsPage() {
         />
       ) : null}
       {dialog?.mode === 'revoke' ? (
-        <RevokeCredentialDialog
-          provider={dialog.provider}
-          onDismiss={() => setDialog(null)}
-        />
+        <RevokeCredentialDialog provider={dialog.provider} onDismiss={() => setDialog(null)} />
       ) : null}
     </section>
   );
@@ -197,9 +193,7 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
     >
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-neutral-text-primary">
-            {credential.name}
-          </h2>
+          <h2 className="text-sm font-semibold text-neutral-text-primary">{credential.name}</h2>
           <ConnectionPill exists={credential.exists} />
         </div>
         <dl className="mt-2 text-xs text-neutral-text-secondary space-y-0.5">
@@ -229,8 +223,7 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
           ) : null}
           {!credential.exists && !credential.requires_credential ? (
             <div className="italic">
-              No credential needed — paste any URL on a task and it will render
-              as a generic link.
+              No credential needed — paste any URL on a task and it will render as a generic link.
             </div>
           ) : null}
         </dl>
@@ -305,7 +298,9 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
   const [baseUrl, setBaseUrl] = useState(provider.base_url || '');
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { secretRef.current?.focus(); }, []);
+  useEffect(() => {
+    secretRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -353,8 +348,8 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
           {verb} {provider.name}
         </h2>
         <p id={descId} className="text-xs text-neutral-text-secondary mb-4">
-          Paste a personal access token. Tokens are encrypted at rest and never
-          shown again — record yours somewhere safe before submitting.
+          Paste a personal access token. Tokens are encrypted at rest and never shown again — record
+          yours somewhere safe before submitting.
         </p>
         <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
@@ -426,7 +421,9 @@ function RevokeCredentialDialog({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const revoke = useRevokeIntegrationCredential();
 
-  useEffect(() => { cancelRef.current?.focus(); }, []);
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -455,8 +452,8 @@ function RevokeCredentialDialog({
           Revoke {provider.name} credential?
         </h2>
         <p id={descId} className="text-xs text-neutral-text-secondary mb-4">
-          Task link previews that rely on this credential will stop refreshing.
-          You can reconnect at any time.
+          Task link previews that rely on this credential will stop refreshing. You can reconnect at
+          any time.
         </p>
         <div className="flex justify-end gap-2">
           <button
@@ -471,10 +468,7 @@ function RevokeCredentialDialog({
             type="button"
             disabled={revoke.isPending}
             onClick={() => {
-              revoke.mutate(
-                { provider: provider.provider },
-                { onSuccess: () => onDismiss() },
-              );
+              revoke.mutate({ provider: provider.provider }, { onSuccess: () => onDismiss() });
             }}
             className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none"
           >
@@ -533,8 +527,8 @@ function AvailableSourcesSection() {
           Available sources
         </h2>
         <p className="mt-1 text-sm text-neutral-text-secondary">
-          Pull the work assigned to you in other tools into My Work. Connections
-          are personal to you, read-only, and one-way — TruePPM never writes back.
+          Pull the work assigned to you in other tools into My Work. Connections are personal to
+          you, read-only, and one-way — TruePPM never writes back.
         </p>
         <div
           role="group"
@@ -570,10 +564,7 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
   // Only `available` sources have a backend connection to read; `coming_soon`
   // sources are not fetched (there is nothing to connect yet). The hooks are
   // always called (rules of hooks) but gated by `enabled`.
-  const { connection, isConnected, isLoading } = useExternalConnection(
-    source.provider,
-    available,
-  );
+  const { connection, isConnected, isLoading } = useExternalConnection(source.provider, available);
   const { items } = useExternalItems(available && isConnected);
   const [showConnect, setShowConnect] = useState(false);
   const [showDisconnect, setShowDisconnect] = useState(false);
@@ -593,14 +584,10 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
           <SourceMark sourceType={source.provider} label={source.name} className="mt-0.5" />
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold text-neutral-text-primary">
-                {source.name}
-              </h3>
+              <h3 className="text-sm font-semibold text-neutral-text-primary">{source.name}</h3>
               {isConnected ? <ActivePill /> : null}
             </div>
-            <p className="mt-0.5 text-xs text-neutral-text-secondary">
-              {source.description}
-            </p>
+            <p className="mt-0.5 text-xs text-neutral-text-secondary">{source.description}</p>
             {isConnected && connection ? <ConnectionDetailLine connection={connection} /> : null}
           </div>
         </div>
@@ -625,10 +612,11 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
       ) : null}
 
       {isConnected ? (
-        <TruncationNotice
-          connection={connection}
-          onChangeFilter={() => setShowConnect(true)}
-        />
+        <TruncationNotice connection={connection} onChangeFilter={() => setShowConnect(true)} />
+      ) : null}
+
+      {isConnected ? (
+        <BackgroundPollToggle connection={connection} source={source} sourceName={source.name} />
       ) : null}
 
       {isConnected && sourceItems.length > 0 ? (
@@ -636,16 +624,10 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
       ) : null}
 
       {showConnect ? (
-        <ExternalSourceConnectDialog
-          source={source}
-          onDismiss={() => setShowConnect(false)}
-        />
+        <ExternalSourceConnectDialog source={source} onDismiss={() => setShowConnect(false)} />
       ) : null}
       {showDisconnect ? (
-        <DisconnectSourceDialog
-          source={source}
-          onDismiss={() => setShowDisconnect(false)}
-        />
+        <DisconnectSourceDialog source={source} onDismiss={() => setShowDisconnect(false)} />
       ) : null}
     </li>
   );
@@ -724,8 +706,8 @@ function TruncationNotice({
       className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-neutral-border bg-neutral-surface-sunken px-3 py-2 text-[12px] text-neutral-text-primary"
     >
       <span>
-        {notice} That is the most one sync can pull — narrow the filter or project
-        keys to change which items you get.
+        {notice} That is the most one sync can pull — narrow the filter or project keys to change
+        which items you get.
       </span>
       <button
         type="button"
@@ -948,11 +930,115 @@ function SyncNowButton({ source }: { source: ExternalTaskSourceEntry }) {
         {sync.isPending ? 'Syncing…' : 'Sync now'}
       </button>
       {cooldown ? (
-        <span role="status" className="text-xs text-neutral-text-secondary max-w-[12rem] text-right">
+        <span
+          role="status"
+          className="text-xs text-neutral-text-secondary max-w-[12rem] text-right"
+        >
           {cooldown}
         </span>
       ) : null}
     </span>
+  );
+}
+
+/**
+ * Background-poll opt-in for a connected source (#3104, ADR-0097 §4).
+ *
+ * `integrations.poll_external_sources` has run on a 15-minute Beat cadence since
+ * #1419, but it only picks up a connection whose `config.poll_enabled` is true —
+ * and until this switch existed nothing in the product could write that key, so
+ * the poll fanned out zero pulls on every install. This is the control that makes
+ * the personal Jira pull continuous rather than on-demand.
+ *
+ * It writes through `PATCH`, not the connect wizard's `PUT`: the `PUT` requires
+ * the user's API token, which is write-only and unreadable, so a token the user
+ * cannot see would be the price of flipping one boolean.
+ *
+ * Rendered from `connection.poll_enabled` (the server's answer) rather than local
+ * state — the same connection can be toggled from another device, and a switch
+ * that trusted its own last click would disagree with what the poll actually
+ * does. The mutation's response *is* the summary, so it seeds the cache directly.
+ *
+ * The paused hint is not decoration: `_do_poll` excludes `auth_failed` and
+ * `invalid_filter` connections, so an opted-in connection in either state polls
+ * nothing. Showing the switch as plain "on" there would promise a refresh that
+ * cannot happen.
+ */
+function BackgroundPollToggle({
+  connection,
+  source,
+  sourceName,
+}: {
+  connection: ExternalConnectionSummary | null | undefined;
+  source: ExternalTaskSourceEntry;
+  sourceName: string;
+}) {
+  const setPoll = useSetExternalPoll(source.provider);
+  const [error, setError] = useState<string | null>(null);
+  if (!connection) return null;
+
+  // `=== true`, not a truthiness read: a summary served by a pre-#3104 backend (or
+  // held in a warm cache from one) has no such key, and `aria-checked={undefined}`
+  // drops the attribute entirely — a `role="switch"` with no checked state.
+  const on = connection.poll_enabled === true;
+  // The two states the backend refuses to poll — the remedy is a reconnect, which
+  // the health notice above already offers, so this only explains the pause.
+  const paused = connection.status === 'auth_failed' || connection.status === 'invalid_filter';
+  const hint = !on
+    ? `${sourceName} refreshes only when you choose Sync now.`
+    : paused
+      ? `Paused until you reconnect ${sourceName}.`
+      : `TruePPM checks ${sourceName} for new items about every 15 minutes.`;
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-neutral-border pt-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-neutral-text-primary">
+            Check for new items automatically
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-text-secondary">{hint}</p>
+        </div>
+        <Toggle
+          on={on}
+          onChange={(next) => {
+            setError(null);
+            setPoll.mutate(next, {
+              onError: (err) =>
+                setError(
+                  extractConnectionError(
+                    err,
+                    'Could not change the automatic check just now — try again shortly.',
+                  ),
+                ),
+            });
+          }}
+          // The visible words stay Toggle's state-derived Enabled/Disabled; the
+          // accessible name has to say *what* is enabled, and name the source —
+          // this switch repeats once per connected card on the same page.
+          ariaLabel={`Check ${sourceName} for new items automatically`}
+        />
+      </div>
+      {/*
+        `aria-live="polite"` rather than `role="status"`, which would otherwise be
+        the obvious choice: the card already carries exactly one `role="status"`
+        node — the health / reconnect banner — and several specs locate it with an
+        unscoped `getByRole('status')` inside the card. A second status node here
+        would turn those into strict-mode multi-matches the moment a write is
+        pending or errored. The announcement is identical; only the role is not
+        claimed.
+      */}
+      {setPoll.isPending ? (
+        <p aria-live="polite" className="text-xs text-neutral-text-secondary">
+          Saving…
+        </p>
+      ) : null}
+      {error ? (
+        <p aria-live="polite" className="text-xs text-semantic-critical">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -966,13 +1052,7 @@ const BUCKET_PILL_CLASSES: Record<string, string> = {
 const BUCKET_FALLBACK = BUCKET_PILL_CLASSES.todo;
 
 /** "Recently pulled" preview of the source's cached items (appears in My Work). */
-function RecentlyPulled({
-  items,
-  sourceName,
-}: {
-  items: ExternalWorkItem[];
-  sourceName: string;
-}) {
+function RecentlyPulled({ items, sourceName }: { items: ExternalWorkItem[]; sourceName: string }) {
   // `external_url` is cached from the provider's API — guard the scheme before
   // binding it to an href so a `javascript:`/`data:` value can't execute on click
   // (stored XSS, #898). A non-http(s) URL renders the glyph inert.
@@ -1044,7 +1124,9 @@ function DisconnectSourceDialog({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const disconnect = useDisconnectExternalSource(source.provider);
 
-  useEffect(() => { cancelRef.current?.focus(); }, []);
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1073,8 +1155,8 @@ function DisconnectSourceDialog({
           Disconnect {source.name}?
         </h2>
         <p id={descId} className="text-xs text-neutral-text-secondary mb-4">
-          Your {source.name} items will be removed from My Work and the stored token
-          deleted. Nothing in {source.name} is affected — you can reconnect any time.
+          Your {source.name} items will be removed from My Work and the stored token deleted.
+          Nothing in {source.name} is affected — you can reconnect any time.
         </p>
         <div className="flex justify-end gap-2">
           <button
@@ -1111,13 +1193,11 @@ function EmptyStateHint() {
       role="note"
       className="border border-dashed border-neutral-border rounded-card bg-neutral-surface-sunken px-4 py-3 text-xs text-neutral-text-secondary"
     >
-      <p className="font-medium text-neutral-text-primary mb-1">
-        Why connect an account?
-      </p>
+      <p className="font-medium text-neutral-text-primary mb-1">Why connect an account?</p>
       <p>
-        With a GitLab or GitHub credential, task links render an inline preview
-        of issue / MR / PR status — open vs. merged, draft vs. ready — without
-        ever leaving the board. Credentials are per-user and stored encrypted.
+        With a GitLab or GitHub credential, task links render an inline preview of issue / MR / PR
+        status — open vs. merged, draft vs. ready — without ever leaving the board. Credentials are
+        per-user and stored encrypted.
       </p>
     </div>
   );

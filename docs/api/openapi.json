@@ -4789,7 +4789,7 @@
         "/api/v1/me/connections/{source}/": {
             "get": {
                 "operationId": "v1_me_connections_retrieve",
-                "description": "Manage the authenticated user's connection to one external task source.\n\nRoutes (``<source>`` is an ``EXTERNAL_TASK_SOURCES`` key, e.g. ``jira``):\n    GET    /api/v1/me/connections/{source}/   summary (exists / status / config)\n    PUT    /api/v1/me/connections/{source}/   connect or update (verify then store)\n    DELETE /api/v1/me/connections/{source}/   disconnect (hard-remove ciphertext)\n\nAll actions require authentication and are self-scoped to ``request.user`` —\nthe ``(user, provider)`` filter is the single IDOR boundary, so another\nuser's connection is invisible by construction.",
+                "description": "Manage the authenticated user's connection to one external task source.\n\nRoutes (``<source>`` is an ``EXTERNAL_TASK_SOURCES`` key, e.g. ``jira``):\n    GET    /api/v1/me/connections/{source}/   summary (exists / status / config)\n    PUT    /api/v1/me/connections/{source}/   connect or update (verify then store)\n    PATCH  /api/v1/me/connections/{source}/   flip the background-poll opt-in\n    DELETE /api/v1/me/connections/{source}/   disconnect (hard-remove ciphertext)\n\nAll actions require authentication and are self-scoped to ``request.user`` —\nthe ``(user, provider)`` filter is the single IDOR boundary, so another\nuser's connection is invisible by construction.",
                 "parameters": [
                     {
                         "in": "path",
@@ -4933,6 +4933,87 @@
                     }
                 },
                 "summary": "Update connection"
+            },
+            "patch": {
+                "operationId": "v1_me_connections_partial_update",
+                "description": "Turn the background poll on or off for this connection (ADR-0097 §4).\n\nThe only mutation on a *stored* connection that does not go through the\nconnect wizard, because it is the only one that needs no credential. The\nIDOR boundary is the same single ``(user, provider)`` filter every other\naction uses (``self._row``): a source another user connected simply does\nnot exist for this caller, so a 404 is a \"you have no such connection\",\nnever a leak that someone else does.\n\n``config`` is copied-then-reassigned rather than mutated in place — the\nJSONField's value is a live dict, and mutating it leaves Django unable to\ntell the field changed if anything later relies on the loaded state.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "source",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "poll_enabled": {
+                                        "type": "boolean",
+                                        "description": "Whether the background poll (ADR-0097 §4) should pick this connection up. Required — there is no partial form of this request."
+                                    }
+                                },
+                                "required": [
+                                    "poll_enabled"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalConnectionSummary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Unknown source, or poll_enabled missing / not a boolean."
+                    },
+                    "404": {
+                        "description": "No connection to this source for this user."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update connection"
             },
             "delete": {
                 "operationId": "v1_me_connections_destroy",
@@ -47234,6 +47315,9 @@
                             "type": "string"
                         }
                     },
+                    "poll_enabled": {
+                        "type": "boolean"
+                    },
                     "last_sync": {
                         "allOf": [
                             {
@@ -47252,13 +47336,14 @@
                     "last_sync",
                     "last_synced_at",
                     "name",
+                    "poll_enabled",
                     "project_keys",
                     "status"
                 ]
             },
             "ExternalConnectionUpsertRequest": {
                 "type": "object",
-                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token / PAT (write-only, never echoed).\n``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``\nor a self-hosted Jira Data Center / Server host — allow-listed downstream.\n``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server\nAPI + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +\n``project_keys`` are stored in the credential's ``config`` — the source reads\nthem at pull time. ``jql`` selects what to pull; ``project_keys`` narrows it\nand is **ANDed onto** the query, whether that query is the default or a\ncustom ``jql``, so the project filter can only ever restrict the pull.",
+                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token / PAT (write-only, never echoed).\n``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``\nor a self-hosted Jira Data Center / Server host — allow-listed downstream.\n``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server\nAPI + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +\n``project_keys`` are stored in the credential's ``config`` — the source reads\nthem at pull time. ``jql`` selects what to pull; ``project_keys`` narrows it\nand is **ANDed onto** the query, whether that query is the default or a\ncustom ``jql``, so the project filter can only ever restrict the pull.\n\n``poll_enabled`` opts the connection into the background poll (ADR-0097 §4).\nIt is declared **without** a ``default`` on purpose: a PUT rebuilds ``config``\nwholesale, so a defaulted field would silently switch polling off every time\nthe owner re-connected to rotate a token. Absent from the payload therefore\nmeans \"keep what this connection already had\" — see\n:meth:`ExternalConnectionView.put`.",
                 "properties": {
                     "secret": {
                         "type": "string",
@@ -47307,6 +47392,10 @@
                         },
                         "description": "Optional Jira project keys to restrict the pull to. Each must be a Jira project key (a letter followed by letters, digits or underscores); stored upper-cased and de-duplicated. Composed into the query as 'AND project IN (...)' on top of jql, so it can only narrow the pull. Empty means every project you can see.",
                         "maxItems": 50
+                    },
+                    "poll_enabled": {
+                        "type": "boolean",
+                        "description": "Opt this connection into the background poll (ADR-0097 §4). Omit to leave the current setting untouched — a re-connect must not silently switch polling off. Default off for a connection that never set it."
                     }
                 },
                 "required": [

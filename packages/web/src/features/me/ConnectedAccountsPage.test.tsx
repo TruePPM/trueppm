@@ -27,6 +27,7 @@ const pending = {
   revoke: false,
   sync: false,
   disconnect: false,
+  setPoll: false,
 };
 
 vi.mock('@/hooks/useIntegrationCredentials', () => ({
@@ -56,6 +57,9 @@ interface ConnReturn {
     base_url?: string;
     status?: string;
     last_synced_at: string | null;
+    /** Background-poll opt-in (#3104). Optional so every pre-#3104 fixture below
+     *  still stands for "a connection that never opted in". */
+    poll_enabled?: boolean;
     /** Last pull's outcome (#2925). Optional here so the pre-#2925 fixtures
      *  below keep standing for "a connection with no outcome recorded". */
     last_sync?: ExternalSyncOutcome | null;
@@ -68,6 +72,7 @@ const useExternalItems = vi.fn<() => { items: ExternalWorkItem[]; isLoading: boo
 const syncMutate = vi.fn();
 const disconnectMutate = vi.fn();
 const connectMutate = vi.fn();
+const setPollMutate = vi.fn();
 vi.mock('@/hooks/useExternalConnection', () => ({
   useExternalConnection: (source: string, enabled?: boolean) =>
     useExternalConnection(source, enabled),
@@ -75,6 +80,7 @@ vi.mock('@/hooks/useExternalConnection', () => ({
   useSyncExternalSource: () => ({ mutate: syncMutate, isPending: pending.sync }),
   useDisconnectExternalSource: () => ({ mutate: disconnectMutate, isPending: pending.disconnect }),
   useConnectExternalSource: () => ({ mutate: connectMutate, isPending: false }),
+  useSetExternalPoll: () => ({ mutate: setPollMutate, isPending: pending.setPoll }),
   extractConnectionError: (_err: unknown, fallback: string) => fallback,
 }));
 
@@ -207,6 +213,8 @@ beforeEach(() => {
   pending.revoke = false;
   pending.sync = false;
   pending.disconnect = false;
+  pending.setPoll = false;
+  setPollMutate.mockReset();
   upsertMutate.mockReset();
   revokeMutate.mockReset();
   syncMutate.mockReset();
@@ -254,18 +262,14 @@ describe('ConnectedAccountsPage', () => {
     renderPage();
     // One heading per provider — scoped to the credentials list so the
     // "Available sources" section's own GitHub card doesn't collide (#1420).
-    const credentials = within(
-      screen.getByRole('list', { name: 'Integration providers' }),
-    );
+    const credentials = within(screen.getByRole('list', { name: 'Integration providers' }));
     expect(credentials.getByRole('heading', { name: /GitLab/i })).toBeInTheDocument();
     expect(credentials.getByRole('heading', { name: /GitHub/i })).toBeInTheDocument();
     expect(credentials.getByRole('heading', { name: /Generic/i })).toBeInTheDocument();
     // Empty-state hint is visible when no providers are connected.
     expect(screen.getByText(/Why connect an account/i)).toBeInTheDocument();
     // Generic provider shows the "no credential needed" copy and no Connect button.
-    expect(
-      screen.getByText(/No credential needed/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/No credential needed/i)).toBeInTheDocument();
   });
 
   it('opens connect dialog and submits an upsert', async () => {
@@ -340,9 +344,7 @@ describe('ConnectedAccountsPage', () => {
     const githubCard = container.querySelector('#provider-github') as HTMLElement;
     const card = within(githubCard);
     fireEvent.click(card.getByRole('button', { name: /Revoke/i }));
-    expect(
-      await screen.findByText(/Revoke GitHub credential\?/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Revoke GitHub credential\?/i)).toBeInTheDocument();
     // Cancelling the dialog should not call revoke.
     fireEvent.click(screen.getByRole('button', { name: /Keep credential/i }));
     expect(revokeMutate).not.toHaveBeenCalled();
@@ -351,10 +353,7 @@ describe('ConnectedAccountsPage', () => {
     const dialog = await screen.findByRole('alertdialog');
     fireEvent.click(within(dialog).getByRole('button', { name: /^Revoke$/ }));
     await waitFor(() =>
-      expect(revokeMutate).toHaveBeenCalledWith(
-        { provider: 'github' },
-        expect.any(Object),
-      ),
+      expect(revokeMutate).toHaveBeenCalledWith({ provider: 'github' }, expect.any(Object)),
     );
   });
 
@@ -384,15 +383,9 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
 
   it('renders the section, trust badges, and a card per registry source', () => {
     renderPage();
-    expect(
-      screen.getByRole('region', { name: /Available sources/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('group', { name: /Trust guarantees/i }),
-    ).toBeInTheDocument();
-    const sources = within(
-      screen.getByRole('list', { name: 'External task sources' }),
-    );
+    expect(screen.getByRole('region', { name: /Available sources/i })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Trust guarantees/i })).toBeInTheDocument();
+    const sources = within(screen.getByRole('list', { name: 'External task sources' }));
     expect(sources.getByRole('heading', { name: /Jira/i })).toBeInTheDocument();
     expect(sources.getByRole('heading', { name: /GitHub/i })).toBeInTheDocument();
   });
@@ -488,9 +481,7 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     const card = within(document.getElementById('source-jira') as HTMLElement);
     expect(card.getByText('RIV-482')).toBeInTheDocument();
     expect(card.getByText(/API gateway returns 502/i)).toBeInTheDocument();
-    expect(
-      card.getByRole('link', { name: /Open RIV-482 in Jira/i }),
-    ).toBeInTheDocument();
+    expect(card.getByRole('link', { name: /Open RIV-482 in Jira/i })).toBeInTheDocument();
   });
 
   it('renders an auth_failed Reconnect banner and reopens the connect flow', async () => {
@@ -649,9 +640,7 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
 
   it('renders a skeleton (not a status pill) while an available source loads', () => {
     useExternalConnection.mockImplementation((source: string) =>
-      source === 'jira'
-        ? { connection: null, isConnected: false, isLoading: true }
-        : NOT_CONNECTED,
+      source === 'jira' ? { connection: null, isConnected: false, isLoading: true } : NOT_CONNECTED,
     );
     renderPage();
     const jira = within(document.getElementById('source-jira') as HTMLElement);
@@ -695,11 +684,9 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     );
     // Drive the mutation's onError so the cooldown branch runs; the mocked
     // extractConnectionError returns the provided fallback string verbatim.
-    syncMutate.mockImplementation(
-      (_undef: unknown, opts: { onError: (e: unknown) => void }) => {
-        opts.onError(new Error('429 Too Many Requests'));
-      },
-    );
+    syncMutate.mockImplementation((_undef: unknown, opts: { onError: (e: unknown) => void }) => {
+      opts.onError(new Error('429 Too Many Requests'));
+    });
     renderPage();
     const card = within(document.getElementById('source-jira') as HTMLElement);
     expect(card.queryByText(/Could not start a sync/i)).not.toBeInTheDocument();
@@ -711,8 +698,8 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     useExternalConnection.mockImplementation((source: string) =>
       source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
     );
-    disconnectMutate.mockImplementation(
-      (_undef: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    disconnectMutate.mockImplementation((_undef: unknown, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
     );
     renderPage();
     const card = within(document.getElementById('source-jira') as HTMLElement);
@@ -757,7 +744,7 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
           id: 'b',
           source_key: 'jira',
           external_id: 'RIV-2',
-           
+
           external_url: 'javascript:alert(1)',
           title: 'Bad URL item',
           external_status: 'Done',
@@ -992,11 +979,9 @@ describe('ConnectedAccountsPage — credential dialogs', () => {
 
   it('shows the server error message when the upsert fails', async () => {
     withCredentials(EMPTY_LIST);
-    upsertMutate.mockImplementation(
-      (_vars: unknown, opts: { onError: (e: unknown) => void }) => {
-        opts.onError(new Error('Token was rejected by GitLab'));
-      },
-    );
+    upsertMutate.mockImplementation((_vars: unknown, opts: { onError: (e: unknown) => void }) => {
+      opts.onError(new Error('Token was rejected by GitLab'));
+    });
     openConnectDialog();
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
@@ -1010,8 +995,8 @@ describe('ConnectedAccountsPage — credential dialogs', () => {
 
   it('closes the connect dialog on a successful upsert', async () => {
     withCredentials(EMPTY_LIST);
-    upsertMutate.mockImplementation(
-      (_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    upsertMutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
     );
     openConnectDialog();
     const dialog = await screen.findByRole('dialog');
@@ -1058,8 +1043,8 @@ describe('ConnectedAccountsPage — credential dialogs', () => {
 
   it('confirms revoke via onSuccess and closes the dialog', async () => {
     withCredentials([GITHUB_CONNECTED, EMPTY_LIST[0], EMPTY_LIST[2]]);
-    revokeMutate.mockImplementation(
-      (_vars: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    revokeMutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
     );
     const { container } = renderPage();
     const card = within(container.querySelector('#provider-github') as HTMLElement);
@@ -1101,12 +1086,10 @@ describe('ConnectedAccountsPage — credential dialogs', () => {
 
   it('falls back to a generic message when the failure is not an Error', async () => {
     withCredentials(EMPTY_LIST);
-    upsertMutate.mockImplementation(
-      (_vars: unknown, opts: { onError: (e: unknown) => void }) => {
-        // A rejected non-Error (e.g. a bare string from a transport layer).
-        opts.onError('kaboom');
-      },
-    );
+    upsertMutate.mockImplementation((_vars: unknown, opts: { onError: (e: unknown) => void }) => {
+      // A rejected non-Error (e.g. a bare string from a transport layer).
+      opts.onError('kaboom');
+    });
     openConnectDialog();
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText(/Personal access token/i), {
@@ -1296,5 +1279,140 @@ describe('ConnectedAccountsPage — anchor scroll & enterprise slot', () => {
     renderPage();
     const slot = screen.getByTestId('enterprise-connected-accounts-slot');
     expect(within(slot).getByText(/Enterprise ServiceNow card/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Background-poll opt-in (#3104, ADR-0097 §4).
+ *
+ * `integrations.poll_external_sources` reads `config.poll_enabled` and nothing in
+ * the product could write it, so the poll fanned out zero pulls on every install.
+ * These cover the switch that writes it, and the two states where it must not
+ * promise a refresh the backend will not make.
+ */
+describe('ConnectedAccountsPage — background poll toggle (#3104)', () => {
+  beforeEach(() => {
+    useIntegrationCredentials.mockReturnValue({
+      credentials: EMPTY_LIST,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+  });
+
+  function jiraCard() {
+    return within(document.getElementById('source-jira') as HTMLElement);
+  }
+
+  function connectedWithPoll(poll_enabled: boolean, status = 'connected'): ConnReturn {
+    return {
+      connection: { ...CONNECTED_JIRA.connection!, status, poll_enabled },
+      isConnected: true,
+      isLoading: false,
+    };
+  }
+
+  function mockJira(state: ConnReturn) {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? state : NOT_CONNECTED,
+    );
+  }
+
+  it('is absent on a source that is not connected — there is nothing to poll', () => {
+    renderPage();
+    expect(
+      screen.queryByRole('switch', { name: /Check Jira for new items automatically/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders off, and says the source refreshes only on Sync now', () => {
+    mockJira(connectedWithPoll(false));
+    renderPage();
+    const toggle = jiraCard().getByRole('switch', {
+      name: /Check Jira for new items automatically/i,
+    });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(
+      jiraCard().getByText(/Jira refreshes only when you choose Sync now/i),
+    ).toBeInTheDocument();
+  });
+
+  it('reads its state from the server summary, not from the last click', () => {
+    mockJira(connectedWithPoll(true));
+    renderPage();
+    const toggle = jiraCard().getByRole('switch', {
+      name: /Check Jira for new items automatically/i,
+    });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(
+      jiraCard().getByText(/checks Jira for new items about every 15 minutes/i),
+    ).toBeInTheDocument();
+  });
+
+  it('treats a summary with no poll_enabled key as off rather than dropping aria-checked', () => {
+    // A warm cache (or a pre-#3104 backend) serves a summary without the key; a
+    // truthiness read would leave role="switch" with no checked state at all.
+    mockJira(CONNECTED_JIRA);
+    renderPage();
+    expect(
+      jiraCard().getByRole('switch', { name: /Check Jira for new items automatically/i }),
+    ).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('writes the opt-in through the poll mutation when switched on', () => {
+    mockJira(connectedWithPoll(false));
+    renderPage();
+    fireEvent.click(
+      jiraCard().getByRole('switch', { name: /Check Jira for new items automatically/i }),
+    );
+    expect(setPollMutate).toHaveBeenCalledWith(true, expect.anything());
+  });
+
+  it('writes the opt-out when switched off', () => {
+    mockJira(connectedWithPoll(true));
+    renderPage();
+    fireEvent.click(
+      jiraCard().getByRole('switch', { name: /Check Jira for new items automatically/i }),
+    );
+    expect(setPollMutate).toHaveBeenCalledWith(false, expect.anything());
+  });
+
+  it('says polling is paused on an auth_failed connection instead of promising a refresh', () => {
+    // `_do_poll` excludes auth_failed and invalid_filter rows, so an opted-in
+    // connection in either state polls nothing — a plain "every 15 minutes" here
+    // would be a promise the backend does not keep.
+    mockJira(connectedWithPoll(true, 'auth_failed'));
+    renderPage();
+    expect(jiraCard().getByText(/Paused until you reconnect Jira/i)).toBeInTheDocument();
+    expect(jiraCard().queryByText(/about every 15 minutes/i)).not.toBeInTheDocument();
+  });
+
+  it('says polling is paused on an invalid_filter connection too', () => {
+    mockJira(connectedWithPoll(true, 'invalid_filter'));
+    renderPage();
+    expect(jiraCard().getByText(/Paused until you reconnect Jira/i)).toBeInTheDocument();
+  });
+
+  it('shows a saving affordance while the write is in flight', () => {
+    pending.setPoll = true;
+    mockJira(connectedWithPoll(false));
+    renderPage();
+    expect(jiraCard().getByText(/^Saving…$/)).toBeInTheDocument();
+  });
+
+  it('surfaces a failed write inline rather than leaving the switch claiming a saved setting', async () => {
+    mockJira(connectedWithPoll(false));
+    setPollMutate.mockImplementation((_next: boolean, opts: { onError: (e: unknown) => void }) =>
+      opts.onError(new Error('nope')),
+    );
+    renderPage();
+    fireEvent.click(
+      jiraCard().getByRole('switch', { name: /Check Jira for new items automatically/i }),
+    );
+    await waitFor(() =>
+      expect(
+        jiraCard().getByText(/Could not change the automatic check just now/i),
+      ).toBeInTheDocument(),
+    );
   });
 });

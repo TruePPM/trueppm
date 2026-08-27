@@ -721,8 +721,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,
     },
     # Opt-in low-frequency poll (ADR-0097 §4). Default-off per connection
-    # (config["poll_enabled"]); fans out zero pulls until a user turns it on, so
-    # a 15-minute cadence is a safe upper bound on the wired-but-dormant hook.
+    # (config["poll_enabled"], set from the Connected Accounts toggle); fans out
+    # zero pulls until a user turns it on. 15 minutes is also the per-connection
+    # rate ceiling once one does: the outbox's one-PENDING-row-per-(user, source)
+    # constraint coalesces, so an opted-in connection can never exceed one pull
+    # per tick no matter how many sources or ticks are in flight.
     "poll-external-sources": {
         "task": "integrations.poll_external_sources",
         "schedule": crontab(minute="*/15"),

@@ -92,6 +92,9 @@ interface ConnectionRow {
   last_synced_at: string | null;
   jql: string;
   project_keys: string[];
+  /** Background-poll opt-in (#3104). Optional so the fixtures written before it
+   *  existed stay valid — the UI reads an absent key as "never opted in". */
+  poll_enabled?: boolean;
   /** Optional so the pre-#2925 fixtures below stay valid — the UI treats an
    *  absent outcome the same as "no pull has completed yet". */
   last_sync?: LastSyncRow | null;
@@ -107,6 +110,7 @@ function notConnected(name: string): ConnectionRow {
     last_synced_at: null,
     jql: '',
     project_keys: [],
+    poll_enabled: false,
     last_sync: null,
   };
 }
@@ -156,11 +160,28 @@ async function setup(
 
   // External task-source connection state (#1420, GET /me/connections/<source>/).
   // Registered after the catch-all so it wins (Playwright matches in reverse).
-  await page.route('**/api/v1/me/connections/*/', (route: Route) => {
+  // Stateful on purpose: `useSetExternalPoll` invalidates the connection query in
+  // `onSuccess`, so a stateless handler would re-serve the pre-PATCH body and erase
+  // the write a moment after it rendered — green locally, flaky under load (#2752).
+  const connectionState: Record<string, ConnectionRow> = JSON.parse(JSON.stringify(connections));
+  await page.route('**/api/v1/me/connections/*/', async (route: Route) => {
     const match = new URL(route.request().url()).pathname.match(/connections\/([^/]+)\//);
     const source = match ? match[1] : '';
-    const body = connections[source] ?? notConnected(source);
-    return route.fulfill({ status: 200, contentType: 'application/json', body: pj(body) });
+    const current = connectionState[source] ?? notConnected(source);
+    if (route.request().method() === 'PATCH') {
+      if (!current.exists) {
+        return route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: pj({ detail: `No ${source} connection to configure — connect it first.` }),
+        });
+      }
+      const body = JSON.parse(route.request().postData() ?? '{}') as { poll_enabled?: boolean };
+      const next = { ...current, poll_enabled: body.poll_enabled === true };
+      connectionState[source] = next;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: pj(next) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: pj(current) });
   });
 
   await page.route('**/api/v1/me/credentials/*/', (route: Route) => {
@@ -241,7 +262,9 @@ test.describe('Connected Accounts page', () => {
     await expect(githubCard.getByRole('button', { name: 'Revoke' })).toBeVisible();
   });
 
-  test('revoke requires confirmation and flips the section back to Not connected', async ({ page }) => {
+  test('revoke requires confirmation and flips the section back to Not connected', async ({
+    page,
+  }) => {
     const initial = defaultCredentials();
     const githubIdx = initial.findIndex((r) => r.provider === 'github');
     initial[githubIdx] = {
@@ -288,9 +311,7 @@ test.describe('Available sources section (#1420)', () => {
     const section = page.getByRole('region', { name: 'Available sources' });
     await expect(section).toBeVisible();
     // Trust framing is present.
-    await expect(
-      page.getByRole('group', { name: /Trust guarantees/i }),
-    ).toBeVisible();
+    await expect(page.getByRole('group', { name: /Trust guarantees/i })).toBeVisible();
 
     const sources = page.getByRole('list', { name: 'External task sources' });
     await expect(sources.getByRole('heading', { name: 'Jira' })).toBeVisible();
@@ -327,6 +348,87 @@ test.describe('Available sources section (#1420)', () => {
     const jiraCard = page.locator('#source-jira');
     await expect(jiraCard.getByText('Active', { exact: true })).toBeVisible();
     await expect(jiraCard.getByText(/Linked as alice@example\.com/i)).toBeVisible();
+  });
+
+  test('opts a connected source into the background poll, and the state survives a refetch (#3104)', async ({
+    page,
+  }) => {
+    // `integrations.poll_external_sources` has always filtered on
+    // `config.poll_enabled`; until this switch there was no way to write it, so
+    // the poll fanned out zero pulls on every install.
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'connected',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+        poll_enabled: false,
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    // Gate on the connected card having rendered before touching its controls.
+    await expect(jiraCard.getByText('Active', { exact: true })).toBeVisible();
+
+    const toggle = jiraCard.getByRole('switch', {
+      name: 'Check Jira for new items automatically',
+    });
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await expect(jiraCard.getByText(/Jira refreshes only when you choose Sync now/i)).toBeVisible();
+
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await expect(
+      jiraCard.getByText(/checks Jira for new items about every 15 minutes/i),
+    ).toBeVisible();
+
+    // Off again — the switch is a two-way control, not a one-time opt-in.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  });
+
+  test('offers no background-poll switch on a source that is not connected (#3104)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    await expect(jiraCard.getByRole('button', { name: 'Connect' })).toBeVisible();
+    await expect(
+      jiraCard.getByRole('switch', { name: 'Check Jira for new items automatically' }),
+    ).toHaveCount(0);
+  });
+
+  test('says polling is paused, not scheduled, on an auth_failed connection (#3104)', async ({
+    page,
+  }) => {
+    // The backend excludes auth_failed and invalid_filter rows from the poll, so
+    // an opted-in connection in either state polls nothing.
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'auth_failed',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+        poll_enabled: true,
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    await expect(jiraCard.getByText(/Paused until you reconnect Jira/i)).toBeVisible();
+    await expect(jiraCard.getByText(/about every 15 minutes/i)).toHaveCount(0);
   });
 
   test('shows a Reconnect banner when the connection is auth_failed and reopens the connect wizard (#1910)', async ({
