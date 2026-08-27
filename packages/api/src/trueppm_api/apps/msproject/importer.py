@@ -40,7 +40,9 @@ def import_project(
         wipe_existing: When True (create-from-import, ADR-0092), delete the
             project's existing tasks before bulk-create so an orphan-drain
             re-dispatch converges instead of duplicating. The default (False)
-            keeps the import-into-existing-project path additive.
+            keeps the import-into-existing-project path additive — and, since
+            #3069, also shifts the file's WBS numbering past the rows already in
+            the project instead of writing onto them.
         source_kind: Seed provenance stamped on every created row (ADR-0786,
             #2730). Defaults to ``TaskSource.MSPROJECT_IMPORT``; the CSV/Excel
             wizard reuses this whole path (``csvimport/tasks.py``) and passes
@@ -97,6 +99,7 @@ def import_project(
         batch_size=batch_size,
         source_kind=source_kind,
         source_id=source_id,
+        wipe_existing=wipe_existing,
     )
     task_uid_to_pk = {td.uid: str(task_objects[i].pk) for i, td in enumerate(data.tasks)}
     # ADR-0810 (#2756, CSV path only): every row this import wrote, so the caller
@@ -335,6 +338,7 @@ def _create_tasks(
     batch_size: int,
     source_kind: str | None = None,
     source_id: Any = None,
+    wipe_existing: bool = False,
 ) -> list[Any]:
     """Bulk-create Task rows for the parsed tasks and return them in file order.
 
@@ -342,11 +346,17 @@ def _create_tasks(
     membership once, builds each row, pulls the project start back if a task
     predates it, then bulk-creates. Returns the built Task objects so the caller
     can map file UIDs to persisted PKs.
+
+    ``wipe_existing`` decides whether the file's own numbering is authoritative.
+    On create-from-import the project was made empty for this file, so its paths
+    are written verbatim. On import-into-existing they are shifted past the rows
+    already there — see the offset block below.
     """
     from django.db.models import F
     from django.utils import timezone
 
     from trueppm_api.apps.projects.models import Project, Task, TaskSource, bulk_create_tasks
+    from trueppm_api.apps.projects.wbs_paths import offset_wbs_path, root_ordinal_offset
 
     # Allocate a batch of short_ids: increment object_sequence by len(tasks)
     # in one UPDATE, then assign sequential hex IDs.
@@ -356,6 +366,22 @@ def _create_tasks(
     start_seq = end_seq - task_count + 1
 
     wbs_paths = _build_wbs_paths(data.tasks)
+    if not wipe_existing:
+        # The file numbers its tasks from 1, which is only right for a project that
+        # started empty. Importing a revised .mpp / CSV / Jira pull into a project
+        # that already holds rows would otherwise write straight onto their paths
+        # (#3069) — the same defect template adoption had in #3061, and the reason
+        # `unique_task_wbs_path_per_project_live` now rejects it at COMMIT rather
+        # than letting it silently collapse the next rewrite_level pass.
+        #
+        # Shifted before summary detection, not after, so both work off one set of
+        # paths. The result is identical either way — `offset_wbs_path` moves only
+        # the leading segment, so ancestor/descendant relationships are preserved —
+        # but reading the same list twice is what keeps that true if either side
+        # changes.
+        offset = root_ordinal_offset(project_id)
+        if offset:
+            wbs_paths = [offset_wbs_path(path, offset) or path for path in wbs_paths]
     # Summary-task detection (ADR-0093 Q5): a task is a summary if any later
     # task's wbs_path is strictly descended from this one's. Computed once in
     # O(N) by sweeping the WBS paths and marking each strict ancestor present
