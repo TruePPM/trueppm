@@ -609,6 +609,19 @@ _OP_HANDLERS = {"create": _apply_create, "update": _apply_update, "delete": _app
 #: states. See the constraint's own comment in ``models.py`` for the full reasoning.
 WBS_PATH_CONSTRAINT = "unique_task_wbs_path_per_project_live"
 
+#: The two statements :func:`_settle_wbs_path_constraint` runs.
+#:
+#: **Whole literals, not composed from** ``WBS_PATH_CONSTRAINT`` **above.**
+#: ``SET CONSTRAINTS`` takes a constraint *name*, which is an identifier — SQL has no
+#: parameter placeholder for one, so a parameterized form of these statements does not
+#: exist and any composition has to be textual. Semgrep's ``formatted-sql-query`` is a
+#: blocking rule and is right to be, and it follows a constant back to its f-string, so
+#: moving the interpolation off the call site does not answer it. Repeating the name is
+#: the honest answer: there is then no formatting anywhere to justify. The duplication
+#: is pinned by ``test_the_statements_name_the_constraint_that_is_declared``.
+_SET_WBS_CONSTRAINT_IMMEDIATE = 'SET CONSTRAINTS "unique_task_wbs_path_per_project_live" IMMEDIATE'
+_SET_WBS_CONSTRAINT_DEFERRED = 'SET CONSTRAINTS "unique_task_wbs_path_per_project_live" DEFERRED'
+
 
 def _settle_wbs_path_constraint() -> None:
     """Check the deferred wbs_path constraint now, while the caller's savepoint is open.
@@ -635,8 +648,8 @@ def _settle_wbs_path_constraint() -> None:
     if connection.vendor != "postgresql":
         return
     with connection.cursor() as cursor:
-        cursor.execute(f'SET CONSTRAINTS "{WBS_PATH_CONSTRAINT}" IMMEDIATE')
-        cursor.execute(f'SET CONSTRAINTS "{WBS_PATH_CONSTRAINT}" DEFERRED')
+        cursor.execute(_SET_WBS_CONSTRAINT_IMMEDIATE)
+        cursor.execute(_SET_WBS_CONSTRAINT_DEFERRED)
 
 
 def _conflict_message(exc: DatabaseError) -> str:

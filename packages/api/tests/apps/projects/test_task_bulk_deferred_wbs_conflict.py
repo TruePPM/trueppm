@@ -33,7 +33,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
-from trueppm_api.apps.projects.task_bulk import _settle_wbs_path_constraint
+from trueppm_api.apps.projects.task_bulk import WBS_PATH_CONSTRAINT, _settle_wbs_path_constraint
 
 URL = "/api/v1/projects/{pk}/tasks/bulk/"
 
@@ -189,3 +189,27 @@ def test_settling_leaves_the_constraint_deferred_for_the_next_writer(
 
     assert str(Task.objects.get(project=project, name="First").wbs_path) == "1.3"
     assert str(Task.objects.get(project=project, name="Third").wbs_path) == "1.1"
+
+
+@pytest.mark.django_db
+def test_the_statements_name_the_constraint_that_is_declared() -> None:
+    """The SQL spells the constraint name out; this is what stops the copies drifting.
+
+    ``SET CONSTRAINTS`` takes an identifier, which SQL cannot parameterize, so composing
+    the statements from ``WBS_PATH_CONSTRAINT`` would mean formatting SQL — a blocking
+    semgrep rule, and one that follows a module constant back to its f-string, so hiding
+    the interpolation behind a name does not answer it. The literals are therefore
+    written out, and pinned here against the constraint the model actually declares:
+    a rename that missed them would otherwise fail at runtime as "constraint does not
+    exist", inside the savepoint whose whole job is to report cleanly.
+    """
+    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.task_bulk import (
+        _SET_WBS_CONSTRAINT_DEFERRED,
+        _SET_WBS_CONSTRAINT_IMMEDIATE,
+    )
+
+    declared = {c.name for c in Task._meta.constraints}
+    assert WBS_PATH_CONSTRAINT in declared, "the constant no longer names a real constraint"
+    for statement in (_SET_WBS_CONSTRAINT_IMMEDIATE, _SET_WBS_CONSTRAINT_DEFERRED):
+        assert WBS_PATH_CONSTRAINT in statement
