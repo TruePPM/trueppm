@@ -38,6 +38,7 @@ from trueppm_api.apps.integrations.models import (
     ExternalWorkItem,
     IntegrationCredential,
 )
+from trueppm_api.apps.integrations.tasks import _do_poll
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -299,3 +300,77 @@ def test_drain_still_dispatches_rows_that_were_never_rate_limited(
     tasks._do_drain()
 
     assert calls == [str(req.id)]
+
+
+def test_poll_does_not_redispatch_a_pull_still_inside_its_retry_after(
+    django_user_model: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An always-on poll must not preempt the clock the source itself gave us.
+
+    ``_requeue_rate_limited`` parks a 429'd pull back in PENDING behind
+    ``next_attempt_at``. A later trigger for the same (user, source) adopts that
+    row — and used to re-dispatch it immediately, re-hitting the source inside its
+    own ``Retry-After``. ``drain_external_sync`` honored the clock; the adopt path
+    did not, so the backoff held only as long as nothing else asked for a pull.
+
+    Latent before the background-poll opt-in (#3104), routine after it: the poll
+    ticks every 15 minutes and ``_RATE_LIMIT_MAX_BACKOFF`` is also 15 minutes, so
+    an opted-in connection lands inside an active backoff window with no user
+    involved at all.
+    """
+    from trueppm_api.apps.integrations import services
+
+    user = django_user_model.objects.create_user(username="rl_poll", password="pw")
+    IntegrationCredential.objects.create(
+        user=user,
+        provider="jira",
+        secret_ciphertext=encrypt_secret("t"),
+        base_url="https://acme.atlassian.net",
+        config={"status": "connected", "poll_enabled": True},
+    )
+    # A pull already rate-limited and parked ten minutes out.
+    ExternalSyncRequest.objects.create(
+        user=user,
+        source="jira",
+        status=ExternalSyncRequestStatus.PENDING,
+        next_attempt_at=timezone.now() + timedelta(minutes=10),
+    )
+
+    dispatched: list[str] = []
+    monkeypatch.setattr(services, "_dispatch_on_commit", lambda rid: dispatched.append(str(rid)))
+
+    _do_poll()
+
+    # The poll adopts the parked row (no second row is stacked) and leaves it be —
+    # the drain picks it up once the clock elapses.
+    assert ExternalSyncRequest.objects.filter(user=user, source="jira").count() == 1
+    assert dispatched == []
+
+
+def test_an_elapsed_retry_clock_is_dispatched_again(
+    django_user_model: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard is a clock check, not a freeze — an elapsed backoff still fires."""
+    from trueppm_api.apps.integrations import services
+
+    user = django_user_model.objects.create_user(username="rl_poll_ok", password="pw")
+    IntegrationCredential.objects.create(
+        user=user,
+        provider="jira",
+        secret_ciphertext=encrypt_secret("t"),
+        base_url="https://acme.atlassian.net",
+        config={"status": "connected", "poll_enabled": True},
+    )
+    ExternalSyncRequest.objects.create(
+        user=user,
+        source="jira",
+        status=ExternalSyncRequestStatus.PENDING,
+        next_attempt_at=timezone.now() - timedelta(seconds=1),
+    )
+
+    dispatched: list[str] = []
+    monkeypatch.setattr(services, "_dispatch_on_commit", lambda rid: dispatched.append(str(rid)))
+
+    _do_poll()
+
+    assert len(dispatched) == 1

@@ -10,8 +10,9 @@ Four tasks, all registered under short names for Beat (#319):
 - ``drain_external_sync`` — 300 s outbox drain: dispatch stranded ``PENDING``
   rows and recover orphaned ``DISPATCHED`` ones (ADR-0097 §Durable Execution #2).
 - ``poll_external_sources`` — low-frequency opt-in poll: enqueue a pull for every
-  connection whose owner opted in (``config["poll_enabled"]``). Default-off, so
-  this no-ops until a user turns polling on (ADR-0097 §4).
+  connection whose owner opted in (``config["poll_enabled"]``, set from the
+  Connected Accounts toggle). Default-off, so this no-ops until a user turns
+  polling on (ADR-0097 §4).
 - ``purge_external_sync`` — nightly cleanup: hard-delete terminal outbox rows and
   long-stale ``ExternalWorkItem`` cache rows (ADR-0097 §Durable Execution #6).
 
@@ -638,8 +639,9 @@ def poll_external_sources(self: object) -> None:
 
     Default-off (ADR-0097 §4): a connection polls only when its ``config`` carries
     ``poll_enabled: true`` and it is in neither ``auth_failed`` nor
-    ``invalid_filter``. With no UI toggle yet this task is a wired-but-dormant hook
-    — it fans out zero pulls today.
+    ``invalid_filter``. Owners opt in from the Connected Accounts page (#3104,
+    ``PATCH /me/connections/{source}/``), so an install where nobody has turned it
+    on still fans out zero pulls.
     """
     _do_poll()
 

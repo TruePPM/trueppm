@@ -117,6 +117,23 @@ def enqueue_external_sync(
             return None
         req = existing
 
+        # An adopted row may be a rate-limited pull sitting out the clock the
+        # source itself gave us (``_requeue_rate_limited`` puts it back in PENDING
+        # with ``next_attempt_at``). Dispatching it now would re-hit the source
+        # inside its own ``Retry-After`` and earn another 429 — the ADR-0097 §4
+        # "backoff that respects Retry-After" promise, broken by the trigger rather
+        # than by the backoff.
+        #
+        # This became routine with the background-poll opt-in (#3104): the poll
+        # ticks every 15 minutes and ``_RATE_LIMIT_MAX_BACKOFF`` is also 15
+        # minutes, so an always-on connection reliably ticks inside an active
+        # backoff window with nobody touching the UI. ``drain_external_sync``
+        # already honors the same clock and re-dispatches on its own 300 s cadence,
+        # so leaving the row alone loses nothing — the pull still happens, just
+        # when the source said it could.
+        if req.next_attempt_at is not None and req.next_attempt_at > now:
+            return req
+
     _dispatch_on_commit(req.id)
     return req
 

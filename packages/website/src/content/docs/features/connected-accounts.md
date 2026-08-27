@@ -189,6 +189,19 @@ field limits (custom fields are excluded there too).
   **Disconnect** (with a confirmation step) removes the stored token and clears the
   source's items from My Work. Nothing in Jira is ever modified — you can reconnect
   at any time.
+- **Check for new items automatically** — a switch on the connected card, **off by
+  default**. Off, the source refreshes only when you press **Sync now** (or when
+  opening My Work finds the cache stale). On, TruePPM checks the source for you
+  about every 15 minutes. It is per connection and per person: nobody else — not a
+  project Admin, not an Owner — can turn it on for your account, and turning it on
+  spends only your own Jira rate budget. The pull it makes is the same read-only,
+  one-way pull as **Sync now**; nothing is written back either way. The setting
+  survives reconnecting with a new token, so rotating an expired credential does
+  not silently stop the automatic check.
+- **When automatic checking is paused** — a connection that needs a **Reconnect**
+  or an **Update filter** stops being checked automatically until you fix it, even
+  with the switch on. The card says so beside the switch rather than claiming a
+  refresh that will not happen.
 - **When pulling stops** — two states get their own prompt, because they have
   different fixes. **Reconnect** means the token was rejected (expired or revoked).
   **Update filter** means the token is fine but the saved JQL or project keys can
@@ -211,7 +224,9 @@ connected, its items appear in My Work with a per-source freshness line and a
 reconnect prompt if the credential expires. Opening My Work also triggers a
 refresh automatically when a connected source's cache has gone stale — a
 non-blocking background pull, same as **Sync now**, just without you having to
-find the button. See `TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS` in
+find the button. That one is unconditional; it is separate from the **Check for
+new items automatically** switch above, which keeps a source current whether or
+not you open My Work. See `TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS` in
 [Configuration](/administration/configuration/) for the staleness window.
 
 ## Git-aware task links

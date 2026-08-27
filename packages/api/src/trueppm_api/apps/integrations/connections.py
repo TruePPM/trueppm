@@ -1,6 +1,6 @@
 """User-scoped external-source connection endpoints (ADR-0097 §3).
 
-``GET/PUT/DELETE /api/v1/me/connections/<source>/`` — the personal, self-scoped
+``GET/PUT/PATCH/DELETE /api/v1/me/connections/<source>/`` — the personal, self-scoped
 surface for connecting a read-only external task source (e.g. the user's own
 Jira Cloud account) so its assigned items appear in My Work.
 
@@ -9,17 +9,18 @@ Isolation & security posture (ADR-0097 §3 / §Threat Model → Resolution):
   project member, Admin, or Owner can see or touch another user's connection.
 - **Secret never serialized.** The Fernet-encrypted PAT (``secret_ciphertext``)
   is never returned — the summary exposes only ``{source, exists, base_url,
-  account_email, status, last_synced_at, jql, project_keys, last_sync}``. The
-  stored ``config`` is never echoed wholesale; every key it contributes is
-  projected explicitly (see :func:`last_sync_summary`).
+  account_email, status, last_synced_at, jql, project_keys, poll_enabled,
+  last_sync}``. The stored ``config`` is never echoed wholesale; every key it
+  contributes is projected explicitly (see :func:`last_sync_summary`).
 - **SSRF collapsed at connect.** ``base_url`` is Jira-Cloud-allow-listed
   (``providers.assert_base_url_allowed`` → ``*.atlassian.net``, https) *before*
   the token is ever put on the wire in the verify ping (#902 ordering).
 
 This surface reuses ``IntegrationCredential`` (ADR-0097 §2) with the row's
-``config`` carrying ``{account_email, jql, project_keys, status}`` — both ``jql``
-and ``project_keys`` are read by the source at pull time, the latter ANDed onto
-the query so it can only narrow what leaves the provider (#2888). It does
+``config`` carrying ``{account_email, jql, project_keys, poll_enabled, status}``
+— both ``jql`` and ``project_keys`` are read by the source at pull time, the
+latter ANDed onto the query so it can only narrow what leaves the provider
+(#2888). It does
 **not** call ``IntegrationCredential.upsert`` — that validates ``provider``
 against ``TASK_LINK_PROVIDERS`` (where ``jira`` is reserved Enterprise), whereas
 an external source validates against the distinct ``EXTERNAL_TASK_SOURCES``
@@ -135,6 +136,13 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
     them at pull time. ``jql`` selects what to pull; ``project_keys`` narrows it
     and is **ANDed onto** the query, whether that query is the default or a
     custom ``jql``, so the project filter can only ever restrict the pull.
+
+    ``poll_enabled`` opts the connection into the background poll (ADR-0097 §4).
+    It is declared **without** a ``default`` on purpose: a PUT rebuilds ``config``
+    wholesale, so a defaulted field would silently switch polling off every time
+    the owner re-connected to rotate a token. Absent from the payload therefore
+    means "keep what this connection already had" — see
+    :meth:`ExternalConnectionView.put`.
     """
 
     secret = serializers.CharField(
@@ -171,6 +179,14 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
             "underscores); stored upper-cased and de-duplicated. Composed into "
             "the query as 'AND project IN (...)' on top of jql, so it can only "
             "narrow the pull. Empty means every project you can see."
+        ),
+    )
+    poll_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Opt this connection into the background poll (ADR-0097 §4). Omit to "
+            "leave the current setting untouched — a re-connect must not silently "
+            "switch polling off. Default off for a connection that never set it."
         ),
     )
 
@@ -290,10 +306,30 @@ class ExternalConnectionSummarySerializer(serializers.Serializer[Any]):
     last_synced_at = serializers.DateTimeField(allow_null=True)
     jql = serializers.CharField(allow_blank=True)
     project_keys = serializers.ListField(child=serializers.CharField())
+    # Whether the background poll picks this connection up (ADR-0097 §4). A
+    # reviewed, owner-visible key — it is the owner's own setting, carries no
+    # provider data, and the toggle that writes it has to be able to read its
+    # current state back. Never inferred client-side from anything else.
+    poll_enabled = serializers.BooleanField()
     # ``null`` until the connection's first pull completes — a freshly-connected
     # row has a status but no outcome yet, which is a different thing from a pull
     # that returned nothing.
     last_sync = ExternalConnectionLastSyncSerializer(allow_null=True)
+
+
+class ExternalConnectionPollSerializer(serializers.Serializer[Any]):
+    """Payload for ``PATCH /me/connections/{source}/`` — the poll opt-in, alone.
+
+    A separate, one-field serializer rather than a partial
+    :class:`ExternalConnectionUpsertSerializer`: flipping the background-poll
+    switch must not require the owner to re-enter their API token (``secret`` is
+    required on the upsert and is never readable back), and a partial upsert would
+    also make every other connection field silently writable from a control whose
+    entire job is one boolean. Anything else in the body is ignored, so this
+    endpoint can never rewrite a credential, host, or filter.
+    """
+
+    poll_enabled = serializers.BooleanField()
 
 
 class ExternalConnectionErrorSerializer(serializers.Serializer[Any]):
@@ -374,6 +410,11 @@ def _summary(label: str, row: IntegrationCredential | None) -> dict[str, Any]:
         "last_synced_at": row.last_used_at if row else None,
         "jql": cfg.get("jql", ""),
         "project_keys": cfg.get("project_keys", []),
+        # Coerced with ``bool()`` rather than passed through: ``config`` is a
+        # schemaless column, and the poll worker's own belt-and-suspenders check
+        # exists because a row can carry ``poll_enabled`` as a string. The summary
+        # must report the same truthiness the poll acts on, not the raw value.
+        "poll_enabled": bool(cfg.get("poll_enabled", False)),
         # What the last pull did — counts, and whether a cap truncated it (#2925).
         "last_sync": last_sync_summary(cfg),
     }
@@ -386,6 +427,7 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
     Routes (``<source>`` is an ``EXTERNAL_TASK_SOURCES`` key, e.g. ``jira``):
         GET    /api/v1/me/connections/{source}/   summary (exists / status / config)
         PUT    /api/v1/me/connections/{source}/   connect or update (verify then store)
+        PATCH  /api/v1/me/connections/{source}/   flip the background-poll opt-in
         DELETE /api/v1/me/connections/{source}/   disconnect (hard-remove ciphertext)
 
     All actions require authentication and are self-scoped to ``request.user`` —
@@ -490,11 +532,21 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
         # ``last_sync``: the outcome described a pull made with the *previous*
         # token and filter, and carrying it onto a connection whose filter just
         # changed would report a truncation (or a count) that no longer applies.
+        existing = self._row(request, source)
+        # ``poll_enabled`` is the one key a rebuild must *not* drop. The rest of
+        # ``config`` describes the credential and its filter, both of which this
+        # payload replaces; the poll opt-in is an independent standing preference
+        # the owner set elsewhere (the Connected Accounts toggle → PATCH below).
+        # Rotating a token would otherwise silently stop a connection polling,
+        # with nothing in the UI to say it had happened.
+        existing_cfg = (existing.config if existing else None) or {}
+        current_poll = bool(existing_cfg.get("poll_enabled", False))
         config: dict[str, Any] = {
             "deployment": data.get("deployment", DEPLOYMENT_CLOUD),
             "account_email": data.get("account_email", ""),
             "jql": data.get("jql", ""),
             "project_keys": data.get("project_keys", []),
+            "poll_enabled": bool(data.get("poll_enabled", current_poll)),
             "status": STATUS_CONNECTED,
         }
 
@@ -527,6 +579,75 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
         return Response(
             ExternalConnectionSummarySerializer(payload).data, status=status.HTTP_200_OK
         )
+
+    @extend_schema(
+        # A raw schema, not ``ExternalConnectionPollSerializer``: drf-spectacular
+        # rewrites any serializer on a PATCH into a ``Patched…`` component with
+        # every field optional, which would document ``poll_enabled`` as omittable
+        # when the handler answers 400 without it. The serializer still does the
+        # validating — this only stops the schema from describing a shape the
+        # endpoint rejects. (``COMPONENT_SPLIT_PATCH`` is the global lever and is
+        # deliberately left alone; this is one endpoint, not a project-wide policy.)
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "poll_enabled": {
+                        "type": "boolean",
+                        "description": (
+                            "Whether the background poll (ADR-0097 §4) should pick this "
+                            "connection up. Required — there is no partial form of this "
+                            "request."
+                        ),
+                    }
+                },
+                "required": ["poll_enabled"],
+            }
+        },
+        responses={
+            200: ExternalConnectionSummarySerializer,
+            400: OpenApiResponse(
+                description="Unknown source, or poll_enabled missing / not a boolean."
+            ),
+            404: OpenApiResponse(description="No connection to this source for this user."),
+        },
+    )
+    def patch(self, request: Request, source: str) -> Response:
+        """Turn the background poll on or off for this connection (ADR-0097 §4).
+
+        The only mutation on a *stored* connection that does not go through the
+        connect wizard, because it is the only one that needs no credential. The
+        IDOR boundary is the same single ``(user, provider)`` filter every other
+        action uses (``self._row``): a source another user connected simply does
+        not exist for this caller, so a 404 is a "you have no such connection",
+        never a leak that someone else does.
+
+        ``config`` is copied-then-reassigned rather than mutated in place — the
+        JSONField's value is a live dict, and mutating it leaves Django unable to
+        tell the field changed if anything later relies on the loaded state.
+        """
+        source_cls = self._resolve_source(source)
+        if source_cls is None:
+            return Response(
+                {"detail": f"Unknown external task source {source!r}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = ExternalConnectionPollSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        row = self._row(request, source)
+        if row is None:
+            return Response(
+                {"detail": f"No {source} connection to configure — connect it first."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        config = dict(row.config or {})
+        config["poll_enabled"] = bool(serializer.validated_data["poll_enabled"])
+        row.config = config
+        # ``updated_at`` is ``auto_now``; naming it keeps the stamp truthful, which
+        # an ``update_fields`` list omitting it would silently skip.
+        row.save(update_fields=["config", "updated_at"])
+        payload = _summary(getattr(source_cls, "label", source), row)
+        return Response(ExternalConnectionSummarySerializer(payload).data)
 
     @extend_schema(responses={204: None})
     def delete(self, request: Request, source: str) -> Response:

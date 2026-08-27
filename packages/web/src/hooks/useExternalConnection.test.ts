@@ -5,13 +5,16 @@ import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
   useExternalConnection,
+  useSetExternalPoll,
+  externalConnectionKey,
   type ExternalConnectionSummary,
 } from './useExternalConnection';
 
 const getMock = vi.hoisted(() => vi.fn());
+const patchMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/api/client', () => ({
-  apiClient: { get: getMock },
+  apiClient: { get: getMock, patch: patchMock },
 }));
 
 function wrapper() {
@@ -34,11 +37,13 @@ const CONNECTED: ExternalConnectionSummary = {
   last_synced_at: '2026-05-20T14:00:00Z',
   jql: '',
   project_keys: [],
+  poll_enabled: false,
   last_sync: null,
 };
 
 beforeEach(() => {
   getMock.mockReset();
+  patchMock.mockReset();
 });
 
 describe('useExternalConnection', () => {
@@ -70,5 +75,39 @@ describe('useExternalConnection', () => {
       wrapper: wrapper(),
     });
     expect(getMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSetExternalPoll (#3104)', () => {
+  it('PATCHes the poll opt-in and seeds the cache from the response', async () => {
+    // The response *is* the connection summary, so the switch renders from the
+    // server's answer rather than from what the click assumed.
+    const updated = { ...CONNECTED, poll_enabled: true };
+    patchMock.mockResolvedValue({ data: updated });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Wrapper({ children }: { children: ReactNode }) {
+      return createElement(QueryClientProvider, { client }, children);
+    }
+
+    const { result } = renderHook(() => useSetExternalPoll('jira'), { wrapper: Wrapper });
+    result.current.mutate(true);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(patchMock).toHaveBeenCalledWith('/me/connections/jira/', {
+      poll_enabled: true,
+    });
+    expect(client.getQueryData(externalConnectionKey('jira'))).toEqual(updated);
+  });
+
+  it('surfaces a failed PATCH instead of failing soft like the read', async () => {
+    // The read hook swallows errors on purpose (a source you cannot connect must
+    // not render as broken); a *write* that silently no-ops would leave the switch
+    // claiming a setting the server never took.
+    patchMock.mockRejectedValue(new Error('boom'));
+    const { result } = renderHook(() => useSetExternalPoll('jira'), {
+      wrapper: wrapper(),
+    });
+    result.current.mutate(true);
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });
