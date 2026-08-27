@@ -28,10 +28,16 @@ const restoreMut = vi.hoisted(() => ({
 }));
 const toastSpies = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 
-vi.mock('@/hooks/useTaskMutations', () => ({
-  useTrashedTasks: () => trashSpy(),
-  useRestoreTask: () => restoreMut,
-}));
+// Spread the real module: the dialog also imports `restoreRefusalMessage` from it, and a
+// stubbed one would only assert that the test's own stub was called.
+vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useTaskMutations')>();
+  return {
+    ...actual,
+    useTrashedTasks: () => trashSpy(),
+    useRestoreTask: () => restoreMut,
+  };
+});
 vi.mock('@/components/Toast', () => ({ toast: toastSpies }));
 vi.mock('@/hooks/useFocusTrap', () => ({ useFocusTrap: () => ({ current: null }) }));
 
@@ -136,6 +142,19 @@ describe('TaskTrashDialog', () => {
     const [, opts] = restoreMut.mutate.mock.calls[0];
     opts.onError(new Error('boom'));
     expect(toastSpies.error).toHaveBeenCalled();
+  });
+
+  it('shows the server sentence when the WBS position is occupied', () => {
+    setTrash([row()]);
+    render();
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    const [, opts] = restoreMut.mutate.mock.calls[0];
+    const detail = 'WBS position 3 is now held by "Build". Move that task, then restore this one.';
+    opts.onError({
+      isAxiosError: true,
+      response: { status: 409, data: { code: 'wbs_path_occupied', detail } },
+    });
+    expect(toastSpies.error).toHaveBeenCalledWith(detail);
   });
 
   it('disables Restore when the server says the caller may not restore', () => {

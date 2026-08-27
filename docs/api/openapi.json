@@ -40104,6 +40104,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "The task's WBS position was allocated to another live task while it was deleted. The body names the occupant (#3071)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {

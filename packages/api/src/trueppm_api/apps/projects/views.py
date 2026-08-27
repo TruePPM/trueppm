@@ -4558,13 +4558,39 @@ def _resolve_create_parent(project: Any, parent_id: Any, *, is_subtask: bool) ->
 
 
 def _next_root_wbs_path(project: Any) -> str:
-    """The next root-level WBS number, counted under the same lock as the INSERT."""
-    root_count = (
+    """The next root-level WBS number, read under the same lock as the INSERT.
+
+    One past the highest root ordinal in the project, **live or tombstoned** — not one
+    past the count of live roots (#3071).
+
+    Counting live roots gets both halves wrong. A project whose roots are ``1`` and
+    ``3`` has two of them, so the count hands out ``3`` — straight onto a live row. And
+    a tombstone is excluded from the count entirely, so soft-deleting the last root
+    frees its number *immediately*, while the tombstone still holds it: the next create
+    takes ``3``, and the deleted row then has nowhere to come back to. Restoring it puts
+    two live tasks on one path, which — ``wbs_path`` being the only record of parenthood
+    — corrupts the tree rather than merely duplicating a number.
+
+    Numbering past tombstones means ordinals are not reused after a delete. That is the
+    intended trade: a WBS number is an identifier a PM refers to, and silently reissuing
+    a deleted task's number to a different task is worse than a gap.
+
+    Reading the labels back also makes the lock in the first line real. Postgres refuses
+    ``FOR UPDATE`` alongside an aggregate, so the previous ``.count()`` form compiled to
+    a bare ``SELECT COUNT(*)`` — the "under the same lock as the INSERT" this docstring
+    has always claimed was not a property the query had. ``test_next_root_wbs_path_locks``
+    pins it.
+    """
+    highest = 0
+    for path in (
         Task.objects.select_for_update()
-        .filter(project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE)
-        .count()
-    )
-    return str(root_count + 1)
+        .filter(project=project, wbs_path__regex=_ROOT_WBS_RE)
+        .values_list("wbs_path", flat=True)
+    ):
+        label = str(path)
+        if label.isdigit():
+            highest = max(highest, int(label))
+    return str(highest + 1)
 
 
 def _record_subtask_spawn(parent: Task, instance: Task, by: Any) -> None:
@@ -5795,7 +5821,15 @@ class TaskViewSet(
     @extend_schema(
         summary="Restore a soft-deleted task, its subtree, and its dependency edges",
         request=None,
-        responses={200: TaskSerializer},
+        responses={
+            200: TaskSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "The task's WBS position was allocated to another live task while "
+                    "it was deleted. The body names the occupant (#3071)."
+                )
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path="restore")
     def restore(self, request: Request, pk: str | None = None) -> Response:
@@ -5813,7 +5847,10 @@ class TaskViewSet(
         rather than leaving a half-restored subtree. ``server_version`` is bumped on every
         restored row so offline clients re-materialize them (ADR-0202).
         """
-        from trueppm_api.apps.projects.models import cascade_task_children_restore
+        from trueppm_api.apps.projects.models import (
+            WbsPathOccupied,
+            cascade_task_children_restore,
+        )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # Look up the tombstoned row directly — get_queryset() filters is_deleted=False.
@@ -5823,9 +5860,29 @@ class TaskViewSet(
 
         project_id = str(task.project_id)
         task_id = str(task.pk)
-        with transaction.atomic():
-            task.restore()
-            cascade_task_children_restore(task)
+        try:
+            with transaction.atomic():
+                task.restore()
+                cascade_task_children_restore(task)
+        except WbsPathOccupied as exc:
+            # Refuse rather than re-path (#3071). This is the one restore path with a
+            # person on the other end of it: they asked for this row back at this
+            # position, and moving it silently would also leave any live subtree still
+            # hanging off the old path. Naming the occupant is the whole value of the
+            # refusal — "conflict" alone leaves a task that cannot be recovered and no
+            # way to find out why.
+            return Response(
+                {
+                    "detail": (
+                        f"WBS position {task.wbs_path} is now held by "
+                        f'"{exc.occupant.name}". Move that task, then restore this one.'
+                    ),
+                    "code": "wbs_path_occupied",
+                    "wbs_path": str(task.wbs_path),
+                    "occupied_by": str(exc.occupant.pk),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(

@@ -33,6 +33,7 @@ import { useRowHeight, useRowMetrics, useComfortableRows } from '@/hooks/useRowH
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
+import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -2018,8 +2019,12 @@ export function ScheduleView() {
           focus.focusRow(taskId);
           setScheduleActionToast({ message: 'Restored', durationMs: 2000 });
         },
-        onError: () => {
-          setScheduleActionToast({ message: 'Couldn’t restore the task.' });
+        onError: (error) => {
+          // A 409 refusal is permanent until the occupying task moves, so it must not
+          // wear the generic retryable copy (#3071).
+          setScheduleActionToast({
+            message: restoreRefusalMessage(error) ?? 'Couldn’t restore the task.',
+          });
         },
       });
     },

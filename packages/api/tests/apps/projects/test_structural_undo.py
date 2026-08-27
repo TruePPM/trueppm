@@ -427,22 +427,19 @@ def test_undo_refuses_when_the_deleted_wrapper_was_restored_by_another_route(
     make_tasks(project, ["1.1"])
     response = act(owner_client, UNGROUP_URL.format(pk=project.pk), {"task_id": str(container.pk)})
     container.refresh_from_db()
-    container.restore()
+    # Stands in for "another route" reviving the wrapper without going through undo.
+    # `on_conflict="repath"` because the ungroup lifted the child onto "1", so the
+    # wrapper's own position is taken; re-pathing is what the cascade and the structural
+    # undo themselves do in that situation (#3071). Before that guard existed this line
+    # was a bare `.restore()`, which put two live rows on "1" — a genuinely corrupted
+    # state the test then had to soft-delete again so the DEFERRED constraint would not
+    # fire at teardown. The state under test is "the wrapper is live again", which does
+    # not need the corruption to express.
+    container.restore(on_conflict="repath")
 
     refusal = undo(owner_client, response.json()["operation_id"])
     assert refusal.status_code == 409
     assert any(entry["change"] == "restored_elsewhere" for entry in refusal.json()["changed"])
-
-    # The direct .restore() above is standing in for "another route" reviving the
-    # wrapper without going through undo — a genuinely corrupted state (the lifted
-    # child now also lives at "1"), which is exactly what undo's refusal above is
-    # protecting against. #3048's wbs_path uniqueness constraint is DEFERRED (checked
-    # at COMMIT, not per-statement — see TestTaskWbsPathUniqueConstraint), so this test
-    # can create it without raising immediately; but it never resolves the duplicate,
-    # and Django's teardown forces a deferred-constraint check before rolling back.
-    # Undo the erroneous restore the same way a real caller would, so no unresolved
-    # violation reaches teardown.
-    container.soft_delete()
 
 
 # ---------------------------------------------------------------------------
