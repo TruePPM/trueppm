@@ -61,6 +61,7 @@ from trueppm_api.apps.projects.models import (
     RiskTask,
     Sprint,
     Task,
+    TaskAttachment,
     TaskLabel,
     TaskRelation,
     TaskSource,
@@ -318,6 +319,8 @@ class _SeedImporter:
             self._link_sprint_milestones(project_data)
             self._link_task_labels(project_data)
             self._link_task_relations(project_data["slug"], project_data)
+            self._resolve_blockers(project_data)
+            self._create_attachments(project_data)
             self._assign_resources(project, project_data)
             self._capture_baselines(project, project_data)
             self._create_risks(project, project_data.get("risks", []), project_data["slug"])
@@ -1097,6 +1100,13 @@ class _SeedImporter:
             # so the pure-scrum pack's Definition of Ready — the whole point of its
             # sprint-picker story — was uniformly `idea` on screen.
             dor=data.get("dor", DorState.IDEA),
+            board_lane=data.get("board_lane", ""),
+            # ``blocked_reason`` is the flag-of-record: non-empty means blocked.
+            # ``blocked_since`` is stamped by ``Task.save()`` with ``timezone.now()``,
+            # which would read "blocked 0 days" on a backdated seed, so it is
+            # corrected to the project's own timeline in ``_backdate_blockers``.
+            blocked_reason=(data.get("blocked") or {}).get("reason", ""),
+            blocker_type=(data.get("blocked") or {}).get("type", ""),
             governance_class=data.get("governance_class", "flow"),
             # Couple delivery_mode to the milestone flag (#1773) so seeded
             # milestones satisfy the canonical invariant like every other path.
@@ -1144,6 +1154,78 @@ class _SeedImporter:
             )
         for project_id, rows in by_owner.items():
             self._bulk_insert(Dependency, rows, project_ids=[project_id])
+
+    def _resolve_blockers(self, data: dict[str, Any]) -> None:
+        """Fill in the blocker halves that need every task and account to exist (#3094).
+
+        ``blocked_reason`` / ``blocker_type`` are set at construction; the soft
+        ``blocking_task`` link and the ``blocked_by`` actor are resolved here in
+        Pass B, once the whole project's tasks are inserted and a forward
+        reference can land.
+
+        ``blocked_since`` is set explicitly rather than left to the model.
+        ``Task.save()`` stamps it with ``timezone.now()`` on the block transition,
+        but the importer inserts through ``bulk_create_tasks`` — no ``save()``, so
+        nothing stamps it at all, and an unstamped blocker renders no age. Age is
+        the whole triage signal ("3 tasks blocked more than a week"), so a seeded
+        blocker that reads "0d" is worse than none. Falls back to the task's own
+        planned start, then the project's, so the value is never null while the
+        flag is raised.
+        """
+        slug = data["slug"]
+        project = self.projects[slug]
+        touched = []
+        for task_data in data.get("tasks", []):
+            blocked = task_data.get("blocked")
+            if not blocked:
+                continue
+            task = self.tasks[(slug, task_data["wbs_path"])]
+            since = self._date_opt(blocked.get("since"), slug)
+            task.blocked_since = self._creation_dt(
+                since or task.planned_start or project.start_date
+            )
+            if blocked.get("blocking_task"):
+                task.blocking_task = self._resolve_task_ref(blocked["blocking_task"], slug)
+            if blocked.get("by"):
+                task.blocked_by = self.users.get(blocked["by"])
+            touched.append(task)
+        if touched:
+            Task.objects.bulk_update(
+                touched,
+                ["blocked_since", "blocking_task", "blocked_by"],
+                batch_size=_BULK_BATCH_SIZE,
+            )
+
+    def _create_attachments(self, data: dict[str, Any]) -> None:
+        """Create each task's external-link attachments (#3094).
+
+        URL-only by design: ``TaskAttachment`` enforces file XOR ``external_url``
+        at the DB level, and a seed is a text document with no bytes to carry, so
+        the file half is deliberately inexpressible rather than half-supported.
+        """
+        slug = data["slug"]
+        rows = []
+        for task_data in data.get("tasks", []):
+            attachments = task_data.get("attachments")
+            if not attachments:
+                continue
+            task = self.tasks[(slug, task_data["wbs_path"])]
+            for entry in attachments:
+                rows.append(
+                    TaskAttachment(
+                        task=task,
+                        external_url=entry["external_url"],
+                        external_title=entry.get("external_title", ""),
+                        is_pinned=entry.get("is_pinned", False),
+                        uploaded_by=(
+                            self.users.get(entry["uploaded_by"])
+                            if entry.get("uploaded_by")
+                            else None
+                        ),
+                    )
+                )
+        if rows:
+            TaskAttachment.objects.bulk_create(rows, batch_size=_BULK_BATCH_SIZE)
 
     def _link_parent_epics(self, data: dict[str, Any]) -> None:
         slug = data["slug"]

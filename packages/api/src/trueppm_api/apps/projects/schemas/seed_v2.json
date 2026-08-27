@@ -169,6 +169,31 @@
         }
       }
     },
+    "taskAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_url"],
+      "description": "An external reference on a task. URL-only: TaskAttachment stores a file XOR an external_url, and a seed is a text document, so the file half is deliberately not expressible.",
+      "properties": {
+        "external_url": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "external_title": { "type": "string", "maxLength": 255 },
+        "is_pinned": { "type": "boolean" },
+        "uploaded_by": { "$ref": "#/$defs/slug" }
+      }
+    },
+    "taskBlocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "description": "The explicit human blocker flag (#1135, ADR-0124). `reason` is the flag-of-record — non-empty means blocked. NOT the derived has-incomplete-predecessors signal, and `blocking_task` is a soft 'waiting on' link that never enters CPM.",
+      "properties": {
+        "reason": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "since": { "$ref": "#/$defs/seedDate" },
+        "type": { "enum": ["dependency", "resource", "vendor", "decision", "other"] },
+        "blocking_task": { "type": "string", "maxLength": 512 },
+        "by": { "$ref": "#/$defs/slug" }
+      }
+    },
     "calendar": {
       "type": "object",
       "additionalProperties": false,
@@ -304,6 +329,16 @@
           "description": "Informational task-to-task relations (ADR-0455) authored on this task as the source, e.g. \"relates to\" / \"blocks\" / \"duplicates\". A relation is a non-scheduling cross-reference — distinct from a CPM `dependency` — so it carries no lag, dep_type, or schedule effect.",
           "items": { "$ref": "#/$defs/taskRelation" }
         },
+        "board_lane": {
+          "$ref": "#/$defs/slug",
+          "description": "Named lane WITHIN this task's status column (#2967); must match a lane key on the project's board_columns entry for that status."
+        },
+        "blocked": { "$ref": "#/$defs/taskBlocker" },
+        "attachments": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/taskAttachment" }
+        },
         "assignments": {
           "type": "array",
           "description": "Resource allocations on this task. assignee is the responsible user; assignments are capacity (Resource + units fraction of max_units).",
@@ -438,20 +473,23 @@
             "task.points",
             "task.comment",
             "task.ac_met",
+            "task.block",
+            "task.unblock",
             "sprint.activate",
             "sprint.close",
             "sprint.scope_inject",
             "sprint.scope_resolve",
             "baseline.capture",
             "risk.status",
+            "risk.note",
             "retro.action",
             "retro.promote"
           ],
-          "description": "v2.0 replayed actions. retro.action creates a RetroActionItem on the target sprint's retro; retro.promote promotes an existing action item (matched by `body`) into a project-backlog task (ADR-0114 §7 / #1109). time.log (needs the #926 time-entry model) is still deferred — see ADR-0114."
+          "description": "v2.0 replayed actions. retro.action creates a RetroActionItem on the target sprint's retro; retro.promote promotes an existing action item (matched by `body`) into a project-backlog task (ADR-0114 §7 / #1109). task.block/task.unblock raise and clear the explicit blocker flag, so a blocked span has a real duration on the timeline rather than a field that reads \"blocked 0 days\". risk.note appends a RiskComment, giving a risk.status flip its reason. time.log (needs the #926 time-entry model) is still deferred — see ADR-0114."
         },
         "target": {
           "type": "string",
-          "description": "What the event mutates: \"task:<project-slug>:<wbs-path>\" (task.*, scope_inject/resolve), \"sprint:<project-slug>:<sprint-slug>\" (sprint.activate/close, retro.action/promote), \"project:<project-slug>\" (baseline.capture), or \"risk:<slug>\" (risk.status).",
+          "description": "What the event mutates: \"task:<project-slug>:<wbs-path>\" (task.*, scope_inject/resolve), \"sprint:<project-slug>:<sprint-slug>\" (sprint.activate/close, retro.action/promote), \"project:<project-slug>\" (baseline.capture), or \"risk:<slug>\" (risk.status, risk.note).",
           "maxLength": 320
         },
         "from": { "type": "string", "maxLength": 64 },
@@ -465,7 +503,16 @@
         "estimate": { "$ref": "#/$defs/estimate" },
         "assignee": { "$ref": "#/$defs/slug" },
         "body": { "type": "string", "maxLength": 10000 },
-        "goal_outcome": { "enum": ["MET", "PARTIAL", "MISSED"] }
+        "goal_outcome": { "enum": ["MET", "PARTIAL", "MISSED"] },
+        "blocker_type": {
+          "enum": ["dependency", "resource", "vendor", "decision", "other"],
+          "description": "On task.block: the structured triage classification."
+        },
+        "blocking_task": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "On task.block: a soft \"waiting on\" task ref. Never enters CPM."
+        }
       }
     },
     "label": {

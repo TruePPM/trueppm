@@ -143,6 +143,31 @@
         }
       }
     },
+    "taskAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_url"],
+      "description": "An external reference on a task. URL-only: TaskAttachment stores a file XOR an external_url, and a seed is a text document, so the file half is deliberately not expressible.",
+      "properties": {
+        "external_url": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "external_title": { "type": "string", "maxLength": 255 },
+        "is_pinned": { "type": "boolean" },
+        "uploaded_by": { "$ref": "#/$defs/slug" }
+      }
+    },
+    "taskBlocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "description": "The explicit human blocker flag (#1135, ADR-0124). `reason` is the flag-of-record — non-empty means blocked. NOT the derived has-incomplete-predecessors signal, and `blocking_task` is a soft 'waiting on' link that never enters CPM.",
+      "properties": {
+        "reason": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "since": { "type": "string", "format": "date" },
+        "type": { "enum": ["dependency", "resource", "vendor", "decision", "other"] },
+        "blocking_task": { "type": "string", "maxLength": 512 },
+        "by": { "$ref": "#/$defs/slug" }
+      }
+    },
     "calendar": {
       "type": "object",
       "additionalProperties": false,
@@ -242,6 +267,16 @@
           "type": "array",
           "description": "Slugs of project labels (ADR-0400) attached to this task, referencing project.labels.",
           "items": { "$ref": "#/$defs/slug" }
+        },
+        "board_lane": {
+          "$ref": "#/$defs/slug",
+          "description": "Named lane WITHIN this task's status column (#2967); must match a lane key on the project's board_columns entry for that status."
+        },
+        "blocked": { "$ref": "#/$defs/taskBlocker" },
+        "attachments": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/taskAttachment" }
         },
         "assignments": {
           "type": "array",

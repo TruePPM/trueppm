@@ -30,6 +30,44 @@ Schema is the contract:
 then runs a referential-integrity pass (no dangling slug or task references)
 that JSON Schema cannot express. Every error is anchored to a JSON path.
 
+### External references, blockers, and risk narrative
+
+Three capabilities the product models had no seed surface for until 0.4, so no
+bundled sample could demonstrate them.
+
+**`tasks[].attachments[]`** is **URL-only**: `{external_url, external_title?,
+is_pinned?, uploaded_by?}`. `TaskAttachment` enforces file XOR `external_url` at
+the database level, and a seed is a text document with no bytes to carry, so the
+file half is deliberately inexpressible rather than half-supported. Note that
+`links` is a different key entirely — it is the task-to-task `TaskRelation`
+graph (*relates to* / *blocks* / *duplicates*), not external references.
+
+**`tasks[].blocked`** is the explicit human blocker flag (ADR-0124), not the
+derived "has incomplete predecessors" signal the board card owns:
+`{reason, since?, type?, blocking_task?, by?}`. `reason` is the flag of record —
+non-empty means blocked. `blocking_task` is a **soft** "waiting on" link that
+never enters CPM; a scheduling constraint is a `dependencies[]` edge.
+
+`since` matters more than it looks. `Task.save()` stamps `blocked_since` with
+`timezone.now()`, but the importer inserts through `bulk_create_tasks`, so
+`save()` never runs and nothing stamps it — an unstamped blocker renders no age,
+and age is the entire triage signal ("3 tasks blocked more than a week"). The
+importer therefore sets it explicitly, falling back to the task's planned start
+and then the project's, so the value is never null while the flag is raised.
+
+**`task.block` / `task.unblock` events** give a blocked span a real duration on
+the timeline. `task.block` writes the flag and backdates `blocked_since` to the
+beat; `task.unblock` empties `reason` only and lets `Task.save()` run its own
+cascade (clearing `blocked_since`, `blocker_type`, `blocking_task` and
+`blocked_by`), so "unblocked" has exactly one definition.
+
+**`risk.note` events** append a `RiskComment`, giving a `risk.status` flip its
+reason. Without it a risk walks `OPEN → MITIGATING → RESOLVED` with no artifact
+of the work — the register records *that* a risk was mitigated and never *how*.
+Unlike `risk.status`, notes are reconstructed on export: a comment is
+append-only and does not depend on the risk's current status, so replaying it
+reproduces the rows it came from.
+
 ### The schema is a two-way contract
 
 `additionalProperties: false` is set on every definition, so an **unknown** key

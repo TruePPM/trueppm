@@ -37,6 +37,7 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     RetroActionItem,
     Risk,
+    RiskComment,
     ScopeChangeStatus,
     Sprint,
     SprintRetro,
@@ -437,6 +438,63 @@ def _apply_task_ac_met(beat: _Beat, ctx: ReplayContext) -> None:
     _save(task, beat.when, beat.actor, ["dor"])
 
 
+def _apply_task_block(beat: _Beat, ctx: ReplayContext) -> None:
+    """Raise the explicit blocker flag, dated to the beat (#3094).
+
+    ``blocked_reason`` is the flag-of-record. ``Task.save()`` stamps
+    ``blocked_since`` with ``timezone.now()`` on the empty -> non-empty
+    transition, which on a backdated timeline would render every blocker as
+    "0d blocked" — and age is the entire triage signal. So the stamp is
+    overwritten with the beat time through a queryset update, the same way
+    ``_apply_scope_inject`` corrects its ``auto_now_add`` column.
+    """
+    task = _resolve_task(ctx, beat.target)
+    reason = beat.data.get("body")
+    if task is None or not reason:
+        return
+    task.blocked_reason = reason
+    task.blocker_type = beat.data.get("blocker_type", "")
+    task.blocked_by = beat.actor
+    fields = ["blocked_reason", "blocker_type", "blocked_by"]
+    blocking_ref = beat.data.get("blocking_task")
+    if blocking_ref:
+        blocking = _resolve_task(ctx, f"task:{blocking_ref}")
+        if blocking is not None and blocking.pk != task.pk:
+            task.blocking_task = blocking
+            fields.append("blocking_task")
+    _save(task, beat.when, beat.actor, fields)
+    Task.objects.filter(pk=task.pk).update(blocked_since=beat.when)
+    task.blocked_since = beat.when
+
+
+def _apply_task_unblock(beat: _Beat, ctx: ReplayContext) -> None:
+    """Clear the blocker. ``Task.save()`` owns the cascade — emptying
+    ``blocked_reason`` also nulls ``blocked_since``, ``blocker_type``,
+    ``blocking_task`` and ``blocked_by`` — so this only empties the flag and
+    lets the model do the rest, keeping one definition of "unblocked"."""
+    task = _resolve_task(ctx, beat.target)
+    if task is None or not (task.blocked_reason or "").strip():
+        return
+    task.blocked_reason = ""
+    _save(task, beat.when, beat.actor, ["blocked_reason"])
+
+
+def _apply_risk_note(beat: _Beat, ctx: ReplayContext) -> None:
+    """Append a RiskComment, so a risk.status flip carries its reason (#3094).
+
+    Without this a risk walks OPEN -> MITIGATING -> RESOLVED with no artifact of
+    the work: the register records *that* it was mitigated and never *how*.
+    ``created_at`` is ``auto_now_add``, so it is backdated after insert.
+    """
+    _, _, slug = beat.target.partition(":")
+    risk = ctx.risks.get(slug)
+    body = beat.data.get("body")
+    if risk is None or not body:
+        return
+    comment = RiskComment.objects.create(risk=risk, author=beat.actor, message=body)
+    RiskComment.objects.filter(pk=comment.pk).update(created_at=beat.when)
+
+
 def _apply_task_comment(beat: _Beat, ctx: ReplayContext) -> None:
     task = _resolve_task(ctx, beat.target)
     body = beat.data.get("body")
@@ -686,12 +744,15 @@ _HANDLERS = {
     "task.estimate": _apply_task_estimate,
     "task.points": _apply_task_points,
     "task.ac_met": _apply_task_ac_met,
+    "task.block": _apply_task_block,
+    "task.unblock": _apply_task_unblock,
     "task.comment": _apply_task_comment,
     "sprint.activate": _apply_sprint_activate,
     "sprint.close": _apply_sprint_close,
     "sprint.scope_inject": _apply_scope_inject,
     "sprint.scope_resolve": _apply_scope_resolve,
     "risk.status": _apply_risk_status,
+    "risk.note": _apply_risk_note,
     "baseline.capture": _apply_baseline_capture,
     "retro.action": _apply_retro_action,
     "retro.promote": _apply_retro_promote,
