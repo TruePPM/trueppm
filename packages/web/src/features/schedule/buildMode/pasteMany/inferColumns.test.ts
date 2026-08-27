@@ -81,4 +81,67 @@ describe('inferColumns', () => {
     expect(mapping[0].field).toBe('name');
     expect(mapping[1].field).toBeNull();
   });
+  // #3102 — allocation column. Before this, `PasteField` had no `units` member, so a
+  // spreadsheet's allocation column was unmappable and every owner landed at 100%.
+  it('maps an Allocation header to units at exact confidence', () => {
+    const data = rows([
+      ['Name', 'Owner', 'Allocation'],
+      ['Survey', 'Ana', '50%'],
+    ]);
+    const mapping = inferColumns(data, true);
+    expect(mapping[2]).toEqual({
+      index: 2,
+      header: 'Allocation',
+      field: 'units',
+      confidence: 'exact',
+    });
+  });
+
+  it('maps a fuzzy allocation header (Allocation %) to units', () => {
+    const data = rows([
+      ['Name', 'Allocation %'],
+      ['Survey', '50%'],
+    ]);
+    expect(inferColumns(data, true)[1].field).toBe('units');
+  });
+
+  it('no header row: a percent-suffixed column is guessed as units by shape', () => {
+    const data = rows([
+      ['Survey', '50%'],
+      ['Design', '75 %'],
+      ['Build', '100%'],
+    ]);
+    const mapping = inferColumns(data, false);
+    expect(mapping[1]).toEqual({ index: 1, header: null, field: 'units', confidence: 'fuzzy' });
+  });
+
+  it('does NOT claim a bare-number column as units — duration owns that shape', () => {
+    // The whole reason the shape test requires a trailing `%`: `50` is a legal
+    // duration and guessing allocation would silently retype an existing paste.
+    const data = rows([
+      ['Survey', '50'],
+      ['Design', '75'],
+    ]);
+    expect(inferColumns(data, false)[1].field).toBe('duration');
+  });
+
+  it('a percent column does not contend with a duration column', () => {
+    const data = rows([
+      ['Survey', '5d', '50%'],
+      ['Design', '3d', '75%'],
+    ]);
+    const mapping = inferColumns(data, false);
+    expect(mapping[1].field).toBe('duration');
+    expect(mapping[2].field).toBe('units');
+  });
+
+  it('an owner-matching header still wins over units — "Map columns…" is the repair', () => {
+    // "Resource Allocation" has read as the owner column since paste-many shipped;
+    // repointing it would change what an existing paste commits.
+    const data = rows([
+      ['Name', 'Resource Allocation'],
+      ['Survey', 'Ana'],
+    ]);
+    expect(inferColumns(data, true)[1].field).toBe('owner');
+  });
 });

@@ -1,7 +1,8 @@
 import { parseDurationInput } from '../EditableCell';
+import { parseAllocationPercent } from '../ownerToken';
 import type { ParsedPasteRow } from './parsePastedText';
 
-export type PasteField = 'name' | 'duration' | 'owner';
+export type PasteField = 'name' | 'duration' | 'owner' | 'units';
 /** `override` is never produced by `inferColumns` — it marks a mapping a human
  *  corrected via "Map columns…" (`PasteColumnMappingDialog`), mirroring the CSV
  *  importer's confidence vocabulary (`packages/web/src/hooks/useCsvImport.ts`). */
@@ -18,6 +19,11 @@ const KEYWORDS: Record<PasteField, string[]> = {
   name: ['name', 'task', 'title', 'summary', 'activity'],
   duration: ['duration', 'days', 'estimate', 'length'],
   owner: ['owner', 'assignee', 'resource', 'who'],
+  // `units` is last so a header matching an earlier field keeps its existing meaning:
+  // "Resource Allocation" has read as the owner column since paste-many shipped, and
+  // silently repointing it at allocation would change what an existing paste commits.
+  // "Map columns…" is the correction path for that case (#3102).
+  units: ['allocation', 'units', 'percent', 'capacity', '%'],
 };
 
 const ALL_KEYWORDS = Object.values(KEYWORDS).flat();
@@ -90,7 +96,33 @@ function findDurationColumnByShape(
 }
 
 /**
- * Guess which column is name / duration / owner. Pure — like
+ * The column whose sample values read as percentages — `50%`, `75 %`, `62.5%`.
+ *
+ * A trailing `%` is REQUIRED, which is what keeps this fallback from contending with
+ * the duration one: a bare `50` is indistinguishable from a 50-day duration, and
+ * duration owns that shape by convention. So an allocation column written without the
+ * sign is left unmapped for "Map columns…" rather than guessed at — the same trade-off
+ * the duration fallback documents (#3102).
+ */
+function findUnitsColumnByShape(
+  dataRows: ParsedPasteRow[],
+  columnCount: number,
+  fields: (PasteField | null)[],
+): number | null {
+  for (let index = 0; index < columnCount; index++) {
+    if (fields[index] !== null) continue;
+    const sample = dataRows.slice(0, 20).map((row) => row.cells[index] ?? '');
+    const nonBlank = sample.filter((v) => v.trim().length > 0);
+    const parseable = nonBlank.filter(
+      (v) => v.trim().endsWith('%') && parseAllocationPercent(v) !== null,
+    );
+    if (nonBlank.length > 0 && parseable.length / nonBlank.length >= 0.7) return index;
+  }
+  return null;
+}
+
+/**
+ * Guess which column is name / duration / owner / units. Pure — like
  * `authoringTokens.ts`'s lexer, guessing never touches the roster; only the
  * owner *value* resolution downstream in `buildPasteOperations` does that.
  *
@@ -129,6 +161,18 @@ export function inferColumns(rows: ParsedPasteRow[], hasHeaderRow: boolean): Pas
     if (index !== null) {
       fields[index] = 'duration';
       confidences[index] = 'fuzzy';
+      claimed.add('duration');
+    }
+  }
+  if (!claimed.has('units')) {
+    // Order against the duration fallback is not load-bearing — a `%`-suffixed cell
+    // cannot parse as a duration and a bare number is rejected here — but running
+    // last keeps the established precedence readable if either shape test loosens.
+    const index = findUnitsColumnByShape(dataRows, columnCount, fields);
+    if (index !== null) {
+      fields[index] = 'units';
+      confidences[index] = 'fuzzy';
+      claimed.add('units');
     }
   }
 

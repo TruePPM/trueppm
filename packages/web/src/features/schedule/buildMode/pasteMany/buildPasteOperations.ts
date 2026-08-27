@@ -1,6 +1,12 @@
 import type { ProjectResource } from '@/types';
 import { parseDurationInput } from '../EditableCell';
-import { resolveRosterMember, type RosterMatch } from '../ownerToken';
+import {
+  DEFAULT_OWNER_PERCENT,
+  ownerTokensToApiPayload,
+  parseAllocationPercent,
+  resolveRosterMember,
+  type RosterMatch,
+} from '../ownerToken';
 import type { PasteColumnMapping, PasteField } from './inferColumns';
 import type { ParsedPasteRow } from './parsePastedText';
 
@@ -55,6 +61,7 @@ interface PasteColumnIndices {
   nameIndex: number;
   durationIndex: number | null;
   ownerIndex: number | null;
+  unitsIndex: number | null;
 }
 
 function columnIndices(columns: PasteColumnMapping[]): PasteColumnIndices {
@@ -62,6 +69,7 @@ function columnIndices(columns: PasteColumnMapping[]): PasteColumnIndices {
     nameIndex: columns.find((c) => c.field === 'name')?.index ?? 0,
     durationIndex: columns.find((c) => c.field === 'duration')?.index ?? null,
     ownerIndex: columns.find((c) => c.field === 'owner')?.index ?? null,
+    unitsIndex: columns.find((c) => c.field === 'units')?.index ?? null,
   };
 }
 
@@ -84,11 +92,24 @@ function buildRowData(
   parentId: string | null,
   duration: number | null,
   owner: RosterMatch | null,
+  unitsPercent: number | null,
 ): Record<string, unknown> {
   const data: Record<string, unknown> = { name };
   if (parentId) data.parent_id = parentId;
   if (duration !== null) data.duration = duration;
-  if (owner?.member) data.owners = [{ resource: owner.member.resourceId, units: 1 }];
+  if (owner?.member) {
+    // Percent in, fraction out, through the one converter that owns that step
+    // (`ownerTokensToApiPayload` — see its docstring). Writing `units` inline here is
+    // what left every pasted row at a hard-coded 1.0 while `@ana:50` worked correctly
+    // one keystroke away (#3102); a second conversion site is how that comes back.
+    data.owners = ownerTokensToApiPayload([
+      {
+        resourceId: owner.member.resourceId,
+        name: owner.member.resource.name,
+        units: unitsPercent ?? DEFAULT_OWNER_PERCENT,
+      },
+    ]);
+  }
   return data;
 }
 
@@ -112,7 +133,7 @@ export function buildPasteOperations(
   hasHeaderRow: boolean,
   mintId: () => string = () => crypto.randomUUID(),
 ): BuiltPasteBatch {
-  const { nameIndex, durationIndex, ownerIndex } = columnIndices(columns);
+  const { nameIndex, durationIndex, ownerIndex, unitsIndex } = columnIndices(columns);
   // The header row named the columns, it did not describe a task — it must never
   // reach the batch as a row of its own (`inferColumns` already excluded it from
   // its own shape-sampling; this is the corresponding exclusion for row building).
@@ -153,7 +174,17 @@ export function buildPasteOperations(
       droppedOwners.push({ id, value: ownerRaw.trim(), reason: owner.status });
     }
 
-    operations.push({ op: 'create', id, data: buildRowData(name, parentId, duration, owner) });
+    // Blank or unparseable allocation is not an error — it means the row said nothing
+    // about allocation, and `buildRowData` falls back to 100%. Only an owner-bearing
+    // row consumes it; an allocation with nobody to apply it to is dropped with the
+    // column's other orphans rather than inventing an assignment.
+    const unitsPercent = parseAllocationPercent(cellAt(row, unitsIndex));
+
+    operations.push({
+      op: 'create',
+      id,
+      data: buildRowData(name, parentId, duration, owner, unitsPercent),
+    });
     createdIds.push(id);
   }
 

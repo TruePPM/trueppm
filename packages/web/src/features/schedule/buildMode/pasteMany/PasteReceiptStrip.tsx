@@ -1,7 +1,12 @@
 import type { PasteSummary } from './buildPasteOperations';
 import { formatChord } from '@/lib/platform';
 
-const FIELD_LABEL: Record<string, string> = { name: 'name', duration: 'duration', owner: 'owner' };
+const FIELD_LABEL: Record<string, string> = {
+  name: 'name',
+  duration: 'duration',
+  owner: 'owner',
+  units: 'allocation',
+};
 
 /** Builds the receipt copy — "38 rows pasted. Hierarchy read from leading
  *  indentation — 4 levels. name · duration · owner matched · 2 columns ignored
