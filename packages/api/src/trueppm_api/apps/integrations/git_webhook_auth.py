@@ -156,6 +156,24 @@ def parse_envelope(provider: str, headers: Any, payload: Any) -> GitWebhookEnvel
     )
 
 
+def _github_event(action: str, pr: Any, is_draft: bool) -> tuple[str | None, str]:
+    """Resolve a GitHub ``pull_request`` action to ``(event, ignored_reason)``.
+
+    Both halves are returned together because they are one decision: an action we
+    act on yields an event and no reason, and a suppressed draft open yields no
+    event *plus* the reason it was suppressed. Anything else is normal traffic we
+    never act on — ``(None, "")``, with no reason to report.
+    """
+    if action in _GITHUB_OPEN_ACTIONS:
+        if is_draft:
+            return None, _IGNORED_DRAFT
+        return GIT_EVENT_PR_OPENED, ""
+    if action == "closed" and isinstance(pr, dict) and pr.get("merged") is True:
+        # A merged PR is never a draft; merge always completes the card.
+        return GIT_EVENT_PR_MERGED, ""
+    return None, ""
+
+
 def _parse_github(headers: Any, payload: dict[str, Any]) -> GitWebhookEnvelope:
     event_name = headers.get("X-GitHub-Event") or ""
     # X-GitHub-Delivery is a per-delivery UUID — the natural idempotency key.
@@ -172,14 +190,7 @@ def _parse_github(headers: Any, payload: dict[str, Any]) -> GitWebhookEnvelope:
     event: str | None = None
     ignored_reason = ""
     if event_name == "pull_request" and isinstance(action, str):
-        if action in _GITHUB_OPEN_ACTIONS:
-            if is_draft:
-                ignored_reason = _IGNORED_DRAFT
-            else:
-                event = GIT_EVENT_PR_OPENED
-        elif action == "closed" and isinstance(pr, dict) and pr.get("merged") is True:
-            # A merged PR is never a draft; merge always completes the card.
-            event = GIT_EVENT_PR_MERGED
+        event, ignored_reason = _github_event(action, pr, is_draft)
 
     return GitWebhookEnvelope(
         provider=PROVIDER_GITHUB,

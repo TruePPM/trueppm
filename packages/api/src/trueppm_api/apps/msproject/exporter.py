@@ -172,6 +172,44 @@ def _select_pert_tasks(tasks: list[Any]) -> list[Any]:
     ]
 
 
+def _add_task_dates(task_el: ET.Element, task: Any) -> None:
+    """Emit the contiguous Start/Finish/Constraint/Actual date run for one ``<Task>``.
+
+    MSPDI is order-sensitive, and ``ET.SubElement`` appends at call time, so the
+    caller's invocation position *is* the positional guarantee for every element
+    below — it must stay exactly where it sits in ``_add_task_element``'s append
+    sequence (after ``Notes``, before the PERT ExtendedAttribute values).
+
+    Constraint + actuals round-trip (#2891). ``planned_start`` IS a
+    start-no-earlier-than floor, so emitting it as MSPDI ConstraintType 4 with a
+    ConstraintDate is a faithful translation rather than an approximation — and
+    it is what makes the round trip closed: the importer reads the constraint
+    date back as ``planned_start``. Emitting only <Start> (which is CPM output, and
+    per ADR-0132 a remaining-work date on a partially-complete task) meant a
+    re-import silently promoted computed dates to committed ones.
+
+    Tasks with no floor get ConstraintType 0 (As Soon As Possible), which is
+    TruePPM's own default: an omitted element would leave MS Project to infer a
+    constraint from the <Start> we emit, re-creating the same promotion.
+    """
+    if task.early_start:
+        _sub_text(task_el, "Start", _format_date(task.early_start))
+    elif task.planned_start:
+        _sub_text(task_el, "Start", _format_date(task.planned_start))
+    if task.early_finish:
+        _sub_text(task_el, "Finish", _format_date(task.early_finish))
+
+    if task.planned_start:
+        _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_START_NO_EARLIER_THAN))
+        _sub_text(task_el, "ConstraintDate", _format_date(task.planned_start))
+    else:
+        _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_AS_SOON_AS_POSSIBLE))
+    if task.actual_start:
+        _sub_text(task_el, "ActualStart", _format_date(task.actual_start))
+    if task.actual_finish:
+        _sub_text(task_el, "ActualFinish", _format_date(task.actual_finish))
+
+
 def _add_task_element(
     tasks_el: ET.Element,
     task: Any,
@@ -199,33 +237,7 @@ def _add_task_element(
     _sub_text(task_el, "PercentComplete", str(round(task.percent_complete or 0)))
     if task.notes:
         _sub_text(task_el, "Notes", task.notes)
-    if task.early_start:
-        _sub_text(task_el, "Start", _format_date(task.early_start))
-    elif task.planned_start:
-        _sub_text(task_el, "Start", _format_date(task.planned_start))
-    if task.early_finish:
-        _sub_text(task_el, "Finish", _format_date(task.early_finish))
-
-    # Constraint + actuals round-trip (#2891). `planned_start` IS a
-    # start-no-earlier-than floor, so emitting it as MSPDI ConstraintType 4 with a
-    # ConstraintDate is a faithful translation rather than an approximation — and
-    # it is what makes the round trip closed: the importer reads the constraint
-    # date back as `planned_start`. Emitting only <Start> (which is CPM output, and
-    # per ADR-0132 a remaining-work date on a partially-complete task) meant a
-    # re-import silently promoted computed dates to committed ones.
-    #
-    # Tasks with no floor get ConstraintType 0 (As Soon As Possible), which is
-    # TruePPM's own default: an omitted element would leave MS Project to infer a
-    # constraint from the <Start> we emit, re-creating the same promotion.
-    if task.planned_start:
-        _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_START_NO_EARLIER_THAN))
-        _sub_text(task_el, "ConstraintDate", _format_date(task.planned_start))
-    else:
-        _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_AS_SOON_AS_POSSIBLE))
-    if task.actual_start:
-        _sub_text(task_el, "ActualStart", _format_date(task.actual_start))
-    if task.actual_finish:
-        _sub_text(task_el, "ActualFinish", _format_date(task.actual_finish))
+    _add_task_dates(task_el, task)
 
     # PERT three-point per-task values. Only emitted for the leaf, non-milestone
     # tasks selected by _select_pert_tasks. Duration4 is the PERT-Expected

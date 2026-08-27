@@ -124,6 +124,40 @@ class RateLimitError(ApiError):
         self.retry_after = retry_after
 
 
+def _http_date_delta(raw: str, date_header: str | None) -> float | None:
+    """Seconds between an HTTP-date ``Retry-After`` and "now", or ``None`` if unusable.
+
+    "Now" is the response's own ``Date`` header when it sent a usable one, so client
+    clock skew cannot turn into a wildly wrong wait; local time is the fallback.
+
+    Total by design, and that is the contract callers depend on: every failure path
+    returns ``None`` and nothing escapes. ``parsedate_to_datetime`` *raises* on an
+    unparseable value rather than returning ``None``, so a junk header would
+    otherwise crash the 429 path that is already handling a failure.
+    """
+
+    try:
+        parsed = email.utils.parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if parsed is None:  # pragma: no cover — defensive across versions
+        return None
+    now = None
+    if date_header:
+        # Same trap as above — a malformed Date header raises rather than
+        # returning None, and it must not crash the 429 path either.
+        try:
+            now = email.utils.parsedate_to_datetime(date_header)
+        except (TypeError, ValueError):
+            now = None
+    if now is None:
+        now = datetime.now(UTC)
+    try:
+        return (parsed - now).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
 def parse_retry_after(response: httpx.Response) -> float | None:
     """Seconds to wait from a ``Retry-After`` header, or ``None`` if unusable.
 
@@ -148,29 +182,10 @@ def parse_retry_after(response: httpx.Response) -> float | None:
     try:
         seconds = float(int(raw))
     except ValueError:
-        # parsedate_to_datetime RAISES on an unparseable value (it does not return
-        # None), so this has to be caught or a junk header crashes the 429 path.
-        try:
-            parsed = email.utils.parsedate_to_datetime(raw)
-        except (TypeError, ValueError):
+        delta = _http_date_delta(raw, response.headers.get("Date"))
+        if delta is None:
             return None
-        if parsed is None:  # pragma: no cover — defensive across versions
-            return None
-        now = None
-        date_header = response.headers.get("Date")
-        if date_header:
-            # Same trap as above — a malformed Date header raises rather than
-            # returning None, and it must not crash the 429 path either.
-            try:
-                now = email.utils.parsedate_to_datetime(date_header)
-            except (TypeError, ValueError):
-                now = None
-        if now is None:
-            now = datetime.now(UTC)
-        try:
-            seconds = (parsed - now).total_seconds()
-        except (TypeError, ValueError):
-            return None
+        seconds = delta
     if seconds < 0:
         return None
     return seconds

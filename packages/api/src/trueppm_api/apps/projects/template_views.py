@@ -46,6 +46,44 @@ from trueppm_api.apps.projects.template_services import (
 from trueppm_api.apps.workspace.models import AuditEventType
 from trueppm_api.apps.workspace.services import record_audit_event
 
+# Shared user-facing response details.
+_NO_SUCH_PROJECT_DETAIL = "No such project."
+
+
+def _publish_inputs(data: Any) -> tuple[Any, str, Any]:
+    """Read and type-check ``publish``'s three body fields, before any project read.
+
+    Split out of ``publish`` only to keep it readable; the order matters and is
+    preserved — every check here runs *before* the project lookup and therefore
+    before ``_require_project_admin``, so an unauthorized caller still cannot use a
+    malformed body to learn whether a project exists.
+
+    Same type-confusion class as #2785: a JSON list/dict/number is truthy, so
+    ``(value or "")`` hands it straight to .strip() / slicing and raises
+    AttributeError, and a non-string pk reaches UUIDField.to_python, which raises
+    Django's ValidationError — not one of the ValueError/TypeError caught by the
+    caller, and not something DRF converts. All three are 500s on input that has to
+    be a 400.
+
+    Returns:
+        The raw project pk, the stripped name, and the raw description.
+    """
+    project_id = data.get("project")
+    raw_name = data.get("name")
+    raw_description = data.get("description")
+    for field, value in (
+        ("project", project_id),
+        ("name", raw_name),
+        ("description", raw_description),
+    ):
+        if value is not None and not isinstance(value, str):
+            raise ValidationError({field: "Must be a string."})
+
+    name = (raw_name or "").strip()
+    if not project_id or not name:
+        raise ValidationError({"detail": "Both `project` and `name` are required."})
+    return project_id, name, raw_description
+
 
 def _flag(value: Any) -> bool:
     """Read a permissive boolean off attacker-shaped ``request.data``.
@@ -317,30 +355,11 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         tasks and edges, bounded by ``MAX_TEMPLATE_NODES``, and the publisher should
         learn immediately whether their project was too large rather than by polling.
         """
-        # Same type-confusion class as #2785: a JSON list/dict/number is truthy, so
-        # `(value or "")` hands it straight to .strip() / slicing and raises
-        # AttributeError, and a non-string pk reaches UUIDField.to_python, which
-        # raises Django's ValidationError — not one of the ValueError/TypeError
-        # caught below, and not something DRF converts. All three are 500s on input
-        # that has to be a 400.
-        project_id = request.data.get("project")
-        raw_name = request.data.get("name")
-        raw_description = request.data.get("description")
-        for field, value in (
-            ("project", project_id),
-            ("name", raw_name),
-            ("description", raw_description),
-        ):
-            if value is not None and not isinstance(value, str):
-                raise ValidationError({field: "Must be a string."})
-
-        name = (raw_name or "").strip()
-        if not project_id or not name:
-            raise ValidationError({"detail": "Both `project` and `name` are required."})
+        project_id, name, raw_description = _publish_inputs(request.data)
         try:
             project = Project.objects.get(pk=project_id, is_deleted=False)
         except (Project.DoesNotExist, ValueError, TypeError) as exc:
-            raise ValidationError({"project": "No such project."}) from exc
+            raise ValidationError({"project": _NO_SUCH_PROJECT_DETAIL}) from exc
         self._require_project_admin(project)
 
         try:
@@ -448,7 +467,7 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         try:
             project = Project.objects.get(pk=project_id, is_deleted=False)
         except (Project.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
-            raise ValidationError({"project": "No such project."}) from exc
+            raise ValidationError({"project": _NO_SUCH_PROJECT_DETAIL}) from exc
         self._require_project_admin(project)
 
         try:
@@ -495,7 +514,7 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         try:
             project = Project.objects.get(pk=cast("Any", project_id), is_deleted=False)
         except (Project.DoesNotExist, ValueError, TypeError) as exc:
-            raise ValidationError({"project": "No such project."}) from exc
+            raise ValidationError({"project": _NO_SUCH_PROJECT_DETAIL}) from exc
         self._require_project_admin(project)
 
         # Re-validate here, not only at publish: `structure` is a JSONB column, so

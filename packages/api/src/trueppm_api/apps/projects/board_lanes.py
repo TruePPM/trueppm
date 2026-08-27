@@ -47,6 +47,31 @@ def _wbs_parts(task: Task) -> list[str]:
     return str(task.wbs_path).split(".") if task.wbs_path else []
 
 
+def _container_paths(by_path: dict[str, Task]) -> set[str]:
+    """Every path with something beneath it.
+
+    A row is a container iff something else sits beneath it. Derived, exactly as
+    ``task_is_phase`` derives it — this must not diverge from the rollup's notion of a
+    phase (ADR-0844: the derived fact wins for the math).
+    """
+    container_paths: set[str] = set()
+    for path in by_path:
+        parts = path.split(".")
+        for i in range(1, len(parts)):
+            container_paths.add(".".join(parts[:i]))
+    return container_paths
+
+
+def _crumb_for(parts: list[str], lane_path: str, by_path: dict[str, Task]) -> str | None:
+    """The row's own parent name when the lane cannot show it, else ``None``."""
+    parent_path = ".".join(parts[:-1])
+    if parent_path != lane_path:
+        parent = by_path.get(parent_path)
+        if parent is not None:
+            return parent.name
+    return None
+
+
 def build_lanes(
     tasks: list[Task],
     *,
@@ -65,14 +90,7 @@ def build_lanes(
     by_path: dict[str, Task] = {
         str(t.wbs_path): t for t in tasks if t.wbs_path and not t.is_subtask
     }
-    # A row is a container iff something else sits beneath it. Derived, exactly
-    # as `task_is_phase` derives it — this must not diverge from the rollup's
-    # notion of a phase (ADR-0844: the derived fact wins for the math).
-    container_paths: set[str] = set()
-    for path in by_path:
-        parts = path.split(".")
-        for i in range(1, len(parts)):
-            container_paths.add(".".join(parts[:i]))
+    container_paths = _container_paths(by_path)
 
     lanes: dict[str, Lane] = {}
     order: list[str] = []
@@ -99,12 +117,9 @@ def build_lanes(
             order.append(lane_path)
         lanes[lane_path].task_ids.append(str(task.id))
 
-        # The crumb names the row's own parent when the lane cannot show it.
-        parent_path = ".".join(parts[:-1])
-        if parent_path != lane_path:
-            parent = by_path.get(parent_path)
-            if parent is not None:
-                crumbs[str(task.id)] = parent.name
+        crumb = _crumb_for(parts, lane_path, by_path)
+        if crumb is not None:
+            crumbs[str(task.id)] = crumb
 
     out = [lanes[p] for p in order]
     # Invariant 3: the project-node lane is absent when it holds nothing.
