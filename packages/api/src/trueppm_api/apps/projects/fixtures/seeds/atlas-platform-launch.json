@@ -557,6 +557,19 @@
           "governance_class": "flow",
           "labels": [
             "security"
+          ],
+          "attachments": [
+            {
+              "external_url": "https://example.com/atlas/design/sso-oidc-flow",
+              "external_title": "SSO / OIDC flow design",
+              "is_pinned": true,
+              "uploaded_by": "mei"
+            },
+            {
+              "external_url": "https://example.com/atlas/security/csrf-finding-0142",
+              "external_title": "Security review finding SR-0142 (CSRF on callback)",
+              "uploaded_by": "priya"
+            }
           ]
         },
         {
@@ -648,7 +661,17 @@
           "assignee": "mei",
           "sprint": "pc-sprint-6",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "assignments": [
+            {
+              "resource": "mei",
+              "units": 0.6
+            },
+            {
+              "resource": "diego",
+              "units": 0.4
+            }
+          ]
         },
         {
           "wbs_path": "1.8",
@@ -673,6 +696,26 @@
           "sprint": "pc-sprint-8",
           "delivery_mode": "scrum",
           "governance_class": "flow"
+        },
+        {
+          "wbs_path": "1.10",
+          "name": "Fallback IdP spike",
+          "type": "story",
+          "status": "COMPLETE",
+          "percent_complete": 100.0,
+          "story_points": 3,
+          "parent_epic": "1",
+          "assignee": "mei",
+          "sprint": "pc-sprint-5",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "attachments": [
+            {
+              "external_url": "https://example.com/atlas/spikes/fallback-idp",
+              "external_title": "Fallback IdP spike — findings",
+              "uploaded_by": "mei"
+            }
+          ]
         },
         {
           "wbs_path": "2.1",
@@ -862,7 +905,24 @@
           "assignee": "yuki",
           "sprint": "pc-sprint-5",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "attachments": [
+            {
+              "external_url": "https://example.com/atlas/runbooks/warehouse-backfill",
+              "external_title": "Warehouse backfill runbook",
+              "uploaded_by": "yuki"
+            }
+          ],
+          "assignments": [
+            {
+              "resource": "yuki",
+              "units": 0.8
+            },
+            {
+              "resource": "ivan",
+              "units": 0.2
+            }
+          ]
         },
         {
           "wbs_path": "3.5",
@@ -887,7 +947,17 @@
           "assignee": "yuki",
           "sprint": "pc-sprint-6",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "assignments": [
+            {
+              "resource": "yuki",
+              "units": 0.5
+            },
+            {
+              "resource": "omar",
+              "units": 0.5
+            }
+          ]
         },
         {
           "wbs_path": "3.7",
@@ -984,6 +1054,24 @@
           "governance_class": "flow",
           "labels": [
             "customer-request"
+          ],
+          "attachments": [
+            {
+              "external_url": "https://example.com/atlas/legal/tax-jurisdiction-scope",
+              "external_title": "Tax jurisdiction scope decision",
+              "is_pinned": true,
+              "uploaded_by": "jordan"
+            }
+          ],
+          "assignments": [
+            {
+              "resource": "tom",
+              "units": 0.75
+            },
+            {
+              "resource": "ivan",
+              "units": 0.2
+            }
           ]
         },
         {
@@ -1083,7 +1171,17 @@
           "assignee": "diego",
           "sprint": "pc-sprint-5",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "assignments": [
+            {
+              "resource": "diego",
+              "units": 0.7
+            },
+            {
+              "resource": "ivan",
+              "units": 0.2
+            }
+          ]
         },
         {
           "wbs_path": "5.4",
@@ -1361,6 +1459,9 @@
           "impact": 3,
           "category": "ORGANIZATIONAL",
           "response": "MITIGATE",
+          "trigger": "Two consecutive sprints close below 80% of committed points.",
+          "contingency": "Re-baseline Sprint 6-8 commitments against the post-onboarding run rate rather than the pre-expansion average.",
+          "mitigation_due_date": "A-24",
           "owner": "priya",
           "tasks": [
             "2.1"
@@ -1370,11 +1471,14 @@
           "slug": "pc-scope-creep",
           "title": "Billing scope creep",
           "description": "Tax-engine requirements are still firming up and may expand the billing epic.",
-          "status": "OPEN",
+          "status": "RESOLVED",
           "probability": 4,
           "impact": 3,
           "category": "PROJECT_MANAGEMENT",
-          "response": "MITIGATE",
+          "response": "AVOID",
+          "trigger": "A second tax jurisdiction is requested before the billing epic closes.",
+          "contingency": "n/a — the exposure was removed rather than managed: multi-jurisdiction tax moved out of 1.0 by decision, not deferred within it.",
+          "mitigation_due_date": "A-30",
           "owner": "jordan",
           "tasks": [
             "4.5"
@@ -1389,9 +1493,13 @@
           "impact": 4,
           "category": "EXTERNAL",
           "response": "MITIGATE",
+          "trigger": "Vendor misses a sandbox milestone, or certification slips past the Sprint 6 gate.",
+          "contingency": "Ship with the interim OIDC profile and defer enterprise SSO to 1.1; the fallback IdP spike (1.6) is what makes that a decision rather than a scramble.",
+          "mitigation_due_date": "A-18",
           "owner": "mei",
           "tasks": [
-            "1.1"
+            "1.1",
+            "1.10"
           ]
         },
         {
@@ -2650,11 +2758,25 @@
       "to": "MITIGATING"
     },
     {
+      "at": "A-54T09:45",
+      "action": "risk.note",
+      "target": "risk:pc-sso-vendor",
+      "actor": "mei",
+      "body": "Vendor slipped their sandbox milestone by a week. Raising to mitigating and spiking a fallback IdP (1.10) so a slip past the Sprint 6 gate is a decision we make, not one made for us."
+    },
+    {
       "at": "A-54T10:00",
       "action": "risk.status",
       "target": "risk:pc-sso-vendor",
       "actor": "mei",
       "to": "MITIGATING"
+    },
+    {
+      "at": "A-16T16:00",
+      "action": "risk.note",
+      "target": "risk:pc-sso-vendor",
+      "actor": "mei",
+      "body": "Fallback spike done — the interim OIDC profile carries login and defers only enterprise SSO. Certification is still open, but the critical path no longer runs through it."
     },
     {
       "at": "A-52T14:00",
@@ -2979,11 +3101,83 @@
       "actor": "jordan"
     },
     {
+      "at": "A-4T14:30",
+      "action": "risk.note",
+      "target": "risk:pc-notif-throttle",
+      "actor": "tom",
+      "body": "Per-tenant throttle shipped with the delivery queue; load test held at 5x the observed peak. Closing this out."
+    },
+    {
       "at": "A-4T15:00",
       "action": "risk.status",
       "target": "risk:pc-notif-throttle",
       "actor": "tom",
       "to": "RESOLVED"
+    },
+    {
+      "at": "A-30T11:00",
+      "action": "risk.note",
+      "target": "risk:pc-scope-creep",
+      "actor": "jordan",
+      "body": "@atlas-priya @atlas-alex — decision: multi-jurisdiction tax moves out of 1.0 rather than being deferred inside it. Avoiding the exposure instead of managing it; the billing epic scope is now fixed."
+    },
+    {
+      "at": "A-30T11:30",
+      "action": "risk.status",
+      "target": "risk:pc-scope-creep",
+      "actor": "jordan",
+      "to": "RESOLVED"
+    },
+    {
+      "at": "A-10T09:15",
+      "action": "task.block",
+      "target": "task:platform-core:5.3",
+      "actor": "diego",
+      "body": "Email provider hasn't verified our sending domain — digests can't go out to real addresses until DKIM is signed off, so the scheduler is built but untestable end to end.",
+      "blocker_type": "vendor"
+    },
+    {
+      "at": "A-9T10:00",
+      "action": "task.comment",
+      "target": "task:platform-core:5.3",
+      "actor": "diego",
+      "body": "@atlas-priya this is a vendor wait, not an estimate miss — the scheduler itself is done. Flagging it so the burndown reads honestly if it slips past Friday."
+    },
+    {
+      "at": "A-8T16:30",
+      "action": "task.comment",
+      "target": "task:platform-core:5.3",
+      "actor": "priya",
+      "body": "Acknowledged. @atlas-alex I'd rather carry this than fake a close — it's four days of vendor latency, not scope."
+    },
+    {
+      "at": "A-6T11:00",
+      "action": "task.unblock",
+      "target": "task:platform-core:5.3",
+      "actor": "diego",
+      "body": "DKIM verified, digests sending against the sandbox domain."
+    },
+    {
+      "at": "A-6T11:30",
+      "action": "task.comment",
+      "target": "task:platform-core:5.3",
+      "actor": "diego",
+      "body": "Unblocked after four days. Back in progress with the sprint's remaining point on it."
+    },
+    {
+      "at": "A-5T09:00",
+      "action": "task.block",
+      "target": "task:platform-core:4.5",
+      "actor": "tom",
+      "body": "Waiting on legal for the jurisdiction list — we cannot pick a tax provider until we know which jurisdictions are in scope for 1.0.",
+      "blocker_type": "decision"
+    },
+    {
+      "at": "A-4T09:30",
+      "action": "task.comment",
+      "target": "task:platform-core:4.5",
+      "actor": "tom",
+      "body": "@atlas-jordan this is the one still holding the billing epic. Not an estimate problem — we're waiting on an answer."
     },
     {
       "at": "A-3T09:30",
