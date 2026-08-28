@@ -142,6 +142,7 @@ describe('useBulkEdit — apply', () => {
       applied: [],
       rejected: [],
       skipped: [],
+      capabilities_denied: [],
       operation_id: null,
     });
     expect(result.current.skippedLocallyCount).toBe(1);
@@ -162,8 +163,9 @@ describe('useBulkEdit — apply', () => {
   it('stores the 207 body so the result phase can break it down', () => {
     const body = {
       applied: [{ index: 0, id: 't1', op: 'update' as const, outcome: 'updated' as const }],
-      rejected: [{ index: 1, id: 't2', code: 'forbidden', message: 'No edit access.' }],
+      rejected: [{ index: 1, id: 't2', code: 'forbidden' as const, message: 'No edit access.' }],
       skipped: [],
+      capabilities_denied: [],
       operation_id: null,
     };
     mutate.mockImplementation((_ops, opts) => {

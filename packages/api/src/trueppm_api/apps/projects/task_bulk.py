@@ -49,6 +49,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.access.permissions import can_user_edit_task
 from trueppm_api.apps.projects.models import TaskSource
+from trueppm_api.apps.projects.refusal_codes import BulkRefusalCode
 from trueppm_api.apps.projects.row_identity import (
     is_tombstoned,
     parse_row_uuid,
@@ -62,35 +63,29 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Reject / skip vocabulary
 # ---------------------------------------------------------------------------
+# The codes themselves — and the notes on what each one means and whether
+# retrying is worth the caller's time — live in ``refusal_codes.BulkRefusalCode``,
+# which is also what the response serializer publishes as an ``enum`` into the
+# OpenAPI schema (#3037). The names below are kept as module constants so the ~46
+# call sites in this file read as prose rather than as attribute chains, and are
+# bound to ``.value`` so what reaches ``json.dumps`` is a plain ``str`` and not an
+# enum member whose repr could drift with a Django version.
+#
+# Add a code by adding a member there. Writing a bare string literal at a call
+# site here puts a code on the wire that the schema does not publish, which is the
+# exact defect #3037 was filed about.
 
-#: The id was not a parseable UUID (guard 1). Reported before any ORM query runs.
-CODE_MALFORMED_ID = "malformed_id"
-#: The id cannot be used by this caller in this project (guard 2).
-#:
-#: Deliberately non-asserting. It covers BOTH "this id belongs to a project you
-#: cannot see" and "you may not have this id", and the caller cannot tell which —
-#: see :func:`row_identity.foreign_task_ids` and #359.
-CODE_ID_UNAVAILABLE = "id_unavailable"
-#: An update/delete named a task that is not in this project (or does not exist).
-#: Reported identically to a foreign id for the same membership-inference reason.
-CODE_NOT_FOUND = "not_found"
-#: The caller's role does not permit this row's operation.
-CODE_FORBIDDEN = "forbidden"
-#: The row body failed serializer validation.
-CODE_INVALID = "invalid"
-#: A database constraint rejected the row after validation passed.
-CODE_CONFLICT = "conflict"
-#: A dependency edge would close a cycle (ADR-0259 graph guard).
-CODE_CYCLIC_DEPENDENCY = "cyclic_dependency"
-#: A dependency edge links a task to itself.
-CODE_SELF_REFERENCE = "self_reference"
-#: An edge endpoint did not resolve to a live task in scope.
-CODE_UNRESOLVED_ENDPOINT = "unresolved_endpoint"
-
-#: A create whose id matches a soft-deleted row here (guard 3). A documented no-op.
-CODE_TOMBSTONED = "tombstoned"
-#: A cascade crossed a milestone, which is a gate rather than a failure (#2723 §4).
-CODE_MILESTONE_GATE = "milestone_gate"
+CODE_MALFORMED_ID = BulkRefusalCode.MALFORMED_ID.value
+CODE_ID_UNAVAILABLE = BulkRefusalCode.ID_UNAVAILABLE.value
+CODE_NOT_FOUND = BulkRefusalCode.NOT_FOUND.value
+CODE_FORBIDDEN = BulkRefusalCode.FORBIDDEN.value
+CODE_INVALID = BulkRefusalCode.INVALID.value
+CODE_CONFLICT = BulkRefusalCode.CONFLICT.value
+CODE_CYCLIC_DEPENDENCY = BulkRefusalCode.CYCLIC_DEPENDENCY.value
+CODE_SELF_REFERENCE = BulkRefusalCode.SELF_REFERENCE.value
+CODE_UNRESOLVED_ENDPOINT = BulkRefusalCode.UNRESOLVED_ENDPOINT.value
+CODE_TOMBSTONED = BulkRefusalCode.TOMBSTONED.value
+CODE_MILESTONE_GATE = BulkRefusalCode.MILESTONE_GATE.value
 
 #: Rejection text for a progress write with nothing to anchor the work to.
 #:

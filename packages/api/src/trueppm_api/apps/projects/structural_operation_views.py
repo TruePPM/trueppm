@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.db.models import Q, QuerySet
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -35,6 +35,7 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, StructuralOperation
+from trueppm_api.apps.projects.refusal_codes import StructuralUndoBlockedReason
 from trueppm_api.apps.projects.structural_operation_services import (
     StructuralUndoRejected,
     require_structural_undo_authority,
@@ -87,7 +88,7 @@ class StructuralOperationSerializer(serializers.ModelSerializer[StructuralOperat
         if cached is None:
             request = self.context.get("request")
             if request is not None and not _may_undo(request, obj):
-                cached = "forbidden"
+                cached = StructuralUndoBlockedReason.FORBIDDEN.value
             else:
                 cached = undo_blocked_reason(obj, check_shape=bool(self.context.get("detail")))
             self._reason_cache[obj.pk] = cached
@@ -114,6 +115,17 @@ class StructuralOperationSerializer(serializers.ModelSerializer[StructuralOperat
     def get_is_undoable(self, obj: StructuralOperation) -> bool:
         return not self._reason(obj)
 
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=StructuralUndoBlockedReason.choices,
+            help_text=(
+                "Why this operation cannot be undone, from a closed set (#3037). The "
+                "empty string means it can. `shape_changed` is evaluated only on the "
+                "detail read — it is racy by construction, and the 409 on the write is "
+                "authoritative either way."
+            ),
+        )
+    )
     def get_undo_blocked_reason(self, obj: StructuralOperation) -> str:
         return self._reason(obj)
 

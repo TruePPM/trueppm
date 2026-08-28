@@ -20094,7 +20094,7 @@
         "/api/v1/projects/{id}/tasks/bulk/": {
             "post": {
                 "operationId": "v1_projects_tasks_bulk_create",
-                "description": "Create, update, and delete tasks per row in a single request (ADR-0772, #2723).\n\nPOST /api/v1/projects/{pk}/tasks/bulk/\n\nBody::\n\n    {\n        \"operations\": [\n            { \"op\": \"create\", \"id\": \"<client-uuid>\", \"data\": { \"name\": \"Survey\" } },\n            { \"op\": \"update\", \"id\": \"<uuid>\", \"data\": { \"percent_complete\": 0.5 } },\n            { \"op\": \"delete\", \"id\": \"<uuid>\" }\n        ],\n        \"dependencies\": {\n            \"created\": [ { \"predecessor\": \"<uuid>\", \"successor\": \"<uuid>\",\n                           \"dep_type\": \"FS\", \"lag\": 0 } ]\n        }\n    }\n\n**Rows apply independently.** One unparseable row out of 38 must not discard the\nother 37 — that is the difference between paste-many being usable and being a\ncoin flip. Every op is applied inside its own savepoint and reported in exactly\none of three buckets, correlated by its zero-based ``index`` in ``operations``:\n\n    207 {\n        \"applied\":  [{ index, id, op, outcome, task }],\n        \"rejected\": [{ index, id, code, message }],\n        \"skipped\":  [{ index, id, code, message }],\n        \"dependencies\": { \"applied\": [...], \"rejected\": [...] }\n    }\n\n``index`` rather than ``id`` is the correlation handle: a row rejected because\nits id is unparseable has no usable id to echo back.\n\n``id`` on a ``create`` is the client-minted primary key (ADR-0772) — accepted\nverbatim, never remapped, and guarded by the four checks in\n``projects.row_identity``. A create whose id already exists here is an in-place\nedit under the **stricter** edit bar, never a second row.\n\nApply is two phases inside one ``transaction.atomic()``: phase 1 materializes\nevery task row, phase 2 applies dependency edges once every node exists (so an\nedge may forward-reference a task created later in the same batch). The ADR-0259\ngraph guard runs in phase 2 over existing ∪ batch edges, before any edge is\nwritten.",
+                "description": "Rows apply independently and are reported in `applied`, `rejected` or `skipped`, correlated by their zero-based `index` in `operations`. Every `code` comes from a closed, published set — see `TaskBulkProblemEntry.code`.\n\n**This request has two permission floors, not one.** Task rows require write access plus plan-authoring rights, enforced by this endpoint's permission classes. **Dependency edges additionally require the Scheduler band or above**, checked per edge while the batch is applied — so a `Member` receives a `207` in which task rows applied normally and every edge appears in `dependencies.rejected` with `forbidden`. That is a partial success, not an error, and the response carries `capabilities_denied: [\"dependencies\"]` so the gap is stated once rather than inferred from N rejected edges.\n\nConcretely, by role: **Member** — task rows only. **Scheduler** — `403` on the whole request; the plan-authoring rule (ADR-0773) excludes the resource-management band from this endpoint, so the Scheduler role that the edge check names cannot itself reach it. **Admin** and **Owner** — rows and edges. Provision a service account that must write dependencies at Admin or above; a Scheduler-role token is refused outright rather than partially.",
                 "summary": "Create, update, and delete tasks per row in one request",
                 "parameters": [
                     {
@@ -46009,6 +46009,13 @@
                     "name"
                 ]
             },
+            "CapabilitiesDeniedEnum": {
+                "enum": [
+                    "dependencies"
+                ],
+                "type": "string",
+                "description": "* `dependencies` - Dependencies"
+            },
             "CascadeClassificationOperation": {
                 "type": "object",
                 "properties": {
@@ -60369,8 +60376,16 @@
                         "readOnly": true
                     },
                     "undo_blocked_reason": {
-                        "type": "string",
-                        "readOnly": true
+                        "description": "Why this operation cannot be undone, from a closed set (#3037). The empty string means it can. `shape_changed` is evaluated only on the detail read — it is racy by construction, and the 409 on the write is authoritative either way.\n\n* `` - Undoable\n* `already_undone` - Already undone\n* `too_large` - Region too large to reverse\n* `not_top_of_stack` - Not top of stack\n* `shape_changed` - Outline changed since\n* `forbidden` - Forbidden",
+                        "readOnly": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/StructuralUndoBlockedReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
                     },
                     "result_summary": {
                         "readOnly": true
@@ -60413,6 +60428,17 @@
                 ],
                 "type": "string",
                 "description": "* `indent` - Indent\n* `outdent` - Outdent\n* `reparent` - Reparent\n* `reorder` - Reorder\n* `group` - Group\n* `ungroup` - Ungroup"
+            },
+            "StructuralUndoBlockedReasonEnum": {
+                "enum": [
+                    "already_undone",
+                    "too_large",
+                    "not_top_of_stack",
+                    "shape_changed",
+                    "forbidden"
+                ],
+                "type": "string",
+                "description": "* `` - Undoable\n* `already_undone` - Already undone\n* `too_large` - Region too large to reverse\n* `not_top_of_stack` - Not top of stack\n* `shape_changed` - Outline changed since\n* `forbidden` - Forbidden"
             },
             "StructureRoleConflict": {
                 "type": "object",
@@ -61620,8 +61646,12 @@
                         "description": "Null when the row was refused before an id could be resolved."
                     },
                     "code": {
-                        "type": "string",
-                        "description": "Stable machine code. `id_unavailable` is deliberately non-asserting — it does not reveal whether the id exists in a project the caller cannot see."
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskBulkRefusalCodeEnum"
+                            }
+                        ],
+                        "description": "Stable machine code, from a closed set (#3037). Retrying the identical row is futile for `malformed_id`, `self_reference`, `cyclic_dependency` and `invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and `forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops rather than failures. `id_unavailable` is deliberately non-asserting — it does not reveal whether the id exists in a project the caller cannot see.\n\n* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate"
                     },
                     "message": {
                         "type": "string"
@@ -61633,6 +61663,23 @@
                     "index",
                     "message"
                 ]
+            },
+            "TaskBulkRefusalCodeEnum": {
+                "enum": [
+                    "malformed_id",
+                    "id_unavailable",
+                    "not_found",
+                    "forbidden",
+                    "invalid",
+                    "conflict",
+                    "cyclic_dependency",
+                    "self_reference",
+                    "unresolved_endpoint",
+                    "tombstoned",
+                    "milestone_gate"
+                ],
+                "type": "string",
+                "description": "* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate"
             },
             "TaskBulkRequest": {
                 "type": "object",
@@ -61691,6 +61738,13 @@
                     "dependencies": {
                         "$ref": "#/components/schemas/TaskBulkDependencyResult"
                     },
+                    "capabilities_denied": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CapabilitiesDeniedEnum"
+                        },
+                        "description": "Capabilities this request carried that the caller's role cannot exercise at all — stated once, up front, instead of inferred from N per-item rejections (#3037). `dependencies` appears when the batch contained dependency edges and the caller's role is below the Scheduler band; in practice that means a `Member`, since the Scheduler role itself cannot reach this endpoint. Empty whenever every capability the request used was available — including a batch that carried no edges at all, which is not the same claim as `[]` meaning the caller could have written them."
+                    },
                     "operation_id": {
                         "type": "string",
                         "format": "uuid",
@@ -61700,6 +61754,7 @@
                 },
                 "required": [
                     "applied",
+                    "capabilities_denied",
                     "dependencies",
                     "operation_id",
                     "rejected",

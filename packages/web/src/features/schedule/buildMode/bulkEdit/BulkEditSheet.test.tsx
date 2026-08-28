@@ -179,8 +179,11 @@ describe('BulkEditSheet — form phase', () => {
 describe('BulkEditSheet — result phase', () => {
   const RESULT = {
     applied: [{ index: 0, id: 't1', op: 'update' as const, outcome: 'updated' as const }],
-    rejected: [{ index: 1, id: 't2', code: 'forbidden', message: 'You don’t have edit access.' }],
+    rejected: [
+      { index: 1, id: 't2', code: 'forbidden' as const, message: 'You don’t have edit access.' },
+    ],
     skipped: [],
+    capabilities_denied: [],
     operation_id: null,
   };
 

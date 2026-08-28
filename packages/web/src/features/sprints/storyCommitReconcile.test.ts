@@ -13,7 +13,14 @@ const SENT: CommittedStoryRef[] = [
 ];
 
 function response(over: Partial<TaskBulkResponse> = {}): TaskBulkResponse {
-  return { applied: [], rejected: [], skipped: [], operation_id: null, ...over };
+  return {
+    applied: [],
+    rejected: [],
+    skipped: [],
+    capabilities_denied: [],
+    operation_id: null,
+    ...over,
+  };
 }
 
 function applied(index: number, id: string) {

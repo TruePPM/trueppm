@@ -146,6 +146,10 @@ from trueppm_api.apps.projects.models import (
     structural_parent,
     sync_structure_shadow_values,
 )
+from trueppm_api.apps.projects.refusal_codes import (
+    CAPABILITY_DEPENDENCIES,
+    BulkRefusalCode,
+)
 from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
     current_version,
@@ -631,11 +635,16 @@ class TaskBulkProblemEntrySerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField(
         allow_null=True, help_text="Null when the row was refused before an id could be resolved."
     )
-    code = serializers.CharField(
+    code = serializers.ChoiceField(
+        choices=BulkRefusalCode.choices,
         help_text=(
-            "Stable machine code. `id_unavailable` is deliberately non-asserting — it "
+            "Stable machine code, from a closed set (#3037). Retrying the identical row "
+            "is futile for `malformed_id`, `self_reference`, `cyclic_dependency` and "
+            "`invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and "
+            "`forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops "
+            "rather than failures. `id_unavailable` is deliberately non-asserting — it "
             "does not reveal whether the id exists in a project the caller cannot see."
-        )
+        ),
     )
     message = serializers.CharField()
 
@@ -674,6 +683,19 @@ class TaskBulkResponseSerializer(serializers.Serializer[Any]):
         ),
     )
     dependencies = TaskBulkDependencyResultSerializer()
+    capabilities_denied = serializers.ListField(
+        child=serializers.ChoiceField(choices=[(CAPABILITY_DEPENDENCIES, "Dependencies")]),
+        help_text=(
+            "Capabilities this request carried that the caller's role cannot exercise at "
+            "all — stated once, up front, instead of inferred from N per-item rejections "
+            "(#3037). `dependencies` appears when the batch contained dependency edges and "
+            "the caller's role is below the Scheduler band; in practice that means a "
+            "`Member`, since the Scheduler role itself cannot reach this endpoint. Empty "
+            "whenever every capability the request used was available — including a batch "
+            "that carried no edges at all, which is not the same claim as `[]` meaning the "
+            "caller could have written them."
+        ),
+    )
     operation_id = serializers.UUIDField(
         allow_null=True,
         help_text=(
@@ -8848,6 +8870,29 @@ def _register_bulk_commit_hooks(
 @extend_schema_view(
     post=extend_schema(
         summary="Create, update, and delete tasks per row in one request",
+        description=(
+            "Rows apply independently and are reported in `applied`, `rejected` or "
+            "`skipped`, correlated by their zero-based `index` in `operations`. Every "
+            "`code` comes from a closed, published set — see `TaskBulkProblemEntry.code`."
+            "\n\n"
+            "**This request has two permission floors, not one.** Task rows require "
+            "write access plus plan-authoring rights, enforced by this endpoint's "
+            "permission classes. **Dependency edges additionally require the Scheduler "
+            "band or above**, checked per edge while the batch is applied — so a "
+            "`Member` receives a `207` in which task rows applied normally and every "
+            "edge appears in `dependencies.rejected` with `forbidden`. That is a "
+            "partial success, not an error, and the response carries "
+            '`capabilities_denied: ["dependencies"]` so the gap is stated once '
+            "rather than inferred from N rejected edges."
+            "\n\n"
+            "Concretely, by role: **Member** — task rows only. **Scheduler** — `403` on "
+            "the whole request; the plan-authoring rule (ADR-0773) excludes the "
+            "resource-management band from this endpoint, so the Scheduler role that "
+            "the edge check names cannot itself reach it. **Admin** and **Owner** — "
+            "rows and edges. Provision a service account that must write dependencies "
+            "at Admin or above; a Scheduler-role token is refused outright rather than "
+            "partially."
+        ),
         request=TaskBulkSerializer,
         # 207, not 200 — rows apply independently, so the response reports a mix of
         # applied, rejected and skipped rather than one verdict for the whole batch.
@@ -9019,6 +9064,25 @@ class TaskBulkView(IdempotencyMixin, APIView):
                 "rejected": out.rejected,
                 "skipped": out.skipped,
                 "dependencies": {"applied": out.dep_applied, "rejected": out.dep_rejected},
+                # #3037 facet B: one credential, two permission floors. Task rows are
+                # gated at this view (IsProjectMemberWrite + IsProjectPlanAuthor);
+                # dependency edges are gated per-edge at IsProjectScheduler inside
+                # `_resolve_edges`. A Member submitting rows AND edges therefore got a
+                # 207 with every row applied and every edge rejected, and nothing said
+                # the gap was structural rather than per-edge — so the caller learned it
+                # by noticing a pattern across batches. Stated once here instead.
+                #
+                # Keyed on the request bucket (`dependencies`), not on the role that
+                # would satisfy it: the client knows what it sent, and requiring it to
+                # know TruePPM's role ordinals is the knowledge gap this closes. That
+                # matters more than it looks: the gate below names SCHEDULER, but
+                # ADR-0773's plan-authoring rule excludes the Scheduler BAND from this
+                # endpoint outright, so the roles that actually reach the gate and pass
+                # it are Admin and Owner. Naming a role here would name the one role
+                # that cannot use the endpoint.
+                "capabilities_denied": (
+                    [CAPABILITY_DEPENDENCIES] if edge_rows and caller_role < Role.SCHEDULER else []
+                ),
                 # ADR-0810 (#2756): null when the batch created no rows, so the
                 # client has nothing to key an Undo affordance off — never a
                 # placeholder id that would 404 on POST .../undo/.

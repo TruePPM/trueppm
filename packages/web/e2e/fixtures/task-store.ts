@@ -333,7 +333,14 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
     // {id}/undo/` below deletes exactly this batch's created ids.
     const operationId = createdIds.length > 0 ? 'e2e-paste-many-op-1' : null;
     if (createdIds.length > 0) lastPasteManyUndo = createdIds;
-    return route.fulfill(json({ applied, rejected, skipped: [], operation_id: operationId }, 207));
+    return route.fulfill(
+      json(
+        // `capabilities_denied` is always present on the real 207 (#3037) — a mock
+        // that omits it hands the next reader `undefined` where the server sends `[]`.
+        { applied, rejected, skipped: [], capabilities_denied: [], operation_id: operationId },
+        207,
+      ),
+    );
   });
 
   // ADR-0810 (#2756): reverses the most recent paste-many batch by removing
@@ -410,6 +417,7 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
       subtree: body.subtree,
       matched: matched.length,
       skipped,
+      capabilities_denied: [],
       operation_id: operationId,
     };
     if (body.governance_class != null) {
