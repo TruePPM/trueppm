@@ -175,6 +175,58 @@ test.describe('Grid ↔ Timeline — one row model, two surfaces (#2960)', () =>
   });
 });
 
+test.describe('Grid ↔ Timeline — the layout follows the mode (#3114)', () => {
+  // Wide enough that the mode control stays the full pill rather than
+  // collapsing to `ScheduleModeChip` — this spec drives the pill by test id.
+  test.use({ viewport: { width: 1600, height: 900 } });
+
+  const pill = (page: Page) => page.getByTestId('author-mode-pill');
+  const checked = (page: Page, name: 'Grid' | 'Timeline') =>
+    expect(layout(page).getByRole('radio', { name })).toHaveAttribute('aria-checked', 'true');
+
+  test.beforeEach(({ page }) => goto(page));
+
+  test('entering Author switches to Grid, and Read restores the previous layout', async ({
+    page,
+  }) => {
+    // The Schedule mounts in Author. Drop to Read first so the Timeline choice
+    // below is made in reading mode, which is the situation this is about: a
+    // planner reviewing a plan who decides to start editing.
+    await pill(page).click();
+    await expect(pill(page)).toHaveText(/Read/);
+
+    await layout(page).getByRole('radio', { name: 'Timeline' }).click();
+    await checked(page, 'Timeline');
+
+    await pill(page).click();
+    await expect(pill(page)).toHaveText(/Author/);
+    await checked(page, 'Grid');
+
+    await pill(page).click();
+    await expect(pill(page)).toHaveText(/Read/);
+    await checked(page, 'Timeline');
+  });
+
+  test('a layout chosen during Author survives the return to Read', async ({ page }) => {
+    // Rule 3 — the coupling fires on the transition and never fights a
+    // deliberate choice. Starts in Grid so the remembered layout ('grid') and
+    // the manual choice ('timeline') differ; if they matched, remembering and
+    // forgetting would look identical.
+    await checked(page, 'Grid');
+    await pill(page).click();
+    await expect(pill(page)).toHaveText(/Read/);
+    await pill(page).click();
+    await expect(pill(page)).toHaveText(/Author/);
+
+    await layout(page).getByRole('radio', { name: 'Timeline' }).click();
+    await checked(page, 'Timeline');
+
+    await pill(page).click();
+    await expect(pill(page)).toHaveText(/Read/);
+    await checked(page, 'Timeline');
+  });
+});
+
 test.describe('Grid ↔ Timeline — a viewer gets absence on BOTH surfaces (#2960, web rule 302)', () => {
   test.beforeEach(async ({ page }) => {
     await setupAuth(page);

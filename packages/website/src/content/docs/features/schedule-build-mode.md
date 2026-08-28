@@ -432,6 +432,13 @@ role-based access control is untouched, and it never restricts anyone else. The 
 persists per project, per browser, and a toolbar pill always shows which mode is active
 so it is never silently on.
 
+Switching mode also moves the **layout**. Entering Author switches you to **Grid** — the
+layout the row list, outline controls and inline editing live in — and returning to Read
+puts you back in whichever layout you came from. If you pick a layout yourself while
+authoring, that choice stands: the switch happens once, on the mode change, and never
+overrides you afterwards. On mobile nothing changes, because the layout is already
+Timeline at that width.
+
 ## Selecting and acting on multiple rows
 
 `Shift + ↑` / `Shift + ↓` extends a contiguous selection from whichever row you started
