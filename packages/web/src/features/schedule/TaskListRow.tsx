@@ -654,10 +654,16 @@ function handleRowEnter(
   const { authoring: buildMode, task, isSelected, setSelectedTaskId } = ctx;
   if (buildMode) {
     // Shift+Enter = sibling above, ⌘/Ctrl+Enter = child, plain Enter = sibling
-    // below (#2727).
+    // below (#2727). The modifiers are explicit insert gestures and ignore the
+    // `enterCreatesRow` preference; only the plain chord is a "finish the edit"
+    // motion that a renamer wants without a new row (#3079).
     if (e.metaKey || e.ctrlKey) buildMode.insertChild(task.id);
     else if (e.shiftKey) buildMode.insertAbove(task.id);
-    else buildMode.insertBelow(task.id);
+    else if (buildMode.enterCreatesRow !== false) buildMode.insertBelow(task.id);
+    // Preference off: keep the one mental model this file states — "Enter always
+    // ends with the cursor in an editable Name cell" — by opening the editor on
+    // THIS row instead of a new one, which is what F2 already does.
+    else buildMode.focus.enterCellEdit(task.id, 'name');
   } else {
     setSelectedTaskId(isSelected ? null : task.id);
   }
@@ -3241,7 +3247,10 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         onEnterCommit={(mods) => {
           if (mods.metaKey || mods.ctrlKey) buildMode.insertChild(task.id);
           else if (mods.shiftKey) buildMode.insertAbove(task.id);
-          else buildMode.insertBelow(task.id);
+          // #3079: with the preference off, a plain Enter commits and stops. The
+          // edit is already committed by EditableCell before this fires, so doing
+          // nothing here IS "commit without creating" — the reported case.
+          else if (buildMode.enterCreatesRow !== false) buildMode.insertBelow(task.id);
         }}
         emptyIsNoop
         draftOverride={draftOverride}

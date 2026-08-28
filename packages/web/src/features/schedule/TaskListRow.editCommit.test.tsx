@@ -141,6 +141,8 @@ const spies = {
 
 interface HarnessProps {
   task?: Task;
+  /** #3079 — omitted means "as shipped" (Enter also inserts a row). */
+  enterCreatesRow?: boolean;
   level?: number;
   siblingIds?: string[];
   nameSuggestions?: string[];
@@ -150,6 +152,7 @@ interface HarnessProps {
 
 function Harness({
   task = base,
+  enterCreatesRow,
   level = 2,
   siblingIds,
   nameSuggestions,
@@ -173,8 +176,9 @@ function Harness({
       duplicateSubtree: spies.duplicateSubtree,
       deleteTask: spies.deleteTask,
       isMutationPending: () => false,
+      ...(enterCreatesRow === undefined ? {} : { enterCreatesRow }),
     }),
-    [focus],
+    [focus, enterCreatesRow],
   );
   return (
     <BuildModeProvider api={api}>
@@ -240,6 +244,35 @@ describe('TaskListRow — Name cell commit (build mode)', () => {
     expect(spies.insertBelow).toHaveBeenCalledWith('t1');
     // onCommit also flips showSprintPrompt → the (stubbed) SprintPrompt renders.
     expect(screen.getByTestId('sprint-pick')).toBeInTheDocument();
+  });
+
+  // #3079 — the reported case. Renaming an existing row committed the edit AND
+  // spawned a blank row that then had to be deleted, every time.
+  it('with Enter-creates-a-row off, committing a rename does NOT insert a row', async () => {
+    const user = userEvent.setup();
+    const { focus } = renderBuild({ enterCreatesRow: false });
+    act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
+    const input = screen.getByLabelText('Rename item Design Phase');
+    await user.clear(input);
+    await user.type(input, 'Discovery{Enter}');
+
+    // The edit still commits — that is the half the preference must not touch.
+    expect(mocks.updateMutate).toHaveBeenCalledWith({
+      id: 't1',
+      projectId: 'p1',
+      name: 'Discovery',
+    });
+    expect(spies.insertBelow).not.toHaveBeenCalled();
+  });
+
+  it('with it off, Shift+Enter in the name cell still inserts above', async () => {
+    const user = userEvent.setup();
+    const { focus } = renderBuild({ enterCreatesRow: false });
+    act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
+    const input = screen.getByLabelText('Rename item Design Phase');
+    await user.clear(input);
+    await user.type(input, 'Discovery{Shift>}{Enter}{/Shift}');
+    expect(spies.insertAbove).toHaveBeenCalledWith('t1');
   });
 
   it('Escape in the name cell rolls back to the row without a PATCH', async () => {

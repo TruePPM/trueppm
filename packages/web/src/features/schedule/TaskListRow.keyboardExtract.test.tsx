@@ -164,3 +164,121 @@ describe('TaskListRow — ⌘D / Ctrl+D duplicate (flag-off, ADR-0066 Q1)', () =
     });
   });
 });
+
+/**
+ * #3079 — the `enterCreatesRow` display preference.
+ *
+ * Since #1666 a plain Enter commits AND inserts a sibling below, which is the
+ * right default for rapid sequence entry and the wrong one for renaming rows that
+ * already exist: every commit spawned a blank row that then had to be deleted.
+ *
+ * The pins that matter are the two the preference must NOT change. Modifiers are
+ * explicit insert gestures and still insert, and the file's stated mental model —
+ * "Enter always ends with the cursor in an editable Name cell" — has to survive
+ * turning row creation off, or the setting quietly breaks the keyboard model.
+ */
+describe('TaskListRow — Enter creates a new row (#3079)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const spies = {
+    insertBelow: vi.fn(),
+    insertAbove: vi.fn(),
+    insertChild: vi.fn(),
+    enterCellEdit: vi.fn(),
+  };
+
+  function EnterHarness({
+    enterCreatesRow,
+    capture,
+  }: {
+    enterCreatesRow?: boolean;
+    capture: { current: { focusRow: (id: string) => void } | null };
+  }) {
+    const focus = useScheduleFocus();
+    const api = useMemo<BuildModeApi>(
+      () => ({
+        focus: { ...focus, enterCellEdit: spies.enterCellEdit },
+        indent: vi.fn(),
+        outdent: vi.fn(),
+        insertBelow: spies.insertBelow,
+        insertAbove: spies.insertAbove,
+        insertChild: spies.insertChild,
+        mergeIntoPreviousRow: vi.fn(),
+        isCaretAtEndRow: () => false,
+        clearCaretAtEndRow: vi.fn(),
+        convertToMilestone: vi.fn(),
+        duplicateSubtree: vi.fn(),
+        deleteTask: vi.fn(),
+        isMutationPending: () => false,
+        ...(enterCreatesRow === undefined ? {} : { enterCreatesRow }),
+      }),
+      [focus, enterCreatesRow],
+    );
+    capture.current = { focusRow: focus.focusRow };
+    return (
+      <BuildModeProvider api={api}>
+        <TaskListRow
+          task={baseTask}
+          level={2}
+          widths={widths}
+          visible={visible}
+          siblingIds={['t-r1', 't-r2']}
+        />
+      </BuildModeProvider>
+    );
+  }
+
+  function pressEnter(
+    enterCreatesRow: boolean | undefined,
+    mods: { shiftKey?: boolean; metaKey?: boolean } = {},
+  ) {
+    const capture: { current: { focusRow: (id: string) => void } | null } = { current: null };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={['/projects/p1/schedule']}>
+        <QueryClientProvider client={qc}>
+          <Routes>
+            <Route
+              path="/projects/:projectId/schedule"
+              element={<EnterHarness enterCreatesRow={enterCreatesRow} capture={capture} />}
+            />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    act(() => capture.current!.focusRow('t-r1'));
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter', ...mods });
+  }
+
+  it('on (the default) keeps #1666: Enter inserts a sibling below', () => {
+    pressEnter(true);
+    expect(spies.insertBelow).toHaveBeenCalledWith('t-r1');
+  });
+
+  it('off: Enter does not insert a row', () => {
+    pressEnter(false);
+    expect(spies.insertBelow).not.toHaveBeenCalled();
+  });
+
+  it('off: Enter still ends with the cursor in an editable Name cell', () => {
+    pressEnter(false);
+    expect(spies.enterCellEdit).toHaveBeenCalledWith('t-r1', 'name');
+  });
+
+  it('off: Shift+Enter still inserts above — a modifier is an explicit insert', () => {
+    pressEnter(false, { shiftKey: true });
+    expect(spies.insertAbove).toHaveBeenCalledWith('t-r1');
+  });
+
+  it('off: ⌘/Ctrl+Enter still inserts a child', () => {
+    pressEnter(false, { metaKey: true });
+    expect(spies.insertChild).toHaveBeenCalledWith('t-r1');
+  });
+
+  // A BuildModeApi mock that predates this preference must not silently lose row
+  // creation — absent has to read as the shipped default, not as "off".
+  it('absent reads as on, so an un-updated caller is unchanged', () => {
+    pressEnter(undefined);
+    expect(spies.insertBelow).toHaveBeenCalledWith('t-r1');
+  });
+});

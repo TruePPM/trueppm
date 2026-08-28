@@ -24,6 +24,28 @@ describe('useScheduleDisplayOptions', () => {
     expect(result.current.options.coach).toBe(true);
   });
 
+  it('defaults Enter-creates-a-new-row ON, preserving #1666 (#3079)', () => {
+    const { result } = renderHook(() => useScheduleDisplayOptions('p1'));
+    // The one Outline option whose lean reading is ON: turning it off would change
+    // shipped behavior for every user who never opens the Display menu.
+    expect(result.current.options.enterCreatesRow).toBe(true);
+  });
+
+  it('persists Enter-creates-a-new-row like every other Outline option (#3079)', () => {
+    const { result } = renderHook(() => useScheduleDisplayOptions('p1'));
+    act(() => result.current.toggle('enterCreatesRow'));
+    expect(result.current.options.enterCreatesRow).toBe(false);
+    expect(JSON.parse(window.localStorage.getItem(KEY)!)).toMatchObject({
+      enterCreatesRow: false,
+    });
+  });
+
+  it('rehydrates Enter-creates-a-new-row from storage (#3079)', () => {
+    window.localStorage.setItem(KEY, JSON.stringify({ enterCreatesRow: false }));
+    const { result } = renderHook(() => useScheduleDisplayOptions('p1'));
+    expect(result.current.options.enterCreatesRow).toBe(false);
+  });
+
   it('persists a toggle per user per project', () => {
     const { result } = renderHook(() => useScheduleDisplayOptions('p1'));
     act(() => result.current.toggle('coach'));

@@ -225,6 +225,16 @@ export function ScheduleDisplayMenu({
                 checked: displayOptions.comfortableRows,
                 activate: () => onToggleDisplayOption('comfortableRows'),
               },
+              // #3079. Default on, keeping #1666's shipped motion for rapid
+              // sequence entry; off is for the other job, editing rows that
+              // already exist, where every commit left a blank row to delete.
+              {
+                kind: 'checkbox' as const,
+                id: 'enter-creates-row',
+                label: 'Enter creates a new row',
+                checked: displayOptions.enterCreatesRow,
+                activate: () => onToggleDisplayOption('enterCreatesRow'),
+              },
             ],
           },
         ]
