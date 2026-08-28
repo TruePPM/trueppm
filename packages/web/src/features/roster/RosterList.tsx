@@ -41,7 +41,11 @@ export function RosterList({ items, selectedId, onSelect, filterQuery }: RosterL
   }
 
   return (
-    <ul role="listbox" aria-label="Project roster" className="flex flex-col divide-y divide-neutral-border">
+    <ul
+      role="listbox" // dropdown-scroll-ok: in-page list inheriting its ancestor panel's overflow-y-auto (RosterPage.tsx), not a floating dropdown
+      aria-label="Project roster"
+      className="flex flex-col divide-y divide-neutral-border"
+    >
       {filtered.map((pr) => {
         const isSelected = pr.id === selectedId;
         const pct = capacityPercent(pr);

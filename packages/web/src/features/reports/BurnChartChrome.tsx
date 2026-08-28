@@ -53,7 +53,7 @@ export function ExportMenu({
         <span aria-hidden="true">↓</span> Export
       </button>
       <div
-        role="menu"
+        role="menu" // dropdown-scroll-ok: 2 fixed items (export menu)
         // State drives the explicit open (click/touch, keyboard Enter/
         // Space on the trigger, and Escape/outside-click to dismiss);
         // group-hover stays as a progressive enhancement for pointer

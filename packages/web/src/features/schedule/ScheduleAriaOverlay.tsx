@@ -548,7 +548,7 @@ export function ScheduleAriaOverlay({
   return (
     <div
       ref={gridRef}
-      role="listbox"
+      role="listbox" // dropdown-scroll-ok: sr-only accessibility tree mirroring the Gantt canvas, not a floating menu/listbox
       aria-label="Schedule chart"
       aria-describedby="schedule-grid-help"
       style={{

@@ -149,7 +149,7 @@ export function QuarterModeControl() {
         <div
           ref={menuRef}
           id={menuId}
-          role="menu"
+          role="menu" // dropdown-scroll-ok: 2-3 fixed radio items, content cannot grow
           aria-label="Quarter labels"
           tabIndex={-1}
           onKeyDown={onMenuKeyDown}

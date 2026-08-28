@@ -124,7 +124,7 @@ export function CreateMenu() {
       </button>
       {menuOpen && (
         <div
-          role="menu"
+          role="menu" // dropdown-scroll-ok: small fixed/permission-filtered list
           aria-label="Create new"
           className="absolute top-full right-0 mt-1 z-50 min-w-[160px] bg-neutral-surface border border-neutral-border rounded-card p-1"
         >

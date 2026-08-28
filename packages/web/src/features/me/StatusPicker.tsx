@@ -71,7 +71,11 @@ export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
       >
         Move &ldquo;{taskName}&rdquo; to
       </div>
-      <ul role="listbox" aria-label="Status options" className="py-1">
+      <ul
+        role="listbox" // dropdown-scroll-ok: fixed short status enum
+        aria-label="Status options"
+        className="py-1"
+      >
         {OPTIONS.map((opt, idx) => {
           const selected = opt.value === current;
           return (

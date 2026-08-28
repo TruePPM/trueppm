@@ -313,7 +313,7 @@ export function ViewsMenu() {
       {isOpen && (
         <div
           ref={menuRef}
-          role="menu"
+          role="menu" // dropdown-scroll-ok: in-flow inside the rail's own overflow-y-auto scroll region (Sidebar.tsx), not a floating panel - verified #3109
           aria-label="Customize views"
           className="order-last basis-full w-full mt-1 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
         >

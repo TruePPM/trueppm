@@ -690,7 +690,7 @@ export function ScheduleDependencyPicker({
         {scope === 'project' ? (
           <ul
             id={listboxId}
-            role="listbox"
+            role="listbox" // dropdown-scroll-ok: flex-1 overflow-y-auto inside the picker dialog's own max-h-[480px] flex-col container
             aria-label="Task results"
             className="flex-1 overflow-y-auto px-2 pb-2"
           >
@@ -873,7 +873,7 @@ function ProgramResults({
     // is not an allowed child, and duplicating the name announces it twice.
     <ul
       id={listboxId}
-      role="listbox"
+      role="listbox" // dropdown-scroll-ok: same dialog as the first results listbox above; this is the second results list
       aria-label="Program task results"
       className="flex-1 overflow-y-auto px-2 pb-2"
     >
