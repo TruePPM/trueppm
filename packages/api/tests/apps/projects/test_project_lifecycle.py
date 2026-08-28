@@ -486,3 +486,19 @@ class TestEveryExcludedSurface:
             user, datetime.datetime(2026, 7, 26, 17, 0, tzinfo=datetime.UTC)
         )
         assert seen == ["Committed"]
+
+    def test_exclude_draft_projects_refuses_a_multi_valued_path(self, program: Program) -> None:
+        """The helper's one real footgun, closed at the call rather than in prose.
+
+        ``exclude(projects__lifecycle=DRAFT)`` on a ``Program`` queryset reads like
+        the same exclusion but asks the opposite question: it drops every program
+        that has ANY draft child. A wrong answer, not a slow one — and nothing
+        downstream would reveal it.
+        """
+        from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
+
+        with pytest.raises(ValueError, match="multi-valued"):
+            exclude_draft_projects(Program.objects.all(), path="projects")
+
+        # The supported shape still works, on the same call.
+        assert exclude_draft_projects(Task.objects.all()).count() == 0
