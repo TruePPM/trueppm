@@ -38,6 +38,9 @@ class Migration(migrations.Migration):
             model_name="apitokenauditentry",
             index=models.Index(fields=["program", "-created_at"], name="api_token_audit_prog_idx"),
         ),
+        # safe-constraint: `program` is added by this migration and `project` was NOT
+        # NULL until the AlterField above, so every pre-existing row is (project set,
+        # program null) — the constraint's first branch.
         migrations.AddConstraint(
             model_name="apitokenauditentry",
             constraint=models.CheckConstraint(

@@ -71,6 +71,10 @@ class Migration(migrations.Migration):
         ),
         # 5. XOR constraint: exactly one of project / program is non-null.
         #    Enforces the polymorphic-scope invariant at the database layer.
+        # safe-constraint: `program` is added by this migration (null=True) and
+        # `project` was NOT NULL until the AlterField above, so every pre-existing row
+        # is (project set, program null) — the constraint's first branch. No row can
+        # already violate it.
         migrations.AddConstraint(
             model_name="apitoken",
             constraint=models.CheckConstraint(

@@ -28,6 +28,9 @@ class Migration(migrations.Migration):
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
+        # safe-constraint: widens the (project, client_batch_id) uniqueness removed
+        # above to (project, actor_user, client_batch_id). A superset of an already
+        # unique key is unique, so no existing row can violate the wider constraint.
         migrations.AddConstraint(
             model_name="syncbatch",
             constraint=models.UniqueConstraint(

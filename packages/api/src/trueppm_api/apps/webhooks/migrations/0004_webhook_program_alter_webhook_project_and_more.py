@@ -47,6 +47,9 @@ class Migration(migrations.Migration):
             model_name="webhook",
             index=models.Index(fields=["program", "is_active"], name="webhook_program_active_idx"),
         ),
+        # safe-constraint: `program` is added by this migration and `project` was NOT
+        # NULL until the AlterField above, so every pre-existing row is (project set,
+        # program null) — the constraint's first branch.
         migrations.AddConstraint(
             model_name="webhook",
             constraint=models.CheckConstraint(

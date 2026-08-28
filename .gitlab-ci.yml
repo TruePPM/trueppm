@@ -566,6 +566,8 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/check-release-images.test.sh
+        - scripts/check-migration-constraint-safety.py
+        - scripts/tests/check-migration-constraint-safety.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -593,6 +595,8 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/check-release-images.test.sh
+        - scripts/check-migration-constraint-safety.py
+        - scripts/tests/check-migration-constraint-safety.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -607,6 +611,7 @@ scripts:test:
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
     - bash scripts/tests/check-release-images.test.sh
+    - bash scripts/tests/check-migration-constraint-safety.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -2409,6 +2414,34 @@ api:migration-numbering:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - git fetch origin "$CI_DEFAULT_BRANCH" --quiet
     - python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
+
+api:migration-constraint-safety:
+  # `AddConstraint` builds and VALIDATES its index against every existing row, so a
+  # constraint added to a POPULATED table fails `migrate` on any database already
+  # holding a violating row — and migrations run on container start, making that an
+  # upgrade crash-loop rather than a failed deploy (#3068).
+  #
+  # Neither existing migration gate can see this. api:migration-check runs
+  # `makemigrations --check --dry-run`, which compares model state to migration files
+  # and never opens a database (its own comment says so); api:migration-numbering is a
+  # numbering-collision guard. The green api:migration-check on the offending MR read
+  # as evidence about the migration when it was evidence about something else.
+  #
+  # The classification is entirely static, so this is a lint: no Django, no database,
+  # no dependency install, seconds. An AddConstraint on a table not created in the same
+  # migration must be preceded by a RunPython repair, or carry an explicit
+  # `# safe-constraint: <reason>` comment.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    - python3 scripts/check-migration-constraint-safety.py
 
 api:openapi-check:
   # drf-spectacular schema generation is pure view/serializer introspection;

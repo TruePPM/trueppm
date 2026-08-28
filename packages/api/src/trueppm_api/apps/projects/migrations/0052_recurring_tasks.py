@@ -265,6 +265,9 @@ class Migration(migrations.Migration):
                 to="projects.taskrecurrencerule",
             ),
         ),
+        # safe-constraint: both constrained columns are added by this migration, so
+        # every pre-existing row holds NULL in both. Postgres treats NULLs as distinct
+        # in a unique index, so no two existing rows can collide.
         migrations.AddConstraint(
             model_name="task",
             constraint=models.UniqueConstraint(

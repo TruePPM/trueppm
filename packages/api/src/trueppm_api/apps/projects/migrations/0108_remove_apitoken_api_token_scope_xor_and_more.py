@@ -58,6 +58,10 @@ class Migration(migrations.Migration):
                 fields=["owner", "revoked_at"], name="projects_ap_owner_i_f970a8_idx"
             ),
         ),
+        # safe-constraint: `owner` is added by this migration, and the 2-way
+        # project/program XOR removed above was enforcing exactly one of them on every
+        # existing row. Those rows therefore read (owner null, exactly one of
+        # project/program set), which is branch 1 or 2 of the widened 3-way XOR.
         migrations.AddConstraint(
             model_name="apitoken",
             constraint=models.CheckConstraint(
@@ -82,6 +86,10 @@ class Migration(migrations.Migration):
                 name="api_token_scope_xor",
             ),
         ),
+        # safe-constraint: `owner` is added by this migration, and the 2-way
+        # project/program XOR removed above was enforcing exactly one of them on every
+        # existing row. Those rows therefore read (owner null, exactly one of
+        # project/program set), which is branch 1 or 2 of the widened 3-way XOR.
         migrations.AddConstraint(
             model_name="apitokenauditentry",
             constraint=models.CheckConstraint(

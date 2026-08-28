@@ -236,6 +236,25 @@ short enough to be signal. Six rules:
    regenerated `0001_initial` to replace the history; that path cannot reproduce the
    non-regenerable operations below and would force every existing database to be
    dropped.
+7. **Repair the data before you add a constraint to a populated table.**
+   `AddConstraint` builds and *validates* its index against every existing row, and
+   migrations run on container start — so one violating row is an upgrade
+   crash-loop, not a failed deploy you can roll back at leisure (#3068). Precede it
+   with a `RunPython` repair, as `projects.0121` and `projects.0148` do. Where
+   existing rows provably cannot violate the constraint, say why in a
+   `# safe-constraint: <reason>` comment on the operation. `make pre-push` and the
+   `api:migration-constraint-safety` CI job enforce one or the other, and recognize
+   four shapes without a comment: the model is created in the same migration (empty
+   table), the migration declares `replaces=`, the same migration runs
+   `AlterUniqueTogether` for that model (a `unique_together` conversion is already
+   enforced), or a `RunPython` precedes the constraint.
+
+   Be honest about what that buys: an opt-out comment is a rubber stamp, exactly like
+   `--update-baseline` on the docs gate, and it cannot stop a wrong answer. What it
+   removes is the **silence** — before it, `api:migration-check` went green on the
+   #3068 migration and that green read as evidence about the migration when it was
+   evidence about something else entirely. `makemigrations --check` never opens a
+   database, so the class had no gate at all.
 
 **Why `replaces=` and not a regenerated `0001_initial`.** `makemigrations` cannot
 reproduce operations that live outside model state, so a hand-regenerated initial
