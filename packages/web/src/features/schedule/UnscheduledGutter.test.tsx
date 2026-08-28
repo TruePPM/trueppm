@@ -337,6 +337,94 @@ describe('UnscheduledGutter — the count is a control', () => {
       screen.queryByRole('button', { name: /Go to the next unscheduled item/i }),
     ).toBeNull();
   });
+
+  /**
+   * WCAG 2.5.3 Label in Name — the visible label is `(2)`, so the accessible
+   * name has to contain it or a speech-input user saying "click 2" gets
+   * nothing. It leads with the token rather than merely including it.
+   */
+  it('leads the accessible name with the visible count', () => {
+    renderGutter(rows, undefined, undefined, vi.fn());
+    const countBtn = screen.getByRole('button', {
+      name: /Go to the next unscheduled item/i,
+    });
+    expect(countBtn).toHaveAccessibleName(/^\(2\)/);
+  });
+});
+
+/**
+ * #3131 — the tray disappearing at zero must not take the user's focus or an
+ * in-flight signal down with it. Both of these are the same class as the
+ * aria-live region being hoisted out of the render gate.
+ */
+describe('UnscheduledGutter — what survives the tray vanishing', () => {
+  function renderWithCount(tasks: Task[], qc: QueryClient) {
+    return (
+      <QueryClientProvider client={qc}>
+        <UnscheduledGutter
+          tasks={tasks}
+          projectId="proj1"
+          scaleData={null}
+          canvasScrollRef={createRef<HTMLDivElement>()}
+          taskListWidth={200}
+          onWalkToUnscheduled={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+  }
+
+  it('hands focus back to the outline when the region unmounts under it', () => {
+    // Stand in for the Schedule outline's roving-tabindex row.
+    const outlineRow = document.createElement('div');
+    outlineRow.setAttribute('data-row-id', 'outline-anchor');
+    outlineRow.setAttribute('tabindex', '0');
+    document.body.appendChild(outlineRow);
+
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const task = makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' });
+    const { rerender } = rtlRender(renderWithCount([task], qc));
+
+    // Focus rests on a control inside the tray.
+    const walkBtn = screen.getByRole('button', {
+      name: /Go to the next unscheduled item/i,
+    });
+    act(() => walkBtn.focus());
+    expect(document.activeElement).toBe(walkBtn);
+
+    // The last unscheduled row gets a date somewhere else — the tray empties.
+    rerender(renderWithCount([], qc));
+
+    expect(screen.queryByRole('region', { name: 'Unscheduled tasks' })).toBeNull();
+    expect(document.activeElement).toBe(outlineRow);
+
+    outlineRow.remove();
+  });
+
+  it('leaves focus alone when it was never inside the tray', () => {
+    const outsideBtn = document.createElement('button');
+    document.body.appendChild(outsideBtn);
+    const outlineRow = document.createElement('div');
+    outlineRow.setAttribute('data-row-id', 'outline-anchor');
+    outlineRow.setAttribute('tabindex', '0');
+    document.body.appendChild(outlineRow);
+
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const task = makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' });
+    const { rerender } = rtlRender(renderWithCount([task], qc));
+
+    act(() => outsideBtn.focus());
+    rerender(renderWithCount([], qc));
+
+    // The tray had no claim on focus, so it must not seize it on the way out.
+    expect(document.activeElement).toBe(outsideBtn);
+
+    outsideBtn.remove();
+    outlineRow.remove();
+  });
 });
 
 describe('UnscheduledGutter — collapse / empty header states', () => {

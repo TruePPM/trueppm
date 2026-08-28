@@ -13,6 +13,9 @@ import { UnscheduledDragPreview } from './UnscheduledDragPreview';
 import { UnscheduledDropIndicator } from './UnscheduledDropIndicator';
 import { ScheduleTaskDialog } from './ScheduleTaskDialog';
 import { Button } from '@/components/Button';
+import { Tooltip } from '@/components/Tooltip';
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
+import { ROW_HEIGHT_COARSE } from './scheduleConstants';
 import { formatShortDate } from './scheduleUtils';
 
 interface UnscheduledGutterProps {
@@ -95,6 +98,12 @@ export function UnscheduledGutter({
   const itl = useIterationLabel();
   // Server-resolved today for the rows' date-gated disclosure (#3075).
   const { data: project } = useProject(projectId);
+  // The walk control's hit target, resolved from the row-height owner rather
+  // than a literal (rules 315/328): `ROW_HEIGHT_COARSE` on a coarse pointer,
+  // 32px on a mouse to match the collapse toggle beside it. A `text-xs` count
+  // would otherwise be a ~20px target on a touch tablet, which is ≥768px and
+  // therefore renders this desktop gutter.
+  const walkTargetSize = useIsCoarsePointer() ? ROW_HEIGHT_COARSE : 32;
   // Absent a persisted choice, default to collapsed when there is nothing
   // unscheduled. Since #3131 the empty tray does not render at all, so this no
   // longer governs anything visible at zero — it governs the frame between the
@@ -116,6 +125,39 @@ export function UnscheduledGutter({
       setCollapsed(false);
     }
     prevCountRef.current = tasks.length;
+  }, [tasks.length]);
+
+  /**
+   * Hand focus back to the outline when the tray removes itself from under it
+   * (#3131, WCAG 2.4.3).
+   *
+   * The tray now disappears at zero, and `usePromoteTask` is optimistic — so
+   * the count can hit zero from a *collaborator's* WebSocket update while this
+   * user's focus is resting on the walk control or the collapse toggle. React
+   * unmounts the node, the browser drops focus to `<body>`, and the next Tab
+   * restarts from the top of the document. That is the same class of loss the
+   * live region above is hoisted out of the gate to avoid, applied to focus
+   * instead of announcements.
+   *
+   * `focusWasInsideRef` is driven by the region's own focus/blur events, NOT
+   * sampled in an effect. Focusing a control does not re-render, so an effect
+   * that reads `document.activeElement` on each commit never observes the user
+   * arriving — it would still hold `false` at the moment the region vanishes,
+   * which is the whole case this exists for. React's `onFocus`/`onBlur` bubble,
+   * so one pair on the region covers every control inside it; when the node is
+   * removed while focused no blur fires, which leaves the flag `true` exactly
+   * when it should be. The `<body>` check is what then keeps this from stealing
+   * focus the user moved somewhere legitimate in the meantime.
+   */
+  const focusWasInsideRef = useRef(false);
+  useEffect(() => {
+    if (tasks.length > 0) return;
+    if (!focusWasInsideRef.current) return;
+    focusWasInsideRef.current = false;
+    if (document.activeElement !== null && document.activeElement !== document.body) return;
+    // The outline's roving-tabindex row is the one focusable anchor on this
+    // surface that is guaranteed to exist while the Schedule is rendered.
+    document.querySelector<HTMLElement>('[data-row-id][tabindex="0"]')?.focus();
   }, [tasks.length]);
 
   const persistCollapsed = useCallback((val: boolean) => {
@@ -431,6 +473,10 @@ export function UnscheduledGutter({
       <div
         role="region"
         aria-label="Unscheduled tasks"
+        // Focus bookkeeping for the hand-back above — these bubble, so one pair
+        // here covers every control in the tray.
+        onFocus={() => { focusWasInsideRef.current = true; }}
+        onBlur={() => { focusWasInsideRef.current = false; }}
         className="flex-shrink-0 border-t-2 border-neutral-border bg-neutral-surface-sunken"
       >
         {/* Header strip */}
@@ -457,22 +503,42 @@ export function UnscheduledGutter({
             reachable.
           */}
           {onWalkToUnscheduled ? (
-            <button
-              type="button"
-              onClick={onWalkToUnscheduled}
-              aria-label={`Go to the next unscheduled ${ROW_NOUN} in the outline — ${countRows(totalCount)} unscheduled`}
-              className="group ml-1 inline-flex items-center gap-1 rounded-control px-1 py-0.5
-                text-neutral-text-secondary hover:text-neutral-text-primary hover:underline
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            // The `Tooltip` is not decoration (rule 287, restated by rule
+            // 328(b)): without it the control's whole visible form is `(2) →`
+            // and its meaning lives only in the `aria-label` — which is the
+            // inversion those rules name, handing screen-reader users a
+            // sentence sighted users never get. `describe={false}` because the
+            // accessible name already says the same thing, so AT hears it once.
+            <Tooltip
+              content={`Go to the next unscheduled ${ROW_NOUN} in the outline`}
+              describe={false}
             >
-              <span className="tppm-mono text-xs">({totalCount})</span>
-              <span
-                aria-hidden="true"
-                className="text-xs motion-safe:transition-transform group-hover:translate-x-0.5"
+              <button
+                type="button"
+                onClick={onWalkToUnscheduled}
+                // The name LEADS with the visible token (WCAG 2.5.3 Label in
+                // Name): the visible label is `(2)`, so a speech-input user
+                // saying "click 2" must match.
+                aria-label={`(${totalCount}) — go to the next unscheduled ${ROW_NOUN} in the outline, ${countRows(totalCount)} unscheduled`}
+                // Sized from the row-height owner rather than a literal (rule
+                // 315/328): on a coarse pointer the target is `ROW_HEIGHT_COARSE`,
+                // the same route `NUDGE_SIZE_COARSE` takes. On a mouse it matches
+                // the 32px collapse toggle beside it rather than the `text-xs`
+                // glyph it wraps, so it is not a NEW sub-32px target on this strip.
+                style={{ minHeight: walkTargetSize, minWidth: walkTargetSize }}
+                className="group ml-1 inline-flex items-center justify-center gap-1 rounded-control px-1.5
+                  text-neutral-text-secondary hover:text-neutral-text-primary hover:underline
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
-                →
-              </span>
-            </button>
+                <span className="tppm-mono text-xs">({totalCount})</span>
+                <span
+                  aria-hidden="true"
+                  className="text-xs motion-safe:transition-transform group-hover:translate-x-0.5"
+                >
+                  →
+                </span>
+              </button>
+            </Tooltip>
           ) : (
             <span className="tppm-mono text-xs text-neutral-text-secondary ml-1">
               ({totalCount})
@@ -644,18 +710,26 @@ export function UnscheduledGutter({
           </div>
         )}
 
-        {/* Loading skeleton — shown while promote mutation is in-flight */}
-        {promoteMutation.isPending && (
-          <div
-            aria-busy="true"
-            aria-label="Promoting task…"
-            style={{ paddingLeft: taskListWidth }}
-            className="px-4 py-2"
-          >
-            <div className="h-9 rounded-card motion-safe:animate-pulse bg-neutral-border/50" />
-          </div>
-        )}
       </div>
+      )}
+
+      {/* In-flight indicator — OUTSIDE the `totalCount > 0` gate, for exactly
+          the reason the live region is. `usePromoteTask` is optimistic, so
+          promoting the LAST row zeroes the count while the PATCH is still in
+          flight; leaving this inside the gate would unmount the only "something
+          is happening" signal at the moment it is doing its job, and flash the
+          whole panel back in if the mutation then fails and rolls back. Loading
+          is its own state and must not be erased by an optimistic empty (rule
+          248). */}
+      {promoteMutation.isPending && (
+        <div
+          aria-busy="true"
+          aria-label="Promoting task…"
+          style={{ paddingLeft: taskListWidth }}
+          className="px-4 py-2"
+        >
+          <div className="h-9 rounded-card motion-safe:animate-pulse bg-neutral-border/50" />
+        </div>
       )}
 
       {/* aria-live (polite) — promote announcements via DOM ref (rule 30).

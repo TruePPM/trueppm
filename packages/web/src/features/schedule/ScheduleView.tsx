@@ -3621,10 +3621,22 @@ export function ScheduleView() {
    * `visibleTasks` entirely. Prefer a row already on screen — that keeps the
    * common click a pure move with no layout change — and only when none is
    * visible fall back to the first tray row in WBS order and disclose it by
-   * expanding its ancestors. Render filters are deliberately NOT cleared here:
-   * `handleScheduleMany` clears them because dropping a row from a *batch
-   * write* is silent data loss, whereas a navigation that cannot reach a
-   * filtered row simply does not move.
+   * expanding its ancestors.
+   *
+   * The render filters are the case that has to be handled separately, and it
+   * is not hypothetical: `showCriticalOnly` / `showMilestonesOnly` /
+   * `reviewFilterActive` narrow `visibleTasks`, and an undated leaf is exactly
+   * what they drop — so with one of them on, EVERY tray row can be missing
+   * from `visibleTasks` for a reason no amount of expanding fixes. Expanding
+   * ancestors there would change the outline's shape and still land nowhere:
+   * `FOCUS_ROW` validates nothing (it would also null any multi-row
+   * selection), and `focusRowByIdSoon` would burn its retries against a row
+   * that has no DOM node, leaving the store's focus and the real focus
+   * disagreeing. So this refuses before acting, and says so — a navigation
+   * that cannot land must not silently rearrange the view on its way to not
+   * landing. It does NOT clear the filters the way `handleScheduleMany` does;
+   * that one clears them because dropping a row from a *batch write* is silent
+   * data loss, which is a different stake from a walk that can just decline.
    */
   const handleWalkToUnscheduled = useCallback(() => {
     if (unscheduledTasks.length === 0) return;
@@ -3635,17 +3647,41 @@ export function ScheduleView() {
       'forward',
       (task) => trayIds.has(task.id),
     );
-    const target = onScreen ?? unscheduledTasks[0] ?? null;
-    if (!target) return;
-    if (!onScreen) {
+
+    let target = onScreen;
+    if (!target) {
+      // Nothing on screen. If a render filter is active it is the reason, and
+      // expanding cannot help — refuse and explain rather than half-acting.
+      if (showCriticalOnly || showMilestonesOnly || reviewFilterActive) {
+        if (ariaLiveRef.current) {
+          const n = unscheduledTasks.length;
+          ariaLiveRef.current.textContent =
+            `${n} unscheduled ${n === 1 ? 'row is' : 'rows are'} hidden by the active render filters. ` +
+            'Clear a filter to walk to them.';
+        }
+        return;
+      }
+      // Otherwise the rows are simply inside collapsed phases — disclose them.
+      target = unscheduledTasks[0] ?? null;
+      if (!target) return;
       const ancestors = ancestorIdsOf(allTasks, [target.id]);
       if (ancestors.length > 0) expand(ancestors);
     }
+
     focus.focusRow(target.id);
     useScheduleStore.getState().scrollToTask(target.id);
     focusRowByIdSoon(target.id);
     // `focusRowByIdSoon` is a module-scope helper, not a dependency.
-  }, [unscheduledTasks, visibleTasks, focus, allTasks, expand]);
+  }, [
+    unscheduledTasks,
+    visibleTasks,
+    focus,
+    allTasks,
+    expand,
+    showCriticalOnly,
+    showMilestonesOnly,
+    reviewFilterActive,
+  ]);
 
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};
