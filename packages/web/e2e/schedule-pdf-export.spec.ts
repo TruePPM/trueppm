@@ -17,6 +17,7 @@
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupScheduleDisplayOptions } from './fixtures/schedule-display-options';
 
 const FIXTURE_PROJECT_ID = 'e2e-schedpdf-0000-0000-0000-000000001437';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
@@ -219,6 +220,13 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     // disappearing.
     await page.setViewportSize({ width: 900, height: 800 });
     await setup(page);
+    // The crowding is stated here rather than inherited. This test was written
+    // when `+ Milestone` shipped pinned; #3115 ships it unpinned, which hands
+    // 900px back exactly the room Export needs — so at defaults the premise "the
+    // bar cannot hold Export" stopped holding, and the test began failing on a
+    // change that never touched Export. Pinning Milestone is a real planner's
+    // state and reproduces the contended bar this asserts against.
+    await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, { pinMilestone: true });
     await page.goto(BASE_URL);
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
