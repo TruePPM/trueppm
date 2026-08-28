@@ -1477,6 +1477,7 @@ def me_work_signals(
     read — deterministic for a given DB state, safe to call on every GET.
     """
     from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
 
     if today is None:
         today = timezone.localdate()
@@ -1498,6 +1499,13 @@ def me_work_signals(
     # same response is scoped for exactly this reason.
     if mcp_excluded is not None:
         membership = membership.exclude(project_id__in=mcp_excluded)
+    # Drafts are excluded (#2962/#3128). Same argument as the ADR-0678 note above,
+    # for a different reason: these two signals reduce WORST-first over the whole
+    # membership set, so one half-built plan sets the band the user reads, and its
+    # Monte-Carlo run can supply the literal P80 date reported as "when is
+    # everything I'm on done". The /me/work/ task rows themselves are NOT filtered
+    # — a draft is not a secret, and its cards are the caller's own work.
+    membership = exclude_draft_projects(membership)
     member_project_ids = list(membership.values_list("project_id", flat=True).distinct())
     if not member_project_ids:
         return signals

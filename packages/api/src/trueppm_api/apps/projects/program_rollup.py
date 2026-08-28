@@ -206,8 +206,16 @@ def top_contributing_project(program: Program) -> dict[str, Any] | None:
     attribute the program's state to).
     """
     today = timezone.localdate()
+    # Drafts are excluded (#2962/#3128) for the same reason as compute_program_rollup
+    # above, and one more: this function names ONE project in the weekly program-health
+    # email. Attributing a program's health to a plan nobody has committed to would
+    # deep-link a PMO into a half-built schedule and call it the cause.
+    from trueppm_api.apps.projects.lifecycle import visible_projects
+
     project_ids = list(
-        Project.objects.filter(program=program, is_deleted=False).values_list("id", flat=True)
+        visible_projects(Project.objects.filter(program=program, is_deleted=False)).values_list(
+            "id", flat=True
+        )
     )
     if not project_ids:
         return None

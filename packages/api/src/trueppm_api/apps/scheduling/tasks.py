@@ -385,6 +385,7 @@ def _do_daily_forecast_floor() -> None:
     """Business logic for capture_daily_forecast_floor — extracted for testability."""
     from django.utils import timezone
 
+    from trueppm_api.apps.projects.lifecycle import visible_projects
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger, ProjectForecastSnapshot
     from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
@@ -398,9 +399,16 @@ def _do_daily_forecast_floor() -> None:
         .values_list("project_id", flat=True)
         .distinct()
     )
-    project_ids = Project.objects.filter(is_deleted=False, is_archived=False).values_list(
-        "id", flat=True
-    )
+    # Drafts are excluded (#2962/#3128). Two reasons, and the second is the one on
+    # the exclusion list: a forecast history for a plan nobody has committed to is
+    # noise by construction (the dates move because the plan is still being
+    # written), and every captured snapshot whose end date moved fires
+    # ``notify_project_end_date_shift`` at each ADMIN — a daily "your end date
+    # slipped" for a schedule the author is in the middle of typing. The commit
+    # moment captures baseline v1, which is where a draft's history should start.
+    project_ids = visible_projects(
+        Project.objects.filter(is_deleted=False, is_archived=False)
+    ).values_list("id", flat=True)
     captured = 0
     for project_id in project_ids:
         if project_id in covered:

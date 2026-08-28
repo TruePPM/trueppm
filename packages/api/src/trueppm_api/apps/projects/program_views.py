@@ -69,7 +69,7 @@ from trueppm_api.apps.projects.bulk_settings import (
     apply_bulk_fields,
     build_bulk_response,
 )
-from trueppm_api.apps.projects.lifecycle import visible_projects
+from trueppm_api.apps.projects.lifecycle import not_draft_q, visible_projects
 from trueppm_api.apps.projects.models import (
     ExportJobStatus,
     Methodology,
@@ -740,10 +740,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             .prefetch_related("calendar__exceptions")
             .annotate(
                 _my_role=Subquery(my_role_sq),
+                # Drafts are excluded (#2962/#3128) so this badge counts the same
+                # set the drill-through lists. ``ProgramViewSet.projects`` already
+                # applies ``visible_projects``, so counting drafts here would make
+                # the directory say 3 and the tab it opens show 2 — a rollup count
+                # that disagrees with its own detail.
                 project_count=Count(
                     "projects",
                     distinct=True,
-                    filter=Q(projects__is_deleted=False),
+                    filter=Q(projects__is_deleted=False) & not_draft_q("projects"),
                 ),
                 member_count=Count(
                     "memberships",
@@ -1527,7 +1532,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # ADR-0678 T1 (#2482): the contention scope aggregates CHILD PROJECT task
         # spans, each tagged with its source project, so an opted-out project would
         # otherwise surface its schedule through its parent program.
-        member_qs = program.projects.filter(is_deleted=False)
+        # Drafts are excluded (#2962/#3128): contention is a health figure about
+        # PEOPLE. A speculative allocation on a plan nobody has committed to would
+        # show a real person as contended in a real week, and the Resource Manager
+        # acting on it would be levelling against work that may never exist.
+        member_qs = visible_projects(program.projects.filter(is_deleted=False))
         _excluded = mcp_excluded_project_ids(request)
         if _excluded is not None:
             member_qs = member_qs.exclude(pk__in=_excluded)
@@ -2545,8 +2554,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # carry a qualified_id (#2671); before this it was name-only and every
         # row fell back to the ambiguous compact form.
         readable: dict[str, tuple[str, str]] = {}
-        for row in Project.objects.filter(
-            program=program, is_deleted=False, id__in=readable_ids
+        # Drafts are excluded (#2962/#3128): "search result" is on the exclusion
+        # list, and this picker is worse than a plain search — every row it offers
+        # becomes a cross-project dependency, so gating committed work on a plan
+        # nobody has agreed to would let a draft move a real project's dates.
+        for row in visible_projects(
+            Project.objects.filter(program=program, is_deleted=False, id__in=readable_ids)
         ).values("id", "name", "code"):
             pid = str(row["id"])
             if exclude_project is not None and pid == str(exclude_project):

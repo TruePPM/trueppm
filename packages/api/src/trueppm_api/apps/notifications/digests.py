@@ -31,6 +31,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.projects.lifecycle import visible_projects
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.projects.program_rollup import (
     compute_program_rollup,
@@ -178,8 +179,11 @@ def build_resource_overallocation_digest(
     total_projects = ProjectMembership.objects.filter(user=user, role__gte=Role.SCHEDULER).count()
 
     lines: list[str] = []
+    # Drafts are excluded (#2962/#3128): a resource "overallocated" by a plan nobody
+    # has committed to is not overallocated, and a Resource Manager acting on that
+    # line would be levelling against work that may never exist.
     projects = (
-        Project.objects.filter(id__in=project_ids, is_deleted=False)
+        visible_projects(Project.objects.filter(id__in=project_ids, is_deleted=False))
         .prefetch_related("tasks__assignments__resource__calendar__exceptions")
         .order_by("name")
     )
