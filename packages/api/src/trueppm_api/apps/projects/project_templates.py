@@ -366,7 +366,9 @@ def materialize_structure(
     # Second and later adoptions append past the rows already there rather than
     # writing onto their paths (#3061). Zero for an empty project, so a first
     # adoption keeps the document's paths verbatim.
-    wbs_offset = root_ordinal_offset(project.pk)
+    wbs_offset = root_ordinal_offset(
+        project.pk, document_paths=[node.get("wbs_path") for node in nodes]
+    )
     ref_to_task: dict[str, Task] = {}
     rows: list[Task] = []
     for i, node in enumerate(nodes):
