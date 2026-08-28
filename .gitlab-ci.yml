@@ -1631,7 +1631,12 @@ nginx:headers:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - apk add --no-cache bash grep sed
+    # yq is only used by the #3146 provenance dump on the FAILURE path — it reads
+    # the on-disk values.yaml flags that select each nginx branch, so a rendered
+    # branch contradicting its own values file is visible in the job log instead
+    # of costing a chart hunt. Alpine's package is mikefarah v4, same dialect as
+    # the pinned binary helm:template downloads.
+    - apk add --no-cache bash grep sed yq
   script:
     # Self-test first: this gate's failure mode is a GREEN pipeline over a
     # silently-unhardened deployment path, so "it passed" is not evidence that it
