@@ -385,6 +385,7 @@ def _do_daily_forecast_floor() -> None:
     """Business logic for capture_daily_forecast_floor — extracted for testability."""
     from django.utils import timezone
 
+    from trueppm_api.apps.projects.lifecycle import visible_projects
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.scheduling.models import ForecastSnapshotTrigger, ProjectForecastSnapshot
     from trueppm_api.apps.scheduling.services import safe_capture_forecast_snapshot
@@ -398,9 +399,16 @@ def _do_daily_forecast_floor() -> None:
         .values_list("project_id", flat=True)
         .distinct()
     )
-    project_ids = Project.objects.filter(is_deleted=False, is_archived=False).values_list(
-        "id", flat=True
-    )
+    # Drafts are excluded (#2962/#3128). Two reasons, and the second is the one on
+    # the exclusion list: a forecast history for a plan nobody has committed to is
+    # noise by construction (the dates move because the plan is still being
+    # written), and every captured snapshot whose end date moved fires
+    # ``notify_project_end_date_shift`` at each ADMIN — a daily "your end date
+    # slipped" for a schedule the author is in the middle of typing. The commit
+    # moment captures baseline v1, which is where a draft's history should start.
+    project_ids = visible_projects(
+        Project.objects.filter(is_deleted=False, is_archived=False)
+    ).values_list("id", flat=True)
     captured = 0
     for project_id in project_ids:
         if project_id in covered:
@@ -1569,6 +1577,7 @@ def _run_program_schedule(program_id: str) -> None:
     from django.db import transaction
     from django.utils import timezone
 
+    from trueppm_api.apps.projects.lifecycle import visible_projects
     from trueppm_api.apps.projects.models import (
         Dependency,
         Program,
@@ -1588,8 +1597,15 @@ def _run_program_schedule(program_id: str) -> None:
         logger.warning("recalculate_program_schedule: program %s not found, skipping", program_id)
         return
 
+    # Drafts are excluded (#2962/#3128) to stay consistent with
+    # ``gather_program_schedule``, which drops them from the merged graph. If this
+    # list still carried a draft, the pass would stamp ``recalculated_at`` on a
+    # project it never scheduled and drain its ScheduleRequests against a result
+    # that does not mention it.
     member_ids = list(
-        Project.objects.filter(program_id=program_id, is_deleted=False).values_list("id", flat=True)
+        visible_projects(
+            Project.objects.filter(program_id=program_id, is_deleted=False)
+        ).values_list("id", flat=True)
     )
     if not member_ids:
         return

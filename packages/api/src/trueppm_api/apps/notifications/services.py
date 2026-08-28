@@ -1210,6 +1210,7 @@ def create_stale_task_notifications(
     Returns:
         The total number of Notification rows created across all projects.
     """
+    from trueppm_api.apps.projects.lifecycle import visible_projects
     from trueppm_api.apps.projects.models import Project, Task, TaskStatus
 
     now = now or timezone.now()
@@ -1218,8 +1219,14 @@ def create_stale_task_notifications(
     non_terminal = [s for s in TaskStatus.values if s != TaskStatus.COMPLETE]
 
     total = 0
+    # Drafts are excluded (#2962/#3128): this is an install-wide nightly fan-out, and
+    # every card in a plan nobody has committed to is "stale" by construction — the
+    # plan is still being written. Nudging an assignee about it would be the exclusion
+    # list's stated failure, delivered daily.
     for project in (
-        Project.objects.filter(is_deleted=False).only("id", "stale_task_threshold_days").iterator()
+        visible_projects(Project.objects.filter(is_deleted=False))
+        .only("id", "stale_task_threshold_days")
+        .iterator()
     ):
         threshold = project.stale_task_threshold_days or DEFAULT_STALE_TASK_THRESHOLD_DAYS
         cutoff = now - datetime.timedelta(days=threshold)

@@ -3308,9 +3308,17 @@ class ProjectViewSet(
         """
         from django.db.models import Count, Q
 
+        from trueppm_api.apps.projects.lifecycle import visible_projects
+
         incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
         rows = (
-            self.get_queryset()
+            # Drafts are excluded (#2962/#3128). This is the health figure the
+            # exclusion list names: a "which of mine is on fire?" triage row for a
+            # plan nobody has committed to answers a question the caller did not ask,
+            # and a half-built schedule reliably reads as critical. The plain list
+            # (``self.get_queryset()`` without this) deliberately still shows the
+            # draft — that is the list a member browses to resume it.
+            visible_projects(self.get_queryset())
             .filter(is_archived=False)
             .annotate(
                 at_risk_count=Count(
@@ -15280,6 +15288,8 @@ class MeSearchView(McpReadableViewMixin, APIView):
         types: list[str],
         mcp_excluded: Any | None = None,
     ) -> list[dict[str, Any]]:
+        from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
+
         # OR the requested kinds' predicates into the single membership-gated queryset
         # (ADR-0662 D1), so the 🔴 IDOR filter below is written once and a new kind
         # cannot be added in a way that bypasses it.
@@ -15306,6 +15316,13 @@ class MeSearchView(McpReadableViewMixin, APIView):
             project__memberships__user_id=user_pk,
             project__memberships__is_deleted=False,
         )
+        # Drafts are excluded (#2962/#3128). "Search result" is named on the
+        # exclusion list, and this is the search it means: a global, cross-program
+        # palette whose whole job is to rank one team's card above another's. A
+        # story from a plan nobody has committed to is not a result — it is a
+        # guess competing for the top row. Reached across the relation because
+        # this source never builds a Project queryset (see exclude_draft_projects).
+        base = exclude_draft_projects(base)
         if mcp_excluded is not None:
             # ADR-0678 (#2482): an agent token never sees rows from a project that
             # opted out of agent reads. Silent row filtering rather than a wholesale

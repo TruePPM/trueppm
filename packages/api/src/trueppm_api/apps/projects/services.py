@@ -1477,6 +1477,7 @@ def me_work_signals(
     read — deterministic for a given DB state, safe to call on every GET.
     """
     from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
 
     if today is None:
         today = timezone.localdate()
@@ -1498,13 +1499,30 @@ def me_work_signals(
     # same response is scoped for exactly this reason.
     if mcp_excluded is not None:
         membership = membership.exclude(project_id__in=mcp_excluded)
-    member_project_ids = list(membership.values_list("project_id", flat=True).distinct())
-    if not member_project_ids:
+    if not membership.exists():
         return signals
+
+    # Drafts are excluded (#2962/#3128). Same argument as the ADR-0678 note above,
+    # for a different reason: these two signals reduce WORST-first over the whole
+    # membership set, so one half-built plan sets the band the user reads, and its
+    # Monte-Carlo run can supply the literal P80 date reported as "when is
+    # everything I'm on done".
+    #
+    # Scoped to these two signals ONLY, and deliberately not applied to
+    # ``membership`` itself. The exclusion belongs to the cross-project
+    # *aggregates*; ``sprint_burndown`` and ``utilization`` below are the caller's
+    # own sprint and their own allocation — their own work, which a draft does not
+    # make secret. Narrowing the shared queryset would have blanked those two cards
+    # for a user whose only project is a draft, which is the opposite of what the
+    # exclusion list asks for.
+    member_project_ids = list(
+        exclude_draft_projects(membership).values_list("project_id", flat=True).distinct()
+    )
 
     # Each signal is omitted (rule 120: never fabricate a number) rather than
     # zero-filled when it has no real basis, so an absent key tells the web to
-    # render that card as-is.
+    # render that card as-is. Both helpers already return ``None`` for an empty
+    # id list, which is the draft-only case.
     for key, value in (
         ("schedule_health", _schedule_health_signal(member_project_ids, today)),
         ("forecast", _forecast_signal(member_project_ids)),

@@ -9,23 +9,36 @@ Three things must stay true, and each has been got wrong somewhere before:
 3. A draft is NOT hidden from a direct read. Exclusion-from-reads is
    indistinguishable from a 404, which is why the MCP surface returns
    ``lifecycle`` as a field instead.
+
+``TestEveryExcludedSurface`` (#3128) is the per-call-site half of point 2. The
+exclusion list named four surfaces and was wired into two of them, so the other
+surfaces below were each leaking. **Every test there flips the same project back
+to ACTIVE and asserts the surface then DOES show it** — without that second half a
+passing assertion proves only that the fixture was empty, which is exactly how a
+missing filter reads as a green test.
 """
 
 from __future__ import annotations
 
-from datetime import date
+import datetime
+from datetime import date, timedelta
+from decimal import Decimal
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.lifecycle import is_draft, visible_projects
 from trueppm_api.apps.projects.models import (
     Calendar,
     Program,
     Project,
     ProjectLifecycle,
+    Task,
+    TaskStatus,
 )
 
 
@@ -151,3 +164,401 @@ class TestDraftsAreNotSecret:
         ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
         r = client.get(f"/api/v1/projects/{p.id}/")
         assert r.data["lifecycle"] == "draft"
+
+
+# ---------------------------------------------------------------------------
+# The exclusion list, applied per call site (#3128)
+# ---------------------------------------------------------------------------
+
+
+def _commit(project: Project) -> Project:
+    """Flip a draft to ACTIVE, for the "and now it DOES appear" half of each test."""
+    project.lifecycle = ProjectLifecycle.ACTIVE
+    project.save(update_fields=["lifecycle"])
+    return project
+
+
+def _overdue_task(project: Project, name: str) -> Task:
+    """A task that drags its project into the ``critical`` schedule-health band.
+
+    SPI = complete-by-today / planned-by-today, so one long-past ``early_finish``
+    with nothing complete is enough.
+    """
+    return Task.objects.create(
+        project=project,
+        name=name,
+        duration=1,
+        early_finish=date(2026, 2, 1),
+        status=TaskStatus.IN_PROGRESS,
+    )
+
+
+@pytest.fixture
+def committed(user: Any, calendar: Calendar, program: Program) -> Project:
+    p = Project.objects.create(
+        name="Committed", start_date=date(2026, 3, 2), calendar=calendar, program=program
+    )
+    ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
+    return p
+
+
+@pytest.fixture
+def draft(user: Any, calendar: Calendar, program: Program) -> Project:
+    p = Project.objects.create(
+        name="Half-built",
+        start_date=date(2026, 3, 2),
+        calendar=calendar,
+        program=program,
+        lifecycle=ProjectLifecycle.DRAFT,
+    )
+    ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
+    return p
+
+
+@pytest.mark.django_db
+class TestEveryExcludedSurface:
+    """One test per call site routed through the helper by #3128."""
+
+    # -- portfolio health ---------------------------------------------------
+
+    def test_top_contributing_project_never_names_a_draft(
+        self, program: Program, committed: Project, draft: Project
+    ) -> None:
+        """The weekly program-health email deep-links one project by name.
+
+        Naming a plan nobody has committed to would send a PMO into a half-built
+        schedule and call it the cause of the band.
+        """
+        from trueppm_api.apps.projects.program_rollup import top_contributing_project
+
+        _overdue_task(draft, "Late")
+
+        assert top_contributing_project(program) is None
+
+        _commit(draft)
+        named = top_contributing_project(program)
+        assert named is not None
+        assert named["name"] == "Half-built"
+
+    def test_health_summary_excludes_a_draft(
+        self, client: APIClient, committed: Project, draft: Project
+    ) -> None:
+        """``/projects/health-summary/`` — the "which of mine is on fire?" triage."""
+        url = "/api/v1/projects/health-summary/"
+
+        rows = client.get(url).data
+        assert {r["name"] for r in rows} == {"Committed"}
+
+        _commit(draft)
+        rows = client.get(url).data
+        assert {r["name"] for r in rows} == {"Committed", "Half-built"}
+
+    def test_me_work_signals_excludes_a_draft(
+        self, user: Any, committed: Project, draft: Project
+    ) -> None:
+        """The My Work band reduces WORST-first, so one draft would set it alone."""
+        from trueppm_api.apps.projects.services import me_work_signals
+
+        _overdue_task(draft, "Late")
+
+        assert "schedule_health" not in me_work_signals(user, active_sprints=[])
+
+        _commit(draft)
+        signals = me_work_signals(user, active_sprints=[])
+        assert signals["schedule_health"]["band"] == "critical"
+
+    def test_program_directory_project_count_excludes_a_draft(
+        self, client: APIClient, user: Any, program: Program, committed: Project, draft: Project
+    ) -> None:
+        """The badge must count the same set the tab it opens lists.
+
+        ``ProgramViewSet.projects`` already excluded drafts, so a counted draft
+        made the directory say 2 and the drill-through show 1.
+        """
+        ProgramMembership.objects.create(program=program, user=user, role=Role.OWNER)
+
+        def _count() -> int:
+            body = client.get("/api/v1/programs/").data
+            rows = body["results"] if isinstance(body, dict) else body
+            return int(next(r for r in rows if r["name"] == "Artemis")["project_count"])
+
+        assert _count() == 1
+
+        _commit(draft)
+        assert _count() == 2
+
+    def test_resource_contention_excludes_a_draft(
+        self, client: APIClient, user: Any, program: Program, committed: Project, draft: Project
+    ) -> None:
+        """A speculative allocation must not show a real person as contended."""
+        from trueppm_api.apps.resources.models import Resource, TaskResource
+
+        ProgramMembership.objects.create(program=program, user=user, role=Role.SCHEDULER)
+        janus = Resource.objects.create(name="Janus", max_units=Decimal("1.00"))
+        for project, label in ((committed, "Real work"), (draft, "Maybe work")):
+            task = Task.objects.create(
+                project=project,
+                name=label,
+                duration=5,
+                early_start=date(2026, 7, 6),
+                early_finish=date(2026, 7, 10),
+            )
+            TaskResource.objects.create(task=task, resource=janus, units=Decimal("1.00"))
+
+        url = f"/api/v1/programs/{program.pk}/resource-contention/"
+
+        def _span_labels() -> set[str]:
+            body = client.get(url).data
+            return {span["name"] for resource in body["resources"] for span in resource["tasks"]}
+
+        assert _span_labels() == {"Real work"}
+
+        _commit(draft)
+        assert _span_labels() == {"Real work", "Maybe work"}
+
+    # -- search -------------------------------------------------------------
+
+    def test_omni_search_excludes_a_drafts_tasks(
+        self, client: APIClient, committed: Project, draft: Project
+    ) -> None:
+        """``/me/search/`` — the global palette, ranking one team's card above another's."""
+        Task.objects.create(project=committed, name="Widget rollout", duration=1)
+        Task.objects.create(project=draft, name="Widget prototype", duration=1)
+        url = "/api/v1/me/search/?q=Widget"
+
+        assert {r["title"] for r in client.get(url).data["results"]} == {"Widget rollout"}
+
+        _commit(draft)
+        assert {r["title"] for r in client.get(url).data["results"]} == {
+            "Widget rollout",
+            "Widget prototype",
+        }
+
+    def test_program_task_search_excludes_a_draft(
+        self, client: APIClient, user: Any, program: Program, committed: Project, draft: Project
+    ) -> None:
+        """The cross-project dependency picker — every row it offers becomes an edge.
+
+        Worse than a plain search leak: gating committed work on an uncommitted
+        plan would let a draft move a real project's dates.
+        """
+        ProgramMembership.objects.create(program=program, user=user, role=Role.OWNER)
+        Task.objects.create(project=committed, name="Widget rollout", duration=1)
+        Task.objects.create(project=draft, name="Widget prototype", duration=1)
+        url = f"/api/v1/programs/{program.pk}/task-search/?q=Widget"
+
+        assert {r["name"] for r in client.get(url).data} == {"Widget rollout"}
+
+        _commit(draft)
+        assert {r["name"] for r in client.get(url).data} == {
+            "Widget rollout",
+            "Widget prototype",
+        }
+
+    # -- notification fan-out ----------------------------------------------
+
+    def test_stale_task_sweep_skips_a_draft(
+        self, user: Any, committed: Project, draft: Project
+    ) -> None:
+        """Every card in a plan still being written is "stale" by construction."""
+        from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+        from trueppm_api.apps.notifications.services import create_stale_task_notifications
+
+        task = Task.objects.create(
+            project=draft,
+            name="Forgotten card",
+            duration=1,
+            status=TaskStatus.REVIEW,
+            assignee=user,
+        )
+        Task.objects.filter(pk=task.pk).update(
+            status_changed_at=timezone.now() - timedelta(days=30)
+        )
+
+        assert create_stale_task_notifications() == 0
+        assert not Notification.objects.filter(
+            event_type=NotificationEventType.TASK_STALE.value
+        ).exists()
+
+        _commit(draft)
+        assert create_stale_task_notifications() == 1
+
+    def test_overallocation_digest_skips_a_draft(
+        self,
+        user: Any,
+        committed: Project,
+        draft: Project,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A resource "overallocated" by an uncommitted plan is not overallocated.
+
+        Asserted on the fan-out itself — which projects the digest computes
+        utilization for — rather than on the rendered body, so the test cannot
+        pass merely because the fixture had nobody over capacity.
+        """
+        from trueppm_api.apps.notifications import digests
+
+        seen: list[str] = []
+
+        def _record(project: Project, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            seen.append(project.name)
+            return {"resources": []}
+
+        monkeypatch.setattr(digests, "compute_utilization", _record)
+        sunday = datetime.datetime(2026, 7, 26, 17, 0, tzinfo=datetime.UTC)
+
+        digests.build_resource_overallocation_digest(user, sunday)
+        assert seen == ["Committed"]
+
+        seen.clear()
+        _commit(draft)
+        digests.build_resource_overallocation_digest(user, sunday)
+        assert sorted(seen) == ["Committed", "Half-built"]
+
+    def test_daily_forecast_floor_skips_a_draft(
+        self, committed: Project, draft: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each captured snapshot whose end date moved emails every ADMIN.
+
+        On a plan the author is in the middle of typing that is a daily "your end
+        date slipped" about their own keystrokes.
+        """
+        from trueppm_api.apps.scheduling import services as scheduling_services
+        from trueppm_api.apps.scheduling import tasks as scheduling_tasks
+
+        seen: list[Any] = []
+        # Patched on the defining module: the sweep imports the helper inside the
+        # function body, so the name is resolved at call time from `services`.
+        monkeypatch.setattr(
+            scheduling_services,
+            "safe_capture_forecast_snapshot",
+            lambda project_id, trigger: seen.append(project_id),
+        )
+
+        scheduling_tasks._do_daily_forecast_floor()
+        assert seen == [committed.pk]
+
+        seen.clear()
+        _commit(draft)
+        scheduling_tasks._do_daily_forecast_floor()
+        assert sorted(seen, key=str) == sorted([committed.pk, draft.pk], key=str)
+
+    def test_overallocation_digest_drafts_do_not_consume_cap_slots(
+        self, user: Any, calendar: Calendar, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exclusion runs BEFORE ``MAX_PROJECTS_PER_DIGEST`` slices, not after.
+
+        The cap orders by ``project_id``, so a draft sorting ahead of a real
+        project would otherwise eat its slot and silently drop a genuine
+        overallocation from the digest — and leave the "showing the first N of M"
+        footer counting a project the body never mentions.
+        """
+        import uuid
+
+        from trueppm_api.apps.notifications import digests
+
+        low = Project.objects.create(
+            id=uuid.UUID(int=1),
+            name="Half-built",
+            start_date=date(2026, 3, 2),
+            calendar=calendar,
+            lifecycle=ProjectLifecycle.DRAFT,
+        )
+        high = Project.objects.create(
+            id=uuid.UUID(int=2),
+            name="Committed",
+            start_date=date(2026, 3, 2),
+            calendar=calendar,
+        )
+        for p in (low, high):
+            ProjectMembership.objects.create(project=p, user=user, role=Role.SCHEDULER)
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            digests,
+            "compute_utilization",
+            lambda project, *a, **k: seen.append(project.name) or {"resources": []},
+        )
+        # A cap of 1 makes the ordering load-bearing: the draft sorts first.
+        monkeypatch.setattr(digests, "MAX_PROJECTS_PER_DIGEST", 1)
+
+        digests.build_resource_overallocation_digest(
+            user, datetime.datetime(2026, 7, 26, 17, 0, tzinfo=datetime.UTC)
+        )
+        assert seen == ["Committed"]
+
+    def test_exclude_draft_projects_refuses_a_multi_valued_path(self, program: Program) -> None:
+        """The helper's one real footgun, closed at the call rather than in prose.
+
+        ``exclude(projects__lifecycle=DRAFT)`` on a ``Program`` queryset reads like
+        the same exclusion but asks the opposite question: it drops every program
+        that has ANY draft child. A wrong answer, not a slow one — and nothing
+        downstream would reveal it.
+        """
+        from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
+
+        with pytest.raises(ValueError, match="multi-valued"):
+            exclude_draft_projects(Program.objects.all(), path="projects")
+
+        # The supported shape still works, on the same call.
+        assert exclude_draft_projects(Task.objects.all()).count() == 0
+
+    def test_program_schedule_graph_excludes_a_draft(
+        self, program: Program, committed: Project, draft: Project
+    ) -> None:
+        """The merged program CPM anchors on a GLOBAL project_finish.
+
+        `engine.schedule()` takes `project_finish = max(t.early_finish ...)` across
+        the whole merged task set, so a draft that simply runs later inflates
+        `total_float` for every committed task and can flip `is_critical` off —
+        with no dependency between them at all. The "disjoint components are
+        independent" intuition is wrong here, which is why this surface is on the
+        list despite being a computation rather than a report.
+        """
+        from trueppm_api.apps.projects.program_schedule import gather_program_schedule
+
+        Task.objects.create(project=committed, name="Real", duration=5)
+        Task.objects.create(project=draft, name="Speculative", duration=400)
+
+        names = {p.name for p in gather_program_schedule(program).member_projects}
+        assert names == {"Committed"}
+
+        _commit(draft)
+        names = {p.name for p in gather_program_schedule(program).member_projects}
+        assert names == {"Committed", "Half-built"}
+
+    def test_me_work_signals_draft_only_user_keeps_their_own_cards(
+        self, user: Any, draft: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exclusion narrows the two cross-project AGGREGATES, nothing else.
+
+        `sprint_burndown` and `utilization` are the caller's own sprint and their
+        own allocation. Narrowing the shared membership queryset made the empty
+        aggregate scope short-circuit the whole function, blanking both cards for a
+        user whose only project is a draft — hiding the author's own work from them
+        is the opposite of what the exclusion list asks for.
+        """
+        from trueppm_api.apps.projects import services
+        from trueppm_api.apps.projects.models import Sprint, SprintState
+
+        sprint = Sprint.objects.create(
+            project=draft,
+            name="S1",
+            start_date=date(2026, 3, 2),
+            finish_date=date(2026, 3, 16),
+            state=SprintState.ACTIVE,
+        )
+        monkeypatch.setattr(services, "_sprint_burndown_signal", lambda s: {"reached": True})
+
+        signals = services.me_work_signals(user, active_sprints=[sprint])
+
+        # The two cross-project aggregates stay silent — no committed project to
+        # reduce over — which is the exclusion doing its job...
+        assert "schedule_health" not in signals
+        assert "forecast" not in signals
+        # ...and the own-work block still ran rather than being short-circuited.
+        assert signals["sprint_burndown"] == {"reached": True}
+
+        # A user with no membership at all still returns early, as before.
+        stranger = get_user_model().objects.create_user(username="nomember", password="pw")
+        assert services.me_work_signals(stranger, active_sprints=[sprint]) == {}
