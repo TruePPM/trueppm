@@ -3599,6 +3599,54 @@ export function ScheduleView() {
     ],
   );
 
+  /**
+   * Walk the outline to the next row the Unscheduled tray is counting (#3131).
+   *
+   * The tray's count used to be a caption — it named N rows and offered no way
+   * to reach one. This is the route from the number to its members, and it is
+   * navigation only: it moves focus and scrolls, writes nothing, and is
+   * therefore offered to a read-only viewer as well (unlike
+   * `handleScheduleMany`, which opens a batch-write sheet).
+   *
+   * The predicate is tray MEMBERSHIP, not `needsDates`. F7's `findUndatedRow`
+   * is right there and is the wrong set: `!plannedStart` over `visibleTasks`
+   * also catches summaries, IN_PROGRESS rows and sprint-committed work that
+   * `useUnscheduledTasks` filters out, so walking from "(3)" could land on a
+   * row that is not one of those 3. Redefining what the count means is #2986's
+   * job, and that issue is grounded in a real user report; this one only makes
+   * the existing count's members reachable.
+   *
+   * Two-step target resolution, for the same reason `handleScheduleMany`
+   * expands ancestors: a tray row inside a collapsed phase is absent from
+   * `visibleTasks` entirely. Prefer a row already on screen — that keeps the
+   * common click a pure move with no layout change — and only when none is
+   * visible fall back to the first tray row in WBS order and disclose it by
+   * expanding its ancestors. Render filters are deliberately NOT cleared here:
+   * `handleScheduleMany` clears them because dropping a row from a *batch
+   * write* is silent data loss, whereas a navigation that cannot reach a
+   * filtered row simply does not move.
+   */
+  const handleWalkToUnscheduled = useCallback(() => {
+    if (unscheduledTasks.length === 0) return;
+    const trayIds = new Set(unscheduledTasks.map((t) => t.id));
+    const onScreen = findRowByPredicate(
+      visibleTasks,
+      focus.state.rowId,
+      'forward',
+      (task) => trayIds.has(task.id),
+    );
+    const target = onScreen ?? unscheduledTasks[0] ?? null;
+    if (!target) return;
+    if (!onScreen) {
+      const ancestors = ancestorIdsOf(allTasks, [target.id]);
+      if (ancestors.length > 0) expand(ancestors);
+    }
+    focus.focusRow(target.id);
+    useScheduleStore.getState().scrollToTask(target.id);
+    focusRowByIdSoon(target.id);
+    // `focusRowByIdSoon` is a module-scope helper, not a dependency.
+  }, [unscheduledTasks, visibleTasks, focus, allTasks, expand]);
+
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};
     out['mod+m'] = (e) => {
@@ -4159,6 +4207,7 @@ export function ScheduleView() {
           if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
         }}
         onScheduleMany={readOnly ? undefined : handleScheduleMany}
+        onWalkToUnscheduled={handleWalkToUnscheduled}
         // Absent for a viewer, present-and-inert for an editor in Read (#2949,
         // web rule 302) — the two states the `readOnly ? undefined` idiom above
         // deliberately collapses, and which this affordance must keep apart.
@@ -5842,6 +5891,9 @@ interface ScheduleMainAreaProps {
   /** Selects the tray's rows in the outline and opens the bulk-edit sheet
    *  (#2987); omitted when read-only, so the button is absent not disabled. */
   onScheduleMany?: (taskIds: string[]) => void;
+  /** Walks the outline to the next row the tray is counting (#3131). Navigation
+   *  only, so it is passed for a read-only viewer too. */
+  onWalkToUnscheduled?: () => void;
   /** Footer append-at-the-end (#2957) — undefined for a reader with no rights. */
   onAppendTaskAtEnd?: () => void;
   /** Read mode: the footer stays present and inert. */
@@ -5997,6 +6049,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     onMoveToRequest,
     onAnnounce,
     onScheduleMany,
+    onWalkToUnscheduled,
     onAppendTaskAtEnd,
     appendAtEndReadOnly,
   } = props;
@@ -6220,7 +6273,14 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop
-          only; the mobile surface carries its own Unscheduled tray (#1671). */}
+          only; the mobile surface carries its own Unscheduled tray (#1671).
+
+          The "nothing unscheduled → no tray" gate (#3131) is deliberately NOT
+          here: the component owns an `aria-live` region that must outlive the
+          count reaching zero, because `usePromoteTask` is optimistic and the
+          last row leaves the tray before its success announcement is written.
+          Gating the mount here instead would eat that announcement. See the
+          long note at the top of `UnscheduledGutter`'s return. */}
       {projectId && (
         <UnscheduledGutter
           tasks={unscheduledTasks}
@@ -6230,6 +6290,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
           taskListWidth={panelWidth}
           sprints={sprints}
           onScheduleMany={onScheduleMany}
+          onWalkToUnscheduled={onWalkToUnscheduled}
         />
       )}
     </>

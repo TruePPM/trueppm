@@ -6,7 +6,9 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * - Gutter renders below the Gantt with count badge
  * - Task rows appear for NOT_STARTED tasks with no start date and no sprint (#317)
  * - Collapse / expand toggle persists
- * - "All tasks have planned dates" message when no unscheduled tasks
+ * - Nothing at all renders when no task is unscheduled (#3131 — this replaced
+ *   the "All tasks have planned dates" reassurance caption)
+ * - The count is a control that walks the outline (#3131)
  * - Overflow menu → one-click quick action, or "Or pick a date" → submit → PATCH
  *   sent with planned_start
  * - Esc dismisses overflow menu
@@ -269,17 +271,59 @@ test.describe('Unscheduled gutter — header (#213)', () => {
     await expect(page.getByText('(2)', { exact: true })).toBeVisible();
   });
 
-  test('shows "All To Do and Backlog tasks have planned dates" when no unscheduled tasks, once expanded', async ({
-    page,
-  }) => {
+  /**
+   * #3131 — the inverse of the case this replaces.
+   *
+   * This spec used to assert that a project with nothing unscheduled STILL
+   * rendered the gutter: a 44px lane, an `Unscheduled (0)`, and a reassurance
+   * caption reachable through the collapse toggle. An empty queue is not a
+   * status, so absence is the empty state now. The assertions are inverted
+   * rather than deleted — the zero case is exactly what regressed, so it has
+   * to keep a test.
+   */
+  test('renders nothing at all when no task is unscheduled', async ({ page }) => {
     await gotoSchedule(page, FIXTURE_API_TASKS_ALL_SCHEDULED);
-    // Zero unscheduled tasks → the gutter starts collapsed (no reassurance
-    // chrome shown by default) and the message is reachable via the toggle.
+
+    // The whole region is gone — not collapsed, not empty: absent.
+    await expect(page.getByRole('region', { name: 'Unscheduled tasks' })).toHaveCount(0);
+    await expect(page.getByText('Unscheduled', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('(0)', { exact: true })).toHaveCount(0);
+    // The caption is deleted copy — it must not return by any route, including
+    // the toggle that used to disclose it.
     await expect(
       page.getByText('All To Do and Backlog tasks have planned dates'),
     ).toHaveCount(0);
-    await page.getByRole('button', { name: 'Expand unscheduled tasks' }).click();
-    await expect(page.getByText('All To Do and Backlog tasks have planned dates')).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /(expand|collapse) unscheduled tasks/i }),
+    ).toHaveCount(0);
+  });
+
+  /**
+   * #3131 — the count is a control that walks the outline to the rows it is
+   * counting, not a caption that describes them. The `Schedule N…` button
+   * beside it is a DIFFERENT act (it opens the bulk-edit sheet) and both stay.
+   */
+  test('the count is a control that walks the outline to an unscheduled row', async ({
+    page,
+  }) => {
+    await gotoSchedule(page);
+
+    const walk = page.getByRole('button', {
+      name: /Go to the next unscheduled item in the outline/i,
+    });
+    await expect(walk).toBeVisible();
+    // The visible affordance is still the count.
+    await expect(walk).toContainText('(2)');
+    // ...and the accessible name carries the number, since the arrow is
+    // decorative and announces nothing.
+    await expect(walk).toHaveAccessibleName(/2 items unscheduled/i);
+
+    await walk.click();
+
+    // Focus landed on a row the tray is counting — 't2'/'Parking Lot Item' is
+    // the first unscheduled row in WBS order. The walk only moves focus; it
+    // writes nothing, so there is no PATCH to assert.
+    await expect(page.locator('[data-row-id="t2"]')).toBeFocused();
   });
 
   test('shows "Unscheduled" section heading', async ({ page }) => {

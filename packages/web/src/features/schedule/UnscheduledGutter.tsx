@@ -37,6 +37,20 @@ interface UnscheduledGutterProps {
    * why the button is omitted rather than disabled (rule 302).
    */
   onScheduleMany?: (taskIds: string[]) => void;
+  /**
+   * Walk the outline to the next row this tray is counting (#3131).
+   *
+   * The count is the tray's headline, and until this existed it was a caption:
+   * it named a number of rows and offered no way to reach one. This is that
+   * route, and it is a *different act* from `onScheduleMany` — that one selects
+   * every datable row and opens the bulk-edit sheet to write dates in a batch;
+   * this one only moves focus, writes nothing, and is therefore offered to a
+   * viewer with no edit rights too.
+   *
+   * Absent → the count renders as the plain span it has always been, rather
+   * than as a button that refuses (rule 302).
+   */
+  onWalkToUnscheduled?: () => void;
 }
 
 interface DragState {
@@ -76,13 +90,16 @@ export function UnscheduledGutter({
   taskListWidth,
   sprints,
   onScheduleMany,
+  onWalkToUnscheduled,
 }: UnscheduledGutterProps) {
   const itl = useIterationLabel();
   // Server-resolved today for the rows' date-gated disclosure (#3075).
   const { data: project } = useProject(projectId);
   // Absent a persisted choice, default to collapsed when there is nothing
-  // unscheduled — the reassurance message is a one-time confirmation, not
-  // chrome worth showing forever on an otherwise fully-scheduled project.
+  // unscheduled. Since #3131 the empty tray does not render at all, so this no
+  // longer governs anything visible at zero — it governs the frame between the
+  // first unscheduled row arriving and the auto-expand effect below firing,
+  // which is why it stays.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem(COLLAPSED_KEY);
@@ -385,7 +402,32 @@ export function UnscheduledGutter({
 
   return (
     <>
-      {/* Gutter panel */}
+      {/*
+        Gutter panel — rendered only while the tray is holding something (#3131).
+
+        An empty queue is not a status. Before this the panel was a permanent
+        44px lane across the bottom of the Schedule whose entire content was the
+        word "Unscheduled", a `(0)`, and a caption confirming nothing was wrong —
+        a standing reassurance about a problem nobody has, costing canvas height
+        on every fully-scheduled project forever. Absence is the empty state,
+        which is what the mobile tray has always done (`mobile/MobileSchedule.tsx`,
+        "No tasks → no tray at all").
+
+        The gate is HERE and not at the `<UnscheduledGutter>` call site in
+        `ScheduleView.tsx`, and moving it there would be a silent regression.
+        `usePromoteTask` is optimistic in `onMutate`, so scheduling the LAST
+        unscheduled row drops the count to zero *before* the mutation resolves.
+        Unmounting the component on that transition destroys the `aria-live`
+        node below, and the `onSuccess` handler firing a moment later then
+        writes its announcement to a `ref.current` that is already `null` — so
+        the one act a screen-reader user most needs confirmed ("that was the
+        last one") would be the one act that says nothing. #3064 added that
+        announcement precisely because "the chip left the tray" is not feedback
+        a screen reader can perceive. The live region, the drag portals and the
+        schedule dialog are therefore siblings of this gate, not children of it,
+        and stay mounted at zero.
+      */}
+      {totalCount > 0 && (
       <div
         role="region"
         aria-label="Unscheduled tasks"
@@ -399,19 +441,46 @@ export function UnscheduledGutter({
           <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-4">
             Unscheduled
           </span>
-          <span className="tppm-mono text-xs text-neutral-text-secondary ml-1">
-            ({totalCount})
+          {/*
+            The count is a control, not a caption (#3131). It walks the outline
+            to the next row this tray is counting, so the number names something
+            you can reach instead of merely describing a situation.
+
+            Deliberately NOT the F7 walk (`findUndatedRow`), even though that
+            helper is right there. F7's predicate is `!plannedStart` over every
+            visible row, which is a strictly WIDER set than this tray's — it
+            includes summaries, IN_PROGRESS rows and sprint-committed work that
+            the gutter's own filter excludes. Walking from "(3)" onto a row that
+            is not one of those 3 would make the number mean two things at once.
+            What the number MEANS is #2986's question, and this issue does not
+            answer it; this only makes the members of the existing count
+            reachable.
+          */}
+          {onWalkToUnscheduled ? (
+            <button
+              type="button"
+              onClick={onWalkToUnscheduled}
+              aria-label={`Go to the next unscheduled ${ROW_NOUN} in the outline — ${countRows(totalCount)} unscheduled`}
+              className="group ml-1 inline-flex items-center gap-1 rounded-control px-1 py-0.5
+                text-neutral-text-secondary hover:text-neutral-text-primary hover:underline
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              <span className="tppm-mono text-xs">({totalCount})</span>
+              <span
+                aria-hidden="true"
+                className="text-xs motion-safe:transition-transform group-hover:translate-x-0.5"
+              >
+                →
+              </span>
+            </button>
+          ) : (
+            <span className="tppm-mono text-xs text-neutral-text-secondary ml-1">
+              ({totalCount})
+            </span>
+          )}
+          <span className="hidden md:inline text-xs italic text-neutral-text-secondary ml-3">
+            no committed start yet
           </span>
-          {totalCount === 0 && !collapsed && (
-            <span className="text-xs italic text-neutral-text-secondary ml-3">
-              All To Do and Backlog tasks have planned dates
-            </span>
-          )}
-          {totalCount > 0 && (
-            <span className="hidden md:inline text-xs italic text-neutral-text-secondary ml-3">
-              no committed start yet
-            </span>
-          )}
           <div className="flex-1" />
           {onScheduleMany && datableIds.length > 0 && (
             <Button
@@ -446,7 +515,7 @@ export function UnscheduledGutter({
         </div>
 
         {/* Two-section tray — one scroll container, sticky sub-headers (rule 132) */}
-        {!collapsed && totalCount > 0 && (
+        {!collapsed && (
           <div
             className="overflow-y-auto"
             style={{
@@ -587,8 +656,12 @@ export function UnscheduledGutter({
           </div>
         )}
       </div>
+      )}
 
-      {/* aria-live (polite) — promote announcements via DOM ref (rule 30) */}
+      {/* aria-live (polite) — promote announcements via DOM ref (rule 30).
+          Outside the `totalCount > 0` gate on purpose — see the note above it:
+          the last row leaving the tray is the announcement most worth keeping,
+          and it is the one an unmount would eat. */}
       <div ref={ariaLiveRef} aria-live="polite" aria-atomic="true" className="sr-only" />
 
       {/* Drag preview portal */}

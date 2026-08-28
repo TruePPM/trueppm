@@ -62,6 +62,7 @@ function renderGutter(
   tasks: Task[],
   sprints?: ApiSprint[],
   onScheduleMany?: (ids: string[]) => void,
+  onWalkToUnscheduled?: () => void,
 ): ReturnType<typeof render> {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -77,6 +78,7 @@ function renderGutter(
         taskListWidth={200}
         sprints={sprints}
         onScheduleMany={onScheduleMany}
+        onWalkToUnscheduled={onWalkToUnscheduled}
       />
     </QueryClientProvider>
   );
@@ -251,29 +253,160 @@ describe('UnscheduledGutter — reveal bridge (#1798)', () => {
   });
 });
 
-describe('UnscheduledGutter — collapse / empty header states', () => {
-  it('starts collapsed with the reassurance message hidden when there are no tasks, reachable via the toggle', () => {
-    renderGutter([]);
-    expect(screen.getByText('(0)')).toBeInTheDocument();
-    // Collapsed by default — the one-time confirmation isn't permanent chrome.
-    expect(
-      screen.queryByText('All To Do and Backlog tasks have planned dates'),
-    ).toBeNull();
-    // With an empty list the tray itself never renders — there's nothing to page.
-    expect(screen.queryByText(/To Do · Unscheduled/)).toBeNull();
+/**
+ * #3131 — the header count is a control that walks you to the rows it counts,
+ * not a caption that describes them.
+ */
+describe('UnscheduledGutter — the count is a control', () => {
+  const rows = [
+    makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' }),
+    makeTask({ id: 'b', name: 'Draft spec', status: 'BACKLOG' }),
+  ];
 
-    const expandBtn = screen.getByRole('button', { name: 'Expand unscheduled tasks' });
-    fireEvent.click(expandBtn);
+  it('renders the count as a button that walks the outline when a handler is given', () => {
+    const onWalk = vi.fn();
+    renderGutter(rows, undefined, undefined, onWalk);
+
+    const countBtn = screen.getByRole('button', {
+      name: /Go to the next unscheduled item in the outline/i,
+    });
+    // The visible affordance is still the count itself.
+    expect(within(countBtn).getByText('(2)')).toBeInTheDocument();
+    // The accessible name carries the number too — the arrow is decorative.
+    expect(countBtn).toHaveAccessibleName(/2 items unscheduled/i);
+
+    fireEvent.click(countBtn);
+    expect(onWalk).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a repeatable walk — a second click asks for the next row, not the same one', () => {
+    const onWalk = vi.fn();
+    renderGutter(rows, undefined, undefined, onWalk);
+
+    const countBtn = screen.getByRole('button', {
+      name: /Go to the next unscheduled item in the outline/i,
+    });
+    fireEvent.click(countBtn);
+    fireEvent.click(countBtn);
+    expect(onWalk).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * Rule 302: a control with nothing behind it is absent, not inert. With no
+   * handler the count falls back to the plain span it has always been — never
+   * a `disabled` button, which would announce "[label], dimmed" to a screen
+   * reader and teach the reader the product is broken.
+   */
+  it('falls back to a plain count — never a disabled button — with no handler', () => {
+    renderGutter(rows);
+
     expect(
-      screen.getByText('All To Do and Backlog tasks have planned dates'),
+      screen.queryByRole('button', { name: /Go to the next unscheduled item/i }),
+    ).toBeNull();
+    expect(screen.getByText('(2)')).toBeInTheDocument();
+    // Nothing in the header strip is a disabled control.
+    for (const btn of screen.getAllByRole('button')) {
+      expect(btn).not.toBeDisabled();
+    }
+  });
+
+  /**
+   * The walk and the bulk-edit sheet are two different acts on the same tray,
+   * and both must remain reachable. "Schedule N…" writes dates in a batch; the
+   * count only moves focus.
+   */
+  it('coexists with the Schedule N… button rather than replacing it', () => {
+    const onWalk = vi.fn();
+    const onScheduleMany = vi.fn();
+    renderGutter(rows, undefined, onScheduleMany, onWalk);
+
+    expect(
+      screen.getByRole('button', { name: /Go to the next unscheduled item/i }),
     ).toBeInTheDocument();
-    expect(localStorage.getItem('trueppm.gantt.unscheduledGutter.collapsed')).toBe('false');
+    const scheduleBtn = screen.getByRole('button', { name: /^Schedule 2/i });
+    expect(scheduleBtn).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse unscheduled tasks' }));
+    fireEvent.click(scheduleBtn);
+    expect(onScheduleMany).toHaveBeenCalledTimes(1);
+    expect(onWalk).not.toHaveBeenCalled();
+  });
+
+  it('does not offer the walk when there is nothing to walk to', () => {
+    renderGutter([], undefined, undefined, vi.fn());
+    expect(
+      screen.queryByRole('button', { name: /Go to the next unscheduled item/i }),
+    ).toBeNull();
+  });
+});
+
+describe('UnscheduledGutter — collapse / empty header states', () => {
+  /**
+   * #3131 — this case is the inverse of the one it replaces. It used to assert
+   * that an empty tray still rendered a header, a `(0)` and a reassurance
+   * caption reachable through the collapse toggle. An empty queue is not a
+   * status: absence is the empty state now, matching the mobile tray.
+   */
+  it('renders nothing at all when there is nothing unscheduled', () => {
+    renderGutter([]);
+    expect(screen.queryByRole('region', { name: 'Unscheduled tasks' })).toBeNull();
+    expect(screen.queryByText('(0)')).toBeNull();
+    expect(screen.queryByText(/^Unscheduled$/)).toBeNull();
+    // The caption this issue deleted must not come back by another route.
     expect(
       screen.queryByText('All To Do and Backlog tasks have planned dates'),
     ).toBeNull();
-    expect(localStorage.getItem('trueppm.gantt.unscheduledGutter.collapsed')).toBe('true');
+    // No toggle either — there is nothing behind it to disclose.
+    expect(screen.queryByRole('button', { name: /unscheduled tasks$/i })).toBeNull();
+    expect(screen.queryByText(/To Do · Unscheduled/)).toBeNull();
+  });
+
+  /**
+   * The gate lives inside the component rather than at its call site precisely
+   * so this node survives the count reaching zero. `usePromoteTask` is
+   * optimistic, so the last row leaves the tray BEFORE its `onSuccess` writes
+   * the "scheduled" announcement into this ref (#3064) — unmounting the whole
+   * component on that transition would silently eat it.
+   *
+   * Asserted on the container rather than by role: an empty `aria-live` region
+   * exposes no accessible name to query by, and its whole job is to be present
+   * and empty until something is written into it.
+   */
+  it('keeps the aria-live region mounted at zero so the last promote can still announce', () => {
+    const { container } = renderGutter([]);
+    const live = container.querySelector('[aria-live="polite"]');
+    expect(live).not.toBeNull();
+    expect(live).toHaveClass('sr-only');
+  });
+
+  it('appears as soon as the tray holds something, expanded', () => {
+    const { rerender } = renderGutter([]);
+    expect(screen.queryByRole('region', { name: 'Unscheduled tasks' })).toBeNull();
+
+    // Re-render the same mounted component with one unscheduled row, which is
+    // what a task losing its planned start does.
+    rerender(
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+          })
+        }
+      >
+        <UnscheduledGutter
+          tasks={[makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' })]}
+          projectId="proj1"
+          scaleData={null}
+          canvasScrollRef={createRef<HTMLDivElement>()}
+          taskListWidth={200}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole('region', { name: 'Unscheduled tasks' })).toBeInTheDocument();
+    expect(screen.getByText('(1)')).toBeInTheDocument();
+    // Auto-expand on first appearance — a row that just fell out of the plan
+    // must not hide behind a chevron.
+    expect(screen.getByText('To Do · Unscheduled (1)')).toBeInTheDocument();
   });
 
   it('collapses the tray and persists the choice, then re-expands', () => {

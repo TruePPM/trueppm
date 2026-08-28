@@ -520,6 +520,10 @@ The one-click **Start at the earliest** and **Start today** actions described be
 
 A task with no **committed start** draws no bar. It has dates — CPM calculates an earliest start for everything it schedules — but those are the scheduler's answer, not yours, and they move whenever a predecessor does. Until you commit a start, the task waits in the **To Do** section of the Unscheduled gutter beneath the timeline.
 
+The gutter appears only while it is holding something. On a project where every task has a committed start there is no tray at all — an empty queue is not a status worth a permanent strip across the bottom of your timeline, so you get the canvas height back instead. It returns the moment a task loses its date or a new one is captured without one.
+
+Its count is a control, not a label: click the **(N)** beside "Unscheduled" to jump the outline to the next task the tray is counting, expanding a collapsed phase if the task is hidden inside one. Click it again for the next. This only moves you — it writes nothing. To commit dates to several tasks at once, use **Schedule N…** beside it, which selects them and opens the bulk editor.
+
 Three ways to commit one, from its `···` menu:
 
 - **Start at the earliest** — commits the date CPM already calculated: the soonest the task can begin given its predecessors and the project calendar. One click, nothing to type.
