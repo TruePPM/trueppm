@@ -47,6 +47,13 @@ Owner 400. `◐` means allowed but gated per row, not per request.
 | Import that **creates** a project | ✅¹ | ✅¹ | ✅¹ | ✅¹ | ✅¹ |
 | Bulk-delete untouched seeded rows | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Publish / commit the plan (0.5 draft lifecycle) | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Author a dependency edge (drag-to-link, picker) | ❌ | ❌ | ✅ | ✅ | ✅ |²
+
+² The one row whose column pattern is not a prefix of the others, and the reason
+§7 exists. Every other capability here is task content; this one is a different
+server permission (`IsProjectScheduler`) that admits the band task content excludes
+and excludes the band task content admits. Added 2026-08-28 (#3053) — the row was
+missing when this ADR was written, which is how a client gate came to front both.
 
 ¹ Not a project-scoped capability — no project exists yet. Any authenticated user may
 create a project and becomes its Owner. The row exists only so the matrix does not read
@@ -174,6 +181,72 @@ cannot open the project WebSocket at all.** `ProjectConsumer` closes with 4003 w
 is a polling snapshot, never live. Any Designer copy implying live collaboration in
 Read mode is wrong for the one role Read mode exists for.
 
+### 7. Dependency edges are a second, non-nested band (#3053, 2026-08-28)
+
+The matrix above is entirely about **task content**, and §2's `can_user_author_plan`
+answers exactly that question. Dependency **edges** are governed by a different class,
+and the two rules do not nest:
+
+| | server gate | rule | admits | excludes |
+|---|---|---|---|---|
+| Task content | `IsProjectPlanAuthor` | `role >= MEMBER` minus the 200–299 band | Member, Admin, Owner | **Scheduler** |
+| Dependency edges | `IsProjectScheduler` | `role >= SCHEDULER` | Scheduler, Admin, Owner | **Member** |
+
+Each admits exactly one band the other refuses. That is not a subtlety — it is the
+reason a single client boolean cannot express both, and it is what #3053 was: the
+Designer derived one `readOnly` from `can_author` and gated every mutation on it, so
+canvas drag-to-link resolved as task content. A Scheduler lost a gesture the server
+answers 200, and a Member was offered one the server answers 403.
+
+**Decision: a Scheduler may author dependencies. `DependencyViewSet` is not narrowed.**
+The server already returns 200 for the band, the published RBAC matrix
+(`packages/website/src/content/docs/administration/rbac.md`)
+already promises `Create/edit dependencies ✓`, and the role's own description is
+"assigns resources and edits dependencies". Narrowing it to match the task-content gate
+would be a breaking permission change for anyone who staffed the role as documented —
+and it would be made as a side effect of a client bug, which is the wrong way to decide
+a permission.
+
+The client mirrors this with a second resolver, `canAuthorDependencies` in
+`packages/web/src/lib/roles.ts`, kept beside `canAuthorPlan` so the two rules are read
+together rather than one being rediscovered later.
+
+**Where the floor actually lives, because it is not where you would look.**
+`POST /api/v1/dependencies/` is a **flat** route with no `project_pk`, so
+`IsProjectScheduler.has_permission` takes its `return True` fail-open branch — the open
+**#2745** class named in "Defects this surfaced" below — and `has_object_permission`
+does not run on a create. The floor survives because
+`DependencySerializer.validate` → `_authorize_same_project_edge` calls
+`check_object_permissions` on **both** endpoint tasks, which does reach
+`has_object_permission`. It is a real gate in an unexpected place, so it is pinned by
+outcome rather than by mechanism in
+`tests/apps/access/test_rbac.py::TestDependencyAuthoringBand` — those assertions keep
+holding if #2745 moves enforcement back up to the view.
+
+**The affordance is withheld, not swallowed.** A refused reader does not get the
+rest-state link handle, the crosshair, or an armed gesture: `GanttEngine.setLinkAuthoring`
+declines to arm, so no `create-link` is emitted at all. Painting a grab point for a drag
+that is silently dropped is the false affordance §(d) and #2949 already ruled against,
+and it is worse on a canvas — the user aims at a mark, nothing happens, and their next
+guess is that the product is broken.
+
+**Still open, and tracked.** Five client surfaces mutate dependency edges; #3053 split
+one of them. The other four resolve the question on the task-content gate or on nothing:
+
+| Surface | gate today | filed |
+|---|---|---|
+| Outline row menu `Add dependency…` | `canEditTaskRow` (task content) | #3142 |
+| Outline Links-cell picker chip | same `authoring` | #3142 |
+| Task drawer `DependenciesTab` (incl. **delete**) | none at all — a Viewer reaches it | #3143 |
+| Board `TaskFormModal` predecessors editor | `isReadOnly`, whose assignee predicate never reads the current user | #3143 |
+
+They are #3053's consequences rather than #3034's regression, which is why they are
+filed rather than carried in here — but note the denominator, because "the dependency
+gate is fixed" is true of one surface out of five. There is also no mechanized guard
+against the class recurring: "a client boolean fronts two server permissions" is a
+semantic judgement, and the crossing invariant in `lib/roles.test.ts` pins the two
+resolvers, not their consumers.
+
 ## Permission classes
 
 ### Reuse as-is
@@ -252,6 +325,7 @@ Scheduler bug on the client, where nothing will catch it. Consume the server fie
 | delete untouched seeded rows | #2731 | `IsAuthenticated, IsProjectAdmin, IsProjectNotArchived` | server recomputes the set from `seeded_at`/`edited_at` (#2730) |
 | import into existing project | #2732 | `IsAuthenticated, IsProjectAdmin, IsProjectNotArchived` | already the shipped floor |
 | import creates project | #2710 | `IsAuthenticated` | — |
+| `POST /dependencies/` (flat) | #3053 | `IsAuthenticated, IsProjectScheduler, IsProjectNotArchived` | the floor is enforced by `DependencySerializer._authorize_same_project_edge`, not by the classes — the flat route has no `project_pk`, so `has_permission` fails open (#2745) and `has_object_permission` never runs on a create. See §7 |
 
 ## Consequences
 
@@ -316,6 +390,10 @@ answer in a follow-up.
   seeded-delete.
 - pytest: `ProjectSerializer.can_author` agrees with `can_user_author_plan` for all five
   roles.
+- pytest: `POST /dependencies/` refuses a Member and a Viewer and accepts a Scheduler,
+  asserted as an outcome so it survives #2745 moving where the floor is enforced (§7).
+- vitest: `canAuthorDependencies` and `canAuthorPlan` each admit one band the other
+  refuses, so no future "simplification" can collapse them back into one flag (§7).
 - `rbac-check` runs against the endpoint → class map above.
 
 ## Related ADRs

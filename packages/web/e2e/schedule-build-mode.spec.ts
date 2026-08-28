@@ -107,12 +107,19 @@ test.describe('Schedule build-mode — default on desktop (#2682)', () => {
     await page.goto(BASE_URL);
     await page.getByTestId('build-mode-pill').click();
     const dialog = page.getByRole('dialog', { name: 'Schedule shortcuts' });
-    await expect(dialog.getByText('Selecting rows')).toBeVisible();
-    await expect(dialog.getByText('Editing cells')).toBeVisible();
-    await expect(dialog.getByText('Structuring (the WBS tree)')).toBeVisible();
-    await expect(dialog.getByText('Quick actions')).toBeVisible();
-    await expect(dialog.getByText('Dependencies')).toBeVisible();
-    await expect(dialog.getByText('Help')).toBeVisible();
+    // Scoped to the `<dt>` section headings, not bare text (#3053). An unscoped
+    // `getByText('Dependencies')` also matches any ENTRY label containing the
+    // word — which the Dependencies section itself now has ("Open the task, then
+    // its Dependencies section") — so the assertion strict-mode-violates the
+    // moment the sheet documents the thing it is a heading for. Headings are the
+    // subject here; say so in the locator.
+    const heading = (name: string) => dialog.locator('dt').filter({ hasText: name });
+    await expect(heading('Selecting rows')).toBeVisible();
+    await expect(heading('Editing cells')).toBeVisible();
+    await expect(heading('Structuring (the WBS tree)')).toBeVisible();
+    await expect(heading('Quick actions')).toBeVisible();
+    await expect(heading('Dependencies')).toBeVisible();
+    await expect(heading('Help')).toBeVisible();
   });
 
   test('right-click on a row opens the row menu with expected items', async ({ page }) => {

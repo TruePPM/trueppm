@@ -102,6 +102,10 @@ export class GanttEngineStub implements GanttEngine {
     // no-op: the stub renders nothing, so chart display options are ignored
   }
 
+  // ── Drag-to-link authority (#3053) ────────────────────────────────────────
+
+  setLinkAuthoring(_enabled: boolean): void {}
+
   // ── Imperative drag control ───────────────────────────────────────────────
 
   cancelDrag(): void {}

@@ -425,6 +425,33 @@ export interface GanttEngine {
    */
   setChartOptions(options: ChartRenderOptions): void;
 
+  // ── Drag-to-link authority (#3053) ────────────────────────────────────────
+
+  /**
+   * Enable or disable the drag-to-link gesture and its rest-state affordance.
+   *
+   * Dependency edges are a DIFFERENT server permission from task content
+   * (`IsProjectScheduler` vs `IsProjectPlanAuthor` — see `canAuthorDependencies`
+   * in `@/lib/roles`), so this cannot be inferred from anything else the engine
+   * already knows and has to be told.
+   *
+   * Disabling withholds the whole gesture rather than swallowing it at commit:
+   * the hover handle is not painted, the link-dot cursor stays `default`, and a
+   * pointer-down in the link zone does not arm the FSM — so no `create-link` is
+   * ever emitted. Painting a grab point for a drag that will be silently dropped
+   * is the false affordance #2949 ruled against, and it is worse here than
+   * elsewhere because the user's next guess is that the product is broken.
+   *
+   * Deliberately does NOT fall through to a bar move/resize drag when disabled.
+   * The link zone sits just outside the bar's right edge; falling through would
+   * turn a refused link into a silent RESCHEDULE — a worse outcome than nothing
+   * happening.
+   *
+   * Defaults to enabled, so a caller that never sets it keeps the pre-#3053
+   * behavior.
+   */
+  setLinkAuthoring(enabled: boolean): void;
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   /**

@@ -226,6 +226,9 @@ const fakeEngine = {
   // #2997: the view tells the engine when the pointer class moves the row
   // pitch, so the hit index and the paint are re-derived off the new height.
   rowMetricsChanged: vi.fn(),
+  // #3053: the view tells the engine whether the reader may author dependency
+  // edges, so a refused reader never gets the handle, the crosshair, or the arm.
+  setLinkAuthoring: vi.fn(),
   scales: null,
   scrollLeft: 0,
 };
@@ -2091,7 +2094,8 @@ describe('ScheduleView — canvas engine events', () => {
     ).toBeInTheDocument();
   });
 
-  it('commits a drag-to-link gesture as an FS/0-lag dependency for a member', async () => {
+  it('commits a drag-to-link gesture as an FS/0-lag dependency for an admin', async () => {
+    mockRole = ROLE_ADMIN;
     const handlers = captureEngineHandlers();
     renderSchedule();
     await waitFor(() => expect(handlers['create-link']).toBeDefined());
@@ -2112,6 +2116,7 @@ describe('ScheduleView — canvas engine events', () => {
   });
 
   it('skips the link mutation and warns when offline', async () => {
+    mockRole = ROLE_ADMIN;
     const onLineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     const handlers = captureEngineHandlers();
     renderSchedule();
@@ -2123,6 +2128,7 @@ describe('ScheduleView — canvas engine events', () => {
   });
 
   it('announces the link on success via the polite aria-live region', async () => {
+    mockRole = ROLE_ADMIN;
     addDepMutate.mockImplementation((_vars: unknown, opts: { onSuccess?: () => void }) =>
       opts.onSuccess?.(),
     );
@@ -2135,6 +2141,7 @@ describe('ScheduleView — canvas engine events', () => {
   });
 
   it('surfaces a circular-dependency error toast when the link would cycle', async () => {
+    mockRole = ROLE_ADMIN;
     addDepMutate.mockImplementation((_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
       opts.onError?.({ cyclic: true }),
     );
@@ -2145,7 +2152,129 @@ describe('ScheduleView — canvas engine events', () => {
     expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/circular dependency/i));
   });
 
+  // ── The two gates are not one gate (#3053) ────────────────────────────────
+  //
+  // `readOnly` used to front task-content authoring AND dependency authoring,
+  // which are different server rules with no containment either way:
+  //
+  //   task content   `IsProjectPlanAuthor`  role >= MEMBER minus the 200–299 band
+  //   dependencies   `IsProjectScheduler`   role >= SCHEDULER
+  //
+  // So the single boolean was wrong for exactly one band whichever way it went.
+  // These two cases pin the ruling (#3053, 2026-08-25: a Scheduler MAY author
+  // dependencies) from both sides, and they are the pair that would both pass
+  // again if someone re-collapsed the flags — one of them always fails first.
+  //
+  // The server side is pinned by
+  // `tests/apps/access/test_rbac.py::TestDependencyAuthoringBand`; these assert
+  // the client mirrors it rather than re-deriving a second rule.
+
+  it('commits a drag-to-link gesture for a Scheduler, who cannot author task content', async () => {
+    // The regression #3034 introduced. `can_author` is FALSE for this band —
+    // `serverCanAuthor()` reproduces the server's band exclusion — so a gate
+    // derived from it alone withholds a gesture the server answers 200.
+    mockRole = ROLE_SCHEDULER;
+    expect(serverCanAuthor()).toBe(false);
+    const handlers = captureEngineHandlers();
+    renderSchedule();
+    await waitFor(() => expect(handlers['create-link']).toBeDefined());
+    act(() => handlers['create-link']({ sourceId: 't2', targetId: 't3' }));
+    expect(addDepMutate).toHaveBeenCalledWith(
+      { predecessor: 't2', successor: 't3', dep_type: 'FS', lag: 0 },
+      expect.anything(),
+    );
+  });
+
+  it('withholds drag-to-link from a Member, who may author task content', async () => {
+    // The mirror image, and the half this file used to assert the other way
+    // round. A Member is an author of ROWS (`can_author` true) and is refused
+    // EDGES: `DependencySerializer._authorize_same_project_edge` runs
+    // `check_object_permissions` on both endpoint tasks, so `IsProjectScheduler`
+    // 403s them. Offering the gesture here is a false affordance, not a right.
+    mockRole = ROLE_MEMBER;
+    expect(serverCanAuthor()).toBe(true);
+    const handlers = captureEngineHandlers();
+    renderSchedule();
+    await waitFor(() => expect(handlers['create-link']).toBeDefined());
+    act(() => handlers['create-link']({ sourceId: 't2', targetId: 't3' }));
+    expect(addDepMutate).not.toHaveBeenCalled();
+  });
+
+  it('Read mode suppresses the link for a reader who can flip back out of it', async () => {
+    // ⌥A is the user's own "don't let me edit" choice, so it overlays the
+    // permission for anyone who can see the pill and press the key.
+    mockRole = ROLE_ADMIN;
+    window.localStorage.setItem('trueppm.schedule.authorMode.test-user-1.project-1', 'read');
+    const handlers = captureEngineHandlers();
+    renderSchedule();
+    await waitFor(() => expect(handlers['create-link']).toBeDefined());
+    act(() => handlers['create-link']({ sourceId: 't2', targetId: 't3' }));
+    expect(addDepMutate).not.toHaveBeenCalled();
+  });
+
+  it('a stale Read preference does not strand a Scheduler, who has no toggle', async () => {
+    // The mode pill and the ⌥A binding both sit behind `hasEditRights`, and the
+    // preference is per-user-per-project localStorage — so an Admin who chose Read
+    // and was later moved to Scheduler carries 'read' in with them and has nothing
+    // on screen to flip it back. A choice you cannot reverse is not a choice, and
+    // honoring it here would reintroduce the exact stranding this issue is about.
+    mockRole = ROLE_SCHEDULER;
+    window.localStorage.setItem('trueppm.schedule.authorMode.test-user-1.project-1', 'read');
+    const handlers = captureEngineHandlers();
+    renderSchedule();
+    await waitFor(() => expect(handlers['create-link']).toBeDefined());
+    act(() => handlers['create-link']({ sourceId: 't2', targetId: 't3' }));
+    expect(addDepMutate).toHaveBeenCalledWith(
+      { predecessor: 't2', successor: 't3', dep_type: 'FS', lag: 0 },
+      expect.anything(),
+    );
+  });
+
+  it('a FAILED role read does not withhold the link — that is unsettled, not denial', async () => {
+    // `useCurrentUserRole` has `retry: false`, so one dropped request is terminal
+    // and leaves `role === null` forever with no `refetch` wired here. Reading that
+    // as "no" would take drag-to-link off an Admin for the life of the page, while
+    // `canEditTaskRow` — which treats the same state as unsettled — keeps their row
+    // editing on the very same canvas. #2961's rule, applied to this gate.
+    mockRole = null;
+    mockRoleError = true;
+    const handlers = captureEngineHandlers();
+    renderSchedule();
+    await waitFor(() => expect(handlers['create-link']).toBeDefined());
+    act(() => handlers['create-link']({ sourceId: 't2', targetId: 't3' }));
+    expect(addDepMutate).toHaveBeenCalled();
+  });
+
+  it('a plain non-member (null role, no error) is still refused', async () => {
+    // The state the clause above must not swallow. A non-member ALSO has a null
+    // role — permanently — so "null means unsettled" would hand the gesture to
+    // anyone who can load the page. Only `isError` distinguishes the two.
+    mockRole = null;
+    mockRoleError = false;
+    const handlers = captureEngineHandlers();
+    renderSchedule();
+    await waitFor(() => expect(handlers['create-link']).toBeDefined());
+    act(() => handlers['create-link']({ sourceId: 't2', targetId: 't3' }));
+    expect(addDepMutate).not.toHaveBeenCalled();
+  });
+
+  it('tells the engine to withhold the handle and the arm, not just the commit', async () => {
+    // Swallowing the drop at commit still paints the grab point and offers the
+    // crosshair — the false affordance #2949 ruled against. The engine is told,
+    // so a refused reader never arms and `create-link` is never emitted.
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    await waitFor(() => expect(fakeEngine.setLinkAuthoring).toHaveBeenCalledWith(false));
+  });
+
+  it('tells the engine to offer the handle to a Scheduler', async () => {
+    mockRole = ROLE_SCHEDULER;
+    renderSchedule();
+    await waitFor(() => expect(fakeEngine.setLinkAuthoring).toHaveBeenCalledWith(true));
+  });
+
   it('shows a generic error toast for a non-cyclic link failure', async () => {
+    mockRole = ROLE_ADMIN;
     addDepMutate.mockImplementation((_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
       opts.onError?.({}),
     );

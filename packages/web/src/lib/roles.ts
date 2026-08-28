@@ -86,6 +86,49 @@ export function canAuthorPlan(canAuthor: boolean | undefined): boolean {
 }
 
 /**
+ * May this reader author dependency **edges**? (#3053, ADR-0773 §7)
+ *
+ * A SECOND permission, not a rephrasing of {@link canAuthorPlan}, and the two are
+ * not nested. Task content is `IsProjectPlanAuthor` — `role >= MEMBER` minus the
+ * 200–299 band, so it EXCLUDES Scheduler. Dependency edges are
+ * `IsProjectScheduler` — `role >= SCHEDULER`, so they EXCLUDE Member. Neither
+ * rule is a superset of the other, which is why one boolean could not front both:
+ * whichever way it resolved it was wrong for one band. It resolved as task
+ * content, and a Scheduler lost canvas drag-to-link the server would have
+ * accepted.
+ *
+ * The role ordinal is the right input here, unlike {@link canAuthorPlan}: the
+ * server's rule for edges IS a threshold, so there is no band exclusion for a
+ * client-side `>=` to get backwards, and the server sends no `can_author`
+ * equivalent for dependencies.
+ *
+ * Where the server actually enforces it is worth knowing before you change this.
+ * `POST /api/v1/dependencies/` is a FLAT route with no `project_pk`, so
+ * `IsProjectScheduler.has_permission` takes its `return True` fail-open branch
+ * (#2745) and `has_object_permission` does not run on a create. The floor is
+ * enforced one layer down instead, by `DependencySerializer.validate` →
+ * `_authorize_same_project_edge`, which calls `check_object_permissions` on BOTH
+ * endpoint tasks and therefore does reach `has_object_permission`. It is a real
+ * gate, but not where you would look for it — pinned by
+ * `tests/apps/access/test_rbac.py::TestDependencyAuthoringBand`.
+ *
+ * `null`/`undefined` returns `false` — the pessimism `canEditTask` and the
+ * `canImport` gate already apply, so the affordance stays absent until the answer
+ * arrives rather than flashing on and then refusing.
+ *
+ * That covers two of the three ways a role can be null, and the caller is expected
+ * to re-open the third. Loading and no-membership are correctly `false` here; a
+ * FAILED read is not (#2961). `useCurrentUserRole` sets `retry: false`, so one
+ * dropped request is terminal, and treating it as a refusal removes a working
+ * control for the life of the page. This resolver cannot tell the three apart —
+ * it receives only the ordinal — so a caller that has `isError` must OR it in.
+ * `ScheduleView`'s `dependenciesReadOnly` is the reference for that.
+ */
+export function canAuthorDependencies(role: number | null | undefined): boolean {
+  return role != null && role >= ROLE_SCHEDULER;
+}
+
+/**
  * May this reader mutate **this row**? (web rule 302, #2961, extended #2960)
  *
  * Three inputs, and the order matters:

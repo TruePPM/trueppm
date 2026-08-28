@@ -17,6 +17,7 @@ import {
   ROLE_ADMIN,
   ROLE_OWNER,
   canEditTask,
+  canAuthorDependencies,
   canAuthorPlan,
   canEditRisk,
   progressCompleteAutoStatus,
@@ -109,6 +110,41 @@ describe('canAuthorPlan (#3034, ADR-0773 §(d))', () => {
     // ordinal comparison reintroduces #3034, so the disagreement is pinned here.
     expect(canEditTask(ROLE_SCHEDULER)).toBe(true);
     expect(canAuthorPlan(false)).toBe(false);
+  });
+});
+
+describe('canAuthorDependencies (#3053, ADR-0773 §7)', () => {
+  it('admits Scheduler and above', () => {
+    expect(canAuthorDependencies(ROLE_SCHEDULER)).toBe(true);
+    expect(canAuthorDependencies(ROLE_ADMIN)).toBe(true);
+    expect(canAuthorDependencies(ROLE_OWNER)).toBe(true);
+  });
+
+  it('refuses Member and Viewer', () => {
+    expect(canAuthorDependencies(ROLE_MEMBER)).toBe(false);
+    expect(canAuthorDependencies(ROLE_VIEWER)).toBe(false);
+  });
+
+  it('refuses an unresolved or absent role', () => {
+    expect(canAuthorDependencies(null)).toBe(false);
+    expect(canAuthorDependencies(undefined)).toBe(false);
+  });
+
+  it('crosses canAuthorPlan — neither gate contains the other', () => {
+    // The invariant the #3053 split exists for, and the one a "simplification"
+    // back to a single flag has to break. Each rule admits exactly one band the
+    // other refuses, so no single boolean can express both:
+    //
+    //   Scheduler  edges yes, rows no
+    //   Member     rows yes, edges no
+    //
+    // `canAuthorPlan` takes the SERVER's verdict, so the Member/Scheduler values
+    // below are what `role_can_author_plan` computes for those bands.
+    expect(canAuthorDependencies(ROLE_SCHEDULER)).toBe(true);
+    expect(canAuthorPlan(false)).toBe(false); // the server's answer for Scheduler
+
+    expect(canAuthorDependencies(ROLE_MEMBER)).toBe(false);
+    expect(canAuthorPlan(true)).toBe(true); // the server's answer for Member
   });
 });
 
