@@ -92,6 +92,18 @@ socket that died without a clean disconnect (a killed worker, a network partitio
 name disappears within a minute of the connection genuinely going away. Clients send no
 heartbeat and need none.
 
+**There are no row-level or per-field locks**, and the project socket is currently
+receive-only — it accepts no client frames. Presence tells you who is in a project; it
+does not tell you what they are touching. Concurrent edits are resolved where they always
+were: a stale write returns `409` against `server_version` and the client is asked to
+reload, with no automatic merge.
+
+**TruePPM will not lock a row against you.** A soft lock expires on inactivity and on
+disconnect and never gates the write, so it cannot prevent the conflict it appears to
+prevent — and every way it fails looks reassuring rather than broken, which is worse than
+not drawing it. Any edit-awareness TruePPM adds will be advisory for that reason: it may
+tell you someone else is typing, and it will never stop you typing.
+
 Beyond these, the catalog also covers comments, attachments, assignments and roster changes, board configuration and saved views, programs, project lifecycle, and workshops — see the [WebSocket API reference](/api/websockets/) for the full taxonomy and the WebSocket ↔ webhook event mapping.
 
 ## Broadcast safety
