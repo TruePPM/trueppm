@@ -2373,6 +2373,8 @@ export function ScheduleView() {
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
       focus,
+      // #3079 — whether a plain Enter also inserts a row, or just commits.
+      enterCreatesRow: displayOptions.enterCreatesRow,
       indent: (taskId) => {
         // Capture BEFORE the mutation: the sentence describes the tree as it
         // was, and whether the row above is about to change identity is only
@@ -2647,6 +2649,7 @@ export function ScheduleView() {
       setScheduleActionToast,
       actRow,
       recordAct,
+      displayOptions.enterCreatesRow,
     ],
   );
 

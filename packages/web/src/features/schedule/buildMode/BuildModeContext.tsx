@@ -9,6 +9,15 @@ export interface BuildModeApi {
   outdent: (taskId: string) => void;
   /** Insert a sibling row below the current row (Enter from RowFocused). */
   insertBelow: (taskId: string) => void;
+  /**
+   * The `enterCreatesRow` display preference (#3079). Lives here rather than being
+   * threaded through row props because the rows already take their whole authoring
+   * vocabulary from this context, and it governs one of those verbs.
+   *
+   * Optional so a test mock of `BuildModeApi` need not restate it; absent reads as
+   * the shipped default (on).
+   */
+  enterCreatesRow?: boolean;
   /** Insert a sibling row above the current row (Shift+Enter, #2727). */
   insertAbove: (taskId: string) => void;
   /**

@@ -28,6 +28,18 @@ export interface ScheduleDisplayOptions {
   /** 44px rows and larger controls — the same sizing coarse pointers get automatically. */
   comfortableRows: boolean;
   /**
+   * Whether a plain Enter in the outline also inserts a new row (#1666). Default
+   * **on**, which is the shipped behavior: Enter commits and adds a sibling below,
+   * the spreadsheet motion that rapid sequence entry is built around.
+   *
+   * Off is for the other job — renaming existing rows, fixing typos — where every
+   * commit spawned a blank row that then had to be deleted. It only governs the
+   * *plain* chord: Shift+Enter (sibling above) and ⌘/Ctrl+Enter (child) are
+   * explicit insert gestures and still insert, because a user who reached for a
+   * modifier asked for a row rather than merely finishing an edit.
+   */
+  enterCreatesRow: boolean;
+  /**
    * Toolbar pins (#3076). Whether each promotable control gets toolbar width,
    * as opposed to living in the `···` menu.
    *
@@ -60,6 +72,7 @@ export const DEFAULT_DISPLAY_OPTIONS: ScheduleDisplayOptions = {
   structureButtons: false,
   coach: true,
   comfortableRows: false,
+  enterCreatesRow: true,
   pinMilestone: true,
   pinExportPdf: true,
   pinCounts: true,

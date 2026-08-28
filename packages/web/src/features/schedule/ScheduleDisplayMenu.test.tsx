@@ -590,6 +590,35 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
     expect(onToggle).toHaveBeenCalledWith('comfortableRows');
   });
 
+  // #3079. Same shape as the Comfortable-rows pair above, and for the same reason:
+  // assert the entry point AND the key it reports, so the toggle cannot be renamed
+  // or unwired in silence. The downstream half — Enter not inserting a row — is in
+  // TaskListRow.keyboardExtract / TaskListRow.editCommit and the e2e spec.
+  it('offers the Enter-creates-a-new-row toggle and reports it by its key (#3079)', () => {
+    const onToggle = vi.fn();
+    setup({
+      displayOptions: { ...DEFAULT_DISPLAY_OPTIONS, enterCreatesRow: true },
+      onToggleDisplayOption: onToggle,
+    });
+    const menu = openMenu();
+    const item = within(menu).getByRole('menuitemcheckbox', { name: 'Enter creates a new row' });
+    // Default on — this is #1666's shipped behavior and the toggle must not move it.
+    expect(item).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(item);
+    expect(onToggle).toHaveBeenCalledWith('enterCreatesRow');
+  });
+
+  it('reflects the Enter-creates-a-new-row off state', () => {
+    setup({
+      displayOptions: { ...DEFAULT_DISPLAY_OPTIONS, enterCreatesRow: false },
+      onToggleDisplayOption: vi.fn(),
+    });
+    const menu = openMenu();
+    expect(
+      within(menu).getByRole('menuitemcheckbox', { name: 'Enter creates a new row' }),
+    ).toHaveAttribute('aria-checked', 'false');
+  });
+
   it('reflects the Comfortable rows on state', () => {
     setup({
       displayOptions: { ...DEFAULT_DISPLAY_OPTIONS, structureButtons: false, coach: true, comfortableRows: true },

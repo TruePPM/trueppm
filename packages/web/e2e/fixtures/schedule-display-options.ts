@@ -23,6 +23,8 @@ export async function setupScheduleDisplayOptions(
     structureButtons: boolean;
     coach: boolean;
     comfortableRows: boolean;
+    /** #3079 — whether a plain Enter also inserts a row after committing. */
+    enterCreatesRow: boolean;
     // The #3076 toolbar pins live in this same stored object. A spec that needs
     // a specific control to be a BUTTON can unpin the ones it does not assert
     // on, which buys the fit ladder room and stops the control it does care
