@@ -379,7 +379,7 @@ def _create_tasks(
         # the leading segment, so ancestor/descendant relationships are preserved —
         # but reading the same list twice is what keeps that true if either side
         # changes.
-        offset = root_ordinal_offset(project_id)
+        offset = root_ordinal_offset(project_id, document_paths=wbs_paths)
         if offset:
             wbs_paths = [offset_wbs_path(path, offset) or path for path in wbs_paths]
     # Summary-task detection (ADR-0093 Q5): a task is a summary if any later
