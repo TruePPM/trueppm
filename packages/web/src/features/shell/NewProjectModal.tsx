@@ -125,7 +125,18 @@ const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: stri
  * Deliberate divergence from the design handoff (issue #2728): the original design
  * writes the project as a `draft` on the first keystroke. This still creates on
  * submit, exactly like the modal it replaces — no `draft` state, no lifecycle-
- * exclusion logic. The full draft lifecycle is separate, later work.
+ * exclusion logic.
+ *
+ * That divergence was re-examined in #3127 and **upheld on both halves**; the
+ * reasoning is recorded in `docs/design/handoff/2026-08-v4-beta1-review/README.md`
+ * §5, which is the file to read before wiring this to the draft lifecycle. In short:
+ * `commit_project()` is the only way out of `draft` and has no caller in the web app
+ * until #3129, so creating drafts here would strand every new project outside rollup,
+ * search, My Work and notifications; and creating on a keystroke would fire a real
+ * `project.created` webhook at subscribers for every abandoned sheet. "Leaving is
+ * free" is worth building — as persistence of *this sheet's* state, not as a server
+ * row — but it is a different interaction and owes a `ux-design` pass and rule 217
+ * first.
  *
  * Below 900px (`useStartSheetCompact`) this becomes a full-screen surface with the
  * same field order and the way cards stacked 2×2 instead of one row of three.

@@ -1,6 +1,6 @@
-# `design_handoff_trueppm_v4` beta-1 review — four items that must NOT be implemented as written
+# `design_handoff_trueppm_v4` beta-1 review — five items that must NOT be implemented as written
 
-> **Design decision record (#3139, extended by #3133).** This file reconciles the beta-1 review of the
+> **Design decision record (#3139, extended by #3133 and #3127).** This file reconciles the beta-1 review of the
 > `design_handoff_trueppm_v4` bundle against the Schedule as it actually shipped.
 > **Where this file and the review disagree, this file wins.** Each item below was
 > decided against deliberately, and until now the reasoning lived only in a source
@@ -12,13 +12,16 @@
 
 The v4 bundle is an external Claude Design deliverable; it is not mirrored into this
 repo. It is cited by name from `packages/web/CLAUDE.md` rules 302 / 309 / 327 / 328 / 329,
-from ADR-0776, ADR-0843, and ADR-0844, and from several source files. The four items
-below come from its beta-1 UX review pass, not from the bundle's own spec pages.
+from ADR-0776, ADR-0843, and ADR-0844, and from several source files. Items 1–4
+below come from its beta-1 UX review pass, not from the bundle's own spec pages;
+item 5 is from the bundle's own build order.
 
-**Two of the four would regress accessibility if applied literally. One teaches a
+**Two of the first four would regress accessibility if applied literally. One teaches a
 keystroke that does something else. The fourth would delete a value sighted users have
-no other way to read.** All four would pass every gate in the pipeline, because each is
-a change the code has no way to recognize as wrong.
+no other way to read. The fifth would strand every project a user creates outside the
+aggregates, because it builds the way *into* a state before the way out of it exists.**
+All five would pass every gate in the pipeline, because each is a change the code has no
+way to recognize as wrong.
 
 ---
 
@@ -177,9 +180,71 @@ fixes; rule 284 is itself the artifact of point-fixing this class once already, 
 
 ---
 
+---
+
+## 5. "Written as a `draft` on the first keystroke" — right idea, wrong mechanism, and blocked on the way out
+
+**Handoff, case 01/02:** *"The project is written as a `draft` on the first keystroke,
+so leaving is free and returning is exact."*
+
+**The user value is real and should ship. The mechanism must not, and the server half
+cannot ship before the commit affordance (#3129).** Two separate findings; the second
+is the blocking one.
+
+### (a) The draft state is a door with no way out until #3129 lands
+
+`commit_project()` (`apps/projects/commit_moment.py`) is the **only** legal
+`draft → active` transition, and after #3127 it is the only *possible* one. It has no
+caller in the web app — that is #3129's entire scope, and it is still open. So a
+create-as-draft path landing first would put every newly created project into a state
+nothing in the product can leave.
+
+That is not a cosmetic wait. A draft is excluded — deliberately, by #2962/#3128 — from
+program rollup, portfolio health, the Programs directory count, omni-search, the
+cross-project dependency picker, My Work, the notification fan-out, the digest
+audience, the nightly forecast-floor capture, and the program schedule pass. A beta
+user's first project would be authored normally and then be invisible in search, absent
+from their program's rollup, and silently unable to notify the people assigned to it,
+with no control anywhere that explains or reverses it.
+
+**Sequencing rule: #3129 ships before, or in the same MR as, any create-as-draft path.**
+The dependency runs in the opposite direction from the one #3127 records ("depends on
+the exclusion-list gap landing first" — #3128, which did land). Nothing in the tracker
+noticed the second dependency, because the way *in* and the way *out* were filed as
+separate issues and only the way in names the lifecycle.
+
+### (b) "On the first keystroke" mints junk that reaches outside the product
+
+Even with #3129 shipped, the *first-keystroke* half should not be implemented as
+written. `perform_create` on `ProjectViewSet` is not a cheap row insert: it creates an
+Owner `ProjectMembership`, writes a `project_created` audit event, allocates a
+`HistoricalProject` row and a sync sequence, broadcasts `project_created` over the
+board WebSocket, and dispatches a **`project.created` webhook to every subscriber**.
+Firing that on keystroke one means an abandoned Start sheet delivers a real webhook,
+naming a one-character project, to a customer's integration endpoint.
+
+It also accumulates. Drafts are excluded from aggregates but are explicitly *not*
+hidden from a direct read or from the project list a member browses
+(`apps/projects/lifecycle.py`), so every abandoned sheet leaves a visible row. The
+model docstring names a 7-day resume window, but nothing sweeps and nothing should:
+a job that deletes projects a user can see is a far worse thing to add to a beta than
+the problem it solves.
+
+**What to build instead:** the sentence's actual promise is that the *sheet's* state
+survives leaving, which does not require a `Project` row at all. Persist the Start
+sheet's in-progress fields client-side, restore them on reopen, and expire them on the
+same 7-day window the model already names — no server row, no webhook, no sweeper, and
+the resume window becomes a property of something that can honestly expire. That is a
+different interaction from the one the handoff describes, so it owes a `ux-design`
+pass and the rule-217 unsaved-changes contract in `packages/web/CLAUDE.md` before it is
+written; it is **not** covered by this file and is not implemented yet.
+
+**Do not** add a create-as-draft write path while #3129 is open, and **do not** call
+`POST /projects/` from a keystroke handler.
+
 ## If you are writing a spec from the v4 handoff
 
-Cite this file. The four corrections above are invisible to the bundle, invisible to
+Cite this file. The five corrections above are invisible to the bundle, invisible to
 CI, and — for items 1 and 3 — invisible to any test of the control being changed, which
 is exactly why they are written down here rather than left in a comment.
 

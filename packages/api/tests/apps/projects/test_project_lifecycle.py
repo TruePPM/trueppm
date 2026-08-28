@@ -562,3 +562,160 @@ class TestEveryExcludedSurface:
         # A user with no membership at all still returns early, as before.
         stranger = get_user_model().objects.create_user(username="nomember", password="pw")
         assert services.me_work_signals(stranger, active_sprints=[sprint]) == {}
+
+
+@pytest.mark.django_db
+class TestLifecycleIsNotAClientWritableField:
+    """The draft transition is server-owned (#3127).
+
+    ``lifecycle`` and ``draft_started_at`` were declared on ``ProjectSerializer``
+    under a comment calling them read-only, and then left out of
+    ``read_only_fields`` — so any Admin+ PATCH could set either one. Both
+    directions did real damage, and the second is unrecoverable:
+
+    * ``active -> draft`` took the project off every surface on the #3128
+      exclusion list at once, silently and for everyone;
+    * ``draft -> active`` walked past ``commit_project()`` and so captured no
+      baseline v1. ``commit_project()`` refuses a project that is already active,
+      so the anchor can never be laid down afterwards — the project reads as
+      committed forever with nothing to measure variance against.
+
+    These pin the field as read-only *and* pin that the sanctioned endpoint still
+    works, because a fix that simply froze the field would be indistinguishable
+    from one that broke the commit moment.
+    """
+
+    def test_every_project_serializer_declares_both_fields_read_only(self) -> None:
+        """The mechanism, pinned over the whole population rather than a list of two.
+
+        Asserted on the serializers rather than only through HTTP so that adding a
+        field back to ``fields`` without adding it to ``read_only_fields`` fails
+        here, rather than only on whichever endpoint a test happens to exercise.
+
+        The population is **discovered**, not enumerated: a third ``Project``
+        serializer added later that exposes ``lifecycle`` would be invisible to a
+        hand-written tuple, which is the failure mode that let the original defect
+        ship — a comment claimed read-only and nothing checked the claim. The two
+        assertions below the loop are what stop the discovery itself going quiet: if
+        the walk ever returns nothing, or stops finding the two serializers we know
+        expose these fields, the loop would pass vacuously.
+        """
+        from rest_framework import serializers as drf_serializers
+
+        from trueppm_api.apps.projects import serializers as project_serializers
+        from trueppm_api.apps.projects.serializers import (
+            ProjectDetailSerializer,
+            ProjectSerializer,
+        )
+
+        checked: set[str] = set()
+        for name in dir(project_serializers):
+            cls = getattr(project_serializers, name)
+            if not isinstance(cls, type) or not issubclass(cls, drf_serializers.ModelSerializer):
+                continue
+            if getattr(cls.Meta, "model", None) is not Project:
+                continue
+            declared = set(cls.Meta.fields or ())
+            if not {"lifecycle", "draft_started_at"} & declared:
+                continue
+            fields = cls().fields
+            for field_name in ("lifecycle", "draft_started_at"):
+                if field_name in fields:
+                    assert fields[field_name].read_only is True, f"{cls.__name__}.{field_name}"
+            checked.add(cls.__name__)
+
+        assert ProjectSerializer.__name__ in checked
+        assert ProjectDetailSerializer.__name__ in checked
+
+    def test_an_owner_cannot_patch_an_active_project_into_a_draft(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        """The denial-of-visibility direction.
+
+        A draft is dropped by program rollup, portfolio health, omni-search, My
+        Work, the notification fan-out and digest audience, and the nightly
+        forecast and program-schedule passes. One PATCH must not be able to do
+        that to a project a whole program is reading.
+        """
+        response = client.patch(
+            f"/api/v1/projects/{committed.pk}/", {"lifecycle": "draft"}, format="json"
+        )
+
+        assert response.status_code == 200
+        committed.refresh_from_db()
+        assert committed.lifecycle == ProjectLifecycle.ACTIVE
+        # The response must not claim the write landed either — a client that
+        # echoes the payload back would show a Draft chip over an active project.
+        assert response.json()["lifecycle"] == ProjectLifecycle.ACTIVE
+
+    def test_an_owner_cannot_patch_a_draft_active_behind_the_commit_moment(
+        self, client: APIClient, draft: Project
+    ) -> None:
+        """The unrecoverable direction: active with no baseline to measure against."""
+        from trueppm_api.apps.projects.models import Baseline
+
+        response = client.patch(
+            f"/api/v1/projects/{draft.pk}/", {"lifecycle": "active"}, format="json"
+        )
+
+        assert response.status_code == 200
+        draft.refresh_from_db()
+        assert draft.lifecycle == ProjectLifecycle.DRAFT
+        assert Baseline.objects.filter(project=draft).count() == 0
+
+    def test_draft_started_at_is_not_client_writable(
+        self, client: APIClient, draft: Project
+    ) -> None:
+        """The 7-day resume window's anchor is a server fact, not a client claim."""
+        forged = timezone.now() - timedelta(days=365)
+
+        response = client.patch(
+            f"/api/v1/projects/{draft.pk}/",
+            {"draft_started_at": forged.isoformat()},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        draft.refresh_from_db()
+        assert draft.draft_started_at is None
+
+    def test_create_cannot_choose_its_own_lifecycle(self, client: APIClient) -> None:
+        """A project cannot be born a draft by asking to be one.
+
+        Create-as-draft is a server decision (still unbuilt — it is blocked on the
+        commit affordance, #3129). Until the server makes it, a client asking for
+        it must get an ordinary active project rather than one that is invisible
+        to every aggregate with no way in the product to make it visible again.
+        """
+        response = client.post(
+            "/api/v1/projects/",
+            {
+                "name": "Asked to be a draft",
+                "start_date": "2026-03-02",
+                "lifecycle": "draft",
+                "draft_started_at": timezone.now().isoformat(),
+            },
+            format="json",
+        )
+
+        assert response.status_code == 201
+        created = Project.objects.get(pk=response.json()["id"])
+        assert created.lifecycle == ProjectLifecycle.ACTIVE
+        assert created.draft_started_at is None
+
+    def test_the_commit_endpoint_is_still_the_way_through(
+        self, client: APIClient, draft: Project
+    ) -> None:
+        """Freezing the field must not have frozen the transition.
+
+        Without this, a fix that made ``lifecycle`` read-only and simultaneously
+        broke ``POST /commit/`` would pass every assertion above.
+        """
+        from trueppm_api.apps.projects.models import Baseline
+
+        response = client.post(f"/api/v1/projects/{draft.pk}/commit/")
+
+        assert response.status_code == 200
+        draft.refresh_from_db()
+        assert draft.lifecycle == ProjectLifecycle.ACTIVE
+        assert Baseline.objects.filter(project=draft, name="Baseline v1").count() == 1
