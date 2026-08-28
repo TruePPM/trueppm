@@ -31,7 +31,7 @@ The Project Manager has to write a status report on Monday. The team finished 23
 Hybrid PM is not abstract. It happens because six specific humans need different views of the same work. Build for all six and the tool wins. Build for any one of them and you become someone else's incumbent — the thing the next-generation tool will replace.
 
 :::note[Persona names]
-The six characters below are the narrative protagonists for this walkthrough — and the demo login names created by `seed_demo_project --with-personas` (Maya, Raj, Diana, Sarah, Carlos, Tom). TruePPM's [full product persona set](/overview/) expands these six to eight roles with more precise naming (Alex for Scrum Master, Sarah for PM, etc.). The story characters map directly to those eight personas.
+The six characters below are the narrative protagonists for this walkthrough. The demo logins created by `load_sample_project --with-personas` are the bundled sample's own personas (`atlas-alex`, `atlas-priya`, `atlas-sam`, …) rather than these names. TruePPM's [full product persona set](/overview/) expands these six to eight roles with more precise naming (Alex for Scrum Master, Sarah for PM, etc.). The story characters map directly to those eight personas.
 :::
 
 ### Maya — Scrum Master
@@ -239,15 +239,15 @@ The proof of hybrid PM is what each persona *doesn't* have to do anymore.
 
 ## See it for yourself
 
-The [`seed_demo_project`](/getting-started/quickstart/) management command bootstraps the data for the eight-step flow against a coherent "Platform Migration" project — WBS, CPM schedule, baseline, closed-sprint velocity history, an active sprint with mid-sprint burndown, risks, and a retro. Every step whose surface ships today (Schedule, Board, Sprints, Velocity, Retrospective) is walkable end-to-end; the Enterprise portfolio dashboard and mobile exec view are still on the roadmap. With `--with-personas` it also creates the six persona logins above.
+The [`load_sample_project`](/getting-started/quickstart/) management command loads the data for the eight-step flow — the **Atlas Platform Launch** sample carries a WBS, a CPM schedule with cross-project dependencies, baselines, closed-sprint velocity history, an active sprint with mid-sprint burndown, a risk register, and a retro. Every step whose surface ships today (Schedule, Board, Sprints, Velocity, Retrospective) is walkable end-to-end; the Enterprise portfolio dashboard and mobile exec view are still on the roadmap. With `--with-personas` it also gives the sample's persona accounts a usable password.
 
 ```bash
-docker compose exec api python manage.py seed_demo_project --with-personas
+docker compose exec api python manage.py load_sample_project --with-personas
 ```
 
 Then sign in as `maya`, `raj`, `diana`, `sarah`, `carlos`, or `tom` (password: `demo`) and walk the story end-to-end on your own machine.
 
-Prefer not to install at all? A hosted read-only demo lands with the 0.4 beta — the same Platform Migration story, preloaded, one click from the docs. And once your own instance is running, the read-only MCP server (0.4 beta) will let you point Claude Desktop or any MCP client at it and ask the story's questions in your own words.
+Prefer not to install at all? A hosted read-only demo lands with the 0.4 beta — the same sample program, preloaded, one click from the docs. And once your own instance is running, the read-only MCP server (0.4 beta) will let you point Claude Desktop or any MCP client at it and ask the story's questions in your own words.
 
 ## The wedge — why this is the bet
 

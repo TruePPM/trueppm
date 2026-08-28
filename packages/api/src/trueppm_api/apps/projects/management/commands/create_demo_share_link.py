@@ -55,15 +55,19 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from trueppm_api.apps.projects.authentication import sha256_hex
-from trueppm_api.apps.projects.management.commands.seed_demo_project import (
-    PROJECT_NAME,
-)
 from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLink
 from trueppm_api.apps.projects.share_services import mint_share_link
 from trueppm_api.apps.projects.sharing_settings import (
     public_sharing_instance_enabled,
     resolve_effective_sharing,
 )
+
+# The project this publishes by default. It used to be imported from
+# ``seed_demo_project``, which #3098 retired when the Python seeders converged
+# into the JSON fixture format; the hosted demo now loads the bundled Atlas
+# sample (``DEFAULT_SAMPLE``) and publishes its flagship project. Overridable
+# with ``--project``.
+PROJECT_NAME = "Platform Core"
 
 # Idempotency key: a demo link is matched (and reused) by its exact label so
 # repeated runs never sprawl a fresh link per restart. The two kinds carry
@@ -112,7 +116,7 @@ class Command(BaseCommand):
             default=PROJECT_NAME,
             help=(
                 f"Demo project name to share (default: {PROJECT_NAME!r}, "
-                "seeded by seed_demo_project)."
+                "seeded by load_sample_project)."
             ),
         )
         parser.add_argument(
@@ -174,7 +178,7 @@ class Command(BaseCommand):
         except Project.DoesNotExist as exc:
             raise CommandError(
                 f"Demo project {project_name!r} not found. Run "
-                "`python manage.py seed_demo_project` first."
+                "`python manage.py load_sample_project` first."
             ) from exc
 
         # Turn sharing on *before* minting, so the links this run prints resolve

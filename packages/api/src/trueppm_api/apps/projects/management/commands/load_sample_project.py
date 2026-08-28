@@ -65,8 +65,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        owner = self._resolve_owner(options.get("owner"))
         sample_key = options["sample"]
+        owner = self._resolve_owner(options.get("owner"), sample_key)
         with_personas = options["with_personas"]
 
         persona_password: str | None = None
@@ -130,15 +130,58 @@ class Command(BaseCommand):
             return "demo", "debug"
         return secrets.token_urlsafe(16), "generated"
 
-    def _resolve_owner(self, username: str | None) -> Any:
+    def _resolve_owner(self, username: str | None, sample_key: str) -> Any:
+        """Resolve the program owner: explicit user, then superuser, then the sample's own.
+
+        The third fallback exists for the hosted demo (#3098). ``seed_demo_project``
+        built its own persona accounts and owned the program with one of them, so
+        the demo deployment never created a superuser — and it must not, because
+        the read-only posture (ADR-0658) rests on there being no login-capable
+        account at all. Requiring a superuser here would have made the demo stack
+        fail to boot the moment it swapped to this command.
+
+        The account is created with an **unusable** password, exactly like every
+        other persona this command creates without ``--with-personas``, so the
+        zero-login posture is preserved.
+        """
         if username:
             owner = User.objects.filter(username=username).first()
             if owner is None:
                 raise CommandError(f"No user with username {username!r}.")
             return owner
         owner = User.objects.filter(is_superuser=True).order_by("pk").first()
-        if owner is None:
+        if owner is not None:
+            return owner
+
+        try:
+            accounts = sample_accounts(sample_key)
+        except UnknownSampleError as exc:
+            raise CommandError(str(exc)) from exc
+        lead = next(
+            (a for a in accounts if a.get("role") == "OWNER"),
+            accounts[0] if accounts else None,
+        )
+        if lead is None:
             raise CommandError(
-                "No superuser to own the sample. Pass --owner <username> or create a superuser."
+                "No superuser to own the sample and the sample declares no accounts. "
+                "Pass --owner <username> or create a superuser."
             )
+        owner, created = User.objects.get_or_create(
+            username=lead["username"],
+            defaults={
+                "email": lead.get("email", ""),
+                "first_name": (lead.get("display_name") or "").split(" ")[0],
+                "last_name": " ".join((lead.get("display_name") or "").split(" ")[1:]),
+            },
+        )
+        if created:
+            # Unusable password (a sentinel hash, not a credential) — this is a
+            # seeded persona, not an interactive signup, so validators do not apply.
+            # nosemgrep: unvalidated-password
+            owner.set_password(None)
+            owner.save(update_fields=["password"])
+        self.stdout.write(
+            f"No superuser found; owning the sample with its own persona "
+            f"{lead['username']!r} (unusable password)."
+        )
         return owner

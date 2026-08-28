@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The hosted demo's read-only posture, enforced at the manifest level (#2773).
 #
-# `try.trueppm.com` is read-only by construction: `seed_demo_project` runs
+# `try.trueppm.com` is read-only by construction: `load_sample_project` runs
 # WITHOUT `--with-personas`, so no login-capable account exists, so no token can
 # be minted, so the ungoverned write path is not reachable. That posture is
 # defended by the *absence* of one flag in two YAML files, and adding it is the
@@ -102,9 +102,9 @@ self_test() {
   mkdir -p "$tmp/packages/helm/templates"
 
   # Case 1: the real posture — flag named only in a comment. Must pass.
-  printf 'command: >\n  sh -c "python manage.py seed_demo_project"\n# NOTE: runs WITHOUT --with-personas\n' \
+  printf 'command: >\n  sh -c "python manage.py load_sample_project"\n# NOTE: runs WITHOUT --with-personas\n' \
     > "$tmp/docker-compose.demo.yml"
-  printf '# seed_demo_project runs WITHOUT --with-personas\ncommand:\n  - python manage.py seed_demo_project\n' \
+  printf '# load_sample_project runs WITHOUT --with-personas\ncommand:\n  - python manage.py load_sample_project\n' \
     > "$tmp/packages/helm/templates/demo-seed-job.yaml"
   status=0
   run_check "$tmp" >/dev/null 2>&1 || status=$?
@@ -114,7 +114,7 @@ self_test() {
   fi
 
   # Case 2: the drift — flag in command position. Must fail.
-  printf 'command: >\n  sh -c "python manage.py seed_demo_project --with-personas"\n' \
+  printf 'command: >\n  sh -c "python manage.py load_sample_project --with-personas"\n' \
     > "$tmp/docker-compose.demo.yml"
   status=0
   run_check "$tmp" >/dev/null 2>&1 || status=$?

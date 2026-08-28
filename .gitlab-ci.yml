@@ -1451,7 +1451,7 @@ demo:readonly-posture:
   extends: .fast-job
   # The hosted demo must stay read-only by construction (#2773, gates #2271).
   #
-  # `try.trueppm.com` has no login-capable account, because `seed_demo_project`
+  # `try.trueppm.com` has no login-capable account, because `load_sample_project`
   # runs without `--with-personas` in both deployment manifests. No account means
   # no token, which means the ungoverned `legacy:full` write path (#2749) is not
   # reachable from the public internet. That is the whole security argument for

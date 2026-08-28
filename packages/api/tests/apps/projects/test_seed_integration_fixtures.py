@@ -2,7 +2,7 @@
 
 Residual of #1350: the integration-fixtures seeder seeds real, loginable
 accounts, so a fixed weak password must never reach a public (non-DEBUG)
-instance. Resolution order mirrors ``seed_demo_project._resolve_demo_password``:
+instance. Resolution order mirrors ``load_sample_project._resolve_demo_password``:
 env var > DEBUG-only static default > generated token; the env secret is never
 echoed; a destructive re-seed on a non-DEBUG instance with no password is
 refused unless ``--force`` is passed.

@@ -155,6 +155,7 @@ rather than only from a repository checkout:
 | Atlas Platform Launch | `GET /api/v1/programs/samples/atlas-platform-launch/download/` | The largest surface — a hybrid multi-project program, cross-project dependencies, all four dependency types plus a lead, three-point estimates, two baselines on one project (a kickoff capture and the re-plan that superseded it), a calendar exception that moves the program finish, a manual health override, and a populated risk register with mitigation arcs. |
 | Aurora Mobile App | `.../aurora-mobile-app/download/` | Pure agile — an epic-grouped backlog and a sprint history that goes wrong and recovers: an epic descoped mid-sprint after beta feedback, the velocity dip that causes and the sprint that climbs back out, a cancelled sprint whose scope folds forward, capacity that moves with leave and holidays, and a sprint-zero baseline to measure the pivot against. No CPM. |
 | Bayside Civic Center | `.../bayside-civic-center/download/` | Pure waterfall under constraint — all four dependency types, calendar-aware lag, a contract baseline plus a change-order rebaseline captured months apart, and a site calendar whose stand-downs actually bite: a crane window that stretches the framing tail and is absorbed by its float, and a contract weather allowance that pushes the certificate of occupancy. Its risk register carries triggers and contingencies, one **realized** risk whose mitigation failed and whose contingency shows up as baseline variance, and the only `TRANSFER` response in any pack, with its terms and its limits stated. |
+| 1.0 GA Launch | `.../ga-launch/download/` | Program coordination — four workstreams (platform hardening, SOC 2 readiness, security remediation, launch) shipping one outcome. Cross-project dependencies form a critical path that runs *across* projects, shared people over-allocate in overlapping windows, and every project carries the full 5-role RBAC matrix. The security workstream runs a WIP-limited remediation board. |
 | Helios CRM Replacement | `.../helios-crm-replacement/download/` | The entry-level hybrid — a completed waterfall phase feeding an agile build phase across one cross-phase dependency, sprints that state the goal their outcome is judged against, a mid-sprint injection the team **rejects**, and a mitigation arc that costs something: a dry-run harness scheduled against the migration risk, paid for by displacing another story out of the sprint. |
 
 In the UI the same list lives at **Settings → System → Demo data**, with each
@@ -166,11 +167,15 @@ the dry run (`POST /api/v1/programs/import/validate/`,
 [ADR-0651](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0651-seed-import-dry-run.md)),
 so the catalog and the validator cannot disagree about a document.
 
-:::note[Two demo programs are not files]
-`seed_demo_project` and `seed_ga_launch_program` build their data procedurally in
-Python rather than from a fixture, so there is nothing to download or verify for
-those two. The four above are the inspectable ones — auditing them is not the
-same as auditing every way this codebase can produce demo data.
+:::note[Every bundled sample is now a file]
+Two demo programs used to build their data procedurally in Python
+(`seed_demo_project`, `seed_ga_launch_program`), so there was nothing to
+download, hash, or round-trip for either — and neither was what the "Load demo
+data" button served. Both have been retired: "1.0 GA Launch" became the
+`ga-launch` fixture above, and the standalone demo project was superseded by the
+bundled samples. `seed_capacity` still generates data procedurally, but it builds
+a synthetic program for scale testing rather than a curated story, so it is not a
+sample and does not appear in the catalog.
 :::
 
 ## Why the format looks the way it does
@@ -229,6 +234,7 @@ schema-validated fixtures — never hand-edited as raw JSON:
 
 - `scripts/seeds/build_atlas_seed.py` — Atlas (hybrid-large).
 - `scripts/seeds/build_samples.py` — Aurora, Bayside, Helios.
+- `scripts/seeds/build_ga_launch.py` — 1.0 GA Launch.
 
 Each script builds the document in Python, validates it against the schema, and
 writes the fixture under

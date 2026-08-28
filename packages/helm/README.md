@@ -182,7 +182,7 @@ kubectl port-forward svc/<release>-trueppm-api 8000:8000
 ```
 
 **Never enable this against an instance holding real data.** The hook runs
-`seed_demo_project`, which is destructively idempotent: on every install *and every
+`load_sample_project`, which is destructively idempotent: on every install *and every
 upgrade* it deletes the demo data it previously created and re-seeds it. That is what
 keeps a demo from drifting. The reset is scoped to the seeder's own output — a real
 project sharing the demo name, or a resource assigned to real work, is left alone — but

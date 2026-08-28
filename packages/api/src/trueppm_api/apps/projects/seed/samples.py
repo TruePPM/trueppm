@@ -202,6 +202,17 @@ SAMPLES: dict[str, Sample] = {
         ),
         filename="bayside-civic-center.json",
     ),
+    "ga-launch": Sample(
+        key="ga-launch",
+        title="1.0 GA Launch",
+        description=(
+            "Program coordination — four workstreams (platform, SOC 2, security, launch) "
+            "shipping one outcome, joined by cross-project dependencies and shared people "
+            "who over-allocate. Carries the per-project 5-role matrix and a WIP-limited "
+            "remediation board."
+        ),
+        filename="ga-launch.json",
+    ),
     "helios-crm-replacement": Sample(
         key="helios-crm-replacement",
         title="Helios CRM Replacement",

@@ -312,6 +312,14 @@ class _Exporter:
         """
         users: dict[Any, Any] = {}
         roles = self._program_roster(users)
+        # Project leads (#3098) come before task assignees so a lead who is
+        # referenced nowhere else still gets an account entry — without one the
+        # exported ``project.lead`` slug would dangle and the document would not
+        # re-import. Inserted here rather than appended because insertion order
+        # fixes slug allocation, and the round-trip is asserted byte-identical.
+        for proj in self.projects:
+            if proj.lead_id is not None:
+                users[proj.lead_id] = proj.lead
         for task in self._all_tasks():
             if task.assignee_id is not None:
                 users[task.assignee_id] = task.assignee
@@ -435,6 +443,8 @@ class _Exporter:
         }
         _put(block, "description", project.description)
         _put(block, "code", project.code)
+        if project.lead_id is not None:
+            block["lead"] = self._user_slug(project.lead)
         if project.calendar_id is not None:
             block["calendar"] = self._calendar_slug(project.calendar)
         if project.default_view and project.default_view != "SCHEDULE":

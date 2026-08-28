@@ -259,8 +259,14 @@ export default defineConfig({
             // comment no reader sees (#2908). `check-version-status.sh` pairs
             // this badge against the page's own declaration in both
             // directions, so it comes off when 0.4 ships or the gate reds.
-            { slug: "getting-started/installation" },
-            { slug: "getting-started/quickstart" },
+            {
+              slug: "getting-started/installation",
+              badge: { text: "0.4", variant: "caution" },
+            },
+            {
+              slug: "getting-started/quickstart",
+              badge: { text: "0.4", variant: "caution" },
+            },
             {
               slug: "getting-started/bring-your-plan-in",
               badge: { text: "0.4", variant: "caution" },

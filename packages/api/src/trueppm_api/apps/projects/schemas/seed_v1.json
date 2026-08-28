@@ -430,6 +430,10 @@
         "start_date": { "type": "string", "format": "date" },
         "calendar": { "$ref": "#/$defs/slug" },
         "code": { "type": "string", "maxLength": 12 },
+        "lead": {
+          "$ref": "#/$defs/slug",
+          "description": "Account slug of this project's lead. Distinct from the program lead and from the OWNER membership: a workstream lead is who a program manager asks about this project, and is what the project header and program roll-up display."
+        },
         "default_view": { "enum": ["SCHEDULE", "BOARD", "TABLE", "OVERVIEW"] },
         "health": {
           "enum": ["AUTO", "ON_TRACK", "AT_RISK", "CRITICAL"],

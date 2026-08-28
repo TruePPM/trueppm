@@ -1,9 +1,10 @@
 """Guard the committed sample fixtures against silent drift from their builders.
 
-The four bundled sample seeds under ``fixtures/seeds/`` are *generated* artifacts:
-``scripts/seeds/build_atlas_seed.py`` and ``scripts/seeds/build_samples.py`` are
-their single source of truth. The existing seed tests prove each committed
-fixture still *loads*, schema-*validates*, and runs CPM/Monte Carlo — but none of
+The five bundled sample seeds under ``fixtures/seeds/`` are *generated* artifacts:
+``scripts/seeds/build_atlas_seed.py``, ``scripts/seeds/build_ga_launch.py`` and
+``scripts/seeds/build_samples.py`` are their single source of truth. The existing
+seed tests prove each committed fixture still *loads*, schema-*validates*, and
+runs CPM/Monte Carlo — but none of
 them prove the committed JSON still matches what its builder produces today. A
 fixture hand-edited in place (or a builder changed without re-running it) passes
 every other gate while quietly diverging from its generator, so the next
@@ -59,13 +60,15 @@ def _load_script(name: str) -> ModuleType:
 def _builders() -> dict[str, Callable[[], dict]]:
     atlas = _load_script("build_atlas_seed.py")
     samples = _load_script("build_samples.py")
+    ga = _load_script("build_ga_launch.py")
     # Mapping mirrors the writers in each script's main(): see build_atlas_seed.py
-    # main() and build_samples.py main()'s `builders` dict — keep in sync if a
-    # fifth sample is added.
+    # main(), build_ga_launch.py main(), and build_samples.py main()'s `builders`
+    # dict — keep in sync if a sixth sample is added.
     return {
         "atlas-platform-launch.json": atlas.build_atlas,
         "aurora-mobile-app.json": samples.build_aurora,
         "bayside-civic-center.json": samples.build_bayside,
+        "ga-launch.json": ga.build_ga_launch,
         "helios-crm-replacement.json": samples.build_helios,
     }
 

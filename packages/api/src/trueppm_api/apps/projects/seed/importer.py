@@ -901,6 +901,17 @@ class _SeedImporter:
             # work on a later reload (#994).
             is_sample=self.is_sample,
         )
+        # Workstream lead (#3098). Distinct from both the program lead and the
+        # OWNER membership: on a program of parallel workstreams the lead is who
+        # the program manager asks about this project, and it is what the project
+        # header and the program roll-up display. Resolved after create() because
+        # the account may be declared later in the same document.
+        lead_slug = data.get("lead")
+        if lead_slug:
+            lead_user = self.users.get(lead_slug)
+            if lead_user is not None:
+                project.lead = lead_user
+                project.save(update_fields=["lead"])
         self.projects[slug] = project
         ProjectMembership.objects.update_or_create(
             project=project, user=self.owner, defaults={"role": Role.OWNER}

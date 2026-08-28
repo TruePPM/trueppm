@@ -45,10 +45,10 @@ The real test isn't what a feature does — it's what *each role can see and do*
 
    ```bash
    make up
-   docker compose exec api python manage.py seed_demo_project --with-personas
+   docker compose exec api python manage.py load_sample_project --with-personas
    ```
 
-   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+   The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
 **First, as the team.** Sign in at `http://localhost:5173` as **`maya`** — the Scrum Master, seeded with the **Member** role:
 

@@ -1,7 +1,15 @@
 ---
 title: Installation
 description: Run TruePPM locally with Docker Compose in a few minutes. For Helm/Kubernetes, single-server production with systemd, and image/chart signature verification, see Deployment.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+The `load_sample_project` command shown below replaces the `seed_demo_project`
+and `seed_ga_launch_program` seeders in **0.4**. On the current release (0.3),
+seed the demo with `python manage.py seed_demo_project --with-personas` instead.
+See the [roadmap](/overview/roadmap/).
+:::
 
 :::caution[0.3 shipped (alpha) · pre-GA]
 TruePPM 0.3 has shipped — the engine, API, real-time backend, web UI, and the 0.3 agile-team feature set are functional. It ships as the `0.3.0-alpha.1` pre-release; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. 0.4 arrives as a beta directly — the next tag on the line is `0.4.0-beta.1`, with no alpha step in between ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
@@ -82,15 +90,15 @@ pre-release. See the [sample projects guide](/getting-started/sample-projects/) 
 [roadmap](/overview/roadmap/).
 :::
 
-Prefer the command line, or want the six persona logins used in the
-[per-persona walkthrough](/getting-started/quickstart/)? Seed the "Platform Migration"
-demo instead:
+Prefer the command line, or want the persona logins used in the
+[per-persona walkthrough](/getting-started/quickstart/)? Load the bundled sample
+from the CLI instead:
 
 ```bash
-docker compose exec api python manage.py seed_demo_project --with-personas
+docker compose exec api python manage.py load_sample_project --with-personas
 ```
 
-Creates a "Platform Migration" project with eight closed sprints, an active sprint, baselines, resources, a retro, and six persona logins. The persona password is `demo` only when the API runs with `DEBUG=True`; on a production install (`DEBUG=False`) the command prints a one-time random password at the end of its output unless you set `TRUEPPM_DEMO_PASSWORD` — see [`seed_demo_project`](/administration/management-commands/#seed_demo_project). The bundled samples can also be loaded from the CLI with `load_sample_project --sample atlas-platform-launch` (see [management commands](/administration/management-commands/)).
+Loads the **Atlas Platform Launch** sample — a three-project hybrid program with closed sprints, an active sprint, baselines, resources, a retro, a risk register, and its persona logins. The persona password is `demo` only when the API runs with `DEBUG=True`; on a production install (`DEBUG=False`) the command prints a one-time random password at the end of its output unless you set `TRUEPPM_DEMO_PASSWORD` — see [`load_sample_project`](/administration/management-commands/#load_sample_project). Pass `--sample <key>` to load a different one (see [sample projects](/getting-started/sample-projects/)).
 
 ### Verify
 
