@@ -139,9 +139,22 @@ const SECTIONS: ShortcutSection[] = [
   },
   {
     title: 'Dependencies',
+    // Both routes to the picker are listed, and that is the point (#3053). This
+    // sheet is ungated, so it is read by people whose row menu never opens: the
+    // menu is built as `authoring = canEdit ? buildMode : null`, and the server
+    // sends `can_edit: false` for the whole Resource Manager band — a band that
+    // MAY author dependency edges. Naming only the right-click route sent exactly
+    // those readers to a menu that no-ops, while the drawer route that works for
+    // them appeared nowhere. Describe both rather than branch on the role: a
+    // cheatsheet that changed shape per reader is harder to trust than one that
+    // says where each door is.
     entries: [
       { keys: ['Hover'], label: 'Reveal predecessor (blue) and successor (green) chain' },
-      { keys: ['Right-click'], label: 'Add predecessor / successor via picker' },
+      { keys: [ALT, 'Enter'], label: 'Open the task, then its Dependencies section' },
+      {
+        keys: ['Right-click'],
+        label: 'Add dependency via picker (needs task-edit rights)',
+      },
     ],
   },
   {

@@ -159,6 +159,14 @@ export class GanttEngineImpl implements GanttEngine {
   // users reach dependency creation through the ScheduleDependencyPicker
   // drawer, which stays a11y-complete).
   private _linkFSM: GanttLinkFSM = new GanttLinkFSM();
+  /**
+   * May the reader author dependency EDGES right now? (#3053)
+   *
+   * A separate server permission from task content (`IsProjectScheduler` vs
+   * `IsProjectPlanAuthor`), which is why the engine is told rather than deriving
+   * it. Defaults to `true` so an unset caller keeps the pre-#3053 behavior.
+   */
+  private _linkAuthoring = true;
   /** True on a fine pointer (mouse/pen). Gates drag-to-link arming (rule 84/#1666). */
   private _pointerFine =
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -769,6 +777,23 @@ export class GanttEngineImpl implements GanttEngine {
   }
 
   // ---------------------------------------------------------------------------
+  // GanttEngine — Drag-to-link authority (#3053)
+  // ---------------------------------------------------------------------------
+
+  setLinkAuthoring(enabled: boolean): void {
+    if (this._linkAuthoring === enabled) return;
+    this._linkAuthoring = enabled;
+    // Losing the authority mid-gesture (the ⌥A Read toggle, or a role refetch)
+    // must not leave a preview line hanging with nothing to commit it. The
+    // shared canceller also clears the preview layer and restores the cursor.
+    if (!enabled) this._cancelLinkDrag();
+    // The hover handle is painted on the interaction layer, so the flip has to
+    // repaint or the dot survives until the next hover move.
+    this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
+
+  // ---------------------------------------------------------------------------
   // GanttEngine — Drag control
   // ---------------------------------------------------------------------------
 
@@ -1342,6 +1367,8 @@ export class GanttEngineImpl implements GanttEngine {
    * as a second, stationary target. A rest-state affordance has no job mid-gesture.
    */
   private _paintHoverLinkHandle(ctx: CanvasRenderingContext2D): void {
+    // No authority, no grab point (#3053) — see `setLinkAuthoring`.
+    if (!this._linkAuthoring) return;
     if (this._hoverRowIndex < 0 || !this._hitIndex) return;
     if (this._linkFSM.state !== 'IDLE' || this._dragFSM.state !== 'IDLE') return;
 
@@ -1642,6 +1669,11 @@ export class GanttEngineImpl implements GanttEngine {
    * gesture never fires for those users; the picker drawer covers them instead.
    */
   private _beginLinkDrag(e: PointerEvent, zone: HitZone, x: number, y: number): void {
+    // Refused readers never arm (#3053). Returning here — rather than falling
+    // through to the bar path — is deliberate: the link zone is just outside the
+    // bar's right edge, so a fall-through would turn a withheld link into a
+    // silent reschedule.
+    if (!this._linkAuthoring) return;
     if (!this._pointerFine || e.pointerType === 'touch') return;
     e.preventDefault();
     const centerY = (zone.barTop + zone.barBottom) / 2;
@@ -2109,7 +2141,8 @@ export class GanttEngineImpl implements GanttEngine {
         this._ixCanvas.style.cursor = 'col-resize';
         break;
       case 'link-dot':
-        this._ixCanvas.style.cursor = 'crosshair';
+        // The crosshair is a promise the gesture will do something (#3053).
+        this._ixCanvas.style.cursor = this._linkAuthoring ? 'crosshair' : 'default';
         break;
       default:
         this._ixCanvas.style.cursor = 'default';

@@ -468,6 +468,111 @@ class TestH1NonMemberCannotCreate:
 
 
 # ---------------------------------------------------------------------------
+# #3053: the dependency band is not the task-content band
+#
+# Two different rules, neither a superset of the other:
+#
+#   task content   IsProjectPlanAuthor   role >= MEMBER minus the 200-299 band
+#   dependencies   IsProjectScheduler    role >= SCHEDULER
+#
+# The web Designer fronted both on ONE boolean, which is therefore wrong for one
+# band whichever way it resolves. Splitting it (`canAuthorDependencies` in
+# `packages/web/src/lib/roles.ts`) needs the server contract stated rather than
+# assumed, and stating it is not as simple as reading the permission_classes:
+#
+#   POST /api/v1/dependencies/ is a FLAT route with no project_pk, so
+#   IsProjectScheduler.has_permission takes its `return True` fail-open branch
+#   (the open #2745 class) and has_object_permission never runs on a create.
+#
+# The Scheduler floor survives one layer down, in
+# DependencySerializer._authorize_same_project_edge, which calls
+# check_object_permissions on BOTH endpoint tasks. These tests assert the
+# OUTCOME at the band boundary, so they keep holding if #2745 moves the
+# enforcement back up to the view where you would expect to find it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestDependencyAuthoringBand:
+    """The band boundary for `POST /dependencies/` is SCHEDULER, not MEMBER."""
+
+    @staticmethod
+    def _post_edge(actor: object, project: Project) -> Any:
+        t1 = Task.objects.create(project=project, name="A", duration=1)
+        t2 = Task.objects.create(project=project, name="B", duration=1)
+        c = APIClient()
+        c.force_authenticate(user=actor)
+        return c.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(t1.pk), "successor": str(t2.pk), "dep_type": "FS"},
+        )
+
+    def test_member_cannot_create_dependency(self, user: object, project: Project) -> None:
+        """A Member authors task CONTENT and is refused EDGES.
+
+        This is the half the client used to offer: `can_author` is true for this
+        band, so a gate derived from it alone paints a link handle the server
+        answers 403.
+        """
+        _add_member(user, project, Role.MEMBER)
+        assert self._post_edge(user, project).status_code == 403
+
+    def test_scheduler_can_create_dependency(self, user: object, project: Project) -> None:
+        """A Scheduler is refused task content and MAY author edges.
+
+        The ruling recorded on #3053 (2026-08-25) and the capability
+        the published RBAC matrix already promises the role. `DependencyViewSet`
+        is deliberately NOT narrowed to match the task-content gate — that would be
+        a breaking permission change for anyone who staffed the role as documented.
+        """
+        _add_member(user, project, Role.SCHEDULER)
+        assert self._post_edge(user, project).status_code == 201
+
+    def test_admin_can_create_dependency(self, user: object, project: Project) -> None:
+        """Above the floor is unaffected — the split narrows nothing at the top."""
+        _add_member(user, project, Role.ADMIN)
+        assert self._post_edge(user, project).status_code == 201
+
+    def test_viewer_cannot_create_dependency(self, user: object, project: Project) -> None:
+        _add_member(user, project, Role.VIEWER)
+        assert self._post_edge(user, project).status_code == 403
+
+    # The other half of the pair, asserted as a PAIR so the two cannot drift.
+    #
+    # A Scheduler being allowed edges and refused rows is precisely why one client
+    # boolean could not front both. The two tests below share a task the actor is
+    # ASSIGNED to, which is what makes the Scheduler refusal discriminating: on an
+    # UNASSIGNED task `can_user_edit_task` refuses a Member too
+    # (`role == Role.MEMBER` → `assignee_id == request.user.pk`), so a 403 there
+    # would prove nothing about the band and would still pass with the
+    # `if role == Role.SCHEDULER: return False` branch deleted.
+
+    def test_member_may_edit_a_task_assigned_to_them(self, user: object, project: Project) -> None:
+        """The control. Same task, same write, one rung down — allowed."""
+        _add_member(user, project, Role.MEMBER)
+        task = Task.objects.create(project=project, name="Mine", duration=1, assignee=user)
+        c = APIClient()
+        c.force_authenticate(user=user)
+        resp = c.patch(f"/api/v1/tasks/{task.pk}/", {"name": "Renamed"}, format="json")
+        assert resp.status_code == 200
+
+    def test_scheduler_is_still_refused_task_content(self, user: object, project: Project) -> None:
+        """A Scheduler is refused the write the Member above was granted.
+
+        Ordinally ABOVE Member and refused anyway — the band exclusion, isolated.
+        If a future change makes this 2xx, the client split has lost its reason to
+        exist and should be revisited rather than left as a second, silently-wrong
+        rule.
+        """
+        _add_member(user, project, Role.SCHEDULER)
+        task = Task.objects.create(project=project, name="Mine", duration=1, assignee=user)
+        c = APIClient()
+        c.force_authenticate(user=user)
+        resp = c.patch(f"/api/v1/tasks/{task.pk}/", {"name": "Renamed"}, format="json")
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # #254: IDOR protection on project-nested list/create routes
 # IsProjectMember.has_permission must enforce membership when project_pk is
 # present in URL kwargs, not only on object endpoints. List/create actions

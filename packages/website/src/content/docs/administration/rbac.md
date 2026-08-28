@@ -72,7 +72,7 @@ from `0` to `1` in 0.4; see the changelog.
 | Connect WebSocket | ✓ | ✓ | ✓ | ✓ | — |
 | Edit own assigned tasks | ✓ | ✓ | — | ✓ | — |
 | Create/edit any task | ✓ | ✓ | — | — | — |
-| Create/edit dependencies | ✓ | ✓ | ✓ | — | — |
+| Create/edit dependencies | ✓ | ✓ | ✓ | — | — |²
 | Assign resources | ✓ | ✓ | ✓ | — | — |
 | Edit project settings | ✓ | ✓ | —¹ | — | — |
 | Manage members | ✓ | — | — | — | — |
@@ -80,6 +80,8 @@ from `0` to `1` in 0.4; see the changelog.
 | Self-remove | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ¹ Scheduler may edit the **methodology** and **estimation-mode** settings only; all other project settings require Admin (field-level gate, ADR-0041).
+
+² Read this row and `Create/edit any task` together — they **cross**, and that is deliberate. A Scheduler may draw dependencies and may not edit task content; a Member is the exact inverse. Neither capability implies the other, so on the Schedule a Scheduler gets drag-to-link and no row editing, while a Member gets row editing and no drag-to-link. If you want one person to do both, give them Project Manager (Admin).
 
 ## Recommended role by persona
 

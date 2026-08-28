@@ -10,6 +10,17 @@ interface ScheduleLegendProps {
    * task list. Comes from useColumnWidths().totalWidth in ScheduleView.
    */
   taskListWidth: number;
+  /**
+   * Is drag-to-link on offer for this reader? (#3053)
+   *
+   * The legend names the gesture so it is discoverable without a coachmark — which
+   * makes it standing copy about an affordance that is now role-dependent. Since
+   * #3053 the engine declines to paint the handle for a reader who may not author
+   * dependency edges, so leaving the line up would send them hunting for a dot that
+   * does not exist. Withholding an affordance while its instructions stay on screen
+   * is louder than the silent no-op it replaced.
+   */
+  canLink: boolean;
 }
 
 /**
@@ -25,7 +36,7 @@ interface ScheduleLegendProps {
  * it, so any future canvas export pipeline starts from "explicitly include"
  * rather than "explicitly exclude".
  */
-export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
+export function ScheduleLegend({ taskListWidth, canLink }: ScheduleLegendProps) {
   const { collapsed, toggle } = useScheduleLegendCollapsed();
   const headerId = useId();
   const bodyId = `${headerId}-body`;
@@ -151,16 +162,24 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
         </p>
         {/* Drag-to-link discoverability (#1666). The link affordance is the
             crosshair dot at a bar's right edge; name it here so the gesture is
-            discoverable without a coachmark. */}
-        <p className="mt-1 text-xs text-neutral-text-secondary">
-          Drag the{' '}
-          <RadioDotIcon
-            aria-hidden="true"
-            filled={false}
-            className="inline-block h-2.5 w-2.5 align-[-0.125em]"
-          />{' '}
-          handle at a bar’s right edge onto another task to link them
-        </p>
+            discoverable without a coachmark.
+
+            Absent, not disabled, for a reader who may not author dependency edges
+            (#3053) — the same rule the handle itself follows. Naming a gesture that
+            has been withheld is worse than saying nothing: the dot is genuinely not
+            painted, so the reader concludes the canvas failed to render rather than
+            that they lack a permission. */}
+        {canLink && (
+          <p className="mt-1 text-xs text-neutral-text-secondary">
+            Drag the{' '}
+            <RadioDotIcon
+              aria-hidden="true"
+              filled={false}
+              className="inline-block h-2.5 w-2.5 align-[-0.125em]"
+            />{' '}
+            handle at a bar’s right edge onto another task to link them
+          </p>
+        )}
       </div>
     </div>
   );

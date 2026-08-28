@@ -84,7 +84,13 @@ import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
-import { ROLE_ADMIN, ROLE_SCHEDULER, canAuthorPlan, canEditTaskRow } from '@/lib/roles';
+import {
+  ROLE_ADMIN,
+  ROLE_SCHEDULER,
+  canAuthorDependencies,
+  canAuthorPlan,
+  canEditTaskRow,
+} from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
@@ -675,13 +681,19 @@ function resolveProjectFloor(projectDetail: ReturnType<typeof useProject>['data'
 function commitCreateLink(
   { sourceId, targetId }: { sourceId: string; targetId: string },
   ctx: {
-    createLinkStateRef: { current: { tasks: Task[]; readOnly: boolean } };
+    createLinkStateRef: { current: { tasks: Task[]; dependenciesReadOnly: boolean } };
     addDep: AddDependencyMutation;
     ariaLiveRef: DomRef;
   },
 ) {
-  const { tasks, readOnly: ro } = ctx.createLinkStateRef.current;
-  if (ro) return; // viewers can't mutate — silently ignore
+  const { tasks, dependenciesReadOnly } = ctx.createLinkStateRef.current;
+  // `dependenciesReadOnly`, NOT the task-content `readOnly` (#3053) — a Scheduler
+  // may author edges and may not author rows, so gating this on the row rule
+  // withheld a gesture the server accepts. Belt to the engine's braces: since
+  // #3053 the engine does not emit `create-link` at all without the authority,
+  // but the commit path keeps its own guard so a future caller of the event
+  // cannot reintroduce the write without re-deciding the permission.
+  if (dependenciesReadOnly) return;
   const nameOf = (id: string) => tasks.find((t) => t.id === id)?.name ?? 'task';
   const sourceName = nameOf(sourceId);
   const targetName = nameOf(targetId);
@@ -1712,15 +1724,62 @@ export function ScheduleView() {
   // subsequent keystroke 403s (#3034). `canAuthorPlan` resolves the same rule the
   // server enforces, and returns false until the project query lands.
   const hasEditRights = canAuthorPlan(projectDetail?.can_author);
-  // One flag, two server permissions — known and tracked (#3053). `readOnly` fronts
-  // task-content authoring (`IsProjectPlanAuthor`, which excludes Scheduler) AND
-  // dependency authoring (`IsProjectScheduler`, which requires it). Neither rule is a
-  // superset of the other, so this boolean is wrong for one band whichever way it
-  // resolves: today a Scheduler loses canvas drag-to-link, which the server would
-  // accept. Splitting it means deciding, per consumer, which of the two it meant —
-  // and the canvas needs both, since drag-to-reschedule and drag-to-link are one
-  // gesture resolved by where it starts. Do not "simplify" this comment away.
+  // Task CONTENT only (#3053). This flag used to front two server permissions that
+  // are not the same rule, and was therefore wrong for one band whichever way it
+  // resolved — see `dependenciesReadOnly` below for the split and the ruling.
   const readOnly = !hasEditRights || authorMode.mode === 'read';
+
+  /**
+   * May this reader author dependency EDGES right now? (#3053, ADR-0773 §7)
+   *
+   * The second half of the flag `readOnly` used to be. The two acts have different
+   * server gates and neither is a superset of the other:
+   *
+   *   readOnly              task content — `IsProjectPlanAuthor`, `role >= MEMBER`
+   *                         minus the 200–299 band. EXCLUDES Scheduler.
+   *   dependenciesReadOnly  dependency edges — `IsProjectScheduler`,
+   *                         `role >= SCHEDULER`. EXCLUDES Member.
+   *
+   * So one boolean was wrong for one band in whichever direction it resolved. It
+   * resolved as task content, which cost a Scheduler canvas drag-to-link that the
+   * server would have accepted (#3034 narrowed the gate to `can_author` to stop a
+   * Scheduler's task edits 403-ing, and took the edge gesture with it), and it
+   * offered the gesture to a Member, whom the server refuses.
+   *
+   * Ruling recorded on #3053 (2026-08-25): a Scheduler **may** author dependencies.
+   * `DependencyViewSet` is not narrowed — the published RBAC matrix already
+   * promises `Create/edit dependencies ✓` for the role and narrowing it would be a
+   * breaking permission change for anyone who staffed the role as documented.
+   *
+   * Author/Read (⌥A) overlays this gate too — but ONLY for a reader who can reach
+   * the toggle. It is the user's own "don't let me edit" choice, and a choice you
+   * cannot reverse is not one: the mode pill and the ⌥A binding are both behind
+   * `hasEditRights`, so a Scheduler sees the View-only badge and no toggle. Their
+   * stored preference is not always 'author' either — it is per-user-per-project
+   * localStorage, so an Admin who pressed ⌥A and was later moved to Scheduler
+   * carries 'read' in with them. Without this clause that reader would lose
+   * drag-to-link permanently, with nothing on screen naming the reason or offering
+   * a way back — the exact stranding this issue is about, reintroduced through the
+   * fix for it.
+   *
+   * A FAILED role read is not a refusal (#2961, and `useCurrentUserRole`'s own
+   * `isError` docstring). `retry: false` makes one blip terminal and nothing here
+   * wires `refetch`, so reading `role === null` as "no" would take drag-to-link
+   * away from an Admin for the rest of the page's life over a dropped request —
+   * and `canEditTaskRow` twelve lines below assumes rights in exactly that state,
+   * so the same canvas would keep row editing while silently losing the link.
+   * Capability stranding with no recourse is the failure this issue is about.
+   *
+   * LOADING is deliberately NOT folded in with it. The two are different
+   * questions: a pending read resolves in milliseconds, so staying pessimistic
+   * costs a beat of absence, while an errored read never resolves at all. This is
+   * the same distinction the `?author=` effect draws a few hundred lines down —
+   * "unsettled — decide, don't guess" — applied to a control instead of a param.
+   */
+  const roleUnsettled = roleError === true;
+  const dependenciesReadOnly =
+    !(roleUnsettled || canAuthorDependencies(currentRole)) ||
+    (hasEditRights && authorMode.mode === 'read');
 
   /**
    * May this reader author THIS row? (#2960)
@@ -1836,14 +1895,23 @@ export function ScheduleView() {
   // drop; turn it into an FS/0-lag dependency. Reads resolve from the latest
   // task list + role via a ref so the effect subscribes once per engine and
   // never goes stale.
-  const createLinkStateRef = useRef({ tasks: allTasks, readOnly });
-  createLinkStateRef.current = { tasks: allTasks, readOnly };
+  const createLinkStateRef = useRef({ tasks: allTasks, dependenciesReadOnly });
+  createLinkStateRef.current = { tasks: allTasks, dependenciesReadOnly };
   useEffect(() => {
     if (!engine) return;
     return engine.on('create-link', (payload) =>
       commitCreateLink(payload, { createLinkStateRef, addDep, ariaLiveRef }),
     );
   }, [engine, addDep]);
+
+  // Withhold the gesture, don't swallow it (#3053). Before this the handle was
+  // painted and the crosshair offered for every reader, and the drop was dropped
+  // at commit — so a Member (whom the server refuses) and a Viewer both aimed at
+  // a grab point that did nothing. The engine now declines to arm, which is the
+  // "absent, not disabled" rule #2949 settled applied to a canvas gesture.
+  useEffect(() => {
+    engine?.setLinkAuthoring(!dependenciesReadOnly);
+  }, [engine, dependenciesReadOnly]);
 
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
 
@@ -3916,6 +3984,7 @@ export function ScheduleView() {
         onUndoStructuralAct={undoStructuralAct}
         undoPending={undoStructuralMut.isPending}
         hasEditRights={hasEditRights}
+        canLinkDependencies={!dependenciesReadOnly}
         displayOptions={displayOptions}
         onToggleDisplayOption={toggleDisplayOption}
         isMobile={isMobile}
@@ -4033,6 +4102,7 @@ export function ScheduleView() {
         allTasks={allTasks}
         projectId={projectId}
         readOnly={readOnly}
+        canLinkDependencies={!dependenciesReadOnly}
         canEditRow={canEditRow}
         outlineRendered={outlineRendered}
         isLoading={isLoading}
@@ -5052,6 +5122,15 @@ interface ScheduleToolbarProps {
    * apparatus is absent rather than disabled (#2949).
    */
   hasEditRights: boolean;
+  /**
+   * May this reader author dependency edges? (#3053)
+   *
+   * Read ONLY by the View-only badge, which `hasEditRights` places — and which
+   * would otherwise tell a Resource Manager they cannot "change anything here"
+   * while they hold drag-to-link. The two permissions are not nested, so the
+   * badge cannot be derived from one of them.
+   */
+  canLinkDependencies: boolean;
   isMobile: boolean;
   projectId: string | null;
   readOnly: boolean;
@@ -5123,6 +5202,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     displayOptions,
     onToggleDisplayOption,
     hasEditRights,
+    canLinkDependencies,
     showAddForm,
     insertTarget,
     onAddTask,
@@ -5373,7 +5453,9 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           onShowCheatsheet={() => setCheatsheetOpen(true)}
         />
       )}
-      {buildModeActive && !hasEditRights && <ScheduleViewOnlyBadge />}
+      {buildModeActive && !hasEditRights && (
+        <ScheduleViewOnlyBadge canLinkDependencies={canLinkDependencies} />
+      )}
       {/* Session trail (#2948). Lives in the toolbar rather than the Forecast
           strip the prototype drew it in: that strip early-returns whenever there
           is no Monte Carlo result yet, which is exactly the fresh project where
@@ -5664,6 +5746,12 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
 // ---------------------------------------------------------------------------
 
 interface ScheduleMainAreaProps {
+  /**
+   * Is drag-to-link on offer? (#3053) Distinct from `readOnly`, which is the
+   * task-content gate — the two roles they admit are not nested. Threaded down so
+   * the legend's standing "drag the handle" line goes with the handle itself.
+   */
+  canLinkDependencies: boolean;
   isMobile: boolean;
   allTasks: Task[];
   projectId: string | null;
@@ -6128,7 +6216,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={panelWidth} />
+        <ScheduleLegend taskListWidth={panelWidth} canLink={props.canLinkDependencies} />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop

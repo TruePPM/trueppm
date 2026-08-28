@@ -932,6 +932,8 @@ interface EngineInternals {
   _onReducedMotionChange: (e: MediaQueryListEvent) => void;
   _onForcedColorsChange: (e: MediaQueryListEvent) => void;
   _linkFSM: { state: string };
+  // #3053: a withheld link must not fall through to a bar move/resize drag.
+  _dragFSM: { state: string };
   _panFSM: { state: string };
 }
 
@@ -1593,6 +1595,114 @@ describe('GanttEngineImpl — drag-to-link gesture (#1666)', () => {
 
     internals._onPointerDown(ptr({ clientX: aRight + 12, clientY: 40 }));
     expect(internals._linkFSM.state).toBe('IDLE');
+  });
+
+  // ── Withheld, not swallowed (#3053) ──────────────────────────────────────
+  //
+  // Dependency edges are a different server permission from task content, so a
+  // reader can be refused edges while authoring rows (Member) or allowed edges
+  // while refused rows (Scheduler). Before this the gesture always armed and the
+  // drop was dropped in the React commit handler — which left the handle painted
+  // and the crosshair offered for a drag that did nothing.
+
+  it('does not arm, and offers no crosshair, once link authoring is withheld', () => {
+    const { engine } = setup();
+    twoTasks(engine);
+    const internals = internalsOf(engine);
+    internals._pointerFine = true;
+    stubPointerCapture(internals);
+    const { aRight } = barGeom(engine);
+
+    const onCreate = vi.fn();
+    engine.on('create-link', onCreate);
+    engine.setLinkAuthoring(false);
+
+    // Hover the link dot: the cursor must NOT promise a gesture.
+    internals._onPointerMove(ptr({ clientX: aRight + 12, clientY: 40 }));
+    expect(internals._ixCanvas.style.cursor).not.toBe('crosshair');
+
+    internals._onPointerDown(ptr({ clientX: aRight + 12, clientY: 40 }));
+    expect(internals._linkFSM.state).toBe('IDLE');
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it('starts NEITHER gesture on a withheld link-dot — no link, and no fall-through', () => {
+    // Both halves matter and only one of them is about the link.
+    //
+    // The tempting "fix" for a refused link-dot is to let the hit fall through to
+    // the bar path. It must not: the link zone sits just OUTSIDE the bar's right
+    // edge, so falling through would turn a link the user was refused into a
+    // silent RESCHEDULE of the task they aimed at — a worse write than the one
+    // being withheld, made without the user asking for it.
+    //
+    // Asserting `_dragFSM` alone would NOT be a net: with the guard deleted the
+    // link FSM arms instead, which leaves `_dragFSM` IDLE either way and the test
+    // green. Both FSMs are asserted so deleting the guard fails on `_linkFSM`,
+    // and a fall-through implementation fails on `_dragFSM`.
+    const { engine } = setup();
+    twoTasks(engine);
+    const internals = internalsOf(engine);
+    internals._pointerFine = true;
+    stubPointerCapture(internals);
+    const { aRight } = barGeom(engine);
+
+    engine.setLinkAuthoring(false);
+    internals._onPointerDown(ptr({ clientX: aRight + 12, clientY: 40 }));
+
+    expect(internals._linkFSM.state).toBe('IDLE');
+    expect(internals._dragFSM.state).toBe('IDLE');
+
+    // Control: the same coordinate DOES arm the link when the authority is there,
+    // so the assertions above are about the guard and not about a missed hotspot.
+    engine.setLinkAuthoring(true);
+    internals._onPointerDown(ptr({ clientX: aRight + 12, clientY: 40 }));
+    expect(internals._linkFSM.state).toBe('ARMED');
+  });
+
+  it('cancels an in-flight link drag when the authority is lost mid-gesture', () => {
+    // The ⌥A Read toggle (or a role refetch) can land between pointerdown and
+    // pointerup. Leaving the preview line hanging with nothing to commit it is
+    // the state this closes.
+    const { engine } = setup();
+    twoTasks(engine);
+    const internals = internalsOf(engine);
+    internals._pointerFine = true;
+    stubPointerCapture(internals);
+    const { aRight, bLeft } = barGeom(engine);
+
+    const onCreate = vi.fn();
+    engine.on('create-link', onCreate);
+
+    internals._onPointerDown(ptr({ clientX: aRight + 12, clientY: 40 }));
+    internals._onPointerMove(ptr({ clientX: bLeft + 20, clientY: 70 }));
+    expect(internals._linkFSM.state).toBe('DRAGGING');
+
+    engine.setLinkAuthoring(false);
+
+    expect(internals._linkFSM.state).toBe('IDLE');
+    internals._onPointerUp(ptr({ clientX: bLeft + 20, clientY: 70 }));
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it('restores the gesture when the authority comes back', () => {
+    const { engine } = setup();
+    twoTasks(engine);
+    const internals = internalsOf(engine);
+    internals._pointerFine = true;
+    stubPointerCapture(internals);
+    const { aRight, bLeft } = barGeom(engine);
+
+    const onCreate = vi.fn();
+    engine.on('create-link', onCreate);
+
+    engine.setLinkAuthoring(false);
+    engine.setLinkAuthoring(true);
+
+    internals._onPointerDown(ptr({ clientX: aRight + 12, clientY: 40 }));
+    internals._onPointerMove(ptr({ clientX: bLeft + 20, clientY: 70 }));
+    internals._onPointerUp(ptr({ clientX: bLeft + 20, clientY: 70 }));
+
+    expect(onCreate).toHaveBeenCalledWith({ sourceId: 'a', targetId: 'b' });
   });
 });
 
