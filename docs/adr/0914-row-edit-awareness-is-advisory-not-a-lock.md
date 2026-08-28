@@ -110,15 +110,46 @@ the ring never gates a write (decision 2), the copy never claims exclusivity
 accepted.** Every open project socket becomes a Redis write path for any Member.
 Case 07's rendering-level framing hides this and #2721 is right to call it a new
 subsystem. It is accepted here under bound constraints, all of which the
-implementing issue must carry:
+implementing issue (#3145) must carry. Four of them came from the `threat-model`
+gate run against this ADR and are marked; they are constraints on a design, not
+review notes, which is why they are recorded here rather than left to
+implementation:
 
-- Connect-time auth is unchanged and is the only authorization gate — JWT, role
-  ≥ MEMBER, already enforced. This ADR adds no new authz path.
+- Connect-time auth is unchanged and remains the only *connection* gate — JWT or
+  the ADR-0141 single-use ticket, role ≥ MEMBER, already enforced. This ADR adds
+  no new authentication path.
+- **Emitting an edit-state frame requires the role that may write the row, not
+  merely the role that may open the socket.** [threat-model] Membership admits a
+  band that ADR-0773 excludes from plan authoring; without this, such a member
+  could broadcast a claim to be editing a row the server would refuse their write
+  on. An advisory signal still has to be one the server would stand behind.
 - The consumer validates that the row id resolves to a task **in this project**. A
   frame naming a row outside it is dropped, never fanned out — otherwise the socket
   becomes the cross-project existence oracle that ADR-0772 removed.
+- **The frame-rate bound is applied before that row lookup, not after.**
+  [threat-model] Ordered the other way, the validation *is* the amplifier: one
+  cheap frame becomes one task lookup, at line rate. The two constraints are safe
+  together only in this order, which is exactly the kind of interaction that does
+  not survive being rediscovered at implementation time.
 - Frame rate is bounded per socket, and over-rate frames are dropped rather than
-  queued.
+  queued. **This closes a gap that already exists** and is not purely a cost of
+  this feature: `receive_json` today re-arms the presence TTL on *every* client
+  frame, so an authenticated Member can already drive unbounded Redis `EXPIRE`
+  calls against a socket documented as receive-only.
+- **Edit-state is ephemeral and must never enter the ADR-0236 replay buffer.**
+  [threat-model] It is broadcast with `seq: None`, as presence is, and is never
+  written to the replayed-events table. A replayable ring is precisely the "stale
+  ring nobody can clear" failure this ADR rejects, arriving through
+  `_replay_missed_events` on reconnect instead of through an expiry — and a TTL
+  cannot defend against it, because replay reconstructs the event after the TTL
+  has done its job.
+- **One per-project Redis hash under a short TTL, not a key per row.**
+  [threat-model] Key-per-row grows the key count with every row anyone touches and
+  gives each its own expiry to reconcile. The existing presence hash is the shape
+  to copy.
+- Release rides `disconnect`, which `connection_evict` (#813) already triggers when
+  membership is revoked or demoted mid-session — so a removed member's ring clears
+  through the path that already exists rather than through a second one.
 - The payload is a fixed, size-bounded shape. Nothing free-text is fanned out.
 - Nothing is persisted. Edit-state lives only in Redis under a short TTL and dies
   with the socket.
@@ -182,6 +213,15 @@ would be to change the visual, not to add the hold.
   that must not come back.
 - *The visual carries exclusivity even though the copy does not.* Decision 9 is the
   falsification line, and the remedy is the visual rather than the hold.
+- *Edit-state discloses who is working on which row to every member of the project.*
+  [threat-model] Accepted. The disclosure is bounded by a membership the project
+  already grants — every recipient can already read every row and the presence
+  roster already names who is connected — so the new fact is *which row*, within a
+  group that shares the plan. It is worth naming rather than assuming: in a PMO
+  setting "who is touching the slipping task" is socially loaded in a way "who is
+  online" is not. No audit obligation follows, because the signal is ephemeral,
+  gates nothing, and is never persisted — there is no action to repudiate.
+
 - *This ADR was written without access to the handoff itself.* Case 07 is described
   here from #2721's account of it, which is the code-verified scope rather than the
   screens. If the case's own copy says "locked" in words, decision 3 is a larger
