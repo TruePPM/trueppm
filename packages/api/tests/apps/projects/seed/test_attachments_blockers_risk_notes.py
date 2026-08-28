@@ -16,7 +16,7 @@ the demo say something false:
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -125,6 +125,11 @@ def test_attachments_round_trip(owner: Any) -> None:
 def test_a_declared_blocker_lands_with_a_real_age(owner: Any) -> None:
     """The importer bulk-creates, so Task.save() never stamps blocked_since."""
     seed = _seed()
+    # Pin the anchor to a Friday so "A-6" lands on a Saturday. That is the case
+    # weekend-snapping used to push forward to the following Monday, which both
+    # understated the blocker's age and made this test fail only on Fridays
+    # (#3112). An explicit anchor keeps the assertion independent of run day.
+    seed["anchor"] = "2026-08-28"
     seed["projects"][0]["tasks"][0]["blocked"] = {
         "reason": "Waiting on the vendor's SSO certification sandbox.",
         "since": "A-6",
@@ -140,8 +145,10 @@ def test_a_declared_blocker_lands_with_a_real_age(owner: Any) -> None:
     assert task.blocking_task == _task(program, "2")
     assert task.blocked_by.get_username() == "surface-sam"
     assert task.blocked_since is not None
-    age_days = (timezone.now() - task.blocked_since).days
-    assert 4 <= age_days <= 8, f"blocked age is {age_days}d, expected ~6d from 'A-6'"
+    # A blocker started when it started: six days before the Friday anchor is the
+    # Saturday, not the Monday after it. This also pins that the importer
+    # backdates at all -- a `Task.save()` stamp would land today instead.
+    assert task.blocked_since.date() == date(2026, 8, 22)
 
 
 def test_a_blocker_without_since_still_carries_an_age(owner: Any) -> None:
