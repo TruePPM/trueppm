@@ -4986,8 +4986,13 @@ function buildDemotedItems(ctx: {
               label: 'Add milestone',
               disabled: ctx.readOnly || ctx.createPending,
               onSelect: ctx.handleAddMilestone,
-              shortcut: formatChord('mod+alt+m'),
-              ariaKeyShortcuts: 'Alt+Meta+M',
+              // ⌘M, matching the only binding that exists (`keyBindings['mod+m']`)
+              // and the bar button's own label. This read ⌥⌘M until #3115 — a
+              // chord bound to nothing, which mattered little while the entry was
+              // a corner case and matters a lot now that unpinned is the default
+              // and this menu is where people first meet the command.
+              shortcut: formatChord('mod+m'),
+              ariaKeyShortcuts: 'Meta+M',
             },
           },
         ]

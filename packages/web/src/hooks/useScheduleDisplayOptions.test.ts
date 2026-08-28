@@ -75,4 +75,20 @@ describe('useScheduleDisplayOptions', () => {
     const { result } = renderHook(() => useScheduleDisplayOptions('p1'));
     expect(result.current.options).toEqual(DEFAULT_DISPLAY_OPTIONS);
   });
+
+  it('ships + Milestone unpinned for someone who has never set a preference (#3115)', () => {
+    const { result } = renderHook(() => useScheduleDisplayOptions('p1'));
+    expect(result.current.options.pinMilestone).toBe(false);
+  });
+
+  it('does not un-pin + Milestone for someone who already stored it pinned (#3115)', () => {
+    // `writeStored` persists the WHOLE options object, so anyone who has ever
+    // touched the Display menu has an explicit `pinMilestone` on disk. Flipping
+    // the default must not reach back and take their button away — the new
+    // default is for people who never expressed a preference, and `readStored`
+    // merging key-by-key over the defaults is what keeps those two apart.
+    window.localStorage.setItem(KEY, JSON.stringify({ ...DEFAULT_DISPLAY_OPTIONS, pinMilestone: true }));
+    const { result } = renderHook(() => useScheduleDisplayOptions('p1'));
+    expect(result.current.options.pinMilestone).toBe(true);
+  });
 });

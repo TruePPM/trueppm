@@ -4,12 +4,14 @@ description: Reference for the Schedule view toolbar — filter groups, summary 
 documentedFor: "0.4"
 ---
 
-The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the three primary authoring actions (`+ Item`, `+ Milestone`, `+ Phase`).
+The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the authoring actions (`+ Item`, `+ Milestone`, `+ Phase`).
+
+Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `···` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
 
 ## Toolbar layout
 
 ```
-[ + Item ] [ + Milestone ]   ( + Phase · Group · Ungroup — off by default )   [ Build mode pill ]
+[ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the ··· menu by default )   [ Build mode pill ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
 [ {N} tasks · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
@@ -48,7 +50,7 @@ makes this the one place that answers "where did my button go".
 
 | Control | Default |
 | --- | --- |
-| Milestone | in the toolbar |
+| Milestone | in `···` |
 | Phase, Group and Ungroup buttons | in `···` |
 | Export PDF | in the toolbar |
 | Task and critical counts | in the toolbar |
@@ -132,10 +134,10 @@ The chip is a `role="status"` announcement for screen readers — every state ch
 ## Adding a milestone
 
 Two paths:
-- **Click `+ Milestone`** in the toolbar.
+- **Choose `Add milestone`** from the toolbar's `···` menu — or click `+ Milestone` in the bar, if you have pinned it there from **Display → Outline**.
 - **Press ⌘M (macOS) / Ctrl + M (Windows / Linux)** when the Schedule view has focus.
 
-Both insert a new milestone at today's date with an empty name field. The milestone's `parent_id` is inferred from your currently-focused row — if you have a phase summary selected (or any task inside it), the new milestone lands under that phase. Otherwise it lands at the project root.
+Both open the milestone dialog, where you set the name, date, and parent before anything is created — nothing is saved until you submit. The parent is pre-filled from your currently-focused row: if you have a phase summary selected (or any task inside it), the new milestone lands under that phase. Otherwise it lands at the project root.
 
 The diamond pulses on the timeline for 1.5s after insert (suppressed under `prefers-reduced-motion`). A polite live-region announcement reads `"Milestone {name} inserted at {date}"`.
 

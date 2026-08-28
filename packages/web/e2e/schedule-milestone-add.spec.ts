@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
+import { setupScheduleDisplayOptions } from './fixtures/schedule-display-options';
 
 /**
  * Milestone-add dialog E2E — clicking "+ Milestone" opens TaskFormModal in
@@ -50,6 +51,33 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
       }),
     );
   });
+  // `/auth/me/` was unmocked until #3115 and fell through to the catch-all, which
+  // answers every route with the LIST shape — so `useCurrentUser().user` resolved
+  // to a truthy `{count:0,…}` whose `id` is undefined. That was invisible while
+  // nothing keyed on the user id, and stops being invisible the moment a spec
+  // needs a per-user preference: the storage key would read
+  // `…displayOptions.undefined.<projectId>`. Mock it with its real shape.
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'e2e',
+        display_name: 'E2E User',
+        initials: 'EU',
+        email: 'e2e@example.com',
+        max_project_role: 4,
+        workspace_role: 4,
+        can_access_admin_settings: true,
+      }),
+    }),
+  );
+  // #3115 ships `+ Milestone` unpinned. This spec is about the milestone-create
+  // DIALOG, not about where the button lives, so it pins the button back and
+  // keeps testing the thing it is named for. `schedule-render-parity.spec.ts`
+  // owns the default placement.
+  await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, { pinMilestone: true });
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,

@@ -711,11 +711,30 @@ function getActLiveRegion(): HTMLElement {
  * that asserts on those buttons therefore opts in the same way a user does through the
  * Display menu's Outline section. Call before `renderSchedule`: the hook hydrates once.
  */
+const DISPLAY_OPTIONS_KEY = 'trueppm.schedule.displayOptions.test-user-1.project-1';
+
+/** Merge into the stored preference — two opt-ins in one test must not clobber each other. */
+function seedDisplayOptions(options: Record<string, boolean>): void {
+  const raw = window.localStorage.getItem(DISPLAY_OPTIONS_KEY);
+  const prior = raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+  window.localStorage.setItem(DISPLAY_OPTIONS_KEY, JSON.stringify({ ...prior, ...options }));
+}
+
 function enableStructureButtons(): void {
-  window.localStorage.setItem(
-    'trueppm.schedule.displayOptions.test-user-1.project-1',
-    JSON.stringify({ structureButtons: true }),
-  );
+  seedDisplayOptions({ structureButtons: true });
+}
+
+/**
+ * Pin `+ Milestone` into the toolbar (#3115).
+ *
+ * It ships in the `···` menu now, for the same reason the structure buttons do.
+ * Every test below that names the *button* has to opt in — including the ones
+ * asserting a Viewer or Scheduler does **not** get it. Those are role-gate
+ * regression nets, and without this they would pass on the default placement
+ * instead of on the gate, which is a green test proving nothing.
+ */
+function pinMilestoneButton(): void {
+  seedDisplayOptions({ pinMilestone: true });
 }
 
 function renderSchedule(initialEntries: string[] = ['/']) {
@@ -925,6 +944,7 @@ describe('ScheduleView — populated desktop', () => {
   });
 
   it('opens the milestone form from the "+ Milestone" button', async () => {
+    pinMilestoneButton();
     const user = userEvent.setup();
     renderSchedule();
     await user.click(screen.getByRole('button', { name: '+ Milestone' }));
@@ -947,6 +967,7 @@ describe('ScheduleView — populated desktop', () => {
   });
 
   it('hides the three structure buttons until the Display option turns them on (#2955)', () => {
+    pinMilestoneButton();
     // The default is a ruling, not an omission: ⌥⌘G and ⇥ already make phases, so the
     // buttons are the discoverable route rather than permanent toolbar width. A ruling
     // nothing asserts is one the next toolbar change quietly reverses.
@@ -978,6 +999,7 @@ describe('ScheduleView — read-only vs authoring gates', () => {
   });
 
   it('gives a viewer no authoring apparatus at all — absent, not disabled (#2949)', () => {
+    pinMilestoneButton();
     mockRole = ROLE_VIEWER;
     renderSchedule();
     // A viewer is not "in Read mode": there is no mode, because nothing is on
@@ -998,6 +1020,7 @@ describe('ScheduleView — read-only vs authoring gates', () => {
   });
 
   it('keeps the apparatus present and inert for an EDITOR who chose Read', async () => {
+    pinMilestoneButton();
     // The state that must not collapse into the one above: an editor can get
     // back with one key, so the controls stay where they were.
     const user = userEvent.setup();
@@ -1010,6 +1033,7 @@ describe('ScheduleView — read-only vs authoring gates', () => {
   });
 
   it('enables milestone + phase authoring for a member', () => {
+    pinMilestoneButton();
     mockRole = ROLE_MEMBER;
     enableStructureButtons();
     renderSchedule();
@@ -2147,6 +2171,7 @@ describe('ScheduleView — drawer close reverts canvas highlights', () => {
 
 describe('ScheduleView — milestone created side effect', () => {
   it('announces the inserted milestone to the polite aria-live region', async () => {
+    pinMilestoneButton();
     const user = userEvent.setup();
     const { container } = renderSchedule();
     await user.click(screen.getByRole('button', { name: '+ Milestone' }));
@@ -2202,6 +2227,7 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
   });
 
   it('defaults to Author mode: pill reads "Author" and create controls stay enabled', () => {
+    pinMilestoneButton();
     renderSchedule();
     const pill = screen.getByTestId('author-mode-pill');
     expect(pill).toHaveTextContent('Author');
@@ -2209,6 +2235,7 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
   });
 
   it('clicking the pill switches to Read mode and disables create controls', async () => {
+    pinMilestoneButton();
     const user = userEvent.setup();
     enableStructureButtons();
     renderSchedule();
@@ -2234,6 +2261,7 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
   });
 
   it('is not a permission change — the server role gate still applies independently', () => {
+    pinMilestoneButton();
     mockRole = ROLE_VIEWER;
     renderSchedule();
     // A Viewer is already readOnly via the role gate, before Read mode is ever
@@ -2271,6 +2299,7 @@ describe('ScheduleView — the authoring gate is the server\'s can_author (#3034
   // and go red the moment anyone re-derives it from the ordinal.
 
   it('a Scheduler sees the same absence a Viewer sees — no pill, no insert, no apparatus', () => {
+    pinMilestoneButton();
     mockRole = ROLE_SCHEDULER;
     renderSchedule();
     expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
