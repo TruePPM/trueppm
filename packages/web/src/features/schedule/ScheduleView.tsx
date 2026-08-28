@@ -176,6 +176,7 @@ import {
   type BuildModeApi,
 } from './buildMode';
 import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
+import { useAuthorModeLayoutCoupling } from '@/hooks/useAuthorModeLayoutCoupling';
 import {
   useScheduleDisplayOptions,
   type ScheduleDisplayOptions,
@@ -1115,6 +1116,7 @@ export function ScheduleView() {
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const viewMode = useScheduleStore((s) => s.viewMode);
+  const setViewMode = useScheduleStore((s) => s.setViewMode);
 
   // Adjacency + per-task dep-chip data — only depends on `allLinks`, so the
   // identity stays stable across hover transitions. This matters for
@@ -1666,6 +1668,15 @@ export function ScheduleView() {
   // per-project preference layered on top of the server role gate below, not
   // a replacement for it. "Read" mode forces readOnly regardless of role.
   const authorMode = useScheduleAuthorMode(projectIdUndef);
+  // Grid is the layout you author in; Timeline is the one you read in. Move the
+  // layout with the mode on the transition, and let a manual choice win (#3114).
+  useAuthorModeLayoutCoupling({
+    authorMode: authorMode.mode,
+    isLoading: authorMode.isLoading,
+    isMobile,
+    viewMode,
+    setViewMode,
+  });
   const { options: displayOptions, toggle: toggleDisplayOption } =
     useScheduleDisplayOptions(projectIdUndef);
   // Comfortable rows (#3019). The Display menu's toggle persisted this and
