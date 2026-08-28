@@ -31,7 +31,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.projects.lifecycle import visible_projects
+from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.projects.program_rollup import (
     compute_program_rollup,
@@ -171,19 +171,33 @@ def build_resource_overallocation_digest(
     window_start = local_now.date()
     window_end = window_start + datetime.timedelta(days=6)
 
-    project_ids = list(
-        ProjectMembership.objects.filter(user=user, role__gte=Role.SCHEDULER)
-        .values_list("project_id", flat=True)
-        .order_by("project_id")[:MAX_PROJECTS_PER_DIGEST]
-    )
-    total_projects = ProjectMembership.objects.filter(user=user, role__gte=Role.SCHEDULER).count()
-
-    lines: list[str] = []
     # Drafts are excluded (#2962/#3128): a resource "overallocated" by a plan nobody
     # has committed to is not overallocated, and a Resource Manager acting on that
     # line would be levelling against work that may never exist.
+    #
+    # Narrowed HERE, on the membership rows, rather than on the Project queryset
+    # below — because ``MAX_PROJECTS_PER_DIGEST`` slices this list and
+    # ``total_projects`` counts it. Excluding after the slice would let drafts
+    # consume cap slots and push real projects out of the digest entirely, and
+    # would leave the "showing the first N of M" footer over-reporting M. The
+    # ``project__is_deleted`` clause is here for the same reason: it was applied
+    # only on the Project queryset, so a soft-deleted project already burned a
+    # slot and inflated M.
+    audience = exclude_draft_projects(
+        ProjectMembership.objects.filter(
+            user=user, role__gte=Role.SCHEDULER, project__is_deleted=False
+        )
+    )
+    project_ids = list(
+        audience.values_list("project_id", flat=True).order_by("project_id")[
+            :MAX_PROJECTS_PER_DIGEST
+        ]
+    )
+    total_projects = audience.count()
+
+    lines: list[str] = []
     projects = (
-        visible_projects(Project.objects.filter(id__in=project_ids, is_deleted=False))
+        Project.objects.filter(id__in=project_ids, is_deleted=False)
         .prefetch_related("tasks__assignments__resource__calendar__exceptions")
         .order_by("name")
     )

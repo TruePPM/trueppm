@@ -5,11 +5,24 @@ difference from ``is_archived`` — but it must not appear in anything that
 *aggregates*, because a half-built plan inside a rollup makes that rollup a
 guess with a chart around it.
 
-**One helper, not four filters.** The exclusion has to hold across program
-rollup, portfolio health, search and notifications, and those live in different
-modules maintained at different times. A `.exclude(lifecycle=DRAFT)` written out
-four times is four places to forget it; :func:`visible_projects` is one place to
-get it right and one place to grep for.
+**One module, not N filters.** The exclusion has to hold across program rollup,
+portfolio health, search and notifications, and those live in different modules
+maintained at different times. A `.exclude(lifecycle=DRAFT)` written out per
+surface is a place to forget it per surface; this module is one place to get it
+right and one place to grep for.
+
+It says *module* rather than *helper* because #3128 found the single-helper
+framing was itself part of why the list leaked. :func:`visible_projects` takes a
+``Project`` queryset, and half the surfaces that must honor the exclusion never
+build one — omni-search and the cross-project dependency picker filter ``Task``
+rows, and the Programs directory counts projects inside a ``Count(filter=...)``
+annotation on ``Program``. Faced with a helper that did not fit, those sites
+wrote nothing at all. So there are three shapes of the same predicate —
+:func:`visible_projects`, :func:`exclude_draft_projects`,
+:func:`not_draft_q` — and the invariant that matters is unchanged and
+mechanically checkable: **``ProjectLifecycle.DRAFT`` appears in this file and
+nowhere else.** If a new surface fits none of the three, add a fourth here
+rather than inlining the predicate there.
 
 **The MCP read surface is deliberately NOT on this list**, which is a correction
 to the design rather than an omission. Hiding a project from an agent's reads is

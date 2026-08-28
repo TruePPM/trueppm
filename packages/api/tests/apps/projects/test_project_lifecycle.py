@@ -442,3 +442,47 @@ class TestEveryExcludedSurface:
         _commit(draft)
         scheduling_tasks._do_daily_forecast_floor()
         assert sorted(seen, key=str) == sorted([committed.pk, draft.pk], key=str)
+
+    def test_overallocation_digest_drafts_do_not_consume_cap_slots(
+        self, user: Any, calendar: Calendar, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exclusion runs BEFORE ``MAX_PROJECTS_PER_DIGEST`` slices, not after.
+
+        The cap orders by ``project_id``, so a draft sorting ahead of a real
+        project would otherwise eat its slot and silently drop a genuine
+        overallocation from the digest — and leave the "showing the first N of M"
+        footer counting a project the body never mentions.
+        """
+        import uuid
+
+        from trueppm_api.apps.notifications import digests
+
+        low = Project.objects.create(
+            id=uuid.UUID(int=1),
+            name="Half-built",
+            start_date=date(2026, 3, 2),
+            calendar=calendar,
+            lifecycle=ProjectLifecycle.DRAFT,
+        )
+        high = Project.objects.create(
+            id=uuid.UUID(int=2),
+            name="Committed",
+            start_date=date(2026, 3, 2),
+            calendar=calendar,
+        )
+        for p in (low, high):
+            ProjectMembership.objects.create(project=p, user=user, role=Role.SCHEDULER)
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            digests,
+            "compute_utilization",
+            lambda project, *a, **k: seen.append(project.name) or {"resources": []},
+        )
+        # A cap of 1 makes the ordering load-bearing: the draft sorts first.
+        monkeypatch.setattr(digests, "MAX_PROJECTS_PER_DIGEST", 1)
+
+        digests.build_resource_overallocation_digest(
+            user, datetime.datetime(2026, 7, 26, 17, 0, tzinfo=datetime.UTC)
+        )
+        assert seen == ["Committed"]
