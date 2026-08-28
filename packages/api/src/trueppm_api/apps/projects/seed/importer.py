@@ -381,12 +381,20 @@ class _SeedImporter:
             return WorkingCalendar()
         return self.working_calendars.get(project_slug) or WorkingCalendar()
 
-    def _date(self, value: str, project_slug: str | None) -> date:
-        """Resolve a required seed date. v1 ISO literals pass straight through."""
-        return resolve_date(value, anchor=self.anchor, calendar=self._wc(project_slug))
+    def _date(self, value: str, project_slug: str | None, *, snap: bool = True) -> date:
+        """Resolve a required seed date. v1 ISO literals pass straight through.
 
-    def _date_opt(self, value: str | None, project_slug: str | None) -> date | None:
-        return self._date(value, project_slug) if value else None
+        ``snap`` forward to the next working day is right for *plan* dates, which
+        cannot legitimately fall on a non-working day. Pass ``snap=False`` for a
+        date recording something that already happened: history is not confined
+        to working days, and snapping it forward misstates when it occurred.
+        """
+        return resolve_date(value, anchor=self.anchor, calendar=self._wc(project_slug), snap=snap)
+
+    def _date_opt(
+        self, value: str | None, project_slug: str | None, *, snap: bool = True
+    ) -> date | None:
+        return self._date(value, project_slug, snap=snap) if value else None
 
     def _creation_dt(self, when: date) -> datetime:
         """A backdated creation timestamp (UTC 09:00) for replay history rows."""
@@ -1183,7 +1191,9 @@ class _SeedImporter:
             if not blocked:
                 continue
             task = self.tasks[(slug, task_data["wbs_path"])]
-            since = self._date_opt(blocked.get("since"), slug)
+            # A blocker started when it started — a Saturday stays a Saturday.
+            # Snapping this forward would report the block as newer than it is.
+            since = self._date_opt(blocked.get("since"), slug, snap=False)
             task.blocked_since = self._creation_dt(
                 since or task.planned_start or project.start_date
             )
