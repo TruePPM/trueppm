@@ -21,6 +21,7 @@
  * region's own success/error reducer is exercised without standing up the real
  * sprint-picker (which fetches project + sprints).
  */
+import type { DependencyDirection } from './deps/linkTypes';
 import { useMemo } from 'react';
 import { screen, render, fireEvent, act } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -146,7 +147,7 @@ interface HarnessProps {
   level?: number;
   siblingIds?: string[];
   nameSuggestions?: string[];
-  onAddDependencyRequest?: (taskId: string, mode: 'predecessor' | 'successor') => void;
+  onAddDependencyRequest?: (taskId: string, direction?: DependencyDirection) => void;
   focusRef: { current: FocusApi | null };
 }
 
@@ -591,27 +592,25 @@ describe('TaskListRow — SprintAssignmentRegion outcomes', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// Build-mode context menu — Add predecessor / Add successor wiring (#477).
+// Build-mode context menu — Add dependency wiring (#477, one item since #3113).
 // ───────────────────────────────────────────────────────────────────────────
 describe('TaskListRow — dependency menu items', () => {
-  it('Add predecessor / Add successor call onAddDependencyRequest with the mode', () => {
+  it('Add dependency calls onAddDependencyRequest with NO direction, letting the dialog default', () => {
+    // The menu deliberately does not pick a side. Direction is a field inside
+    // the dialog now, so seeding it from the menu would re-create the thing
+    // #3113 removed — a choice made before you can see it.
     const onAddDependencyRequest = vi.fn();
     renderBuild({ onAddDependencyRequest });
     fireEvent.contextMenu(screen.getByRole('row'), { clientX: 40, clientY: 40 });
 
-    fireEvent.click(screen.getByRole('menuitem', { name: /Add predecessor/ }));
-    expect(onAddDependencyRequest).toHaveBeenCalledWith('t1', 'predecessor');
-
-    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 40, clientY: 40 });
-    fireEvent.click(screen.getByRole('menuitem', { name: /Add successor/ }));
-    expect(onAddDependencyRequest).toHaveBeenCalledWith('t1', 'successor');
+    fireEvent.click(screen.getByRole('menuitem', { name: /Add dependency/ }));
+    expect(onAddDependencyRequest).toHaveBeenCalledWith('t1');
   });
 
-  it('the dependency items are disabled when no handler is wired', () => {
+  it('the dependency item is disabled when no handler is wired', () => {
     renderBuild();
     fireEvent.contextMenu(screen.getByRole('row'), { clientX: 40, clientY: 40 });
-    expect(screen.getByRole('menuitem', { name: /Add predecessor/ })).toBeDisabled();
-    expect(screen.getByRole('menuitem', { name: /Add successor/ })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: /Add dependency/ })).toBeDisabled();
   });
 });
 

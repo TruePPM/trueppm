@@ -129,7 +129,7 @@ The editable cells in v1 are **Task name**, **Duration**, and **% complete**. St
 | Action | Result |
 |---|---|
 | Hover a row | Reveals its dependency chain — predecessors highlight blue, successors highlight green |
-| Right-click | Opens the row menu, where **Add predecessor** / **Add successor** open a task picker |
+| Right-click | Opens the row menu, where **Add dependency** opens a task picker |
 
 ## Inline authoring tokens
 

@@ -122,15 +122,15 @@ test.describe('Schedule build-mode — default on desktop (#2682)', () => {
     const menu = page.getByRole('menu', { name: 'Row actions' });
     await expect(menu).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Edit/ })).toBeVisible();
-    // Items added in #477 — Mark complete, Add predecessor / successor, Duplicate.
+    // Items added in #477 — Mark complete, Add dependency (one item since
+    // #3113: direction is a field in the dialog), Duplicate.
     await expect(menu.getByRole('menuitem', { name: /Mark complete/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Indent/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Outdent/ })).toBeVisible();
     // Added in #2954 — the drag's twin: ⌥→/⌥← only step one level, drag can
     // move a row under any phase, so the menu carries the same reach.
     await expect(menu.getByRole('menuitem', { name: /Move to/ })).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /Add predecessor/ })).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /Add successor/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /Add dependency/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Duplicate/ })).toBeVisible();
     // Added in #2736 — the discoverable twin of ⌘⇧M.
     await expect(menu.getByRole('menuitem', { name: /Classification/ })).toBeVisible();

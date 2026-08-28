@@ -193,11 +193,11 @@ export function DependenciesTab({
       {crossPickerMode && (
         <ScheduleDependencyPicker
           task={task}
-          mode={crossPickerMode}
+          initialDirection={crossPickerMode}
           projectId={projectId}
           programId={programId}
           allTasks={tasks}
-          excludedIds={crossPickerMode === 'predecessor' ? linkedPredIds : linkedSuccIds}
+          excludedIds={{ predecessor: linkedPredIds, successor: linkedSuccIds }}
           initialScope="program"
           onClose={() => setCrossPickerMode(null)}
         />

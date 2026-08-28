@@ -1,3 +1,4 @@
+import type { DependencyDirection } from './deps/linkTypes';
 import { useCallback, useRef, useState, useEffect, useMemo, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ProjectResource, Task } from '@/types';
@@ -203,7 +204,7 @@ interface Props {
    *  wash so the table row and its bar read as one unit (#2096). */
   hoveredTaskId?: string | null;
   /** Dependency picker entry-point (#477) — forwarded to each row's right-click menu. */
-  onAddDependencyRequest?: (taskId: string, mode: 'predecessor' | 'successor') => void;
+  onAddDependencyRequest?: (taskId: string, direction?: DependencyDirection) => void;
   /**
    * Sprint lookup by id — used by each row's Duplicate action to render the
    * "Added to Sprint X · Undo" toast only when the source sprint is ACTIVE.

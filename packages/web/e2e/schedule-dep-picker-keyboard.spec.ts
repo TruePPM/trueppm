@@ -111,9 +111,14 @@ async function openPredecessorPicker(page: import('@playwright/test').Page) {
   await page.getByText('Cutover').click({ button: 'right' });
   const menu = page.getByRole('menu', { name: 'Row actions' });
   await expect(menu).toBeVisible();
-  await menu.getByRole('menuitem', { name: /Add predecessor/ }).click();
-  const dialog = page.getByRole('dialog', { name: /Add predecessor/ });
+  await menu.getByRole('menuitem', { name: /Add dependency/ }).click();
+  const dialog = page.getByRole('dialog', { name: /Add dependency/ });
   await expect(dialog).toBeVisible();
+  // The one menu item defaults to SUCCESSOR since #3113. These specs are about
+  // the keyboard contract and assert predecessor-shaped payloads, so set the
+  // direction explicitly here rather than restating every assertion — which
+  // also exercises the field being changeable without reopening.
+  await dialog.getByLabel('Dependency type').selectOption('predecessor');
   return dialog;
 }
 
@@ -232,5 +237,72 @@ test.describe('Dependency picker keyboard contract (#3024)', () => {
     await search.press('ArrowDown');
     await expect(dialog.locator('mark').first()).toBeVisible();
     await expectNoA11yViolations(page, testInfo, scanDialogOnly);
+  });
+});
+
+test.describe('Dependency picker — direction is a field (#3113)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: [PROJECT],
+      projectId: PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+    });
+    await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+  });
+
+  test('one menu item, defaulting to successor, changeable without reopening', async ({ page }) => {
+    const posted = await mockDependencies(page);
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Cutover')).toBeVisible({ timeout: 10_000 });
+    await page.getByText('Cutover').click({ button: 'right' });
+    const menu = page.getByRole('menu', { name: 'Row actions' });
+    await expect(menu.getByRole('menuitem', { name: /Add dependency/ })).toBeVisible();
+    // The two old items are gone — that collapse is the point of the issue.
+    await expect(menu.getByRole('menuitem', { name: /Add predecessor/ })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /Add successor/ })).toHaveCount(0);
+    await menu.getByRole('menuitem', { name: /Add dependency/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: /Add dependency/ });
+    await expect(dialog.getByLabel('Dependency type')).toHaveValue('successor');
+
+    // Choose a non-default relationship, then flip direction: the relationship
+    // resets to FS, because the options are worded FOR the direction.
+    await dialog.getByLabel('Relationship', { exact: true }).selectOption('SF');
+    await dialog.getByLabel('Dependency type').selectOption('predecessor');
+    await expect(dialog.getByLabel('Relationship', { exact: true })).toHaveValue('FS');
+
+    // ...and the flip reaches the payload, without the dialog ever closing.
+    await dialog.getByLabel('Search tasks').press('ArrowDown');
+    await dialog.getByLabel('Search tasks').press('Enter');
+    await expect(dialog).toBeHidden();
+    expect(posted[0]).toMatchObject({ successor: 'bm1' });
+  });
+
+  test('the ? explains all four types, and Esc closes it without losing the search', async ({
+    page,
+  }) => {
+    await mockDependencies(page);
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Cutover')).toBeVisible({ timeout: 10_000 });
+    await page.getByText('Cutover').click({ button: 'right' });
+    await page
+      .getByRole('menu', { name: 'Row actions' })
+      .getByRole('menuitem', { name: /Add dependency/ })
+      .click();
+    const dialog = page.getByRole('dialog', { name: /Add dependency/ });
+    await dialog.getByLabel('Search tasks').fill('site');
+
+    await dialog.getByRole('button', { name: 'What do the relationship types mean?' }).click();
+    const help = page.getByRole('dialog', { name: 'Relationship types' });
+    await expect(help.getByText('Start-to-Finish')).toBeVisible();
+
+    // Nested dismissables unwind one layer at a time: without stopPropagation
+    // the modal's focus trap would take this Escape and bin the whole search.
+    await help.press('Escape');
+    await expect(help).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Search tasks')).toHaveValue('site');
   });
 });

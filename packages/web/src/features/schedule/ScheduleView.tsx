@@ -145,6 +145,7 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Methodology, Task } from '@/types';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
+import type { DependencyDirection } from './deps/linkTypes';
 import { PendingCrossProjectReview } from './PendingCrossProjectReview';
 import { SeedBanner } from './SeedBanner';
 import { NextStrip } from './NextStrip';
@@ -1303,13 +1304,15 @@ export function ScheduleView() {
   // Dependency picker state (#477) — opened from TaskListRow.onAddDependencyRequest.
   const [depPickerState, setDepPickerState] = useState<{
     task: Task;
-    mode: 'predecessor' | 'successor';
+    /** Seeded by the Links cell's own predecessor/successor chips; the row menu
+     *  passes nothing and the dialog defaults to successor (#3113). */
+    direction?: DependencyDirection;
   } | null>(null);
 
   const handleAddDependencyRequest = useCallback(
-    (taskId: string, mode: 'predecessor' | 'successor') => {
+    (taskId: string, direction?: DependencyDirection) => {
       const task = allTasks.find((t) => t.id === taskId);
-      if (task) setDepPickerState({ task, mode });
+      if (task) setDepPickerState({ task, direction });
     },
     [allTasks],
   );
@@ -1317,31 +1320,31 @@ export function ScheduleView() {
   // Existing dependencies for the open task — pass to the picker to exclude
   // tasks already linked in that direction.
   const depPickerExcludedIds = useMemo(() => {
-    if (!depPickerState) return new Set<string>();
+    const empty = { predecessor: new Set<string>(), successor: new Set<string>() };
+    if (!depPickerState) return empty;
+    // BOTH directions, because the picker can now flip between them without
+    // closing (#3113). Computing only the one it opened in would leave the other
+    // set stale the moment the user switches — offering a task already linked,
+    // or hiding one that is not.
     const ids = new Set<string>();
+    const succIds = new Set<string>();
     for (const link of allLinks) {
-      if (depPickerState.mode === 'predecessor' && link.targetId === depPickerState.task.id) {
-        ids.add(link.sourceId);
-      }
-      if (depPickerState.mode === 'successor' && link.sourceId === depPickerState.task.id) {
-        ids.add(link.targetId);
-      }
+      if (link.targetId === depPickerState.task.id) ids.add(link.sourceId);
+      if (link.sourceId === depPickerState.task.id) succIds.add(link.targetId);
     }
     // Structural ineligibility (#2958): the row itself, its own subtree, and
     // anything that would close a loop — INCLUDING through the implicit edges a
     // gate and a phase carry, which have no dependency row to walk. Previously
     // the picker offered these and the server's cycle-detection 400 was the
     // first the user heard of it, with no way to tell which options were real.
-    if (depPickerState.mode === 'predecessor') {
-      for (const id of ineligiblePredecessorIds(
-        depPickerState.task,
-        allTasks,
-        allLinks.map((l) => ({ sourceId: l.sourceId, targetId: l.targetId })),
-      )) {
-        ids.add(id);
-      }
+    for (const id of ineligiblePredecessorIds(
+      depPickerState.task,
+      allTasks,
+      allLinks.map((l) => ({ sourceId: l.sourceId, targetId: l.targetId })),
+    )) {
+      ids.add(id);
     }
-    return ids;
+    return { predecessor: ids, successor: succIds };
   }, [depPickerState, allLinks, allTasks]);
   // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
   // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
@@ -4338,13 +4341,13 @@ interface ScheduleOverlayLayerProps {
   performBuildModeDelete: (taskId: string, descendantCount: number) => void;
   isExporting: boolean;
   exportError: string | null;
-  depPickerState: { task: Task; mode: 'predecessor' | 'successor' } | null;
+  depPickerState: { task: Task; direction?: DependencyDirection } | null;
   setDepPickerState: Dispatch<
-    SetStateAction<{ task: Task; mode: 'predecessor' | 'successor' } | null>
+    SetStateAction<{ task: Task; direction?: DependencyDirection } | null>
   >;
   programId: string | null;
   allTasks: Task[];
-  depPickerExcludedIds: Set<string>;
+  depPickerExcludedIds: Readonly<Record<DependencyDirection, ReadonlySet<string>>>;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   setHoveredTaskId: (id: string | null) => void;
@@ -4631,7 +4634,7 @@ function ScheduleOverlayLayer({
       {depPickerState && projectId && (
         <ScheduleDependencyPicker
           task={depPickerState.task}
-          mode={depPickerState.mode}
+          initialDirection={depPickerState.direction}
           projectId={projectId}
           programId={programId}
           allTasks={allTasks}
@@ -5702,7 +5705,7 @@ interface ScheduleMainAreaProps {
   depChipsById: Map<string, TaskDepChips>;
   setHoveredTaskId: (id: string | null) => void;
   hoveredTaskId: string | null;
-  handleAddDependencyRequest: (taskId: string, mode: 'predecessor' | 'successor') => void;
+  handleAddDependencyRequest: (taskId: string, direction?: DependencyDirection) => void;
   sprintsById: ComponentProps<typeof TaskListPanel>['sprintsById'];
   visiblePhaseInWaitingIds: Set<string>;
   handleAddPhaseFirstChild: (phaseTaskId: string) => void;

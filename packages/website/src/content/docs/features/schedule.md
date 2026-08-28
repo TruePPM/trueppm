@@ -433,16 +433,24 @@ All dependency arrows are drawn in charcoal (`COLOR.arrowNormal`) — critical-p
 
 The **picker** — a search-and-pick dialog for the same result, and the way to create the other three dependency types — opens from two places:
 
-- **Right-click a task row** in the task list and choose **Add predecessor…** or **Add successor…**.
+- **Right-click a task row** in the task list and choose **Add dependency…**.
 - **Open the task detail drawer**, expand the **Dependencies** section, and use the same **Add predecessor** / **Add successor** controls — or, for a task in another project, the **Search another project in this program…** link underneath them.
 
 For a standalone project, the picker searches only that project's tasks. For a project that belongs to a program, it gains a **This project / Program** toggle: Program scope searches every sibling project in the program and groups the results by project, so you can gate a task against work owned by another team. A cross-project link you create may land as **pending** rather than immediately active — see [Program schedule](/features/program-schedule/) for how the counterpart team accepts it and how the link is drawn once accepted.
 
 :::note[Ships in 0.4]
-The picker's **Link** type and lag controls, its match highlighting, its `N of M matches` count and its `Space` multi-add — everything in the three subsections below — ship in 0.4. On 0.3 the picker searches and links one task per visit and always creates a **Finish-to-Start** link with **zero lag**; changing the type or adding lead/lag is a second step in the task detail drawer afterwards. `↑` / `↓` move a highlight, `Enter` adds the highlighted task and closes, `Esc` cancels, and nothing marks why a row matched.
+The picker's **Dependency type** direction field, its **Relationship** and lag controls and the **?** reference beside them, its match highlighting, its `N of M matches` count and its `Space` multi-add — everything in the three subsections below — ship in 0.4. On 0.3 the row menu carries two items, **Add predecessor…** and **Add successor…**, and the direction they choose cannot be changed once the dialog is open. On 0.3 the picker searches and links one task per visit and always creates a **Finish-to-Start** link with **zero lag**; changing the type or adding lead/lag is a second step in the task detail drawer afterwards. `↑` / `↓` move a highlight, `Enter` adds the highlighted task and closes, `Esc` cancels, and nothing marks why a row matched.
 :::
 
-**Stating the link's terms.** Above the results sit a **Link** dropdown and a lag field. The dropdown carries all four types — Finish → Start, Start → Start, Finish → Finish, Start → Finish — and the field takes a lag in days, where a **negative** number is a *lead*: `-2` lets the successor start two days before the predecessor's constraint would otherwise allow. Whatever the two say is what the next link you add is created with, so a non-Finish-to-Start link is stated once, here, rather than created as Finish-to-Start and corrected afterwards in the drawer.
+**Stating the link's terms.** Above the results sit three controls.
+
+**Dependency type** is the direction: whether the task you pick becomes this task's **successor** (the default — it runs after) or its **predecessor** (it runs before). Because it is a field rather than a consequence of which menu item you used, picking the wrong side costs one dropdown rather than closing the dialog and retyping the search.
+
+**Relationship** is which ends are tied together, and its four options are worded for the direction in force — in successor mode "This finishes → successor starts", in predecessor mode "Predecessor finishes → this starts". They describe the same four types either way; the wording exists because an arrow alone means opposite things on the two sides. Changing direction resets this to Finish-to-Start, since a relationship chosen for one side rarely survives the flip. A **?** beside the field explains all four types and how lag reads.
+
+The **lag** field takes a lag in days, where a **negative** number is a *lead*: `-2` lets the successor start two days before the predecessor's constraint would otherwise allow.
+
+Under the three, a plain-language line restates the link you are about to create, naming both tasks — "“Foundation” must finish before “Framing” starts." Before you highlight a row it names the gap instead ("the task you pick"), so it is readable while you are still deciding. Whatever the two say is what the next link you add is created with, so a non-Finish-to-Start link is stated once, here, rather than created as Finish-to-Start and corrected afterwards in the drawer.
 
 Both settings persist while the picker is open, so adding three Start-to-Start links in one visit is one decision rather than three. They apply to the link being added, not to links already on the task — to change an existing link, use the **Dependencies** section of the task detail drawer, which is still where links are edited and removed.
 

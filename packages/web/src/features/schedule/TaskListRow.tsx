@@ -1,4 +1,5 @@
 import { renameRowLabel } from './rowVocabulary';
+import type { DependencyDirection } from './deps/linkTypes';
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import { formatChord } from '@/lib/platform';
 import type React from 'react';
@@ -215,7 +216,7 @@ interface Props {
    * Open the dependency picker for this task in the given mode (#477).
    * Lifted to ScheduleView so the modal is a DOM sibling, not embedded in the row.
    */
-  onAddDependencyRequest?: (taskId: string, mode: 'predecessor' | 'successor') => void;
+  onAddDependencyRequest?: (taskId: string, direction?: DependencyDirection) => void;
   /** Existing sibling names at the row's WBS-parent level — used to suffix "(copy)". */
   siblingNames?: string[];
   /** Source sprint snapshot used by the Undo affordance. Null when not in a sprint. */
@@ -793,7 +794,7 @@ interface RowMenuCtx {
   task: Task;
   level: number;
   isComplete: boolean;
-  onAddDependencyRequest: ((taskId: string, mode: 'predecessor' | 'successor') => void) | undefined;
+  onAddDependencyRequest: ((taskId: string, direction?: DependencyDirection) => void) | undefined;
   handleToggleComplete: () => void;
   handleDuplicate: () => void;
   onClassifyRequest: Props['onClassifyRequest'];
@@ -870,19 +871,15 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       onSelect: () => onMoveToRequest?.(task.id),
     },
     {
-      key: 'add-predecessor',
-      label: 'Add predecessor…',
-      icon: <ArrowUpRightIcon className="h-4 w-4" aria-hidden="true" />,
+      // One item, not two (#3113). Direction is a field inside the dialog now,
+      // so picking the wrong menu entry no longer costs a close-and-reopen with
+      // the search retyped — and the choice is visible where it is made.
+      key: 'add-dependency',
+      label: 'Add dependency…',
+      icon: <ArrowDownLeftIcon className="h-4 w-4" aria-hidden="true" />,
       startsGroup: true,
       disabled: !onAddDependencyRequest,
-      onSelect: () => onAddDependencyRequest?.(task.id, 'predecessor'),
-    },
-    {
-      key: 'add-successor',
-      label: 'Add successor…',
-      icon: <ArrowDownLeftIcon className="h-4 w-4" aria-hidden="true" />,
-      disabled: !onAddDependencyRequest,
-      onSelect: () => onAddDependencyRequest?.(task.id, 'successor'),
+      onSelect: () => onAddDependencyRequest?.(task.id),
     },
     {
       key: 'duplicate',
@@ -1092,7 +1089,7 @@ function TaskLinksCell({
   task: Task;
   widthPx: number;
   depChips: Props['depChips'];
-  onOpenLinkPicker: ((mode: 'predecessor' | 'successor') => void) | undefined;
+  onOpenLinkPicker: ((direction: DependencyDirection) => void) | undefined;
   tabIndex?: number;
 }) {
   const predsCritical = depChips?.predsCritical ?? false;
@@ -1198,7 +1195,7 @@ interface TaskDataCellsProps {
    * text rather than a control (web rule 302) — a viewer must find the picker
    * absent, not disabled.
    */
-  onOpenLinkPicker: ((mode: 'predecessor' | 'successor') => void) | undefined;
+  onOpenLinkPicker: ((direction: DependencyDirection) => void) | undefined;
   /**
    * Roving tab stop (0 on the active row, -1 elsewhere). Without it every row's
    * Links button becomes its own tab stop and Tab walks a 1000-row plan.
@@ -2850,7 +2847,7 @@ function TaskListRowInner({
         // has no host to open into, which is also text — not a dead button.
         onOpenLinkPicker={
           authoring && onAddDependencyRequest
-            ? (mode) => onAddDependencyRequest(task.id, mode)
+            ? (direction) => onAddDependencyRequest(task.id, direction)
             : undefined
         }
         rovingChildTabIndex={rovingChildTabIndex}

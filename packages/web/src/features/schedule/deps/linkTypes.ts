@@ -160,6 +160,142 @@ export function cycleLinkType(current: CanonicalLinkType, steps = 1): CanonicalL
   return LINK_TYPES[(((i + steps) % len) + len) % len];
 }
 
+/**
+ * Which side of the link the task being picked sits on (#3113).
+ *
+ * `successor` — the picked task runs *after* the source; the source is the
+ * predecessor. `predecessor` — the picked task runs *before* it. This is the
+ * axis the picker used to take as a prop from whichever menu item opened it,
+ * where it was neither visible nor changeable.
+ */
+export type DependencyDirection = 'successor' | 'predecessor';
+
+/** Default direction. Adding "what happens next" is the common planning act. */
+export const DEFAULT_DEPENDENCY_DIRECTION: DependencyDirection = 'successor';
+
+/** Default relationship, and what a direction change resets to. */
+export const DEFAULT_LINK_TYPE: CanonicalLinkType = 'FS';
+
+/**
+ * The direction control's options.
+ *
+ * Each label says which task the word describes, because "Successor" alone is
+ * genuinely ambiguous — it could mean "the task I pick is the successor" or
+ * "this task is". It is the former, and a control that leaves the reader to
+ * guess which one has failed at its only job.
+ */
+export const DEPENDENCY_DIRECTION_OPTIONS: readonly {
+  value: DependencyDirection;
+  label: string;
+}[] = [
+  { value: 'successor', label: 'Successor — runs after this task' },
+  { value: 'predecessor', label: 'Predecessor — runs before this task' },
+];
+
+/**
+ * The relationship options, worded for the direction in force.
+ *
+ * The four arrow labels (`LINK_TYPE_CONTROL_LABEL`) are direction-blind: in
+ * predecessor mode "Finish → Start" means the *picked* task finishes and then
+ * this one starts, and in successor mode it means exactly the reverse. Same
+ * four strings, opposite meanings, with nothing on screen saying which reading
+ * is live — which is the ambiguity #3113 was filed about.
+ *
+ * Naming the roles rather than the tasks is deliberate. The other endpoint is
+ * unknown until a row is highlighted, task names run long, and an option label
+ * that changed as the caret moved down the result list would be unreadable. The
+ * *names* go in {@link describeLink}'s sentence, which has room for them and
+ * can say "the task you pick" while there isn't one.
+ */
+export const LINK_TYPE_DIRECTIONAL_LABEL: Record<
+  DependencyDirection,
+  Record<CanonicalLinkType, string>
+> = {
+  successor: {
+    FS: 'This finishes → successor starts',
+    SS: 'This starts → successor starts',
+    FF: 'This finishes → successor finishes',
+    SF: 'This starts → successor finishes',
+  },
+  predecessor: {
+    FS: 'Predecessor finishes → this starts',
+    SS: 'Predecessor starts → this starts',
+    FF: 'Predecessor finishes → this finishes',
+    SF: 'Predecessor starts → this finishes',
+  },
+};
+
+/** Options for the relationship `<select>`, worded for `direction`. */
+export function linkTypeOptionsFor(
+  direction: DependencyDirection,
+): readonly { value: CanonicalLinkType; label: string }[] {
+  return LINK_TYPES.map((value) => ({
+    value,
+    label: LINK_TYPE_DIRECTIONAL_LABEL[direction][value],
+  }));
+}
+
+/** Plain-language reference for the `?` popover — one entry per type. */
+export const LINK_TYPE_HELP: readonly {
+  type: CanonicalLinkType;
+  name: string;
+  body: string;
+}[] = LINK_TYPES.map((type) => ({
+  type,
+  name: LINK_TYPE_PROSE_NAME[type],
+  body: {
+    FS: 'The successor starts after the predecessor finishes. This is the ordinary case — use it unless you have a reason not to.',
+    SS: 'The successor cannot start until the predecessor starts. Use it for work that runs alongside, not after.',
+    FF: 'The successor cannot finish until the predecessor finishes. The two end together; their starts are independent.',
+    SF: 'The successor cannot finish until the predecessor starts. Rare — mostly a handover, where the outgoing work ends once the incoming work begins.',
+  }[type],
+}));
+
+/** How lag reads, for the same popover. Negative is a lead, which is not guessable. */
+export const LAG_HELP =
+  'Lag shifts the link: 2 waits two days after the constraint, −2 overlaps by two days.';
+
+/**
+ * The chosen link, as one plain sentence.
+ *
+ * The control labels say which *ends* are tied together; this says what that
+ * means for these two tasks, in the order a person would say it. Both are
+ * needed — the option is what you pick from, the sentence is how you check you
+ * picked right.
+ *
+ * `pickedName` is null until a row is highlighted, and the sentence names that
+ * gap ("the task you pick") rather than disappearing. A summary that is absent
+ * exactly while the user is deciding is a summary that is never read.
+ */
+export function describeLink(params: {
+  direction: DependencyDirection;
+  type: CanonicalLinkType;
+  sourceName: string;
+  pickedName: string | null;
+  lag: number;
+}): string {
+  const { direction, type, sourceName, pickedName, lag } = params;
+  const source = `“${sourceName}”`;
+  const picked = pickedName === null ? 'the task you pick' : `“${pickedName}”`;
+  // Resolve the two roles once, so the four templates below read as one rule
+  // rather than eight near-duplicates.
+  const predecessor = direction === 'successor' ? source : picked;
+  const successor = direction === 'successor' ? picked : source;
+
+  const clause = {
+    FS: `${predecessor} must finish before ${successor} starts`,
+    SS: `${predecessor} must start before ${successor} starts`,
+    FF: `${predecessor} must finish before ${successor} finishes`,
+    SF: `${predecessor} must start before ${successor} finishes`,
+  }[type];
+
+  if (lag === 0) return `${clause}.`;
+  const days = Math.abs(lag) === 1 ? 'day' : 'days';
+  return lag > 0
+    ? `${clause}, plus ${lag} ${days}.`
+    : `${clause}, overlapping by ${Math.abs(lag)} ${days}.`;
+}
+
 /** Compile-time proof that the canonical tuple and the app's `LinkType` agree. */
 const _canonicalMatchesLinkType: CanonicalLinkType extends LinkType ? true : never = true;
 void _canonicalMatchesLinkType;
