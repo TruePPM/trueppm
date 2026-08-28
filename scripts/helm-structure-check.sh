@@ -16,7 +16,14 @@ CHART="${1:-packages/helm}"
 # it must. The name is arbitrary; only the wiring is asserted.
 ENV_SECRET="trueppm-env-probe"
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR source=lib/helm-render-provenance.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/helm-render-provenance.sh"
+
+# Every assertion below reads a `helm template` render, so every failure has two
+# possible causes: the chart is wrong, or the render did not read the chart
+# (#3146). The message alone cannot tell them apart — it always names the chart —
+# so dump the provenance that can, on the failure path only.
+fail() { echo "FAIL: $*" >&2; helm_render_provenance "$CHART"; exit 1; }
 
 # Render only the api Deployment, with an operator envFrom secret set so we can
 # follow it into every container that must receive it.

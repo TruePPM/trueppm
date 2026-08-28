@@ -60,6 +60,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART="packages/helm"
 
+# shellcheck source-path=SCRIPTDIR source=lib/helm-render-provenance.sh
+. "$REPO_ROOT/scripts/lib/helm-render-provenance.sh"
+
 violations=0
 checked_blocks=0
 checked_admin=0
@@ -256,6 +259,12 @@ run_check() {
       echo "a fail-closed /admin/. Fixing one path and not its siblings is the exact"
       echo "defect class this gate exists to catch (#2849)."
     } >&2
+    # A violation reported against a `helm …` label may be the chart, or may be a
+    # render that did not read the chart — this gate has hit the latter on an
+    # unchanged tree (#3146), and the message above cannot tell them apart.
+    if [ "$skipped_helm" -eq 0 ]; then
+      helm_render_provenance "$CHART"
+    fi
     return 1
   fi
   note "$checked_blocks SPA server block(s) carry X-Frame-Options + nosniff + CSP (and HSTS where TLS terminates)"
@@ -416,6 +425,29 @@ CONF
   probe bad_nohsts.conf    1 "TLS listener without HSTS rejected"
   probe bad_csp.conf       1 "CSP without frame-ancestors rejected"
   probe bad_nextline.conf  1 "brace-on-next-line /admin/ proxy rejected"
+
+  # The #3146 provenance verdict. It only ever runs on a failure path, so it is
+  # precisely the code a typo can hide in indefinitely — the same reason every
+  # fixture above is checked in both directions.
+  verdict_probe() {
+    local desc="$1" want="$2" r1="$3" r2="$4" got
+    got="$(_helm_provenance_verdict "$r1" "$r2")"
+    if printf '%s' "$got" | grep -q "$want"; then
+      echo "SELF-TEST OK: $desc"
+    else
+      echo "SELF-TEST FAILED: $desc (expected /$want/, got: $got)" >&2
+      rc=1
+    fi
+  }
+
+  verdict_probe "two disagreeing renders are called an environment fault" \
+    "NOT REPRODUCIBLE" "rendered-A" "rendered-B"
+  verdict_probe "a disagreeing render says RETRY THE JOB" \
+    "RETRY THE JOB" "rendered-A" "rendered-B"
+  verdict_probe "two agreeing renders are NOT called an environment fault" \
+    "reproducible (2 identical renders)" "rendered-A" "rendered-A"
+  verdict_probe "an empty render is reported as helm failing outright" \
+    "produced NOTHING" "" ""
 
   return $rc
 }
