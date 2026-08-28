@@ -8,7 +8,8 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * Covers:
  * - P50/P80/P95 markers visible on the Gantt timeline
  * - The consolidated bar shows the P80 chip with its delta vs CPM finish — once
- * - Recomputing indicator appears when Rerun is clicked
+ * - Rerun is absent while the forecast is fresh, appears with the stale notice
+ *   once a task commit lands, and drives the recomputing indicator (#3132)
  * - Details panel opens on the Details button
  * - The bar expands to the histogram + sensitivity tornado
  * - The percentiles render on exactly one surface (no two-surface double-claim)
@@ -400,7 +401,15 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(bar.getByText(/^P80:/)).toHaveCount(1);
   });
 
-  test('recomputing indicator appears when Rerun is clicked', async ({ page }) => {
+  test('Rerun is withheld while fresh, offered with the stale notice, and runs (#3132)', async ({
+    page,
+  }) => {
+    // UX-REVIEW §8.1: a recompute button parked on every forecast row is a debug
+    // affordance on a user surface. The bar already says when the server last
+    // confirmed the run; the action belongs beside the sentence that asks for
+    // it. This spec walks the whole arc — fresh (no button), stale (button),
+    // clicked (recomputing) — because the middle state is the only one from
+    // which the old spec's click was reachable at all.
     let runCallCount = 0;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/`, async (route) => {
       runCallCount++;
@@ -415,10 +424,101 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 
     await gotoScheduleWithMC(page);
 
-    await page.waitForSelector('[aria-label="Rerun Monte Carlo forecast"]', { timeout: 10_000 });
-    await page.click('[aria-label="Rerun Monte Carlo forecast"]');
+    const rerun = page.locator('[aria-label="Rerun Monte Carlo forecast"]');
+    const details = page.locator('[data-testid="mc-details-btn"]');
+    const status = page.locator('[data-testid="mc-recomputing"]');
 
-    await expect(page.locator('[data-testid="mc-recomputing"]')).toBeVisible({ timeout: 5_000 });
+    // Fresh — Details is the constant affordance; Rerun is not on the row.
+    await expect(details).toBeVisible({ timeout: 10_000 });
+    await expect(rerun).toHaveCount(0);
+    await expect(status).toHaveCount(0);
+    const freshDetailsBox = await details.boundingBox();
+    expect(freshDetailsBox).not.toBeNull();
+
+    // Go stale the way the product does: drag a bar and confirm the commit.
+    // `ScheduleView` bumps the bar's `mutationVersion` from `useScheduleCommit`'s
+    // commit-success callback, and that prop is the only input to the staleness
+    // machinery — so faking it any other way would test the gate against a state
+    // the app cannot actually reach.
+    //
+    // The pointer is aimed using the ARIA overlay's `option`, which is
+    // absolutely positioned over its own bar: it is the only DOM node whose box
+    // is the bar's box, so this needs no hand-computed day-to-pixel math. The
+    // option itself is pointer-events-none (rule 27); the mouse lands on the
+    // interaction canvas underneath, which is what owns the drag FSM.
+    //
+    // Scroll the bar's start into view before measuring, and gate on the slice
+    // being wide enough to grab. This bar is 50 working days long and starts at
+    // the project start, so how much of it is on screen depends on the canvas's
+    // initial scroll and on the outline's width — neither of which this test
+    // controls. Grabbing blind is a *silent* no-op: the pointer lands outside
+    // the canvas, the drag FSM never sees it, and the failure surfaces three
+    // assertions later as "no popover", which reads like a product bug. It flaked
+    // 3-in-12 under contention before the scroll was added.
+    const bar = page.getByRole('option', { name: /Backend API/ });
+    const canvas = page.locator('canvas[data-layer="interaction"]');
+    const onCanvasWidth = async () => {
+      const b = await bar.boundingBox();
+      const c = await canvas.boundingBox();
+      if (!b || !c) return 0;
+      return Math.min(b.x + b.width, c.x + c.width) - Math.max(b.x, c.x);
+    };
+    // `style.left` on the option is viewport-relative (the overlay subtracts the
+    // engine's scrollLeft), so adding it to the current scrollLeft recovers the
+    // bar's canvas-origin x — same identity the marker test above relies on.
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(
+        '[data-testid="schedule-canvas-scroll"]',
+      );
+      const el = document.querySelector<HTMLElement>('[role="option"][data-task-id="mc-t2"]');
+      if (!scroller || !el) return;
+      scroller.scrollLeft = Math.max(0, scroller.scrollLeft + Number.parseFloat(el.style.left) - 40);
+    });
+    await expect.poll(onCanvasWidth).toBeGreaterThan(120);
+
+    // The grab point is the INTERSECTION of the bar's box with the canvas's, not
+    // a fraction of the bar — the bar still runs past the right edge.
+    const barBox = await bar.boundingBox();
+    const canvasBox = await canvas.boundingBox();
+    expect(barBox).not.toBeNull();
+    expect(canvasBox).not.toBeNull();
+    const visibleLeft = Math.max(barBox!.x, canvasBox!.x);
+    const visibleRight = Math.min(barBox!.x + barBox!.width, canvasBox!.x + canvasBox!.width);
+    const grabX = visibleLeft + 20;
+    const dropX = Math.min(grabX + 60, visibleRight - 10);
+    const grabY = barBox!.y + barBox!.height / 2;
+    // Past the engine's 4px IDLE → DRAG_STARTED threshold, and clear of the
+    // right-edge resize zone (the bar's own right edge is off screen).
+    expect(dropX - grabX).toBeGreaterThan(20);
+    await page.mouse.move(grabX, grabY);
+    await page.mouse.down();
+    await page.mouse.move((grabX + dropX) / 2, grabY, { steps: 5 });
+    await page.mouse.move(dropX, grabY, { steps: 5 });
+    await page.mouse.up();
+    await page
+      .getByRole('dialog', { name: 'Reschedule task?' })
+      .getByRole('button', { name: 'Reschedule' })
+      .click();
+
+    // Stale — the notice and the action arrive together.
+    await expect(status).toHaveText('Stale — rerun for updated forecast', { timeout: 10_000 });
+    await expect(rerun).toBeVisible();
+
+    // …and nothing moved. Details anchors both the right edge (the group is
+    // `ml-auto`) and the row height (both buttons are `h-7`), so its box is
+    // unchanged across the transition. This is the layout-shift guarantee the
+    // conditional render depends on; assert it rather than assume it — it is
+    // what caught the 8px squeeze that `shrink-0` now prevents. Compared to
+    // the nearest pixel, not by float equality: sub-pixel text metrics are not
+    // the thing under test and would only make this flake on a font swap.
+    const staleDetailsBox = await details.boundingBox();
+    expect(staleDetailsBox).not.toBeNull();
+    for (const side of ['x', 'y', 'width', 'height'] as const) {
+      expect(Math.round(staleDetailsBox![side])).toBe(Math.round(freshDetailsBox![side]));
+    }
+
+    await rerun.click();
+    await expect(status).toHaveText('Recomputing…');
     expect(runCallCount).toBe(1);
   });
 

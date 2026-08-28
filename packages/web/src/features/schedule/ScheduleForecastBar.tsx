@@ -160,7 +160,9 @@ function ForecastEmptyState({
  * `MobileMonteCarloCard`. It owns the MC hooks, the stale/recomputing machinery,
  * the single "Run a simulation" empty state, the P50/P80/P95 chips rendered
  * once (P80 = the commit, accented), the maximize/minimize toggle (persisted to
- * `localStorage['schedule.insightsExpanded']`), and the Rerun + Details actions.
+ * `localStorage['schedule.insightsExpanded']`), the Details action, and Rerun —
+ * which is offered only on the stale branch (#3132), beside the sentence that
+ * asks for it, rather than parked on every forecast row.
  * Expanded, it shows the histogram, the sensitivity tornado, and the run-history
  * disclosure. All forecast dates route through `lib/formatUtcDate`.
  */
@@ -206,8 +208,9 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
         className="hidden md:block flex-shrink-0 border-t border-neutral-border bg-neutral-surface"
         aria-label="Schedule forecast"
       >
-        {/* Collapsed header row — chips (once) + top driver + the three
-            distinct affordances (toggle / Rerun / Details). */}
+        {/* Collapsed header row — chips (once) + top driver + the constant
+            affordances (toggle / Details), plus Rerun on the stale branch
+            only (#3132). */}
         <div className="flex w-full items-center gap-3 px-5 py-2.5">
           <button
             type="button"
@@ -249,7 +252,14 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
             </span>
           )}
 
-          <div className="ml-auto flex items-center gap-2">
+          {/* `shrink-0` is load-bearing, not tidiness (#3132). Without it this
+              row is over-full at 1280 and the browser distributes the Rerun
+              button's width across every shrinkable sibling — including the
+              Details button, which lost 8px the moment the forecast went stale.
+              Pinning the group's size moves that absorption onto `top driver`,
+              which carries `truncate` for exactly this purpose, so no control
+              changes size when the conditional button appears. */}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {isRecomputing ? (
               <span
                 data-testid="mc-recomputing"
@@ -265,16 +275,44 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
                 </span>
               )
             )}
-            <button
-              type="button"
-              onClick={() => runMc.mutate({})}
-              disabled={runMc.isPending}
-              aria-label="Rerun Monte Carlo forecast"
-              title="Rerun Monte Carlo forecast"
-              className={BTN_CLS}
-            >
-              {runMc.isPending ? 'Rerunning…' : 'Rerun'}
-            </button>
+            {/* Rerun is offered only when there is something to rerun FOR
+                (#3132, UX-REVIEW §8.1). On a fresh forecast the bar already
+                states when the server last confirmed the run, so a permanently
+                parked recompute button is a debug affordance on a user surface.
+                The stale branch immediately to the left is the sentence that
+                asks for the action — the action belongs with it.
+
+                Gated on `isRecomputing` (= `runMc.isPending || isStale`), not on
+                `isStale` alone, so the button survives its own in-flight run and
+                disappears only when the fresh result lands and clears staleness.
+
+                KNOWN LIMIT — TODO(#3140): `isStale` is driven by `mutationVersion`,
+                a session-local counter that only `useScheduleCommit`'s drag/resize
+                commit bumps. It misses inline edits, estimate edits (the MC inputs),
+                collaborator writes over the WebSocket, and every reload. So an
+                absent Rerun does NOT mean the forecast matches the plan, and this
+                gate must not be read as if it did. The Overview page's persistent
+                `Rerun forecast` is the fallback path until #3140 makes staleness a
+                durable fact.
+
+                No layout shift either way: the row's height is set by the
+                always-present Details button (both are `h-7`), the group is
+                `ml-auto`-anchored to the right edge, and `shrink-0` (above)
+                keeps the appearing button from stealing width from its
+                siblings. Pinned by a boundingBox assertion in
+                `e2e/schedule-monte-carlo.spec.ts`. */}
+            {isRecomputing && (
+              <button
+                type="button"
+                onClick={() => runMc.mutate({})}
+                disabled={runMc.isPending}
+                aria-label="Rerun Monte Carlo forecast"
+                title="Rerun Monte Carlo forecast"
+                className={BTN_CLS}
+              >
+                {runMc.isPending ? 'Rerunning…' : 'Rerun'}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setDetailOpen(true)}

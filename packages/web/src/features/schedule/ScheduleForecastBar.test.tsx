@@ -135,15 +135,37 @@ describe('ScheduleForecastBar', () => {
     expect(screen.queryByText(/P95:/)).not.toBeInTheDocument();
   });
 
-  it('exposes Rerun and Details as distinct affordances', () => {
-    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+  it('withholds Rerun on a fresh forecast and offers it once stale (#3132)', () => {
+    // UX-REVIEW §8.1: a recompute button parked on every forecast row is a debug
+    // affordance on a user surface. Fresh, the bar states when the server last
+    // confirmed the run and offers nothing; stale, it says so AND offers the
+    // action. Details is the constant — it is what keeps the row height fixed
+    // across the transition, so no layout shift is possible from the gate.
+    const { rerender } = renderWithProviders(
+      <ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={0} />,
+    );
+    expect(
+      screen.queryByRole('button', { name: /Rerun Monte Carlo forecast/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mc-recomputing')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mc-details-btn')).toBeInTheDocument();
+
+    // A task mutation lands — the same signal ScheduleView feeds the bar.
+    rerender(<ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={1} />);
+
+    expect(screen.getByTestId('mc-recomputing')).toHaveTextContent(
+      /Stale — rerun for updated forecast/,
+    );
     expect(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i })).toBeInTheDocument();
     expect(screen.getByTestId('mc-details-btn')).toBeInTheDocument();
   });
 
-  it('fires the rerun mutation from the Rerun button', async () => {
+  it('fires the rerun mutation from the Rerun button once stale', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    const { rerender } = renderWithProviders(
+      <ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={0} />,
+    );
+    rerender(<ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={1} />);
     await user.click(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i }));
     expect(runMutate).toHaveBeenCalledTimes(1);
   });
@@ -177,6 +199,12 @@ describe('ScheduleForecastBar', () => {
     runState = { isPending: true, isError: false };
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     expect(screen.getByTestId('mc-recomputing')).toBeInTheDocument();
+    // The button survives its own in-flight run (#3132): the gate is
+    // `runMc.isPending || isStale`, so it does not vanish out from under the
+    // click that started the run — it goes disabled and says so.
+    const rerun = screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i });
+    expect(rerun).toBeDisabled();
+    expect(rerun).toHaveTextContent('Rerunning…');
   });
 
   it('opens the detail panel from the Details button', async () => {
