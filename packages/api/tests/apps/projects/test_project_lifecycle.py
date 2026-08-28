@@ -502,3 +502,63 @@ class TestEveryExcludedSurface:
 
         # The supported shape still works, on the same call.
         assert exclude_draft_projects(Task.objects.all()).count() == 0
+
+    def test_program_schedule_graph_excludes_a_draft(
+        self, program: Program, committed: Project, draft: Project
+    ) -> None:
+        """The merged program CPM anchors on a GLOBAL project_finish.
+
+        `engine.schedule()` takes `project_finish = max(t.early_finish ...)` across
+        the whole merged task set, so a draft that simply runs later inflates
+        `total_float` for every committed task and can flip `is_critical` off —
+        with no dependency between them at all. The "disjoint components are
+        independent" intuition is wrong here, which is why this surface is on the
+        list despite being a computation rather than a report.
+        """
+        from trueppm_api.apps.projects.program_schedule import gather_program_schedule
+
+        Task.objects.create(project=committed, name="Real", duration=5)
+        Task.objects.create(project=draft, name="Speculative", duration=400)
+
+        names = {p.name for p in gather_program_schedule(program).member_projects}
+        assert names == {"Committed"}
+
+        _commit(draft)
+        names = {p.name for p in gather_program_schedule(program).member_projects}
+        assert names == {"Committed", "Half-built"}
+
+    def test_me_work_signals_draft_only_user_keeps_their_own_cards(
+        self, user: Any, draft: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exclusion narrows the two cross-project AGGREGATES, nothing else.
+
+        `sprint_burndown` and `utilization` are the caller's own sprint and their
+        own allocation. Narrowing the shared membership queryset made the empty
+        aggregate scope short-circuit the whole function, blanking both cards for a
+        user whose only project is a draft — hiding the author's own work from them
+        is the opposite of what the exclusion list asks for.
+        """
+        from trueppm_api.apps.projects import services
+        from trueppm_api.apps.projects.models import Sprint, SprintState
+
+        sprint = Sprint.objects.create(
+            project=draft,
+            name="S1",
+            start_date=date(2026, 3, 2),
+            finish_date=date(2026, 3, 16),
+            state=SprintState.ACTIVE,
+        )
+        monkeypatch.setattr(services, "_sprint_burndown_signal", lambda s: {"reached": True})
+
+        signals = services.me_work_signals(user, active_sprints=[sprint])
+
+        # The two cross-project aggregates stay silent — no committed project to
+        # reduce over — which is the exclusion doing its job...
+        assert "schedule_health" not in signals
+        assert "forecast" not in signals
+        # ...and the own-work block still ran rather than being short-circuited.
+        assert signals["sprint_burndown"] == {"reached": True}
+
+        # A user with no membership at all still returns early, as before.
+        stranger = get_user_model().objects.create_user(username="nomember", password="pw")
+        assert services.me_work_signals(stranger, active_sprints=[sprint]) == {}

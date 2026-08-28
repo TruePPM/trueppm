@@ -1577,6 +1577,7 @@ def _run_program_schedule(program_id: str) -> None:
     from django.db import transaction
     from django.utils import timezone
 
+    from trueppm_api.apps.projects.lifecycle import visible_projects
     from trueppm_api.apps.projects.models import (
         Dependency,
         Program,
@@ -1596,8 +1597,15 @@ def _run_program_schedule(program_id: str) -> None:
         logger.warning("recalculate_program_schedule: program %s not found, skipping", program_id)
         return
 
+    # Drafts are excluded (#2962/#3128) to stay consistent with
+    # ``gather_program_schedule``, which drops them from the merged graph. If this
+    # list still carried a draft, the pass would stamp ``recalculated_at`` on a
+    # project it never scheduled and drain its ScheduleRequests against a result
+    # that does not mention it.
     member_ids = list(
-        Project.objects.filter(program_id=program_id, is_deleted=False).values_list("id", flat=True)
+        visible_projects(
+            Project.objects.filter(program_id=program_id, is_deleted=False)
+        ).values_list("id", flat=True)
     )
     if not member_ids:
         return

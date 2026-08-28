@@ -185,7 +185,10 @@ def build_resource_overallocation_digest(
     # slot and inflated M.
     audience = exclude_draft_projects(
         ProjectMembership.objects.filter(
-            user=user, role__gte=Role.SCHEDULER, project__is_deleted=False
+            user=user,
+            role__gte=Role.SCHEDULER,
+            is_deleted=False,
+            project__is_deleted=False,
         )
     )
     project_ids = list(

@@ -18,11 +18,19 @@ build one — omni-search and the cross-project dependency picker filter ``Task`
 rows, and the Programs directory counts projects inside a ``Count(filter=...)``
 annotation on ``Program``. Faced with a helper that did not fit, those sites
 wrote nothing at all. So there are three shapes of the same predicate —
-:func:`visible_projects`, :func:`exclude_draft_projects`,
-:func:`not_draft_q` — and the invariant that matters is unchanged and
-mechanically checkable: **``ProjectLifecycle.DRAFT`` appears in this file and
-nowhere else.** If a new surface fits none of the three, add a fourth here
-rather than inlining the predicate there.
+:func:`visible_projects`, :func:`exclude_draft_projects`, :func:`not_draft_q` —
+and the rule is: **no surface writes its own draft-exclusion predicate.** If a
+new one fits none of the three, add a fourth here rather than inlining it there.
+
+Be exact about what that rule does and does not say, because the tempting
+stronger version ("``ProjectLifecycle.DRAFT`` appears in this file and nowhere
+else") is *false* and would be a trap to write down. ``commit_moment.py`` reads
+it to decide whether a project is committable, and ``amend.py`` reads its
+sibling ``ACTIVE`` — those are state *transitions*, which are none of this
+module's business. The rule covers exclusion filters only, and nothing enforces
+it mechanically today: a gate would have to tell a transition check apart from
+an exclusion filter, which is not a grep. Treat it as a convention this module
+argues for, not a guarantee something checks (#3128).
 
 **The MCP read surface is deliberately NOT on this list**, which is a correction
 to the design rather than an omission. Hiding a project from an agent's reads is
@@ -103,9 +111,8 @@ def not_draft_q(path: str = "") -> Q:
 
     ``Count(..., filter=...)`` takes a ``Q``, not a queryset, so the one place
     that counts projects inside an annotation on ``Program`` cannot call either
-    helper above. It gets this instead of hand-writing the predicate, so
-    ``ProjectLifecycle.DRAFT`` still appears exactly once in this module and
-    nowhere else.
+    helper above. It gets this instead of hand-writing the predicate, so the
+    exclusion still has one definition rather than one per surface.
 
     Args:
         path: The ORM lookup path to the ``Project``, or ``""`` when the

@@ -293,10 +293,23 @@ def gather_program_schedule(
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
 
+    from trueppm_api.apps.projects.lifecycle import visible_projects
     from trueppm_api.apps.projects.models import Dependency, EstimationMode, Project
     from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 
-    member_qs = Project.objects.filter(program=program, is_deleted=False)
+    # Drafts are excluded (#2962/#3128), and this one is not obvious enough to
+    # leave implicit. It is tempting to argue a draft is harmless here because CPM
+    # on disjoint components is independent, so a draft with no accepted
+    # cross-project edge cannot reach a committed project. That argument is WRONG.
+    # `engine.schedule()` anchors the backward pass on a single
+    # `project_finish = max(t.early_finish for t in tasks)` across the WHOLE merged
+    # set, and `start_date` on `min(p.start_date ...)` above. So a draft that
+    # simply runs later than everything else raises `project_finish`, which
+    # inflates `total_float` for every committed task in the program and can flip
+    # `is_critical` off across the board — with no dependency between them at all.
+    # This is the rollup case in its sharpest form: a plan nobody agreed to
+    # silently rewriting the critical path a PM is managing to.
+    member_qs = visible_projects(Project.objects.filter(program=program, is_deleted=False))
     if exclude_project_ids is not None:
         # ADR-0678 (#2482): a project that opted out of agent reads is DROPPED from
         # the merged graph, not redacted. The ExternalTaskCard redaction that
