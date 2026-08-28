@@ -114,7 +114,8 @@ const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: stri
  * 3-step modal (name+description → schedule → template/methodology). Collects only
  * what changes what happens next: name, program, start date, and working calendar,
  * then one choice among three peer ways in (Template / Blank / Import — a fourth,
- * "Seed from a brief", is explicitly cut from this issue). Methodology is derived
+ * "Seed from a brief", is cut; ADR-0913 records the zero-egress and ordering
+ * constraints that gate its return). Methodology is derived
  * from that choice and shown read-only; it is never asked and never enforced
  * (ADR-0041), and stays changeable afterward in project settings — same as the
  * fields #2728 cut entirely from this screen (description, "copy settings from",

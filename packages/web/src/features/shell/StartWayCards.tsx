@@ -30,7 +30,14 @@ export interface StartWayCardsProps {
  * size, same row, no way privileged over another. Blank is a first-class card here,
  * not a fallback link at the bottom of a template list, matching the same
  * not-a-fallback treatment #2729 already gave it inside the (now retired) nested
- * gallery. A fourth way, "Seed from a brief", is explicitly cut from this issue.
+ * gallery.
+ *
+ * A fourth way, "Seed from a brief", is cut, and stays cut rather than shipping
+ * disabled — a way-in card that dead-ends is worse than one that is absent.
+ * ADR-0913 (#2720) is the decision: the brief is parsed in-process with zero
+ * egress, and because that endpoint is agent-writable by its own description it
+ * ships no earlier than the 0.6 agent-write gate. `StartWayCards.test.tsx` pins the
+ * absence, so restoring the card means answering the ADR first.
  *
  * Keyboard model: ←/→ moves focus across the row (roving tabindex, focus-only —
  * matches `useRovingTabIndex`'s WCAG 2.1.1 contract; arrowing through never commits

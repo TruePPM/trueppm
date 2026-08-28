@@ -1,8 +1,13 @@
 import type { Methodology } from '@/types';
 import type { ProjectTemplate } from '@/hooks/useProjectTemplates';
 
-/** The three peer ways into a new project (#2728). A fourth, "Seed from a brief", is
- *  explicitly cut from this issue's scope — do not add it here without a new ADR. */
+/** The three peer ways into a new project (#2728).
+ *
+ *  A fourth, "Seed from a brief", is cut. ADR-0913 (#2720) records why and what has
+ *  to be true before it returns: the brief is parsed on this instance with zero
+ *  egress, and because the endpoint is agent-writable it ships no earlier than the
+ *  0.6 agent-write gate. Adding a fourth member here ahead of that reverses a
+ *  decision, so it needs a new ADR — not a follow-up MR. */
 export type WayIn = 'template' | 'blank' | 'import';
 
 /** Human label + which views each methodology shows, for the derived caption line. */
