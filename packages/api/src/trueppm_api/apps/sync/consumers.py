@@ -95,6 +95,30 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     Receive:         Client→server messages also reset the presence TTL, but no
                      client sends any — the keepalive above is what keeps the
                      roster alive.  All content is silently discarded.
+
+    Not here:        There are **no row-level or per-field locks**, and none are
+                     coming in 0.4 or 0.5 — ADR-0914 (#2721) is the decision, not
+                     an omission. Presence answers "who is here"; it deliberately
+                     does not answer "who is busy". A design showing a ring on a
+                     row someone else is editing is describing a subsystem this
+                     consumer does not have and is not getting.
+
+                     The reason is not cost. A soft lock expires on inactivity and
+                     on disconnect and never gates the write, so it cannot prevent
+                     the conflict it appears to prevent — every one of its failure
+                     modes is silent and reassuring (a ring missing while someone
+                     types, a ring left on an idle row). What actually protects the
+                     data is ``server_version`` optimistic locking returning 409,
+                     and what tells a planner a date moved under them is the
+                     ADR-0784 reconciliation marker, after the fact, where it can
+                     be evidenced.
+
+                     Building row locks also means making this socket
+                     bidirectional, which turns every open project socket into a
+                     Redis write path for any Member. If edit-awareness is ever
+                     wanted here, ADR-0914 §4 routes it to ADR-0046 §1's advisory
+                     ``state: editing | idle`` broadcast — not a lock, and not
+                     described as one.
     """
 
     #: One async Redis client per socket, created lazily on the first presence
