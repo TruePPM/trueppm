@@ -96,29 +96,36 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                      client sends any — the keepalive above is what keeps the
                      roster alive.  All content is silently discarded.
 
-    Not here:        There are **no row-level or per-field locks**, and none are
-                     coming in 0.4 or 0.5 — ADR-0914 (#2721) is the decision, not
-                     an omission. Presence answers "who is here"; it deliberately
-                     does not answer "who is busy". A design showing a ring on a
-                     row someone else is editing is describing a subsystem this
-                     consumer does not have and is not getting.
+    Not here:        There are **no row-level or per-field locks**, and there will
+                     not be — ADR-0914 (#2721) is the decision, not an omission.
+                     Presence answers "who is here"; it does not answer "who is
+                     busy", and it never answers "who may write".
 
                      The reason is not cost. A soft lock expires on inactivity and
                      on disconnect and never gates the write, so it cannot prevent
-                     the conflict it appears to prevent — every one of its failure
-                     modes is silent and reassuring (a ring missing while someone
-                     types, a ring left on an idle row). What actually protects the
-                     data is ``server_version`` optimistic locking returning 409,
-                     and what tells a planner a date moved under them is the
-                     ADR-0784 reconciliation marker, after the fact, where it can
-                     be evidenced.
+                     the conflict it appears to prevent, and every one of its
+                     failure modes is silent in the reassuring direction: a ring
+                     missing while someone is still typing implies a safety nobody
+                     held, and a ring left on an idle row makes a planner wait for
+                     a hold that does not exist. What actually protects the data is
+                     ``server_version`` optimistic locking returning 409.
 
-                     Building row locks also means making this socket
-                     bidirectional, which turns every open project socket into a
-                     Redis write path for any Member. If edit-awareness is ever
-                     wanted here, ADR-0914 §4 routes it to ADR-0046 §1's advisory
-                     ``state: editing | idle`` broadcast — not a lock, and not
-                     described as one.
+    Coming here:     Row *edit-awareness* is accepted, and it is not a lock.
+                     ADR-0914 adopts ADR-0046 §1's advisory
+                     ``state: editing | idle`` broadcast for the Schedule outline:
+                     it renders who is typing where, it never gates a write, and
+                     its copy never claims exclusivity. Staleness is therefore
+                     cheap — it misleads about a fact rather than about permission,
+                     which is the distinction the whole decision turns on.
+
+                     It is not implemented yet, and implementing it makes this
+                     consumer **bidirectional** — every open project socket becomes
+                     a Redis write path for any Member. ADR-0914 §6 binds the
+                     constraints that has to carry: the row id must be validated as
+                     belonging to *this* project (otherwise the socket becomes the
+                     cross-project existence oracle ADR-0772 removed), the frame
+                     rate must be bounded, the payload fixed and size-bounded, and
+                     nothing persisted. Do not add the frame handler without them.
     """
 
     #: One async Redis client per socket, created lazily on the first presence
