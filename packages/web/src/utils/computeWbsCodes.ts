@@ -14,6 +14,15 @@ import type { Task } from '@/types';
  *
  * This function is pure: given the same input it always returns the same Map.
  * Callers should rerun it whenever the task list or tree structure changes.
+ *
+ * Codes are POSITIONAL, so this must only ever be given a COMPLETE task set.
+ * Given a partial one it does not return partial codes — it returns wrong ones:
+ * siblings are numbered by their index in the array passed in, so a root task
+ * that is 3rd among those loaded is code "3" until the tasks that precede it
+ * arrive and renumber it. A task whose parent is absent is not reachable from
+ * the root walk at all and receives no code. This is why the Schedule fetch
+ * resolves its whole page set before mapping rather than streaming pages into
+ * the cache (issue 2277).
  */
 export function computeWbsCodes(tasks: Task[]): Map<string, string> {
   const childrenOf = new Map<string | null, Task[]>();

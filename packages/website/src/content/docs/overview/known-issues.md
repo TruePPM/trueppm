@@ -192,7 +192,7 @@ specific defects behind them.
 
 | Issue | Symptom | Fix planned for |
 |---|---|---|
-| [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) | The Schedule view loads the entire project into memory at once, which is what sets the ~1 000-task comfort ceiling | 0.5 |
+| [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything, which is what sets the ~1 000-task comfort ceiling | 0.5 |
 | [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) | The Kanban board renders every card as a DOM node with no virtualization | 0.5 |
 | [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) | A remote `task_updated` event triggers a full multi-page task-list refetch instead of splicing the changed row | 0.5 |
 | [#2346](https://gitlab.com/trueppm/trueppm/-/issues/2346) | `TaskRelationViewSet` is unpaginated and returns every relation across all member projects | 0.5 |

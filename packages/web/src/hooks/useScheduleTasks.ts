@@ -20,6 +20,7 @@ import type {
 import type { PaginatedResponse } from '@/api/types';
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
+import { mapWithConcurrency } from '@/utils/mapWithConcurrency';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 export interface UseScheduleTasksResult {
@@ -572,17 +573,48 @@ function mapDependency(d: ApiDependency): TaskLink {
 const SCHEDULE_PAGE_SIZE = 200;
 
 /**
- * Fetch every page of a project-scoped list endpoint, requesting a large first
- * page and then fetching any remainder IN PARALLEL.
+ * Maximum page requests the schedule fetch keeps in flight at once (issue 2277).
  *
- * The Gantt initial load previously walked the DRF `next` cursor serially — one
+ * Pages 2..N have no cross-page dependency, so they were previously all fired
+ * in one `Promise.all` — ~25 simultaneous XHRs for a project at the 5 000-task
+ * `MC_TASK_CAP` ceiling, and again for the dependencies query. That burst does
+ * not make the schedule arrive sooner (the browser queues past its per-origin
+ * connection limit regardless) but it does starve every other request the page
+ * needs to become interactive.
+ *
+ * Four is below the ~6 per-origin connection limit browsers apply on HTTP/1.1,
+ * which leaves headroom for the dependencies query running alongside this one
+ * and for the rest of the app's traffic. The cap is applied **per call** rather
+ * than shared between the tasks and dependencies queries so neither is
+ * head-of-line blocked behind the other; the worst case is 8 in flight from
+ * this hook, against 25+ before.
+ */
+const SCHEDULE_FETCH_CONCURRENCY = 4;
+
+/**
+ * Fetch every page of a project-scoped list endpoint, requesting a large first
+ * page and then fetching any remainder with a BOUNDED number of requests in
+ * flight.
+ *
+ * The Gantt initial load once walked the DRF `next` cursor serially — one
  * awaited round trip per 50-row page (~20 for a 1K-task project), repaid on every
  * cache invalidation (issue 1519). With the client-tunable `page_size` exposed by
  * ScheduleFetchPagination, we pull page 1 at `SCHEDULE_PAGE_SIZE`, read `count` to
- * compute the full page set, then issue the remaining page requests concurrently
- * via `Promise.all`. Pages 2..N have no cross-page dependency, so they need not be
- * awaited one at a time; requesting them by explicit page number and concatenating
- * in page order preserves the server's result ordering.
+ * compute the full page set, then issue the remaining page requests concurrently.
+ * Concurrency is capped at `SCHEDULE_FETCH_CONCURRENCY` (issue 2277) — the
+ * unbounded `Promise.all` this replaced fired every remaining page at once.
+ * Requesting them by explicit page number and concatenating in page order
+ * preserves the server's result ordering.
+ *
+ * The full set is returned in one resolution — pages are deliberately NOT
+ * streamed into the cache as they land. A partially-loaded task set does not
+ * render an incomplete schedule, it renders a WRONG one: {@link computeWbsCodes}
+ * numbers siblings by their index within the array it is given, so codes
+ * renumber under the user as later pages arrive, and a task whose parent has not
+ * loaded yet is unreachable from that walk entirely. Link criticality has the
+ * same defect — it is derived in `useScheduleTasks` from whichever tasks are
+ * currently loaded, so an edge between two critical tasks reads as non-critical
+ * until both endpoints exist. Windowed/streamed fetch has to fix both first.
  */
 async function fetchAllPagesParallel<T>(path: string, projectId: string): Promise<T[]> {
   const { data: firstPage } = await apiClient.get<PaginatedResponse<T>>(path, {
@@ -594,17 +626,15 @@ async function fetchAllPagesParallel<T>(path: string, projectId: string): Promis
     return results;
   }
   const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
-  const pages = await Promise.all(
-    remainingPages.map((page) =>
-      apiClient
-        .get<PaginatedResponse<T>>(path, {
-          params: { project: projectId, page_size: SCHEDULE_PAGE_SIZE, page },
-        })
-        .then((response) => response.data.results),
-    ),
+  const pages = await mapWithConcurrency(remainingPages, SCHEDULE_FETCH_CONCURRENCY, (page) =>
+    apiClient
+      .get<PaginatedResponse<T>>(path, {
+        params: { project: projectId, page_size: SCHEDULE_PAGE_SIZE, page },
+      })
+      .then((response) => response.data.results),
   );
-  // Concatenate in page order (remainingPages is ascending) so ordering matches
-  // a serial `next` walk exactly.
+  // Concatenate in page order (mapWithConcurrency resolves in input order, and
+  // remainingPages is ascending) so ordering matches a serial `next` walk exactly.
   for (const pageResults of pages) {
     results.push(...pageResults);
   }
