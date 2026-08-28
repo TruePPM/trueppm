@@ -187,7 +187,8 @@ name if you would rather not read URLs.
 | Cross-project dependencies | Bayside · `bayside-sam` | Same program schedule | Fit-out tasks gated on the structure's framing inspection, incl. a negative-lag lead |
 | All four dependency types | Bayside · `bayside-sam` | Project rail **Plan → Schedule** → the Foundation / Finish-out link lines | FS, SS, FF, and SF links present (parallel pours, "finish together", SF on commissioning) |
 | Three-point estimates | Bayside · `bayside-sam` | Schedule → click any task row → drawer **Details** → **Estimates** | Optimistic / most-likely / pessimistic on the estimate |
-| Baseline + rebaseline | Bayside · `bayside-sam` | Schedule toolbar → **Project actions (···)** → **Baselines…** | The current plan compared against the superseded **Contract baseline** and the active **change-order Rebaseline** |
+| Baseline + rebaseline | Bayside · `bayside-sam` | Schedule toolbar → **Project actions (···)** → **Baselines…** | The current plan compared against the superseded **Contract baseline** and the active **change-order Rebaseline**, captured months apart rather than on the same afternoon |
+| Calendar exceptions that bite | Bayside · `bayside-sam` | Program **Schedule** → the Framing and Finish-out bars | Two site stand-downs with different outcomes: the crane window stretches floor decking and is absorbed by framing's float; the contract weather allowance lands on the thinnest float left and pushes the certificate of occupancy |
 | Labels | every sample | Board or Schedule → the toolbar filter | Themed labels (e.g. Bayside "critical-path", "inspection"; Atlas "security", "cutover") |
 | Monte Carlo P50/P80/P95 | Bayside · `bayside-sam` / Atlas · `atlas-alex` | Schedule → **Forecast** bar along the bottom → **Details ›** | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
 
@@ -196,7 +197,10 @@ name if you would rather not read URLs.
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
 | Populated register | Bayside (13) · Atlas (20) | Rail **Track → Risks** (`/projects/:id/risk`) | A full register with a probability × impact matrix |
-| Risk status lifecycle | every sample | Risks → open a risk → its activity trail | Dated Open → Mitigating → Resolved/Closed (e.g. Bayside "soil conditions"; Atlas "SSO security finding") |
+| Risk status lifecycle | every sample | Risks → open a risk → its activity trail | Dated Open → Mitigating → Resolved/Closed (e.g. Bayside "unsuitable bearing material"; Atlas "SSO security finding") |
+| Triggers and contingencies | Bayside · `bayside-sam` | Risks → open a risk → **Details** | The condition that fires the risk and the plan if it does — not just a probability and an impact |
+| A **realized** risk | Bayside · `bayside-sam` | Risks → "Unsuitable bearing material at excavation" → activity trail, then Schedule → task 2.1 | A mitigation that was tried and did **not** hold: the contingency fires, and "Excavate footings" carries the overrun as variance against the Contract baseline |
+| `TRANSFER` response | Bayside · `bayside-sam` | Risks → "MEP subcontractor financial risk" | The only transfer in any sample, with the instrument named — and a note on what the bond does *not* cover, which is why it stays open |
 | Schedule-driving risks | Atlas · `atlas-alex` | Risks, then Schedule → **Forecast** bar → **Details ›** | Several high probability × impact risks that visibly move the forecast |
 
 ### Hybrid & program scale
@@ -204,6 +208,8 @@ name if you would rather not read URLs.
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
 | The bridge demo | Helios · `helios-jordan` | Rail **Plan → Schedule**, then **Deliver → Sprints** | A completed waterfall plan feeding live build sprints across a cross-phase dependency |
+| Sprint goals behind the outcome | Helios · `helios-jordan` | **Deliver → Sprints** → each sprint header | Every sprint states a goal, so Sprint 1's PARTIAL close is an outcome against something written down |
+| Mitigation that costs scope | Helios · `helios-jordan` | Risks → "Legacy data migration fidelity", then **Deliver → Sprints** → Build Sprint 3 | A dry-run harness scheduled against the risk with a due date — and "Custom fields" pushed back to the backlog to pay for it, rather than the sprint quietly absorbing both |
 | Hybrid rollup | Helios · `helios-jordan` / Atlas · `atlas-alex` | Rail **Overview** (`/projects/:id/overview`, or `/programs/:id/overview`) | Gated and flow work rolling up together under one parent |
 | Cross-project critical path | Atlas · `atlas-alex` | Program rail **Schedule** (`/programs/:id/schedule`) | Platform Core gates Migration, which gates the public-launch milestone |
 | Methodology mix in one program | Atlas · `atlas-alex` | Program rail **Projects** (`/programs/:id/projects`) | Agile, waterfall, and hybrid streams side by side |

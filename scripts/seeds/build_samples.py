@@ -1181,8 +1181,14 @@ def _bayside_task_entry(
     in_prog = wbs == execution_front
     status = "COMPLETE" if is_done else ("IN_PROGRESS" if in_prog else "NOT_STARTED")
     is_ms = ml == 0
-    # Floor decking absorbed the change-order rework: re-estimated 6 -> 8.
-    duration = 8 if (slug == "bayside-sitework" and wbs == "3.2") else ml
+    # Two tasks carry a re-estimate against the contract plan. Floor decking
+    # (3.2) absorbed the mezzanine change-order rework, 6 -> 8. Excavate footings
+    # (2.1) absorbed the soil contingency, 5 -> 8, when the geotech mitigation
+    # failed and the east footing had to be over-excavated (#3097). Both leave
+    # the contract baseline row at the original ``ml``, so the overrun reads as
+    # baseline variance rather than quietly becoming the plan.
+    _reestimated = {("bayside-sitework", "3.2"): 8, ("bayside-sitework", "2.1"): 8}
+    duration = _reestimated.get((slug, wbs), ml)
     task = {
         "wbs_path": wbs,
         "name": name,
@@ -1581,7 +1587,11 @@ def build_bayside() -> dict:
             "review — that's gating the site-prep sign-off.",
         ),
         _ev(ts(24, 10, 0), "risk.status", "risk:permit-delay", "sam", to="MITIGATING"),
-        # Soil risk surfaces and is closed out by the geotech survey during excavation.
+        # The realized risk (#3097). The mitigation — a spot geotech survey ahead
+        # of rebar — finds the soft layer but cannot prevent it, so the
+        # contingency fires and excavation is re-estimated 5 -> 8 against a
+        # contract baseline that still says 5. This is the only arc in the tree
+        # where a mitigation is tried and does not hold.
         _ev(
             ts(31, 9, 0),
             "task.comment",
@@ -1592,6 +1602,37 @@ def build_bayside() -> dict:
         ),
         _ev(
             ts(31, 9, 30), "risk.status", "risk:soil-conditions", "tom", to="MITIGATING"
+        ),
+        _ev(
+            ts(33, 16, 0),
+            "risk.note",
+            "risk:soil-conditions",
+            "tom",
+            body="Geotech is back and it is not what we wanted: 1,800 psf allowable "
+            "against a 2,500 psf design assumption, over about a third of the east "
+            "footing. The survey did its job — we know exactly what is down there — "
+            "but knowing does not make it buildable as drawn. Mitigation has not "
+            "held; firing the contingency.",
+        ),
+        _ev(
+            ts(34, 8, 0),
+            "task.comment",
+            sw("2.1"),
+            "tom",
+            body="Over-excavating the soft zone and backfilling with engineered fill "
+            "to take the east footing to competent strata. Re-estimating excavation "
+            "at 8 days against the 5 we contracted — the delta comes out of the "
+            "foundation contingency allowance, not a change order.",
+        ),
+        _ev(ts(34, 8, 30), "task.estimate", sw("2.1"), "tom", estimate=three_point(8)),
+        _ev(
+            ts(38, 13, 30),
+            "risk.note",
+            "risk:soil-conditions",
+            "tom",
+            body="Plate-load re-test passed at depth. Three crew-days and the fill "
+            "cost, all inside the allowance. Closing it — and the trigger stays on "
+            "the register for the west footing, which sits off the same channel.",
         ),
         _ev(ts(38, 14, 0), "risk.status", "risk:soil-conditions", "tom", to="CLOSED"),
         # Hero: Rebar & formwork (2.2) fails inspection on bar spacing, is re-tied,
@@ -1732,6 +1773,27 @@ def build_bayside() -> dict:
             "picks resume at first light.",
         ),
         _ev(ts(89, 11, 0), "risk.status", "risk:weather", "sam", to="MITIGATING"),
+        # The two site-calendar windows, explained where a viewer will meet them.
+        _ev(
+            ts(85, 10, 0),
+            "task.comment",
+            sw("3.2"),
+            "tom",
+            body="Leasing yard confirmed the tower crane goes back for its annual "
+            "inspection mid-decking — that stand-down is on the site calendar now. "
+            "Decking and the roof tail move with it, but framing has the float to "
+            "carry it, so the occupancy date does not change.",
+        ),
+        _ev(
+            ts(86, 9, 0),
+            "task.comment",
+            bd("2.5"),
+            "sam",
+            body="Loaded the contract winter weather allowance onto the site "
+            "calendar. It lands squarely on final inspection and handover, which is "
+            "the thinnest float we have left, so the certificate of occupancy moves "
+            "with it. Better to carry it in the plan than to argue it afterwards.",
+        ),
     ]
 
     _calendars = [
@@ -1740,6 +1802,42 @@ def build_bayside() -> dict:
             "name": "Site Standard (5-day)",
             "working_days": 31,
             "hours_per_day": 8.0,
+            # Bayside's premise is a weather-exposed site, so the site calendar
+            # has to carry real shutdowns (#3097). Both windows below are sized
+            # against the float they have to overcome, because the whole pack is
+            # anchor-relative and can be imported on any weekday: a window short
+            # enough to be absorbed on some import days would make this a
+            # calendar exception that only sometimes means anything.
+            "exceptions": [
+                {
+                    # PROBE-CRANE. The tower crane goes back to the leasing yard
+                    # for its annual inspection mid-decking. Floor decking (3.2)
+                    # carries ~60 days of float against the program finish, so
+                    # this does NOT move the certificate of occupancy — it moves
+                    # the framing tail, which is the part a viewer is looking at.
+                    "exc_start": d(96),
+                    "exc_end": d(105),
+                    "description": "Tower crane unavailable — annual inspection at the leasing yard",
+                },
+                {
+                    # Both windows are in the future relative to import day, so
+                    # each has to be something a scheduler can legitimately book
+                    # ahead: a named storm could not be. This is the contract's
+                    # winter weather allowance — the anticipated adverse-weather
+                    # days the owner and GC agree to carry in the schedule rather
+                    # than argue about after the fact, which is how real
+                    # construction calendars handle a weather-exposed winter.
+                    #
+                    # Placed over final inspection & handover (2.5), which carries
+                    # 2 days of total float — the least of anything upstream of
+                    # the certificate of occupancy. Ten calendar days always hold
+                    # at least six working days, so the CO moves on whatever
+                    # weekday the demo happens to be imported.
+                    "exc_start": d(223),
+                    "exc_end": d(232),
+                    "description": "Winter weather allowance — contract adverse-weather stand-down",
+                },
+            ],
         },
         # concrete crew works a 4-day week (Mon-Thu = 1+2+4+8 = 15), weather-dependent
         {
@@ -1846,19 +1944,45 @@ def build_bayside() -> dict:
                 "category": "EXTERNAL",
                 "response": "MITIGATE",
                 "owner": "sam",
+                "trigger": "NWS issues a hazardous-weather outlook covering a scheduled pour "
+                "or steel-pick window, or sustained winds forecast above 25 mph.",
+                "contingency": "Stand the site down and reschedule into the next clear window. "
+                "The contract's winter weather allowance is already carried on the site calendar; "
+                "it is the constraint that pushes the certificate of occupancy, and days beyond "
+                "it are the ones that become a time-extension request.",
                 "tasks": ["2.3", "2.4"],
             },
             {
                 "slug": "soil-conditions",
-                "title": "Unexpected soil conditions at excavation",
+                "title": "Unsuitable bearing material at excavation",
+                "description": "The east footing sits over a mapped alluvial channel; if bearing "
+                "comes back below the design assumption the footing has to be taken deeper.",
+                # The one REALIZED risk in the pack (#3097). Every other risk here
+                # either never fired or was closed out by its mitigation, and a
+                # register in which nothing ever goes wrong teaches a PM nothing
+                # about what a register is for. Here the mitigation *failed* — the
+                # survey found the soft layer but could not prevent it — the
+                # contingency fired, and 2.1 carries the overrun as variance
+                # against the contract baseline (5 planned, 8 actual).
                 # Starting state; risk.status walks it OPEN -> MITIGATING -> CLOSED.
                 "status": "OPEN",
                 "probability": 2,
                 "impact": 4,
                 "category": "TECHNICAL",
-                "response": "ACCEPT",
+                "response": "MITIGATE",
                 "owner": "tom",
-                "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
+                "mitigation_due_date": d(34),
+                "trigger": "Geotech logs allowable bearing below the 2,500 psf design assumption "
+                "at any footing location.",
+                "contingency": "Over-excavate the soft zone and replace with engineered fill, "
+                "taking the east footing down to competent strata. Budgeted at 3 crew-days "
+                "against the foundation contingency allowance; no change order to the owner.",
+                "notes": "REALIZED. The mitigation was a spot geotech survey ahead of rebar. It "
+                "found the soft layer but did not prevent it: bearing came back at 1,800 psf "
+                "against a 2,500 psf design assumption, so the footing could not be built as "
+                "drawn. Contingency fired on day 34 — the east footing was over-excavated and "
+                "backfilled with engineered fill, and excavation ran 5 days to 8. Closed once "
+                "the plate-load re-test passed at depth.",
                 "tasks": ["2.1"],
             },
             {
@@ -1871,6 +1995,11 @@ def build_bayside() -> dict:
                 "category": "EXTERNAL",
                 "response": "MITIGATE",
                 "owner": "sam",
+                "mitigation_due_date": d(26),
+                "trigger": 'Permit still shows "in review" on the municipal portal 10 working '
+                "days before site-prep sign-off is due.",
+                "contingency": "Request a partial foundation-only permit so excavation can start "
+                "against the approved civil package while the building permit finishes review.",
                 "tasks": ["1.4"],
             },
             {
@@ -1905,7 +2034,13 @@ def build_bayside() -> dict:
                 "category": "ORGANIZATIONAL",
                 "response": "MITIGATE",
                 "owner": "tom",
-                "notes": "Crane window booked and confirmed for the structural phase.",
+                "trigger": "The leasing yard cannot confirm the tower crane for a booked pick week.",
+                "contingency": "Fall back to the 90-ton mobile crane for the light picks and "
+                "resequence roof steel behind decking. Costs a week of double-handling, which the "
+                "framing float absorbs.",
+                "notes": "Crane window booked and confirmed for the structural phase. The annual "
+                "inspection stand-down is on the site calendar; framing carries enough float to "
+                "absorb it without moving the certificate of occupancy.",
                 "tasks": ["3.3"],
             },
             {
@@ -1955,6 +2090,11 @@ def build_bayside() -> dict:
                 "category": "EXTERNAL",
                 "response": "MITIGATE",
                 "owner": "nadia",
+                "mitigation_due_date": d(120),
+                "trigger": "Quoted lead time on the rooftop units exceeds 16 weeks, or the vendor "
+                "misses a confirmed ship date.",
+                "contingency": "Release the alternate manufacturer already approved in the "
+                "submittal, and set the units after the building is dried in rather than before.",
                 "tasks": ["1.4"],
             },
             {
@@ -1978,6 +2118,20 @@ def build_bayside() -> dict:
                 "category": "EXTERNAL",
                 "response": "TRANSFER",
                 "owner": "sam",
+                "trigger": "The sub misses two consecutive payment-application cycles, or its "
+                "surety declines to extend the bond at renewal.",
+                # The only TRANSFER response in any bundled pack, and the reason
+                # the response taxonomy has four values rather than three (#3097).
+                # TRANSFER does not mean the risk went away — it means somebody
+                # else now carries the cost of it, on stated terms.
+                "contingency": "The bond is called and the surety completes the rough-in with a "
+                "replacement sub of its choosing.",
+                "notes": "TRANSFERRED, not mitigated. The MEP subcontract was written to require a "
+                "100% payment-and-performance bond from an A-rated surety before mobilization, so "
+                "the financial exposure of a default sits with the surety rather than the owner. "
+                "What is NOT transferred is the schedule: replacing a defaulted sub mid-rough-in "
+                "still costs an estimated 4-6 weeks, which is why this stays OPEN at probability 2 "
+                "and impact 5 rather than being closed out on the strength of the bond.",
                 "tasks": ["1.4"],
             },
             {
@@ -2035,6 +2189,11 @@ def build_bayside() -> dict:
                 "category": "ORGANIZATIONAL",
                 "response": "MITIGATE",
                 "owner": "sam",
+                "trigger": "Framing inspection (sitework 3.4) forecasts later than its rebaseline "
+                "finish, or fails and needs a re-inspection cycle.",
+                "contingency": "Mobilize electrical rough-in against a partial structural release "
+                "for the completed bays — the -3 day lead on that cross-project edge already "
+                "assumes the overlap; widening it is the lever if the gate slips further.",
                 "tasks": ["bayside-sitework:3.4", "bayside-building:1.1"],
             },
             {
@@ -2215,11 +2374,22 @@ def build_helios() -> dict:
         "Search & filters",
         "Data migration run",
         "Cutover rehearsal",
+        # The mitigation task for risk:migration-risk (#3097). A mitigation with
+        # no task behind it is a sentence in a register; this one is scheduled,
+        # pointed, and had to displace "Custom fields" out of Sprint 3 to fit —
+        # which is the part a PM actually needs to see, because mitigation
+        # always costs somebody else's scope.
+        "Migration dry-run harness",
     ]
     sprints = [
         {
             "slug": "he-sprint-1",
             "name": "Build Sprint 1",
+            # Helios sprints ran without goals (#3097), which left the PARTIAL
+            # close on Sprint 1 unexplained: a goal_outcome is only meaningful
+            # against a goal somebody actually wrote down.
+            "goal": "An account manager can work a lead end to end — capture, stage "
+            "transitions, and an activity trail they can hand to a colleague.",
             "state": "COMPLETED",
             "start_date": D(60),
             "finish_date": D(73),
@@ -2232,6 +2402,8 @@ def build_helios() -> dict:
         {
             "slug": "he-sprint-2",
             "name": "Build Sprint 2",
+            "goal": "A pilot team can run a full week in Helios without falling back "
+            "to the legacy CRM — email in the timeline, permissions that hold.",
             "state": "ACTIVE",
             "start_date": D(74),
             "finish_date": D(87),
@@ -2244,6 +2416,8 @@ def build_helios() -> dict:
         {
             "slug": "he-sprint-3",
             "name": "Build Sprint 3",
+            "goal": "Prove the cutover before we are committed to it: a full migration "
+            "dry run against production-shaped data, reconciled record for record.",
             "state": "PLANNED",
             "start_date": D(88),
             "finish_date": D(101),
@@ -2284,9 +2458,19 @@ def build_helios() -> dict:
         "2.2": {"story_points": 5},
         "2.5": {"story_points": 8},
         "2.8": {"story_points": 8},
-        "2.11": {"story_points": 3},
         "2.14": {"story_points": 5},
         "2.17": {"story_points": 3},
+        # Displaced from Sprint 3 to make room for the migration dry-run harness:
+        # same 3 points out as in, so the sprint still fits its 32-point capacity.
+        "2.11": {"status": "BACKLOG", "percent_complete": 0.0, "sprint": None},
+        # The mitigation task itself. The formula would place story 19 in the
+        # ACTIVE sprint; it belongs in Sprint 3, ahead of the go-live gate.
+        "2.19": {
+            "story_points": 3,
+            "status": "BACKLOG",
+            "percent_complete": 0.0,
+            "sprint": "he-sprint-3",
+        },
     }
     for i, name in enumerate(stories, start=1):
         sidx = i % 3
@@ -2367,6 +2551,34 @@ def build_helios() -> dict:
             "ivan",
             body="The data model from planning (1.5) is the contract for the migration "
             "run — freezing it before Sprint 3 picks this up.",
+        ),
+        # The mitigation arc (#3097): a risk that moves because somebody put a
+        # task behind it, and paid for that task with other scope.
+        _ev(
+            T(76, 11, 0),
+            "risk.note",
+            "risk:migration-risk",
+            "mei",
+            body="Profiled the legacy export over the weekend. Roughly 4% of contacts "
+            "point at accounts that no longer exist, and there is no rule in the "
+            "mapping doc for them. We are not finding that out during the cutover "
+            "window — I want a full dry run against a production snapshot first.",
+        ),
+        _ev(
+            T(76, 15, 0),
+            "task.comment",
+            task("2.19"),
+            "jordan",
+            body="Taking the dry-run harness into Sprint 3 with a 99.9% reconciliation "
+            "bar on accounts and contacts. Sprint 3 was already at capacity, so Custom "
+            "fields goes back to the backlog — this is worth more than that is.",
+        ),
+        _ev(
+            T(76, 15, 30),
+            "risk.status",
+            "risk:migration-risk",
+            "mei",
+            to="MITIGATING",
         ),
         # Build Sprint 1 — activate, a hero story with a real review bounce, close.
         _ev(T(60, 9, 0), "sprint.activate", sprint("he-sprint-1"), "jordan"),
@@ -2689,13 +2901,27 @@ def build_helios() -> dict:
                     {
                         "slug": "migration-risk",
                         "title": "Legacy data migration fidelity",
+                        "description": "17 years of legacy CRM data with no referential integrity "
+                        "at the account-contact boundary. A lossy cutover is not recoverable once "
+                        "the legacy system is decommissioned.",
+                        # Starting state; risk.status walks it OPEN -> MITIGATING once
+                        # the dry-run harness (2.19) is committed to Sprint 3.
                         "status": "OPEN",
                         "probability": 3,
                         "impact": 4,
                         "category": "TECHNICAL",
                         "response": "MITIGATE",
                         "owner": "mei",
-                        "tasks": ["2.17"],
+                        "mitigation_due_date": D(101),
+                        "trigger": "The dry run reconciles below 99.9% on accounts or contacts, or "
+                        "any orphaned-record class has no mapping rule.",
+                        "contingency": "Cut over on accounts and contacts only, and run the legacy "
+                        "system read-only for one quarter while activity history backfills. Costs "
+                        "the go-live date its clean break, but not the date itself.",
+                        "notes": "Mitigated by a full dry run against a production snapshot (2.19), "
+                        "scheduled into Sprint 3 ahead of the go-live gate. Custom fields moved to "
+                        "the backlog to make room for it.",
+                        "tasks": ["2.17", "2.19"],
                     },
                     {
                         "slug": "integration-defects",

@@ -64,7 +64,19 @@
       "slug": "site",
       "name": "Site Standard (5-day)",
       "working_days": 31,
-      "hours_per_day": 8.0
+      "hours_per_day": 8.0,
+      "exceptions": [
+        {
+          "exc_start": "A+6",
+          "exc_end": "A+15",
+          "description": "Tower crane unavailable — annual inspection at the leasing yard"
+        },
+        {
+          "exc_start": "A+133",
+          "exc_end": "A+142",
+          "description": "Winter weather allowance — contract adverse-weather stand-down"
+        }
+      ]
     },
     {
       "slug": "concrete-crew",
@@ -142,6 +154,8 @@
       "category": "ORGANIZATIONAL",
       "response": "MITIGATE",
       "owner": "sam",
+      "trigger": "Framing inspection (sitework 3.4) forecasts later than its rebaseline finish, or fails and needs a re-inspection cycle.",
+      "contingency": "Mobilize electrical rough-in against a partial structural release for the completed bays — the -3 day lead on that cross-project edge already assumes the overlap; widening it is the lever if the gate slips further.",
       "tasks": [
         "bayside-sitework:3.4",
         "bayside-building:1.1"
@@ -290,12 +304,12 @@
             "critical-path"
           ],
           "percent_complete": 100.0,
-          "duration": 5,
+          "duration": 8,
           "planned_start": "A-60",
           "estimate": {
-            "optimistic": 4,
-            "most_likely": 5,
-            "pessimistic": 10
+            "optimistic": 6,
+            "most_likely": 8,
+            "pessimistic": 15
           }
         },
         {
@@ -683,8 +697,8 @@
             {
               "task": "2.1",
               "start": "A-60",
-              "finish": "A-55",
-              "duration": 5
+              "finish": "A-52",
+              "duration": 8
             },
             {
               "task": "2.2",
@@ -747,6 +761,8 @@
           "category": "EXTERNAL",
           "response": "MITIGATE",
           "owner": "sam",
+          "trigger": "NWS issues a hazardous-weather outlook covering a scheduled pour or steel-pick window, or sustained winds forecast above 25 mph.",
+          "contingency": "Stand the site down and reschedule into the next clear window. The contract's winter weather allowance is already carried on the site calendar; it is the constraint that pushes the certificate of occupancy, and days beyond it are the ones that become a time-extension request.",
           "tasks": [
             "2.3",
             "2.4"
@@ -754,14 +770,18 @@
         },
         {
           "slug": "soil-conditions",
-          "title": "Unexpected soil conditions at excavation",
+          "title": "Unsuitable bearing material at excavation",
+          "description": "The east footing sits over a mapped alluvial channel; if bearing comes back below the design assumption the footing has to be taken deeper.",
           "status": "OPEN",
           "probability": 2,
           "impact": 4,
           "category": "TECHNICAL",
-          "response": "ACCEPT",
+          "response": "MITIGATE",
           "owner": "tom",
-          "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
+          "mitigation_due_date": "A-56",
+          "trigger": "Geotech logs allowable bearing below the 2,500 psf design assumption at any footing location.",
+          "contingency": "Over-excavate the soft zone and replace with engineered fill, taking the east footing down to competent strata. Budgeted at 3 crew-days against the foundation contingency allowance; no change order to the owner.",
+          "notes": "REALIZED. The mitigation was a spot geotech survey ahead of rebar. It found the soft layer but did not prevent it: bearing came back at 1,800 psf against a 2,500 psf design assumption, so the footing could not be built as drawn. Contingency fired on day 34 — the east footing was over-excavated and backfilled with engineered fill, and excavation ran 5 days to 8. Closed once the plate-load re-test passed at depth.",
           "tasks": [
             "2.1"
           ]
@@ -776,6 +796,9 @@
           "category": "EXTERNAL",
           "response": "MITIGATE",
           "owner": "sam",
+          "mitigation_due_date": "A-64",
+          "trigger": "Permit still shows \"in review\" on the municipal portal 10 working days before site-prep sign-off is due.",
+          "contingency": "Request a partial foundation-only permit so excavation can start against the approved civil package while the building permit finishes review.",
           "tasks": [
             "1.4"
           ]
@@ -815,7 +838,9 @@
           "category": "ORGANIZATIONAL",
           "response": "MITIGATE",
           "owner": "tom",
-          "notes": "Crane window booked and confirmed for the structural phase.",
+          "trigger": "The leasing yard cannot confirm the tower crane for a booked pick week.",
+          "contingency": "Fall back to the 90-ton mobile crane for the light picks and resequence roof steel behind decking. Costs a week of double-handling, which the framing float absorbs.",
+          "notes": "Crane window booked and confirmed for the structural phase. The annual inspection stand-down is on the site calendar; framing carries enough float to absorb it without moving the certificate of occupancy.",
           "tasks": [
             "3.3"
           ]
@@ -1231,6 +1256,9 @@
           "category": "EXTERNAL",
           "response": "MITIGATE",
           "owner": "nadia",
+          "mitigation_due_date": "A+30",
+          "trigger": "Quoted lead time on the rooftop units exceeds 16 weeks, or the vendor misses a confirmed ship date.",
+          "contingency": "Release the alternate manufacturer already approved in the submittal, and set the units after the building is dried in rather than before.",
           "tasks": [
             "1.4"
           ]
@@ -1258,6 +1286,9 @@
           "category": "EXTERNAL",
           "response": "TRANSFER",
           "owner": "sam",
+          "trigger": "The sub misses two consecutive payment-application cycles, or its surety declines to extend the bond at renewal.",
+          "contingency": "The bond is called and the surety completes the rough-in with a replacement sub of its choosing.",
+          "notes": "TRANSFERRED, not mitigated. The MEP subcontract was written to require a 100% payment-and-performance bond from an A-rated surety before mobilization, so the financial exposure of a default sits with the surety rather than the owner. What is NOT transferred is the schedule: replacing a defaulted sub mid-rough-in still costs an estimated 4-6 weeks, which is why this stays OPEN at probability 2 and impact 5 rather than being closed out on the strength of the bond.",
           "tasks": [
             "1.4"
           ]
@@ -1306,6 +1337,38 @@
       "target": "risk:soil-conditions",
       "actor": "tom",
       "to": "MITIGATING"
+    },
+    {
+      "at": "A-57T16:00",
+      "action": "risk.note",
+      "target": "risk:soil-conditions",
+      "actor": "tom",
+      "body": "Geotech is back and it is not what we wanted: 1,800 psf allowable against a 2,500 psf design assumption, over about a third of the east footing. The survey did its job — we know exactly what is down there — but knowing does not make it buildable as drawn. Mitigation has not held; firing the contingency."
+    },
+    {
+      "at": "A-56T08:00",
+      "action": "task.comment",
+      "target": "task:bayside-sitework:2.1",
+      "actor": "tom",
+      "body": "Over-excavating the soft zone and backfilling with engineered fill to take the east footing to competent strata. Re-estimating excavation at 8 days against the 5 we contracted — the delta comes out of the foundation contingency allowance, not a change order."
+    },
+    {
+      "at": "A-56T08:30",
+      "action": "task.estimate",
+      "target": "task:bayside-sitework:2.1",
+      "actor": "tom",
+      "estimate": {
+        "optimistic": 6,
+        "most_likely": 8,
+        "pessimistic": 15
+      }
+    },
+    {
+      "at": "A-52T13:30",
+      "action": "risk.note",
+      "target": "risk:soil-conditions",
+      "actor": "tom",
+      "body": "Plate-load re-test passed at depth. Three crew-days and the fill cost, all inside the allowance. Closing it — and the trigger stays on the register for the west footing, which sits off the same channel."
     },
     {
       "at": "A-52T14:00",
@@ -1492,6 +1555,20 @@
       "target": "risk:weather",
       "actor": "sam",
       "to": "MITIGATING"
+    },
+    {
+      "at": "A-5T10:00",
+      "action": "task.comment",
+      "target": "task:bayside-sitework:3.2",
+      "actor": "tom",
+      "body": "Leasing yard confirmed the tower crane goes back for its annual inspection mid-decking — that stand-down is on the site calendar now. Decking and the roof tail move with it, but framing has the float to carry it, so the occupancy date does not change."
+    },
+    {
+      "at": "A-4T09:00",
+      "action": "task.comment",
+      "target": "task:bayside-building:2.5",
+      "actor": "sam",
+      "body": "Loaded the contract winter weather allowance onto the site calendar. It lands squarely on final inspection and handover, which is the thinnest float we have left, so the certificate of occupancy moves with it. Better to carry it in the plan than to argue it afterwards."
     }
   ]
 }

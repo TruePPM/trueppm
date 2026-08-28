@@ -430,10 +430,9 @@
           "type": "story",
           "status": "BACKLOG",
           "percent_complete": 0.0,
-          "story_points": 3,
-          "duration": 2,
+          "story_points": 8,
+          "duration": 5,
           "assignee": "nadia",
-          "sprint": "he-sprint-3",
           "delivery_mode": "scrum",
           "governance_class": "flow"
         },
@@ -555,6 +554,19 @@
           ]
         },
         {
+          "wbs_path": "2.19",
+          "name": "Migration dry-run harness",
+          "type": "story",
+          "status": "BACKLOG",
+          "percent_complete": 0.0,
+          "story_points": 3,
+          "duration": 2,
+          "assignee": "nadia",
+          "sprint": "he-sprint-3",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
           "wbs_path": "4",
           "name": "CRM go-live",
           "is_milestone": true,
@@ -617,6 +629,7 @@
         {
           "slug": "he-sprint-1",
           "name": "Build Sprint 1",
+          "goal": "An account manager can work a lead end to end — capture, stage transitions, and an activity trail they can hand to a colleague.",
           "state": "COMPLETED",
           "start_date": "A-21",
           "finish_date": "A-8",
@@ -627,6 +640,7 @@
         {
           "slug": "he-sprint-2",
           "name": "Build Sprint 2",
+          "goal": "A pilot team can run a full week in Helios without falling back to the legacy CRM — email in the timeline, permissions that hold.",
           "state": "ACTIVE",
           "start_date": "A-7",
           "finish_date": "A+6",
@@ -636,6 +650,7 @@
         {
           "slug": "he-sprint-3",
           "name": "Build Sprint 3",
+          "goal": "Prove the cutover before we are committed to it: a full migration dry run against production-shaped data, reconciled record for record.",
           "state": "PLANNED",
           "start_date": "A+7",
           "finish_date": "A+20",
@@ -706,14 +721,20 @@
         {
           "slug": "migration-risk",
           "title": "Legacy data migration fidelity",
+          "description": "17 years of legacy CRM data with no referential integrity at the account-contact boundary. A lossy cutover is not recoverable once the legacy system is decommissioned.",
           "status": "OPEN",
           "probability": 3,
           "impact": 4,
           "category": "TECHNICAL",
           "response": "MITIGATE",
           "owner": "mei",
+          "mitigation_due_date": "A+20",
+          "trigger": "The dry run reconciles below 99.9% on accounts or contacts, or any orphaned-record class has no mapping rule.",
+          "contingency": "Cut over on accounts and contacts only, and run the legacy system read-only for one quarter while activity history backfills. Costs the go-live date its clean break, but not the date itself.",
+          "notes": "Mitigated by a full dry run against a production snapshot (2.19), scheduled into Sprint 3 ahead of the go-live gate. Custom fields moved to the backlog to make room for it.",
           "tasks": [
-            "2.17"
+            "2.17",
+            "2.19"
           ]
         },
         {
@@ -767,6 +788,27 @@
       "target": "task:helios:2.17",
       "actor": "ivan",
       "body": "The data model from planning (1.5) is the contract for the migration run — freezing it before Sprint 3 picks this up."
+    },
+    {
+      "at": "A-5T11:00",
+      "action": "risk.note",
+      "target": "risk:migration-risk",
+      "actor": "mei",
+      "body": "Profiled the legacy export over the weekend. Roughly 4% of contacts point at accounts that no longer exist, and there is no rule in the mapping doc for them. We are not finding that out during the cutover window — I want a full dry run against a production snapshot first."
+    },
+    {
+      "at": "A-5T15:00",
+      "action": "task.comment",
+      "target": "task:helios:2.19",
+      "actor": "jordan",
+      "body": "Taking the dry-run harness into Sprint 3 with a 99.9% reconciliation bar on accounts and contacts. Sprint 3 was already at capacity, so Custom fields goes back to the backlog — this is worth more than that is."
+    },
+    {
+      "at": "A-5T15:30",
+      "action": "risk.status",
+      "target": "risk:migration-risk",
+      "actor": "mei",
+      "to": "MITIGATING"
     },
     {
       "at": "A-21T09:00",
