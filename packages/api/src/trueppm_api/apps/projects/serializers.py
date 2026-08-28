@@ -829,7 +829,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "can_author",
             # The server's today, for client-side previews of date-gated server rules (#3075).
             "server_date",
-            # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
+            # Two separate lifecycles, both read-only, each with its own transition
+            # endpoint — see read_only_fields below for why neither is writable here.
+            # Archive (#530) is flipped via /archive/ and /unarchive/; draft (#2962)
+            # is flipped via /commit/.
             "lifecycle",
             "draft_started_at",
             "is_archived",
@@ -875,6 +878,36 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_mcp_enabled",
             "effective_surface_visibility",
             "inherited_surface_visibility",
+            # The draft lifecycle is a server-owned transition, not a field (#3127).
+            # ``lifecycle`` and ``draft_started_at`` were declared above with a comment
+            # calling them read-only and then omitted from this list, so both were
+            # writable by any Admin+ PATCH. That is not a cosmetic gap:
+            #
+            #   * ``active -> draft`` removed the project from program rollup, portfolio
+            #     health, omni-search, My Work, the notification fan-out and digest
+            #     audience, and the nightly forecast/program-schedule passes — every
+            #     surface on the #3128 exclusion list — silently, for everyone, with no
+            #     record that anyone asked for it;
+            #   * ``draft -> active`` bypassed ``commit_project()`` and therefore captured
+            #     no baseline v1, leaving a project that reads as committed with nothing
+            #     to measure variance against. It is unrecoverable: ``commit_project()``
+            #     refuses a non-draft project, so the anchor can never be laid down
+            #     afterwards. commit_moment.py exists precisely to stop the anchor moving,
+            #     and this moved it to nothing.
+            #
+            # Both transitions have an endpoint that does the surrounding work
+            # (``POST /commit/``, ``POST /archive/`` + ``/unarchive/``). Neither is a field
+            # a client may set, at create or at update.
+            #
+            # Note the refusal shape, because it is NOT the one ``validate()`` below
+            # applies to the Scheduler allowlist: DRF strips read-only fields before
+            # ``validate()`` runs, so a payload naming either field gets **200 with the
+            # write silently dropped**, not the 400-naming-the-field that allowlist
+            # violations get. That is deliberate — it matches the already-read-only
+            # ``is_archived`` beside them — but it does mean ``validate()`` no longer
+            # sees these two, so do not read that gate as still covering them.
+            "lifecycle",
+            "draft_started_at",
             "is_archived",
             "archived_at",
             "archived_by",

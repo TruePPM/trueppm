@@ -432,6 +432,12 @@ def test_allowlist_is_subset_of_model_fields_and_excludes_identity() -> None:
         "is_archived",
         "archived_at",
         "archived_by",
+        # The draft lifecycle, beside its archive siblings (#3127). Both are
+        # server-owned transitions with their own endpoints, and copying either
+        # into a new project from a template would let a settings copy decide
+        # whether the plan has been agreed to.
+        "lifecycle",
+        "draft_started_at",
         "is_sample",
         "server_version",
         "is_deleted",

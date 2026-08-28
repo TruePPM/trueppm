@@ -52313,19 +52313,6 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
-                    },
-                    "lifecycle": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/LifecycleEnum"
-                            }
-                        ],
-                        "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
-                    },
-                    "draft_started_at": {
-                        "type": "string",
-                        "format": "date-time",
-                        "nullable": true
                     }
                 }
             },
@@ -55312,11 +55299,13 @@
                                 "$ref": "#/components/schemas/LifecycleEnum"
                             }
                         ],
+                        "readOnly": true,
                         "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
                     },
                     "draft_started_at": {
                         "type": "string",
                         "format": "date-time",
+                        "readOnly": true,
                         "nullable": true
                     },
                     "is_archived": {
@@ -55343,6 +55332,7 @@
                     "calendar_source",
                     "can_author",
                     "default_member_role_label",
+                    "draft_started_at",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -55376,6 +55366,7 @@
                     "is_archived",
                     "is_pinned",
                     "lead_detail",
+                    "lifecycle",
                     "member_count",
                     "my_role",
                     "my_role_label",
@@ -56003,11 +55994,13 @@
                                 "$ref": "#/components/schemas/LifecycleEnum"
                             }
                         ],
+                        "readOnly": true,
                         "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
                     },
                     "draft_started_at": {
                         "type": "string",
                         "format": "date-time",
+                        "readOnly": true,
                         "nullable": true
                     },
                     "is_archived": {
@@ -56070,6 +56063,7 @@
                     "calendar_source",
                     "can_author",
                     "default_member_role_label",
+                    "draft_started_at",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -56104,6 +56098,7 @@
                     "is_pinned",
                     "is_sample",
                     "lead_detail",
+                    "lifecycle",
                     "member_count",
                     "my_facets",
                     "my_role",
@@ -56741,19 +56736,6 @@
                     "program": {
                         "type": "string",
                         "format": "uuid",
-                        "nullable": true
-                    },
-                    "lifecycle": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/LifecycleEnum"
-                            }
-                        ],
-                        "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
-                    },
-                    "draft_started_at": {
-                        "type": "string",
-                        "format": "date-time",
                         "nullable": true
                     }
                 },
