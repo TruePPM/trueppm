@@ -79,7 +79,12 @@ describe('useScheduleTasks mapper', () => {
   });
 
   it('maps the classification taxonomy (type / governance_class / delivery_mode)', () => {
-    const task = mapTask({ ...base, type: 'spike', governance_class: 'gated', delivery_mode: 'kanban' });
+    const task = mapTask({
+      ...base,
+      type: 'spike',
+      governance_class: 'gated',
+      delivery_mode: 'kanban',
+    });
     expect(task.taskType).toBe('spike');
     expect(task.governanceClass).toBe('gated');
     expect(task.deliveryMode).toBe('kanban');
@@ -466,9 +471,7 @@ describe('useScheduleTasks pagination', () => {
     const page1 = [makeApiTask('t-1'), makeApiTask('t-2')];
     const page2 = [makeApiTask('t-3'), makeApiTask('t-4')];
     const page3 = [makeApiTask('t-5')];
-    getMock.mockImplementation(
-      countDrivenGet('/tasks/', 450, { 1: page1, 2: page2, 3: page3 }),
-    );
+    getMock.mockImplementation(countDrivenGet('/tasks/', 450, { 1: page1, 2: page2, 3: page3 }));
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
@@ -476,13 +479,7 @@ describe('useScheduleTasks pagination', () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     // Order preserved across the parallel fetch: page1 ++ page2 ++ page3.
-    expect(result.current.tasks!.map((t) => t.id)).toEqual([
-      't-1',
-      't-2',
-      't-3',
-      't-4',
-      't-5',
-    ]);
+    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3', 't-4', 't-5']);
   });
 
   it('requests page 1 at page_size=200 and the remainder by explicit page number', async () => {
@@ -513,9 +510,7 @@ describe('useScheduleTasks pagination', () => {
   });
 
   it('fetches a single page when count fits in one page (no page param)', async () => {
-    getMock.mockImplementation(
-      countDrivenGet('/tasks/', 1, { 1: [makeApiTask('t-1')] }),
-    );
+    getMock.mockImplementation(countDrivenGet('/tasks/', 1, { 1: [makeApiTask('t-1')] }));
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
@@ -526,6 +521,75 @@ describe('useScheduleTasks pagination', () => {
     const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
     expect(taskCalls).toHaveLength(1);
     expect(callParams(taskCalls[0]).page).toBeUndefined();
+  });
+
+  it('caps the remaining-page burst at 4 in flight (issue 2277)', async () => {
+    // count=5000 at page_size=200 → 25 pages, i.e. 24 remaining. Before the cap
+    // all 24 were dispatched in a single Promise.all tick.
+    const totalPages = 25;
+    const pages: Record<number, ApiTask[]> = {};
+    for (let p = 1; p <= totalPages; p++) pages[p] = [makeApiTask(`t-${p}`)];
+
+    let inFlight = 0;
+    let peak = 0;
+    getMock.mockImplementation((url: string, config?: GetConfig) => {
+      if (url !== '/tasks/') {
+        return Promise.resolve(paginatedResponse([]));
+      }
+      const page = Number(config?.params?.page ?? 1);
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      // Two microtask yields so concurrently-dispatched requests overlap rather
+      // than each completing before the next is issued.
+      return Promise.resolve()
+        .then(() => Promise.resolve())
+        .then(() => {
+          inFlight--;
+          return { data: { results: pages[page] ?? [], next: null, previous: null, count: 5000 } };
+        });
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Every page still fetched, and all 25 rows present — the cap paces the
+    // burst, it does not truncate the result.
+    const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
+    expect(taskCalls).toHaveLength(totalPages);
+    expect(result.current.tasks).toHaveLength(totalPages);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it('preserves page order across the capped burst (issue 2277)', async () => {
+    // 5 pages, served slowest-first, so a "push as they resolve" concatenation
+    // would come back reversed.
+    const pages: Record<number, ApiTask[]> = {
+      1: [makeApiTask('t-1')],
+      2: [makeApiTask('t-2')],
+      3: [makeApiTask('t-3')],
+      4: [makeApiTask('t-4')],
+      5: [makeApiTask('t-5')],
+    };
+    getMock.mockImplementation((url: string, config?: GetConfig) => {
+      if (url !== '/tasks/') return Promise.resolve(paginatedResponse([]));
+      const page = Number(config?.params?.page ?? 1);
+      let chain = Promise.resolve();
+      // Later pages resolve after fewer yields, so page 5 lands before page 2.
+      for (let i = 0; i < (6 - page) * 2; i++) chain = chain.then(() => Promise.resolve());
+      return chain.then(() => ({
+        data: { results: pages[page] ?? [], next: null, previous: null, count: 900 },
+      }));
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3', 't-4', 't-5']);
   });
 });
 
@@ -559,9 +623,7 @@ describe('useScheduleTasks dependency pagination (#773)', () => {
     const depPage1 = [makeApiDep('d-1'), makeApiDep('d-2')];
     const depPage2 = [makeApiDep('d-3')];
     // count=250 with page_size=200 → 2 pages.
-    getMock.mockImplementation(
-      countDrivenGet('/dependencies/', 250, { 1: depPage1, 2: depPage2 }),
-    );
+    getMock.mockImplementation(countDrivenGet('/dependencies/', 250, { 1: depPage1, 2: depPage2 }));
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
@@ -610,9 +672,7 @@ describe('useScheduleTasks dependency pagination (#773)', () => {
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    const byId = Object.fromEntries(
-      result.current.links!.map((l) => [l.id, l.isCritical]),
-    );
+    const byId = Object.fromEntries(result.current.links!.map((l) => [l.id, l.isCritical]));
     expect(byId['dc']).toBe(true);
     expect(byId['dm']).toBe(false);
   });
