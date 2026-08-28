@@ -902,8 +902,17 @@ rows are refused — a partial success, not an error.
 Read that middle row carefully. The edge check names the Resource Manager band, but
 [who may create a task](#who-may-create-a-task) *excludes* that band from this
 endpoint entirely — so a Resource Manager token is refused outright and never
-reaches the edge gate its own role appears in. **Provision a service account that
-must write dependencies at Admin or above.**
+reaches the edge gate its own role appears in. **A service account that writes
+dependencies *through this endpoint* must be Admin or above.**
+
+**That is a property of this endpoint, not of the role.** A Resource Manager *may*
+author dependency edges — see [`POST /api/v1/dependencies/`](#dependencies), which
+gates on `IsProjectScheduler` and admits the band. The two rules do not nest: task
+content admits Team Member, Admin and Owner and excludes Resource Manager, while
+dependency edges admit Resource Manager, Admin and Owner and exclude Team Member
+(ADR-0773 §7). Each admits exactly the band the other refuses. This endpoint writes
+both in one request and so applies the stricter of the two at the door, which is why
+the band that may draw an edge cannot draw one *here*.
 
 When a caller's role cannot author edges at all, the response says so once, at the
 top level, rather than leaving you to infer it from N rejected edges:
