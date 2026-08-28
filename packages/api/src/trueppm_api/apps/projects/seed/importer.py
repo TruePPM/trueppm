@@ -1460,7 +1460,11 @@ class _SeedImporter:
             # which is exactly the interval every planned-vs-actual view reads.
             # The replay path (``_apply_baseline_capture``) already backdates this
             # way; the declarative path simply never did.
-            captured = self._date_opt(bl_data.get("captured_at"), slug)
+            # A capture happened when it happened, so this must not weekend-snap:
+            # two baselines whose offsets snap differently render an interval that
+            # is not the one the pack authored. The replay path backdates from a
+            # `resolve_timestamp`, which never snaps -- this keeps the two agreeing.
+            captured = self._date_opt(bl_data.get("captured_at"), slug, snap=False)
             if captured is not None:
                 Baseline.objects.filter(pk=baseline.pk).update(
                     created_at=self._creation_dt(captured)

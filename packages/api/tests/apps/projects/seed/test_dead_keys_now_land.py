@@ -7,6 +7,7 @@ can be declared and left unread. These prove the four that already had.
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -46,15 +47,24 @@ def _pack(stem: str) -> dict[str, Any]:
 def test_declared_baselines_keep_their_authored_capture_date(owner: Any) -> None:
     """The interval between two baselines is what planned-vs-actual is measured
     over. auto_now_add collapsed Bayside's 75-day gap onto one afternoon."""
-    program = import_seed(_pack("bayside-civic-center"), owner=owner, create_users=True)
+    pack = _pack("bayside-civic-center")
+    # Pin a Wednesday anchor. Sitework authors its contract baseline at "A-88"
+    # and its rebaseline at "A-13"; from a Wednesday the first lands on a
+    # Saturday and the second on a Thursday, so weekend-snapping the capture
+    # date would move only the first and render the gap as 73 days (#3123).
+    pack["anchor"] = "2026-08-26"
+    program = import_seed(pack, owner=owner, create_users=True)
     sitework = Project.objects.get(program=program, name__icontains="Sitework")
 
     captured = sorted(
         Baseline.objects.filter(project=sitework).values_list("created_at", flat=True)
     )
     assert len(captured) == 2, "sitework declares a contract baseline and a rebaseline"
+    # Exact, not a floor: a capture is a historical moment, so the rendered gap
+    # must be the authored one on every import weekday, not merely a large one.
+    assert [d.date() for d in captured] == [date(2026, 5, 30), date(2026, 8, 13)]
     gap = (captured[1] - captured[0]).days
-    assert gap > 60, f"contract -> rebaseline collapsed to {gap} days"
+    assert gap == 75, f"contract -> rebaseline renders {gap} days, authored 75"
 
 
 def test_a_rebaseline_sorts_after_the_baseline_it_replaces(owner: Any) -> None:
