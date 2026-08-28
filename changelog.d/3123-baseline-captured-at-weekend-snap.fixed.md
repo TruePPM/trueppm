@@ -1,0 +1,1 @@
+Baseline capture dates in the bundled sample packs no longer shift to the next working day. The interval between two baselines — which planned-vs-actual views measure over — now matches what the pack authored, whatever day the demo data is loaded.
