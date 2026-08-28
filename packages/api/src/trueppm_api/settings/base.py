@@ -2096,6 +2096,17 @@ SPECTACULAR_SETTINGS = {
     # stable `FrequencyEnum` component (a regression). Pin the retention enum back
     # to `FrequencyEnum` and the recurrence enum to `RecurrenceFrequencyEnum`.
     "ENUM_NAME_OVERRIDES": {
+        # #3037: the bulk refusal vocabulary. Pinned rather than left to
+        # drf-spectacular's derived naming because these two names are the handle a
+        # generated client's types carry — the whole point of publishing the enum is
+        # that an integrator can branch on it, and a component that renames itself
+        # when an unrelated field's choices change would break exactly that.
+        # `code` appears on three buckets of one response and must resolve to ONE
+        # component, not three postfixed variants.
+        "TaskBulkRefusalCodeEnum": "trueppm_api.apps.projects.refusal_codes.BulkRefusalCode",
+        "StructuralUndoBlockedReasonEnum": (
+            "trueppm_api.apps.projects.refusal_codes.StructuralUndoBlockedReason"
+        ),
         "StateEnum": "trueppm_api.apps.projects.models.SprintState",
         "PurgeRunStateEnum": "trueppm_api.apps.observability.models.PurgeRun.State",
         "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",

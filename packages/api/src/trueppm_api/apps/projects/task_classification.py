@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Q
 
 from trueppm_api.apps.access.permissions import can_user_edit_task
+from trueppm_api.apps.projects.refusal_codes import BulkRefusalCode
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -52,9 +53,13 @@ if TYPE_CHECKING:
 
 #: A milestone row was left unclassified on at least one axis. Reported as a *skip*,
 #: never a rejection: a classification crossing a gate is a documented no-op, so one
-#: milestone inside a phase cannot fail the rows around it. Mirrors
-#: ``task_bulk.CODE_MILESTONE_GATE`` so the two batch write paths speak one vocabulary.
-CODE_MILESTONE_GATE = "milestone_gate"
+#: milestone inside a phase cannot fail the rows around it.
+#:
+#: Bound to the shared enum rather than mirroring ``task_bulk``'s constant by hand
+#: (#3037). The two batch write paths are meant to speak one vocabulary, and the old
+#: comment said so — but a second string literal asserting sameness is exactly what
+#: drifts, and nothing would have failed if it had.
+CODE_MILESTONE_GATE = BulkRefusalCode.MILESTONE_GATE.value
 
 #: Maximum rows one cascade may resolve.
 #:

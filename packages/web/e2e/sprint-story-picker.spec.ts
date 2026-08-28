@@ -405,6 +405,7 @@ async function routeBulk(
               })),
               rejected: [],
               skipped: [],
+              capabilities_denied: [],
               operation_id: null,
             },
       ),
@@ -467,6 +468,7 @@ test.describe('Sprint story picker (#2670, #2914)', () => {
           },
         ],
         skipped: [],
+        capabilities_denied: [],
         operation_id: null,
       }),
     ]);

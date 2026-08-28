@@ -42,6 +42,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from trueppm_api.apps.projects.refusal_codes import StructuralUndoBlockedReason
+
 if TYPE_CHECKING:
     from rest_framework.request import Request
 
@@ -282,14 +284,14 @@ def undo_blocked_reason(operation: StructuralOperation, *, check_shape: bool = T
     from trueppm_api.apps.projects.models import SyncBatchOperationStatus
 
     if operation.status == SyncBatchOperationStatus.UNDONE:
-        return "already_undone"
+        return StructuralUndoBlockedReason.ALREADY_UNDONE.value
     if not operation.undoable:
-        return "too_large"
+        return StructuralUndoBlockedReason.TOO_LARGE.value
     if _newest_active_id(operation) != operation.pk:
-        return "not_top_of_stack"
+        return StructuralUndoBlockedReason.NOT_TOP_OF_STACK.value
     if check_shape and _describe_shape_drift(operation):
-        return "shape_changed"
-    return ""
+        return StructuralUndoBlockedReason.SHAPE_CHANGED.value
+    return StructuralUndoBlockedReason.NONE.value
 
 
 def _shape_drift(operation: StructuralOperation) -> list[dict[str, Any]]:
@@ -434,20 +436,20 @@ def undo_structural_operation(
             return dict(locked.result_summary.get("undo", {}))
 
         reason = undo_blocked_reason(locked)
-        if reason == "too_large":
+        if reason == StructuralUndoBlockedReason.TOO_LARGE:
             raise StructuralUndoRejected(
-                "too_large",
+                StructuralUndoBlockedReason.TOO_LARGE.value,
                 "This change affected too many rows to be reversed automatically.",
             )
-        if reason == "not_top_of_stack":
+        if reason == StructuralUndoBlockedReason.NOT_TOP_OF_STACK:
             raise StructuralUndoRejected(
-                "not_top_of_stack",
+                StructuralUndoBlockedReason.NOT_TOP_OF_STACK.value,
                 "Undo the more recent change first.",
                 extra={"blocking_operation_id": str(_newest_active_id(locked))},
             )
-        if reason == "shape_changed":
+        if reason == StructuralUndoBlockedReason.SHAPE_CHANGED:
             raise StructuralUndoRejected(
-                "shape_changed",
+                StructuralUndoBlockedReason.SHAPE_CHANGED.value,
                 "The outline has changed here since — this can no longer be undone.",
                 extra={"changed": _describe_shape_drift(locked)},
             )

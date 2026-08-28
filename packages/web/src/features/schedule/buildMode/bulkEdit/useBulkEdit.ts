@@ -119,7 +119,15 @@ export function useBulkEdit({
       // selection of nothing but summary rows). Report it as the result it is
       // rather than sending an empty `operations` array the server would reject.
       if (operations.length === 0) {
-        setResult({ applied: [], rejected: [], skipped: [], operation_id: null });
+        setResult({
+          applied: [],
+          rejected: [],
+          skipped: [],
+          // Nothing was sent, so nothing was denied — this synthesizes the shape
+          // the server would have returned, and the server always sends the key.
+          capabilities_denied: [],
+          operation_id: null,
+        });
         return;
       }
       setError(null);

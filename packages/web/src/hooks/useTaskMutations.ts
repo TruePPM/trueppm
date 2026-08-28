@@ -637,7 +637,7 @@ export interface BulkRowRejection {
   index: number;
   /** `null` when the row was rejected before an id could be parsed. */
   id: string | null;
-  code: string;
+  code: BulkRefusalCode;
   message: string;
 }
 
@@ -698,11 +698,47 @@ export interface BulkAppliedEntry {
   outcome: 'created' | 'updated' | 'deleted';
 }
 
+/**
+ * The closed set of machine codes a `tasks/bulk` 207 can put in `code` (#3037).
+ *
+ * Mirrors `BulkRefusalCode` in `apps/projects/refusal_codes.py`, which is published
+ * as the `TaskBulkRefusalCodeEnum` component in `docs/api/openapi.json`. Kept by hand
+ * because `types.ts` and these interfaces are hand-maintained, not generated (#2609)
+ * — check any change against the schema, and against the pytest that asserts every
+ * enum member reaches it.
+ *
+ * The distinction this union exists to let a caller make: retrying the identical row
+ * is futile for `malformed_id`, `self_reference`, `cyclic_dependency` and `invalid`;
+ * it may succeed later for `unresolved_endpoint`, `conflict` and `forbidden`; and
+ * `tombstoned` / `milestone_gate` are documented no-ops rather than failures.
+ */
+export type BulkRefusalCode =
+  | 'malformed_id'
+  | 'id_unavailable'
+  | 'not_found'
+  | 'forbidden'
+  | 'invalid'
+  | 'conflict'
+  | 'cyclic_dependency'
+  | 'self_reference'
+  | 'unresolved_endpoint'
+  | 'tombstoned'
+  | 'milestone_gate';
+
+/**
+ * A capability the caller's role could not exercise on this request (#3037).
+ *
+ * `dependencies` is the only member today: task rows and dependency edges sit at two
+ * different permission floors inside one request, and the response says so once
+ * rather than leaving the caller to infer it from N rejected edges.
+ */
+export type BulkCapability = 'dependencies';
+
 /** One row a 207 batch response skipped as a documented no-op (#2723 §4). */
 export interface BulkSkippedEntry {
   index: number;
   id: string | null;
-  code: string;
+  code: BulkRefusalCode;
   message: string;
 }
 
@@ -711,6 +747,16 @@ export interface TaskBulkResponse {
   applied: BulkAppliedEntry[];
   rejected: BulkRowRejection[];
   skipped: BulkSkippedEntry[];
+  /**
+   * Capabilities this request used that the caller's role cannot exercise (#3037).
+   *
+   * Always `[]` on every path the web takes today — no web caller sends a
+   * `dependencies` bucket, so no web caller can be denied one. It is typed here
+   * anyway because it is on the wire and a client that models the response has to
+   * model it; deliberately NOT surfaced in the paste receipt, which would be a
+   * clause that can never render. See the MR for #3037.
+   */
+  capabilities_denied: BulkCapability[];
   /**
    * ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates — pass to
    * `useUndoPasteManyOperation`. Null when the batch created no rows.

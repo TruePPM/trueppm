@@ -793,7 +793,8 @@ reported in exactly one of three buckets:
   "applied":  [{ "index": 0, "id": "…", "op": "create", "outcome": "created", "task": { } }],
   "rejected": [{ "index": 7, "id": null, "code": "malformed_id", "message": "…" }],
   "skipped":  [{ "index": 9, "id": "…", "code": "tombstoned", "message": "…" }],
-  "dependencies": { "applied": [], "rejected": [] }
+  "dependencies": { "applied": [], "rejected": [] },
+  "capabilities_denied": []
 }
 ```
 
@@ -805,16 +806,30 @@ omit one.
 `skipped` is a documented no-op, never a failure: a `create` whose id matches a
 deleted row, or a classification that crossed a milestone gate.
 
-| `code` | Meaning |
-|---|---|
-| `malformed_id` | `id` was not a UUID. Reported before any database query runs |
-| `id_unavailable` | The id cannot be used. Deliberately non-asserting — it does **not** reveal whether the id exists in a project you cannot see |
-| `not_found` | No such task in this project |
-| `forbidden` | Your role does not permit this row's operation |
-| `invalid` | The row body failed validation |
-| `conflict` | A database constraint rejected the row |
-| `cyclic_dependency` / `self_reference` | The edge would make the schedule infeasible |
-| `unresolved_endpoint` | An edge endpoint is not a live task in scope |
+**`code` is a closed set, and the schema publishes it.** It is emitted as the
+`TaskBulkRefusalCodeEnum` component, so a generated client types it as a union
+rather than as `string` and you can branch on it without reading our source. The
+"Retry" column is the distinction the enum exists to let you make.
+
+| `code` | Meaning | Retry? |
+|---|---|---|
+| `malformed_id` | `id` was not a UUID. Reported before any database query runs | Never — the row is wrong |
+| `id_unavailable` | The id cannot be used. Deliberately non-asserting — it does **not** reveal whether the id exists in a project you cannot see | Never |
+| `not_found` | No such task in this project | Never |
+| `forbidden` | Your role does not permit this row's operation | Only after a role change |
+| `invalid` | The row body failed validation | Never — fix the row |
+| `conflict` | A database constraint rejected the row | Yes — it may be a lost race |
+| `cyclic_dependency` / `self_reference` | The edge would make the schedule infeasible | Never |
+| `unresolved_endpoint` | An edge endpoint is not a live task in scope | Yes — the endpoint may exist later |
+| `tombstoned` | A `create` whose id matches a deleted row here. A `skipped` no-op, not a failure | No — same request, same non-answer |
+| `milestone_gate` | A cascade crossed a milestone, which is a gate rather than a failure. Also a `skipped` no-op | No |
+
+The structural-undo surface publishes its own separate set as
+`StructuralUndoBlockedReasonEnum` (`undo_blocked_reason` on a
+`StructuralOperation`, and `code` in the `409` from `POST .../undo/`). Its values
+are `already_undone`, `too_large`, `not_top_of_stack`, `shape_changed`,
+`forbidden` — plus the **empty string**, which means the operation *is* undoable
+and is the value you will see most often.
 
 ##### Client-minted ids
 
@@ -866,10 +881,50 @@ so an edge may name a task whose `create` appears **later** in `operations`:
 ```
 
 Edges name plain task UUIDs — there is no positional or by-name reference syntax.
-Creating an edge requires Resource Manager or above, checked per edge, so a Team
-Member's task rows still apply while only their edge rows are refused. Every edge
-is checked against the dependency-graph guard before any of them is written; a
-detected cycle refuses the edges on the cycle path and leaves the task rows applied.
+Every edge is checked against the dependency-graph guard before any of them is
+written; a detected cycle refuses the edges on the cycle path and leaves the task
+rows applied.
+
+###### Two permission floors in one request
+
+**Writing edges needs a higher role than writing rows**, and this is the one part
+of the endpoint that is easy to get wrong when provisioning a service account. The
+check is per edge, so a Team Member's task rows still apply while only their edge
+rows are refused — a partial success, not an error.
+
+| Role | Task rows | Dependency edges |
+|---|---|---|
+| Team Member | ✅ | ❌ `forbidden` per edge |
+| **Resource Manager** | ❌ **`403` on the whole request** | ❌ |
+| Admin | ✅ | ✅ |
+| Owner | ✅ | ✅ |
+
+Read that middle row carefully. The edge check names the Resource Manager band, but
+[who may create a task](#who-may-create-a-task) *excludes* that band from this
+endpoint entirely — so a Resource Manager token is refused outright and never
+reaches the edge gate its own role appears in. **A service account that writes
+dependencies *through this endpoint* must be Admin or above.**
+
+**That is a property of this endpoint, not of the role.** A Resource Manager *may*
+author dependency edges — see [`POST /api/v1/dependencies/`](#dependencies), which
+gates on `IsProjectScheduler` and admits the band. The two rules do not nest: task
+content admits Team Member, Admin and Owner and excludes Resource Manager, while
+dependency edges admit Resource Manager, Admin and Owner and exclude Team Member
+(ADR-0773 §7). Each admits exactly the band the other refuses. This endpoint writes
+both in one request and so applies the stricter of the two at the door, which is why
+the band that may draw an edge cannot draw one *here*.
+
+When a caller's role cannot author edges at all, the response says so once, at the
+top level, rather than leaving you to infer it from N rejected edges:
+
+```json
+{ "capabilities_denied": ["dependencies"] }
+```
+
+It is `[]` whenever every capability the request used was available — including a
+batch that carried no edges, which is not the same claim as "this caller could have
+written them". The per-edge `dependencies.rejected` entries are unchanged and still
+present; `capabilities_denied` explains them, it does not replace them.
 
 ##### Limits and replay
 

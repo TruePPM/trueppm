@@ -214,6 +214,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
           applied,
           rejected: [],
           skipped: [],
+          capabilities_denied: [],
           dependencies: { applied: [], rejected: [] },
           operation_id: 'op-e2e-1',
         }),
