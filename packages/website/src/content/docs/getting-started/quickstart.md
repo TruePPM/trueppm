@@ -1,7 +1,15 @@
 ---
 title: Quickstart
 description: Get from a fresh clone to a populated workspace in five minutes.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+The `load_sample_project` command shown below replaces the `seed_demo_project`
+and `seed_ga_launch_program` seeders in **0.4**. On the current release (0.3),
+seed the demo with `python manage.py seed_demo_project --with-personas` instead.
+See the [roadmap](/overview/roadmap/).
+:::
 
 The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** (recommended for evaluation) and the **API tutorial** (recommended for learning the data model).
 
@@ -17,8 +25,8 @@ a Jira export? Neither route below is it; see
 From **0.3**, the fastest path is the in-app **Load demo data** button on the
 **Programs** page, which imports the **Atlas Platform Launch** hybrid sample (the
 sprint-to-milestone bridge, preloaded). See the
-[sample projects guide](/getting-started/sample-projects/). The `seed_demo_project`
-route below is still the way to get the six **persona logins** used in the walkthrough.
+[sample projects guide](/getting-started/sample-projects/). The command-line
+route below is the way to get the **persona logins** used in the walkthrough.
 :::
 
 :::tip[Evaluating, not just clicking around?]
@@ -27,27 +35,27 @@ into "here is how to verify each 0.3 capability" — which sample, which login,
 which screen, and what to expect — in about 30 minutes.
 :::
 
-The `seed_demo_project` management command bootstraps a coherent "Platform Migration" project with phases, work packages, baselines, resources, eight closed sprints, an active sprint mid-window, a planned sprint, a retro with a promoted action item, and board WIP overload. With `--with-personas` it also creates six demo logins.
+The `load_sample_project` management command loads a bundled sample program. The default — **Atlas Platform Launch** — is a three-project hybrid program with a WBS, a CPM schedule with cross-project dependencies, baselines, resources, closed sprints with velocity history, an active sprint mid-window, a retro with a promoted action item, and a populated risk register. With `--with-personas` it also gives the sample's persona accounts a usable password and prints their usernames.
 
 ```bash
-docker compose exec api python manage.py seed_demo_project --with-personas
+docker compose exec api python manage.py load_sample_project --with-personas
 ```
 
 That's it. Sign in at `http://localhost:5173` as any of the personas (password: `demo`):
 
 | Username | Persona | What to look at first |
 |---|---|---|
-| `maya` | Scrum Master | The [Sprints workspace](/features/sprints/) — burndown, capacity, backlog, retro all populated |
-| `raj` | Project Manager | The [Schedule view](/features/schedule/) — critical path lit up, milestones, baseline overlay |
-| `sarah` | Resource Manager | The Capacity preflight panel surfaces an over-allocated member |
-| `diana` | PMO Director | The [Multi-team Sprints lens](/features/multi-team-lens/) shows both projects |
-| `carlos` | Executive | The Overview page with forecast confidence intervals |
-| `tom` | Senior Engineer | The Board with the WIP overload chip and his assigned cards |
+| `atlas-alex` | Program lead (Owner) | The [program Schedule](/features/schedule/) — the critical path running across all three projects |
+| `atlas-priya` | Delivery lead (Admin) | The [Sprints workspace](/features/sprints/) — burndown, capacity, backlog, and a retro with a promoted action |
+| `atlas-sam` | Scheduler | The Schedule view — milestones, baseline overlay, and the calendar exception that moves the finish |
+| `atlas-jordan` | GTM lead (Admin) | The Board for the GTM Readiness project, and its sprint-to-milestone bridge |
+| `atlas-mei` | Engineer (Member) | The Board with her assigned cards and the tasks she is blocked on |
+| `atlas-ada` | Stakeholder (Viewer) | The Overview page with forecast confidence intervals — and everything read-only |
 
-Re-running the command clears the prior demo and re-seeds, so you can refresh after pulling new features.
+Re-running the command replaces the prior copy of the sample and re-seeds, so you can refresh after pulling new features.
 
 :::note[Password outside the dev stack]
-`demo` is the persona password only because the local Docker stack runs with `DEBUG=True`. On a non-dev install (`DEBUG=False`) the command prints a one-time random password at the end of its output unless you set `TRUEPPM_DEMO_PASSWORD`. See [`seed_demo_project`](/administration/management-commands/#seed_demo_project).
+`demo` is the persona password only because the local Docker stack runs with `DEBUG=True`. On a non-dev install (`DEBUG=False`) the command prints a one-time random password at the end of its output unless you set `TRUEPPM_DEMO_PASSWORD`. See [`load_sample_project`](/administration/management-commands/#load_sample_project).
 :::
 
 :::tip[The story behind the demo]

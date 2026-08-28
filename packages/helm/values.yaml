@@ -938,7 +938,7 @@ admin:
 # Public read-only demo mode (#2440, ADR-0658).
 #
 # DEMO ONLY — never enable against an instance holding real data. A post-install/
-# post-upgrade hook Job runs `seed_demo_project`, which is destructively idempotent:
+# post-upgrade hook Job runs `load_sample_project`, which is destructively idempotent:
 # it DELETES the demo projects it previously created and their demo-only resources,
 # then re-seeds them. Since #2476 that reset is scoped to the seeder's own output (the
 # `is_sample` flag it sets, not the project name), so it cannot reap a real project

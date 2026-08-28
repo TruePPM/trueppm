@@ -6,7 +6,7 @@ Usage::
     python manage.py seed_capacity --projects 1 --tasks 4000 --edge-ratio 1.2
     python manage.py seed_capacity --reset
 
-Distinct from ``load_sample_project`` and ``seed_demo_project``, which load a
+Distinct from ``load_sample_project``, which loads a
 *fixed-size* curated fixture for evaluation. This command generates an
 arbitrarily large, structurally realistic program so the published scale
 envelope can be measured to first sustained breach rather than to a fixed load.

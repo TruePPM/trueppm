@@ -6,7 +6,7 @@
 #
 # What it does:
 #   * brings up Postgres + Valkey + API + a hardened nginx;
-#   * auto-seeds the "Platform Migration" hybrid sample (seed_demo_project,
+#   * auto-seeds the bundled Atlas hybrid sample (load_sample_project,
 #     WITHOUT persona logins — the demo is reachable ONLY through the product's
 #     own tokenized, read-only share link, so there is no login and no write
 #     path — near-zero abuse surface);
@@ -120,12 +120,14 @@ services:
         condition: service_healthy
 
   # Auto-seeds the read-only sample and mints/pins the public share link.
-  # NOTE: seed_demo_project runs WITHOUT --with-personas — no persona logins,
+  # NOTE: load_sample_project runs WITHOUT --with-personas — no persona logins,
   # no TRUEPPM_DEMO_PASSWORD path (#1350). Read-only posture by construction.
+  # With no superuser on this stack the command owns the program with the
+  # sample's own persona account, which also carries an unusable password.
   demo-seed:
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
-      sh -c "python manage.py seed_demo_project &&
+      sh -c "python manage.py load_sample_project &&
              python manage.py create_demo_share_link"
     environment:
       <<: *api-env

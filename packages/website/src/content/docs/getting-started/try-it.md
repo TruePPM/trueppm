@@ -5,7 +5,7 @@ documentedFor: "0.4"
 ---
 
 TruePPM's zero-config evaluation paths — a hosted read-only demo and a
-one-command local trial, both preloaded with the same **Platform Migration**
+one-command local trial, both preloaded with the same **Atlas Platform Launch**
 hybrid sample project — arrive with the **0.4 beta**. This page previews them.
 
 :::caution[Ships in 0.4 — not yet available]
@@ -17,7 +17,7 @@ trial pulls published release images that are not built until then (#939). Until
 
 **To evaluate TruePPM today,** use the verified developer stack: bring the
 dev stack up with `docker compose up -d`, then seed a populated demo with
-`seed_demo_project --with-personas` (six persona logins, full write access). See
+`load_sample_project --with-personas` (persona logins, full write access). See
 [Installation](/getting-started/installation/) for the step-by-step, and the
 [Quickstart](/getting-started/quickstart/) for what to click once it is up.
 :::
@@ -48,7 +48,7 @@ docker compose -f docker-compose.demo.yml up
 
 That is the entire setup. The stack:
 
-- migrates the database and seeds the **Platform Migration** sample (no manual
+- migrates the database and loads the **Atlas Platform Launch** sample (no manual
   data entry);
 - mints the public read-only **schedule share link** and prints its URL in the
   `demo-seed` container logs;
@@ -142,18 +142,19 @@ The SHA-256 proves you received the file this instance ships — transport
 integrity. It is not a signature and says nothing about who wrote the file.
 :::
 
-:::note[Two demo programs are not files]
-`seed_demo_project` and `seed_ga_launch_program` build their data in Python
-rather than from a fixture, so there is nothing to download or verify for those
-two. Auditing the four bundled files is not the same as auditing every way this
-codebase can produce demo data.
+:::note[One seeder still is not a file]
+Every bundled *sample* is now a downloadable fixture — the two Python seeders
+that were not (`seed_demo_project`, `seed_ga_launch_program`) have been retired.
+`seed_capacity` remains procedural, but it generates a synthetic program for
+scale testing rather than a curated demo story, so it is not in the catalog and
+has nothing to verify.
 :::
 
 ## Which path do I want?
 
 | You want to… | Use | Available |
 |---|---|---|
-| Evaluate a populated demo **today** | [Installation](/getting-started/installation/) → `seed_demo_project --with-personas` | Now (0.3) |
+| Evaluate a populated demo **today** | [Installation](/getting-started/installation/) → `load_sample_project --with-personas` | Now (0.3) |
 | Learn the data model via the API | [Quickstart, Route B](/getting-started/quickstart/#route-b--build-a-project-via-the-api) | Now (0.3) |
 | Stand up a real instance for your team | [Installation](/getting-started/installation/) | Now (0.3) |
 | Click around a live schedule with nothing to install | [try.trueppm.com](https://try.trueppm.com) | Ships in 0.4 |

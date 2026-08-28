@@ -23,8 +23,8 @@ from trueppm_api.apps.workspace.models import Workspace
 
 
 def _seed() -> Project:
-    call_command("seed_demo_project")
-    return Project.objects.get(name="Platform Migration", is_sample=True)
+    call_command("load_sample_project")
+    return Project.objects.get(name="Platform Core", is_sample=True)
 
 
 @pytest.mark.django_db
@@ -42,7 +42,7 @@ def test_publishes_the_sample_project_not_a_real_name_collision() -> None:
     an unscoped lookup would raise MultipleObjectsReturned — or worse, publish a
     public share link for the operator's real schedule.
     """
-    real = Project.objects.create(name="Platform Migration", start_date=date(2026, 1, 1))
+    real = Project.objects.create(name="Platform Core", start_date=date(2026, 1, 1))
     sample = _seed()
 
     call_command("create_demo_share_link", token="fixed-demo-token")
@@ -150,7 +150,7 @@ def test_never_creates_persona_logins() -> None:
     _seed()  # no --with-personas
     call_command("create_demo_share_link", token="tok")
     User = get_user_model()
-    # seed_demo_project without personas creates no persona usernames.
+    # load_sample_project without personas creates no persona usernames.
     assert not User.objects.filter(username__in=["maya", "raj", "tom"]).exists()
 
 
@@ -261,7 +261,7 @@ def test_board_token_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_pinned_board_link_survives_reseed(monkeypatch: pytest.MonkeyPatch) -> None:
     """The upgrade path: a destructive re-seed drops both links; pinning restores them.
 
-    seed_demo_project deletes the prior demo project and ShareLink.project is
+    load_sample_project replaces the prior sample program and ShareLink.project is
     on_delete=CASCADE, so an unpinned link would change its public URL on every
     `helm upgrade`. This is the behaviour ADR-0658 D5 depends on.
     """

@@ -50,7 +50,7 @@ And because every date is *computed* rather than stored, it is answerable. That'
 
 ## Run the whole platform — five minutes
 
-The engine above is the sixty-second check. This is the five-minute one: the full stack, populated with real data and six persona logins.
+The engine above is the sixty-second check. This is the five-minute one: the full stack, populated with the bundled Atlas sample program and its persona logins.
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git
@@ -58,10 +58,10 @@ cd trueppm
 docker compose up -d
 ```
 
-Migrations and admin bootstrap run automatically on first startup (~20 seconds). Then seed a populated demo with six persona logins:
+Migrations and admin bootstrap run automatically on first startup (~20 seconds). Then load the bundled Atlas sample program, with persona logins:
 
 ```bash
-docker compose exec api python manage.py seed_demo_project --with-personas
+docker compose exec api python manage.py load_sample_project --with-personas
 ```
 
 The command prints the shared persona password when it finishes — in the default local dev stack (Django `DEBUG` on) that's `demo`. To pick your own, set `TRUEPPM_DEMO_PASSWORD` before seeding; on a non-debug (e.g. production) instance the seed generates a random password and prints it once instead.

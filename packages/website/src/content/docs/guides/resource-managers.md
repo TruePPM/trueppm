@@ -39,10 +39,10 @@ Run these steps in order — they start from a machine with nothing running.
 
    ```bash
    make up
-   docker compose exec api python manage.py seed_demo_project --with-personas
+   docker compose exec api python manage.py load_sample_project --with-personas
    ```
 
-   The command prints the six persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+   The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
 2. **Sign in as the resource manager.** Open `http://localhost:5173` and sign in as **`sarah`** — Sarah Lee, seeded with the **Scheduler** role.
 

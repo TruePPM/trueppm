@@ -1,0 +1,1432 @@
+{
+  "schema_version": "2.0",
+  "program": {
+    "slug": "ga-launch",
+    "name": "1.0 GA Launch",
+    "description": "Ship 1.0 to GA: platform scale, security sign-off, SOC 2 audit-readiness, and a coordinated launch — four workstreams, one outcome, joined by cross-project dependencies and shared people.",
+    "methodology": "HYBRID",
+    "color": "#7C3AED",
+    "lead": "dana"
+  },
+  "accounts": [
+    {
+      "slug": "dana",
+      "username": "ga-dana",
+      "email": "ga-dana@trueppm.demo",
+      "display_name": "Dana Okafor",
+      "role": "OWNER"
+    },
+    {
+      "slug": "malcolm",
+      "username": "ga-malcolm",
+      "email": "ga-malcolm@trueppm.demo",
+      "display_name": "Malcolm Reed",
+      "role": "ADMIN"
+    },
+    {
+      "slug": "janus",
+      "username": "ga-janus",
+      "email": "ga-janus@trueppm.demo",
+      "display_name": "Janus Vela",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "bob",
+      "username": "ga-bob",
+      "email": "ga-bob@trueppm.demo",
+      "display_name": "Bob Tran",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "jane",
+      "username": "ga-jane",
+      "email": "ga-jane@trueppm.demo",
+      "display_name": "Jane Castellano",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "lena",
+      "username": "ga-lena",
+      "email": "ga-lena@trueppm.demo",
+      "display_name": "Lena Fischer",
+      "role": "MEMBER"
+    },
+    {
+      "slug": "sam",
+      "username": "ga-sam",
+      "email": "ga-sam@trueppm.demo",
+      "display_name": "Sam Ortiz",
+      "role": "VIEWER"
+    }
+  ],
+  "calendars": [
+    {
+      "slug": "standard",
+      "name": "Standard 5-day",
+      "working_days": 31,
+      "hours_per_day": 8.0,
+      "timezone": "UTC",
+      "exceptions": [
+        {
+          "exc_start": "A-1",
+          "exc_end": "A-1",
+          "description": "Company holiday"
+        }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "slug": "dana",
+      "name": "Dana Okafor",
+      "job_role": "Program Manager",
+      "max_units": 1.0,
+      "account": "dana",
+      "calendar": "standard"
+    },
+    {
+      "slug": "malcolm",
+      "name": "Malcolm Reed",
+      "job_role": "Platform Engineer",
+      "max_units": 1.0,
+      "account": "malcolm",
+      "calendar": "standard"
+    },
+    {
+      "slug": "janus",
+      "name": "Janus Vela",
+      "job_role": "InfoSec Engineer",
+      "max_units": 1.0,
+      "account": "janus",
+      "calendar": "standard"
+    },
+    {
+      "slug": "bob",
+      "name": "Bob Tran",
+      "job_role": "Compliance Officer",
+      "max_units": 1.0,
+      "account": "bob",
+      "calendar": "standard"
+    },
+    {
+      "slug": "jane",
+      "name": "Jane Castellano",
+      "job_role": "Marketing Lead",
+      "max_units": 1.0,
+      "account": "jane",
+      "calendar": "standard"
+    },
+    {
+      "slug": "lena",
+      "name": "Lena Fischer",
+      "job_role": "Technical Writer",
+      "max_units": 0.6,
+      "account": "lena",
+      "calendar": "standard"
+    },
+    {
+      "slug": "sam",
+      "name": "Sam Ortiz",
+      "job_role": "Backend Engineer",
+      "max_units": 1.0,
+      "account": "sam",
+      "calendar": "standard"
+    }
+  ],
+  "risks": [
+    {
+      "slug": "gate-convergence",
+      "title": "Three gates converge on one launch date",
+      "description": "GA go-live is a hard successor of both Platform GA-ready and Security sign-off, and SOC 2 evidence is gated on security sign-off as well. One slip in remediation moves the launch and the audit together.",
+      "status": "MITIGATING",
+      "probability": 4,
+      "impact": 5,
+      "category": "ORGANIZATIONAL",
+      "response": "MITIGATE",
+      "owner": "dana",
+      "mitigation_due_date": "A+9",
+      "trigger": "Security sign-off forecasts past day 54 on the program pass.",
+      "contingency": "Decouple what can be decoupled — evidence collection splits off the non-security controls — and hold the press embargo rather than the engineering date.",
+      "tasks": [
+        "ga-security:5",
+        "ga-marketing:5",
+        "ga-soc2:3"
+      ]
+    },
+    {
+      "slug": "shared-people",
+      "title": "The same three people carry all four workstreams",
+      "status": "OPEN",
+      "probability": 4,
+      "impact": 3,
+      "category": "ORGANIZATIONAL",
+      "response": "ACCEPT",
+      "owner": "dana",
+      "trigger": "Any named person exceeds 100% allocation for more than one week.",
+      "contingency": "Sequence rather than staff: the program has no bench, so contention is resolved by moving a workstream right, not by adding people.",
+      "notes": "Visible on the team view: Malcolm runs the platform rollout at 1.0 while carrying security remediation at 0.5, and Lena is split across policy authoring and launch content at 0.6 total capacity.",
+      "tasks": [
+        "ga-platform:2",
+        "ga-security:3"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "slug": "ga-platform",
+      "name": "Platform Hardening & Scale",
+      "description": "Make the platform carry GA load: capacity, autoscaling, failover, and the observability to prove it.",
+      "methodology": "WATERFALL",
+      "start_date": "A-45",
+      "calendar": "standard",
+      "lead": "malcolm",
+      "default_view": "SCHEDULE",
+      "labels": [
+        {
+          "slug": "critical-path",
+          "name": "Critical path",
+          "color": "rose",
+          "position": 0
+        },
+        {
+          "slug": "cross-workstream",
+          "name": "Cross-workstream",
+          "color": "purple",
+          "position": 1
+        },
+        {
+          "slug": "gate",
+          "name": "Release gate",
+          "color": "amber",
+          "position": 2
+        },
+        {
+          "slug": "compliance",
+          "name": "Compliance evidence",
+          "color": "teal",
+          "position": 3
+        }
+      ],
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Capacity baseline & load test",
+          "status": "COMPLETE",
+          "planned_start": "A-45",
+          "assignee": "malcolm",
+          "governance_class": "flow",
+          "duration": 5,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "labels": [
+            "critical-path"
+          ],
+          "assignments": [
+            {
+              "resource": "malcolm",
+              "units": 1.0
+            },
+            {
+              "resource": "sam",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "2",
+          "name": "Autoscaling & HA rollout",
+          "status": "COMPLETE",
+          "planned_start": "A-38",
+          "assignee": "malcolm",
+          "governance_class": "flow",
+          "duration": 8,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "labels": [
+            "critical-path"
+          ],
+          "assignments": [
+            {
+              "resource": "malcolm",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "3",
+          "name": "DB failover hardening",
+          "status": "COMPLETE",
+          "planned_start": "A-38",
+          "assignee": "sam",
+          "governance_class": "flow",
+          "duration": 6,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "assignments": [
+            {
+              "resource": "sam",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "4",
+          "name": "Observability & alerting",
+          "status": "COMPLETE",
+          "planned_start": "A-38",
+          "assignee": "malcolm",
+          "governance_class": "flow",
+          "duration": 4,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "assignments": [
+            {
+              "resource": "malcolm",
+              "units": 0.5
+            }
+          ]
+        },
+        {
+          "wbs_path": "5",
+          "name": "Platform GA-ready",
+          "status": "COMPLETE",
+          "planned_start": "A-22",
+          "assignee": "malcolm",
+          "governance_class": "gated",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "percent_complete": 100.0,
+          "labels": [
+            "gate"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "1",
+          "successor": "2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2",
+          "successor": "4",
+          "dep_type": "SS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2",
+          "successor": "5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3",
+          "successor": "5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "4",
+          "successor": "5",
+          "dep_type": "FS",
+          "lag": 0
+        }
+      ],
+      "members": [
+        {
+          "account": "malcolm",
+          "role": "OWNER"
+        },
+        {
+          "account": "dana",
+          "role": "ADMIN"
+        },
+        {
+          "account": "sam",
+          "role": "MEMBER"
+        },
+        {
+          "account": "janus",
+          "role": "VIEWER"
+        }
+      ],
+      "risks": [
+        {
+          "slug": "load-ceiling",
+          "title": "Autoscaling ceiling below the GA load projection",
+          "status": "RESOLVED",
+          "probability": 3,
+          "impact": 5,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "malcolm",
+          "trigger": "Load test sustains under 3x current peak without horizontal recovery.",
+          "contingency": "Pre-warm a second node pool for launch week and cap signup throughput until the autoscaler is proven.",
+          "notes": "Closed by the capacity baseline: held at 5x peak with recovery inside 90 seconds.",
+          "tasks": [
+            "1",
+            "2"
+          ]
+        },
+        {
+          "slug": "failover-untested",
+          "title": "DB failover never exercised under write load",
+          "status": "OPEN",
+          "probability": 2,
+          "impact": 5,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "sam",
+          "trigger": "A failover drill has not run against production-shaped write volume within 30 days of GA.",
+          "contingency": "Declare GA with a documented manual failover runbook and a named on-call owner, rather than an untested automatic path.",
+          "tasks": [
+            "3"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "ga-soc2",
+      "name": "SOC 2 Type II Readiness",
+      "description": "Reach audit-ready: control gaps closed, policies written, evidence collected, and an internal readiness review passed.",
+      "methodology": "WATERFALL",
+      "start_date": "A-45",
+      "calendar": "standard",
+      "lead": "bob",
+      "default_view": "SCHEDULE",
+      "labels": [
+        {
+          "slug": "critical-path",
+          "name": "Critical path",
+          "color": "rose",
+          "position": 0
+        },
+        {
+          "slug": "cross-workstream",
+          "name": "Cross-workstream",
+          "color": "purple",
+          "position": 1
+        },
+        {
+          "slug": "gate",
+          "name": "Release gate",
+          "color": "amber",
+          "position": 2
+        },
+        {
+          "slug": "compliance",
+          "name": "Compliance evidence",
+          "color": "teal",
+          "position": 3
+        }
+      ],
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Control gap assessment",
+          "status": "COMPLETE",
+          "planned_start": "A-45",
+          "assignee": "bob",
+          "governance_class": "flow",
+          "duration": 5,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "labels": [
+            "compliance"
+          ],
+          "assignments": [
+            {
+              "resource": "bob",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "2",
+          "name": "Policy authoring",
+          "status": "COMPLETE",
+          "planned_start": "A-38",
+          "assignee": "bob",
+          "governance_class": "flow",
+          "duration": 8,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "labels": [
+            "compliance"
+          ],
+          "assignments": [
+            {
+              "resource": "bob",
+              "units": 1.0
+            },
+            {
+              "resource": "lena",
+              "units": 0.5
+            },
+            {
+              "resource": "janus",
+              "units": 0.5
+            }
+          ]
+        },
+        {
+          "wbs_path": "3",
+          "name": "Evidence collection",
+          "status": "NOT_STARTED",
+          "planned_start": "A+11",
+          "assignee": "bob",
+          "governance_class": "flow",
+          "duration": 6,
+          "delivery_mode": "waterfall",
+          "labels": [
+            "compliance",
+            "cross-workstream"
+          ],
+          "assignments": [
+            {
+              "resource": "bob",
+              "units": 1.0
+            },
+            {
+              "resource": "janus",
+              "units": 0.5
+            }
+          ]
+        },
+        {
+          "wbs_path": "4",
+          "name": "Internal readiness review",
+          "status": "NOT_STARTED",
+          "planned_start": "A+19",
+          "assignee": "bob",
+          "governance_class": "flow",
+          "duration": 3,
+          "delivery_mode": "waterfall",
+          "assignments": [
+            {
+              "resource": "bob",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "5",
+          "name": "Audit-ready",
+          "status": "NOT_STARTED",
+          "planned_start": "A+23",
+          "assignee": "bob",
+          "governance_class": "gated",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "labels": [
+            "gate"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "1",
+          "successor": "2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3",
+          "successor": "4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "4",
+          "successor": "5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "ga-security:5",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 0
+        }
+      ],
+      "members": [
+        {
+          "account": "bob",
+          "role": "OWNER"
+        },
+        {
+          "account": "dana",
+          "role": "ADMIN"
+        },
+        {
+          "account": "lena",
+          "role": "MEMBER"
+        },
+        {
+          "account": "janus",
+          "role": "MEMBER"
+        }
+      ],
+      "risks": [
+        {
+          "slug": "evidence-window",
+          "title": "Evidence window opens after the audit date is booked",
+          "description": "Evidence collection is gated on security sign-off across the workstream boundary, so any slip in remediation lands directly on the audit.",
+          "status": "MITIGATING",
+          "probability": 4,
+          "impact": 4,
+          "category": "ORGANIZATIONAL",
+          "response": "MITIGATE",
+          "owner": "bob",
+          "mitigation_due_date": "A+5",
+          "trigger": "Security sign-off (ga-security:5) forecasts later than day 54.",
+          "contingency": "Collect the control evidence that does not depend on the pen-test remediation first, and hold only the security controls for the sign-off — splitting the dependency rather than waiting on all of it.",
+          "tasks": [
+            "3"
+          ]
+        },
+        {
+          "slug": "writer-contention",
+          "title": "Shared technical writer is the constraint on two workstreams",
+          "status": "OPEN",
+          "probability": 4,
+          "impact": 3,
+          "category": "ORGANIZATIONAL",
+          "response": "ACCEPT",
+          "owner": "dana",
+          "trigger": "Policy authoring and launch content need the writer in the same week.",
+          "contingency": "Launch content wins; the policy narrative is drafted by the control owners and edited after GA.",
+          "notes": "Accepted deliberately: Lena is at 0.6 capacity across both, and backfilling a writer mid-program costs more ramp than it returns.",
+          "tasks": [
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "ga-security",
+      "name": "Security Pen-Test & Remediation",
+      "description": "Third-party pen test, triage, remediation of the criticals, and a verified sign-off the launch and the audit both gate on.",
+      "methodology": "HYBRID",
+      "start_date": "A-45",
+      "calendar": "standard",
+      "lead": "janus",
+      "default_view": "BOARD",
+      "labels": [
+        {
+          "slug": "critical-path",
+          "name": "Critical path",
+          "color": "rose",
+          "position": 0
+        },
+        {
+          "slug": "cross-workstream",
+          "name": "Cross-workstream",
+          "color": "purple",
+          "position": 1
+        },
+        {
+          "slug": "gate",
+          "name": "Release gate",
+          "color": "amber",
+          "position": 2
+        },
+        {
+          "slug": "compliance",
+          "name": "Compliance evidence",
+          "color": "teal",
+          "position": 3
+        }
+      ],
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Pen-test execution",
+          "status": "COMPLETE",
+          "planned_start": "A-21",
+          "assignee": "janus",
+          "governance_class": "flow",
+          "duration": 5,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "labels": [
+            "critical-path"
+          ],
+          "assignments": [
+            {
+              "resource": "janus",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "2",
+          "name": "Findings triage",
+          "status": "COMPLETE",
+          "planned_start": "A-14",
+          "assignee": "janus",
+          "governance_class": "flow",
+          "duration": 2,
+          "delivery_mode": "waterfall",
+          "percent_complete": 100.0,
+          "assignments": [
+            {
+              "resource": "janus",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "3",
+          "name": "Remediate critical findings",
+          "status": "IN_PROGRESS",
+          "planned_start": "A-5",
+          "assignee": "janus",
+          "governance_class": "flow",
+          "duration": 7,
+          "delivery_mode": "waterfall",
+          "percent_complete": 65.0,
+          "labels": [
+            "critical-path"
+          ],
+          "assignments": [
+            {
+              "resource": "janus",
+              "units": 1.0
+            },
+            {
+              "resource": "malcolm",
+              "units": 0.5
+            },
+            {
+              "resource": "sam",
+              "units": 0.5
+            }
+          ]
+        },
+        {
+          "wbs_path": "4",
+          "name": "Re-test & verification",
+          "status": "NOT_STARTED",
+          "planned_start": "A+5",
+          "assignee": "janus",
+          "governance_class": "flow",
+          "duration": 3,
+          "delivery_mode": "waterfall",
+          "assignments": [
+            {
+              "resource": "janus",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "5",
+          "name": "Security sign-off",
+          "status": "NOT_STARTED",
+          "planned_start": "A+9",
+          "assignee": "janus",
+          "governance_class": "gated",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "labels": [
+            "gate",
+            "cross-workstream"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "1",
+          "successor": "2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "3",
+          "successor": "4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "4",
+          "successor": "5",
+          "dep_type": "FS",
+          "lag": 0
+        }
+      ],
+      "board_columns": [
+        {
+          "status": "BACKLOG",
+          "label": "Backlog",
+          "visible": true
+        },
+        {
+          "status": "NOT_STARTED",
+          "label": "Not started",
+          "visible": true
+        },
+        {
+          "status": "IN_PROGRESS",
+          "label": "In progress",
+          "visible": true,
+          "wip_limit": 3
+        },
+        {
+          "status": "REVIEW",
+          "label": "Review",
+          "visible": true,
+          "wip_limit": 2
+        },
+        {
+          "status": "COMPLETE",
+          "label": "Complete",
+          "visible": true
+        }
+      ],
+      "members": [
+        {
+          "account": "janus",
+          "role": "OWNER"
+        },
+        {
+          "account": "dana",
+          "role": "ADMIN"
+        },
+        {
+          "account": "malcolm",
+          "role": "SCHEDULER"
+        },
+        {
+          "account": "sam",
+          "role": "MEMBER"
+        },
+        {
+          "account": "bob",
+          "role": "VIEWER"
+        }
+      ],
+      "baselines": [
+        {
+          "name": "GA plan baseline",
+          "is_active": true,
+          "captured_at": "A-25",
+          "tasks": [
+            {
+              "task": "1",
+              "start": "A-21",
+              "finish": "A-16",
+              "duration": 5
+            },
+            {
+              "task": "2",
+              "start": "A-14",
+              "finish": "A-12",
+              "duration": 2
+            },
+            {
+              "task": "3",
+              "start": "A-10",
+              "finish": "A-5",
+              "duration": 5
+            },
+            {
+              "task": "4",
+              "start": "A+0",
+              "finish": "A+3",
+              "duration": 3
+            }
+          ]
+        }
+      ],
+      "risks": [
+        {
+          "slug": "critical-findings",
+          "title": "Pen test surfaces more criticals than the window absorbs",
+          "status": "MITIGATING",
+          "probability": 4,
+          "impact": 5,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "janus",
+          "mitigation_due_date": "A+5",
+          "trigger": "More than five critical findings, or any critical needing an architectural change rather than a patch.",
+          "contingency": "Ship GA with the criticals fixed and the highs documented as known issues with compensating controls, rather than moving the date.",
+          "notes": "Realized in triage: seven criticals against a plan sized for four. Remediation re-estimated 5 days to 7 — the variance the GA plan baseline shows.",
+          "tasks": [
+            "2",
+            "3"
+          ]
+        },
+        {
+          "slug": "retest-capacity",
+          "title": "Re-test slot depends on the external tester's calendar",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 4,
+          "category": "EXTERNAL",
+          "response": "TRANSFER",
+          "owner": "janus",
+          "trigger": "The tester cannot confirm a re-test slot within five working days of remediation completing.",
+          "contingency": "The retainer carries a contractual 5-day re-test SLA with a fee credit; the fallback is an internal verification pass signed by the security lead, which the auditor accepts as interim evidence.",
+          "notes": "The schedule exposure is transferred by contract, not removed — a credit does not buy back the launch date, which is why this stays open.",
+          "tasks": [
+            "4",
+            "5"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "ga-marketing",
+      "name": "GA Marketing & Launch",
+      "description": "Positioning, the launch site, blog and docs, press outreach, and the go-live itself — gated on the platform and the security sign-off.",
+      "methodology": "AGILE",
+      "start_date": "A-45",
+      "calendar": "standard",
+      "lead": "jane",
+      "default_view": "BOARD",
+      "labels": [
+        {
+          "slug": "critical-path",
+          "name": "Critical path",
+          "color": "rose",
+          "position": 0
+        },
+        {
+          "slug": "cross-workstream",
+          "name": "Cross-workstream",
+          "color": "purple",
+          "position": 1
+        },
+        {
+          "slug": "gate",
+          "name": "Release gate",
+          "color": "amber",
+          "position": 2
+        },
+        {
+          "slug": "compliance",
+          "name": "Compliance evidence",
+          "color": "teal",
+          "position": 3
+        }
+      ],
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "Messaging & positioning",
+          "status": "COMPLETE",
+          "planned_start": "A-45",
+          "assignee": "jane",
+          "governance_class": "flow",
+          "duration": 3,
+          "delivery_mode": "scrum",
+          "type": "story",
+          "story_points": 5,
+          "sprint": "ga-s1",
+          "percent_complete": 100.0,
+          "assignments": [
+            {
+              "resource": "jane",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "2",
+          "name": "Website & landing pages",
+          "status": "COMPLETE",
+          "planned_start": "A-41",
+          "assignee": "jane",
+          "governance_class": "flow",
+          "duration": 5,
+          "delivery_mode": "scrum",
+          "type": "story",
+          "story_points": 8,
+          "sprint": "ga-s1",
+          "percent_complete": 100.0,
+          "assignments": [
+            {
+              "resource": "jane",
+              "units": 1.0
+            },
+            {
+              "resource": "lena",
+              "units": 0.5
+            }
+          ]
+        },
+        {
+          "wbs_path": "3",
+          "name": "Launch blog & docs",
+          "status": "IN_PROGRESS",
+          "planned_start": "A-5",
+          "assignee": "lena",
+          "governance_class": "flow",
+          "duration": 3,
+          "delivery_mode": "scrum",
+          "type": "story",
+          "story_points": 5,
+          "sprint": "ga-s2",
+          "remaining_points": 2,
+          "percent_complete": 60.0,
+          "assignments": [
+            {
+              "resource": "lena",
+              "units": 0.5
+            }
+          ]
+        },
+        {
+          "wbs_path": "4",
+          "name": "Press & analyst outreach",
+          "status": "NOT_STARTED",
+          "planned_start": "A-1",
+          "assignee": "jane",
+          "governance_class": "flow",
+          "duration": 3,
+          "delivery_mode": "scrum",
+          "type": "story",
+          "story_points": 5,
+          "sprint": "ga-s2",
+          "assignments": [
+            {
+              "resource": "jane",
+              "units": 1.0
+            }
+          ]
+        },
+        {
+          "wbs_path": "5",
+          "name": "GA announcement go-live",
+          "status": "NOT_STARTED",
+          "planned_start": "A+13",
+          "assignee": "jane",
+          "governance_class": "gated",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "type": "task",
+          "sprint": "ga-s2",
+          "labels": [
+            "gate",
+            "critical-path",
+            "cross-workstream"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "1",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1",
+          "successor": "4",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "ga-platform:5",
+          "successor": "5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "ga-security:5",
+          "successor": "5",
+          "dep_type": "FS",
+          "lag": 0
+        }
+      ],
+      "board_columns": [
+        {
+          "status": "BACKLOG",
+          "label": "Backlog",
+          "visible": true
+        },
+        {
+          "status": "NOT_STARTED",
+          "label": "Not started",
+          "visible": true
+        },
+        {
+          "status": "IN_PROGRESS",
+          "label": "In progress",
+          "visible": true
+        },
+        {
+          "status": "REVIEW",
+          "label": "Review",
+          "visible": true
+        },
+        {
+          "status": "COMPLETE",
+          "label": "Complete",
+          "visible": true
+        }
+      ],
+      "members": [
+        {
+          "account": "jane",
+          "role": "OWNER"
+        },
+        {
+          "account": "dana",
+          "role": "ADMIN"
+        },
+        {
+          "account": "lena",
+          "role": "MEMBER"
+        },
+        {
+          "account": "bob",
+          "role": "VIEWER"
+        }
+      ],
+      "sprints": [
+        {
+          "slug": "ga-s1",
+          "name": "Launch Readiness",
+          "goal": "Land the messaging and the launch site so everything after this is content, not positioning.",
+          "state": "COMPLETED",
+          "start_date": "A-45",
+          "finish_date": "A-34",
+          "capacity_points": 18,
+          "committed_points": 18,
+          "completed_points": 13
+        },
+        {
+          "slug": "ga-s2",
+          "name": "Launch Week",
+          "goal": "Finish the launch content and execute the GA go-live behind the platform and security gates.",
+          "state": "ACTIVE",
+          "start_date": "A-5",
+          "finish_date": "A+6",
+          "capacity_points": 12,
+          "committed_points": 10,
+          "target_milestone": "5"
+        }
+      ],
+      "risks": [
+        {
+          "slug": "announce-before-signoff",
+          "title": "Announcement date set before the security gate clears",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 5,
+          "category": "PROJECT_MANAGEMENT",
+          "response": "AVOID",
+          "owner": "jane",
+          "trigger": "Press embargo time is committed to an outlet before security sign-off is forecast to clear.",
+          "contingency": "Avoided by construction rather than managed: the go-live milestone is a hard successor of both the platform and security gates, so the date cannot be promised ahead of them without breaking the schedule.",
+          "tasks": [
+            "5"
+          ]
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "at": "A-42T09:00",
+      "action": "task.status",
+      "target": "task:ga-platform:1",
+      "actor": "malcolm",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-40T16:00",
+      "action": "task.comment",
+      "target": "task:ga-platform:1",
+      "actor": "malcolm",
+      "body": "Capacity baseline is in: we held 5x observed peak with autoscaler recovery inside 90 seconds. That is well past the GA projection."
+    },
+    {
+      "at": "A-40T16:30",
+      "action": "risk.note",
+      "target": "risk:load-ceiling",
+      "actor": "malcolm",
+      "body": "Load test cleared the ceiling we were worried about. Closing this — the remaining platform exposure is failover, not scale."
+    },
+    {
+      "at": "A-40T17:00",
+      "action": "risk.status",
+      "target": "risk:load-ceiling",
+      "actor": "malcolm",
+      "to": "RESOLVED"
+    },
+    {
+      "at": "A-39T09:00",
+      "action": "task.status",
+      "target": "task:ga-platform:1",
+      "actor": "malcolm",
+      "to": "COMPLETE"
+    },
+    {
+      "at": "A-25T11:00",
+      "action": "risk.status",
+      "target": "risk:failover-untested",
+      "actor": "sam",
+      "to": "OPEN"
+    },
+    {
+      "at": "A-22T15:00",
+      "action": "task.comment",
+      "target": "task:ga-platform:5",
+      "actor": "malcolm",
+      "body": "Platform is GA-ready: autoscaling, failover hardening and alerting are all in. The go-live milestone can stop waiting on us."
+    },
+    {
+      "at": "A-33T10:00",
+      "action": "task.comment",
+      "target": "task:ga-soc2:2",
+      "actor": "bob",
+      "body": "Policy authoring needs Lena for the control narratives, but launch content needs her the same week. Flagging it rather than quietly double-booking."
+    },
+    {
+      "at": "A-33T14:00",
+      "action": "task.assign",
+      "target": "task:ga-soc2:2",
+      "actor": "dana",
+      "assignee": "bob"
+    },
+    {
+      "at": "A-32T09:30",
+      "action": "risk.note",
+      "target": "risk:writer-contention",
+      "actor": "dana",
+      "body": "Decision: launch content wins the week. Control owners draft their own narratives and Lena edits after GA. Backfilling a writer now costs more ramp than it buys — accepting this rather than pretending we solved it."
+    },
+    {
+      "at": "A-32T10:00",
+      "action": "risk.status",
+      "target": "risk:writer-contention",
+      "actor": "dana",
+      "to": "OPEN"
+    },
+    {
+      "at": "A-21T09:00",
+      "action": "task.status",
+      "target": "task:ga-security:1",
+      "actor": "janus",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-16T17:00",
+      "action": "task.status",
+      "target": "task:ga-security:1",
+      "actor": "janus",
+      "to": "COMPLETE"
+    },
+    {
+      "at": "A-14T09:00",
+      "action": "task.status",
+      "target": "task:ga-security:2",
+      "actor": "janus",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-13T16:00",
+      "action": "task.comment",
+      "target": "task:ga-security:2",
+      "actor": "janus",
+      "body": "Triage done: seven criticals, not the four we planned for. Two of them are auth-path issues that need a real fix, not a patch."
+    },
+    {
+      "at": "A-13T16:30",
+      "action": "risk.note",
+      "target": "risk:critical-findings",
+      "actor": "janus",
+      "body": "Re-estimating remediation from 5 days to 7. The GA plan baseline keeps the 5 so the slip stays visible instead of becoming the plan."
+    },
+    {
+      "at": "A-13T17:00",
+      "action": "risk.status",
+      "target": "risk:critical-findings",
+      "actor": "janus",
+      "to": "MITIGATING"
+    },
+    {
+      "at": "A-12T09:00",
+      "action": "task.status",
+      "target": "task:ga-security:2",
+      "actor": "janus",
+      "to": "COMPLETE"
+    },
+    {
+      "at": "A-5T09:00",
+      "action": "task.status",
+      "target": "task:ga-security:3",
+      "actor": "janus",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-4T09:00",
+      "action": "task.comment",
+      "target": "task:ga-security:3",
+      "actor": "dana",
+      "body": "Pulling Malcolm onto the auth-path criticals at half time. He is still carrying the platform rollout, so this is a real over-allocation, not a spare-capacity reassignment — it is the trade we are choosing."
+    },
+    {
+      "at": "A-4T09:30",
+      "action": "task.assign",
+      "target": "task:ga-security:3",
+      "actor": "dana",
+      "assignee": "janus"
+    },
+    {
+      "at": "A-2T15:00",
+      "action": "task.comment",
+      "target": "task:ga-security:3",
+      "actor": "janus",
+      "body": "Five of seven criticals closed and verified locally. The two auth-path fixes are in review."
+    },
+    {
+      "at": "A-1T10:00",
+      "action": "risk.status",
+      "target": "risk:evidence-window",
+      "actor": "bob",
+      "to": "MITIGATING"
+    },
+    {
+      "at": "A-1T10:30",
+      "action": "risk.note",
+      "target": "risk:evidence-window",
+      "actor": "bob",
+      "body": "Splitting evidence collection: everything that does not depend on the pen-test result starts now, and only the security controls wait for sign-off. That takes the audit date off the remediation critical path."
+    },
+    {
+      "at": "A-45T09:00",
+      "action": "sprint.activate",
+      "target": "sprint:ga-marketing:ga-s1",
+      "actor": "jane"
+    },
+    {
+      "at": "A-43T10:00",
+      "action": "task.status",
+      "target": "task:ga-marketing:1",
+      "actor": "jane",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-41T16:00",
+      "action": "task.status",
+      "target": "task:ga-marketing:1",
+      "actor": "jane",
+      "to": "COMPLETE"
+    },
+    {
+      "at": "A-40T09:00",
+      "action": "task.status",
+      "target": "task:ga-marketing:2",
+      "actor": "jane",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-36T15:00",
+      "action": "task.comment",
+      "target": "task:ga-marketing:3",
+      "actor": "lena",
+      "body": "Blog and docs are not going to land this sprint — the policy narratives took the days. Carrying it to Launch Week."
+    },
+    {
+      "at": "A-35T17:00",
+      "action": "task.status",
+      "target": "task:ga-marketing:2",
+      "actor": "jane",
+      "to": "COMPLETE"
+    },
+    {
+      "at": "A-34T17:00",
+      "action": "sprint.close",
+      "target": "sprint:ga-marketing:ga-s1",
+      "actor": "jane",
+      "goal_outcome": "MET"
+    },
+    {
+      "at": "A-34T17:30",
+      "action": "retro.action",
+      "target": "sprint:ga-marketing:ga-s1",
+      "actor": "jane",
+      "body": "Stop committing Lena's stories at full points while she is split across two workstreams — size them at her real availability."
+    },
+    {
+      "at": "A-34T17:45",
+      "action": "retro.action",
+      "target": "sprint:ga-marketing:ga-s1",
+      "actor": "lena",
+      "body": "Draft the launch blog against the messaging doc before the site copy is final, so the two are not serialized."
+    },
+    {
+      "at": "A-5T09:00",
+      "action": "sprint.activate",
+      "target": "sprint:ga-marketing:ga-s2",
+      "actor": "jane"
+    },
+    {
+      "at": "A-5T09:30",
+      "action": "task.status",
+      "target": "task:ga-marketing:3",
+      "actor": "lena",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-3T11:00",
+      "action": "task.comment",
+      "target": "task:ga-marketing:4",
+      "actor": "dana",
+      "body": "Adding a security-disclosure paragraph to press outreach — with seven criticals found and fixed, the announcement has to say so."
+    },
+    {
+      "at": "A-3T11:15",
+      "action": "sprint.scope_inject",
+      "target": "task:ga-marketing:4",
+      "actor": "dana",
+      "goal_impact": false
+    },
+    {
+      "at": "A-3T11:30",
+      "action": "sprint.scope_resolve",
+      "target": "task:ga-marketing:4",
+      "actor": "jane",
+      "to": "ACCEPTED",
+      "body": "Accepted. It is a paragraph, not a story, and shipping the announcement without it would be the bigger problem."
+    },
+    {
+      "at": "A-1T14:00",
+      "action": "task.comment",
+      "target": "task:ga-marketing:3",
+      "actor": "lena",
+      "body": "Blog draft is up and the docs diff is open for review. Two points left."
+    },
+    {
+      "at": "A+0T09:00",
+      "action": "task.comment",
+      "target": "task:ga-marketing:5",
+      "actor": "dana",
+      "body": "Go-live still gates on both the platform milestone (clear) and security sign-off (in remediation). Holding the embargo time until sign-off forecasts."
+    }
+  ]
+}

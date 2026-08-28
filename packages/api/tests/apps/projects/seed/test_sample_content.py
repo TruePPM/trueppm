@@ -29,6 +29,7 @@ _SEEDS_DIR = (
 SAMPLES = [
     ("aurora-mobile-app", 3, 5),
     ("bayside-civic-center", 10, 15),
+    ("ga-launch", 9, 9),
     ("helios-crm-replacement", 5, 5),
     ("atlas-platform-launch", 20, 20),
 ]
@@ -36,7 +37,12 @@ SAMPLES = [
 ALL_ROLES = {"OWNER", "ADMIN", "SCHEDULER", "MEMBER", "VIEWER"}
 
 # Samples that run sprints — they must exercise the sprint scope/goal vocabulary.
-AGILE_SAMPLES = ["aurora-mobile-app", "helios-crm-replacement", "atlas-platform-launch"]
+AGILE_SAMPLES = [
+    "aurora-mobile-app",
+    "helios-crm-replacement",
+    "atlas-platform-launch",
+    "ga-launch",
+]
 
 
 def _load(stem: str) -> dict:

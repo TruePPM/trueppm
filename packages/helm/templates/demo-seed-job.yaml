@@ -2,7 +2,7 @@
 {{/*
 Demo-mode seed hook (ADR-0658, #2440).
 
-Runs `seed_demo_project` then `create_demo_share_link` once per release, as a
+Runs `load_sample_project` then `create_demo_share_link` once per release, as a
 post-install/post-upgrade Helm hook, so a `demo.enabled` deployment comes up with
 the public read-only sample already loaded and its share links minted.
 
@@ -19,8 +19,8 @@ Three details that are load-bearing and must not be "simplified" away:
      stdout; deleting the Job on success would destroy the only in-cluster record of
      them. Keeping the completed Job leaves `kubectl logs` as a recovery path.
 
-  3. Both share tokens must be pinned. `seed_demo_project` is destructively
-     idempotent (it deletes the prior demo projects and re-seeds) and
+  3. Both share tokens must be pinned. `load_sample_project` is destructively
+     idempotent (it replaces the prior sample program and re-seeds) and
      ShareLink.project is on_delete=CASCADE, so every `helm upgrade` drops the share
      links. Pinned tokens recreate them at identical URLs; unpinned ones would
      silently change the public URL on every upgrade. Hence the hard `fail` below
@@ -91,14 +91,16 @@ spec:
         - name: demo-seed
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # seed_demo_project runs WITHOUT --with-personas: no persona logins, no
+          # load_sample_project runs WITHOUT --with-personas: no persona logins, no
           # password path. The zero-accounts / no-auth-write-path posture is what
           # makes the baked demo secrets acceptable (ADR-0658 Context), so this flag
-          # must not be added here.
+          # must not be added here. With no superuser in a demo cluster the command
+          # owns the program with the sample's own persona account, which carries an
+          # unusable password — so this stays a zero-login-capable deployment.
           command:
             - sh
             - -c
-            - python manage.py seed_demo_project && python manage.py create_demo_share_link
+            - python manage.py load_sample_project && python manage.py create_demo_share_link
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           {{- with .Values.envFrom }}

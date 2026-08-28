@@ -50,7 +50,7 @@ spec:
     - Egress
   ingress:
     {{- /* backup: the CronJob's pg_dump (#320). demo-seed: its migrate init
-         container and seed_demo_project (ADR-0658). Both are off by default, but
+         container and load_sample_project (ADR-0658). Both are off by default, but
          both break under enforcement if omitted. */}}
     - from:
         {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "celery-worker" "celery-beat" "backup" "demo-seed")) | nindent 8 }}

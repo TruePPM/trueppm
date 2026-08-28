@@ -49,7 +49,7 @@ Run these steps in order — they start from a machine with nothing running.
 
    ```bash
    make up
-   docker compose exec api python manage.py seed_demo_project --with-personas
+   docker compose exec api python manage.py load_sample_project --with-personas
    docker compose exec api python manage.py load_sample_project --with-personas   # Atlas
    ```
 

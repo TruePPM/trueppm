@@ -16,7 +16,7 @@ TruePPM ships a small set of Django management commands. Run them with
 `python manage.py <command>` inside the API container, for example:
 
 ```bash
-docker compose exec api python manage.py seed_demo_project --with-personas
+docker compose exec api python manage.py load_sample_project --with-personas
 ```
 
 ## `create_admin`
@@ -39,32 +39,36 @@ When a password is generated rather than supplied, it is written to the password
 (not the logs). See [Admin Password](/administration/admin-password/) for how to
 retrieve it on first boot.
 
-## `seed_demo_project`
+## `load_sample_project`
 
-Builds the **"Platform Migration"** demo project — a complete narrative covering the
-full hybrid PM flow (charter → decompose → schedule → capacity → stories → sprint
-planning → execute → forecast → close), with a WBS, a CPM schedule, a baseline,
-planned/active/closed sprints with burndown, board state, and a retrospective.
+Loads one of the bundled sample programs from its JSON fixture and flags every
+project it creates as sample data. This replaced the two Python seeders
+(`seed_demo_project`, `seed_ga_launch_program`): because a sample is now a
+declared document rather than procedural code, it can be downloaded, hashed,
+inspected, round-tripped through export/import, and loaded from **Settings →
+System → Demo data** — none of which was possible while the story lived in Python.
 
 | Flag | Effect |
 |------|--------|
-| `--with-personas` | Also creates six demo user logins (Maya, Raj, Diana, Sarah, Carlos, Tom) bound to the project with role-appropriate membership |
+| `--sample <key>` | Which sample to load. Default: `atlas-platform-launch`. See [sample projects](/getting-started/sample-projects/) for the full catalog |
+| `--owner <username>` | Who owns the loaded program. Defaults to the first superuser; failing that, the sample's own OWNER persona (created with an unusable password) |
+| `--with-personas` | Gives the sample's persona accounts the resolved demo password so they are loginable, and prints their namespaced usernames (e.g. `atlas-alex`) |
 
 The persona password is resolved so a fixed weak password never reaches a public
 instance: `TRUEPPM_DEMO_PASSWORD` env var if set, otherwise `demo` under
-`DEBUG=True`, otherwise a random token printed once at seed time. A value supplied
+`DEBUG=True`, otherwise a random token printed once at load time. A value supplied
 via `TRUEPPM_DEMO_PASSWORD` is not echoed back to stdout — only the generated
 random token (or the dev `demo` default) is printed.
 
-The command is **idempotent** — re-running clears the prior demo data and re-seeds it
-from scratch, so it is safe to run repeatedly while exploring.
+Without `--with-personas` the persona accounts still exist — task assignees, risk
+owners and the per-project RBAC matrix all reference them — but they carry unusable
+passwords and cannot be logged into. That is the property the [hosted demo's
+read-only posture](/getting-started/try-it/) rests on.
 
-The reset is scoped to the seeder's own output. It reaps only projects it created
-(matched on the demo names *and* the internal `is_sample` flag it sets), and only
-resources whose every project membership is one of those demo projects. A real project
-that happens to be named "Platform Migration", and a real person who happens to share a
-name with the demo roster, are both left untouched — `Project.name` is deliberately not
-unique, so the name alone was never a safe key.
+The command is **idempotent** — re-running replaces the prior copy of that sample
+and re-seeds it, so it is safe to run repeatedly while exploring. The replace is
+scoped by the internal `is_sample` flag the importer sets, so a real project that
+happens to share a name with a sample project is never touched.
 
 ## `create_demo_share_link`
 
@@ -72,12 +76,12 @@ Mints (or pins) the public read-only **share links** used by the hosted demo
 (`try.trueppm.com`) and prints their URLs. The demo dogfoods the product's own
 tokenized, read-only share links (#283 / #1486) rather than a bespoke read-only
 mode — no login, no write path, near-zero abuse surface. Run it after
-`seed_demo_project`; the [demo compose stack](/getting-started/try-it/) runs both
+`load_sample_project`; the [demo compose stack](/getting-started/try-it/) runs both
 automatically.
 
 | Flag | Effect |
 |------|--------|
-| `--project <name>` | Demo project to share (default: `Platform Migration`) |
+| `--project <name>` | Demo project to share (default: `Platform Core`, from the Atlas sample) |
 | `--token <token>` | Pin a fixed raw token for a stable, reprintable **schedule** URL (falls back to the `TRUEPPM_DEMO_SHARE_TOKEN` env var). Omit to mint a random token once |
 | `--token-board <token>` | Pin a fixed raw token for a **board** URL (falls back to `TRUEPPM_DEMO_SHARE_TOKEN_BOARD`). Omit and no board link is minted |
 | `--base-url <url>` | Public base URL of the demo host (falls back to `TRUEPPM_DEMO_BASE_URL`, else `http://localhost`) |
@@ -108,7 +112,7 @@ a token. This command never creates persona logins and never touches the
 
 :::caution[Pinning is mandatory under Helm]
 The [chart's demo mode](/administration/helm-values/#public-read-only-demo-mode)
-re-runs `seed_demo_project` on every upgrade, and that seed is destructive — share
+re-runs `load_sample_project` on every upgrade, and that load is destructive — share
 links cascade away with their project. Pinned tokens recreate the same URLs; unpinned
 ones would silently change the public URL on every upgrade, so the chart refuses to
 render without them.
@@ -124,7 +128,7 @@ minting, or it would print URLs that answer `410 Gone`.
 The override is written on the **demo project only**, never on the workspace. Every other
 project on the instance keeps inheriting the workspace default, so seeding the sample onto
 a real install does not loosen your sharing posture. The command picks its project by the
-seeder's internal `is_sample` flag, so it cannot touch a real project of the same name.
+importer's internal `is_sample` flag, so it cannot touch a real project of the same name.
 
 Two things still outrank it, and the command reports either one instead of printing a URL
 it knows will not work:
@@ -134,39 +138,31 @@ it knows will not work:
 - A workspace **Enforce** sharing policy with public sharing off (Enterprise). Share URLs
   return `410` until a workspace admin turns it on or relaxes the override policy.
 
-## `seed_ga_launch_program`
+## The "1.0 GA Launch" sample
 
-Builds the **"1.0 GA Launch"** hybrid sample *program* — one OSS program of four
-workstream projects (Platform Hardening & Scale, SOC 2 Type II Readiness, Security
-Pen-Test & Remediation, and GA Marketing & Launch) that together ship a single
-outcome. Where `seed_demo_project` tells a standalone-project story, this seed
-demonstrates what only a program can: **real accepted cross-project dependencies**
-that form a critical path running *across* projects, and **shared people who
-over-allocate in overlapping windows**. The critical path is genuinely computed by
-the program-scoped CPM pass — it stays correct when a task is dragged, rather than
-being hard-coded.
+The **"1.0 GA Launch"** program — four workstream projects (Platform Hardening &
+Scale, SOC 2 Type II Readiness, Security Pen-Test & Remediation, GA Marketing &
+Launch) shipping a single outcome — used to have its own `seed_ga_launch_program`
+command. It is now a bundled sample like every other:
 
-Alongside the four projects it seeds seven persona accounts and their linked
-resources, the per-project **5-role RBAC matrix** (Owner/Admin/Scheduler/Member/
-Viewer), two sprints on the Marketing project (a closed one with a burndown and a
-live one bound to the go-live milestone), a Kanban board on the Security project,
-and a shared 5-day calendar with one company holiday. Every project is flagged as
-**sample data**.
+```bash
+python manage.py load_sample_project --sample ga-launch
+```
 
-| Flag | Effect |
-|------|--------|
-| `--with-personas` | Gives the seven persona accounts the resolved demo password so they are loginable — same resolution as `seed_demo_project` (`TRUEPPM_DEMO_PASSWORD` if set, otherwise `demo` under `DEBUG=True`, otherwise a random token printed once at seed time) |
-
-Without `--with-personas` the persona accounts still exist — the RBAC matrix,
-project leads, and task assignees reference them — but they carry unusable passwords
-and cannot be logged into. The command is **idempotent**: re-running clears any prior
-"1.0 GA Launch" program and re-seeds it, so it is safe to run repeatedly.
+It demonstrates what only a program can: **cross-project dependencies** forming a
+critical path that runs *across* projects, and **shared people who over-allocate in
+overlapping windows**. The critical path is genuinely computed by the
+program-scoped CPM pass, so it stays correct when a task is dragged rather than
+being hard-coded. It also carries the per-project **5-role RBAC matrix**
+(Owner/Admin/Scheduler/Member/Viewer), a WIP-limited Kanban board on the Security
+workstream, two sprints on the Marketing workstream, and a shared calendar with a
+company holiday.
 
 ## `seed_capacity`
 
 Generates a **synthetic** program at a chosen scale, for capacity testing rather than
-demonstration. Where `seed_demo_project`, `seed_ga_launch_program`, and
-`load_sample_project` each load a *fixed-size* curated fixture, `seed_capacity` builds an
+demonstration. Where `load_sample_project` loads a *fixed-size* curated fixture,
+`seed_capacity` builds an
 arbitrarily large, structurally realistic program so the [published scale
 envelope](/administration/sizing/#tested-envelope) can be measured to its first sustained
 breach rather than against a fixed load. It is the seeder the [capacity
@@ -222,7 +218,7 @@ user-facing guide.
   flags its projects as sample data. Idempotent — re-running replaces the sample. The
   owner defaults to the first superuser. `--with-personas` gives the sample's persona
   accounts the resolved demo password so they are loginable and prints their real,
-  namespaced usernames (e.g. `atlas-alex`) — same resolution as `seed_demo_project`
+  namespaced usernames (e.g. `atlas-alex`) — same resolution as `load_sample_project`
   (`TRUEPPM_DEMO_PASSWORD` if set, else `demo` under `DEBUG=True`, else a random token
   printed once). Without it the personas exist but carry unusable passwords.
 - **`import_seed <path> [--owner <username>] [--create-users] [--no-replace]`** —

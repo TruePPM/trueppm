@@ -50,8 +50,8 @@ DEMO_TOKEN = "posture-test-demo-token"
 def _seed_demo() -> Project:
     """Seed exactly as both demo manifests do — no ``--with-personas``."""
 
-    call_command("seed_demo_project")
-    return Project.objects.get(name="Platform Migration", is_sample=True)
+    call_command("load_sample_project")
+    return Project.objects.get(name="Platform Core", is_sample=True)
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +73,38 @@ def test_seed_without_personas_creates_no_login_capable_account() -> None:
 
     login_capable = [u for u in User.objects.filter(is_active=True) if u.has_usable_password()]
     assert login_capable == [], (
-        "seed_demo_project without --with-personas created an account that can log in: "
+        "load_sample_project without --with-personas created an account that can log in: "
         f"{[u.get_username() for u in login_capable]}. The hosted demo's read-only posture "
         "depends on there being no way in."
     )
+
+
+@pytest.mark.django_db
+def test_demo_boot_sequence_works_with_no_superuser() -> None:
+    """The exact two commands the demo manifests run, on a virgin database.
+
+    This is the acceptance criterion for #3098 and it is not covered by the
+    tests above, which all seed through a fixture that has already resolved an
+    owner. ``load_sample_project`` requires one, and a demo deployment creates no
+    superuser — deliberately, since the read-only posture (ADR-0658) rests on
+    there being no login-capable account. So swapping the manifests from
+    ``seed_demo_project`` to ``load_sample_project`` without the sample-persona
+    owner fallback would have left the hosted demo unable to boot at all, with
+    nothing in the test suite noticing.
+    """
+
+    assert not User.objects.exists(), "precondition: a fresh demo deploy has no accounts"
+
+    call_command("load_sample_project")
+    call_command("create_demo_share_link", "--token", DEMO_TOKEN)
+
+    assert Project.objects.filter(name="Platform Core", is_sample=True).exists(), (
+        "the demo boot sequence did not produce the project create_demo_share_link publishes"
+    )
+    login_capable = [u.get_username() for u in User.objects.all() if u.has_usable_password()]
+    assert login_capable == [], f"the demo booted with login-capable accounts: {login_capable}"
+    assert not User.objects.filter(is_staff=True).exists()
+    assert not User.objects.filter(is_superuser=True).exists()
 
 
 @pytest.mark.django_db
@@ -92,7 +120,7 @@ def test_seed_without_personas_creates_no_staff_or_superuser() -> None:
 
     privileged = User.objects.filter(is_staff=True) | User.objects.filter(is_superuser=True)
     assert not privileged.exists(), (
-        "seed_demo_project without --with-personas created a staff/superuser account: "
+        "load_sample_project without --with-personas created a staff/superuser account: "
         f"{list(privileged.values_list('username', flat=True))}"
     )
 
@@ -105,7 +133,7 @@ def test_with_personas_is_the_only_way_to_get_a_login() -> None:
     the read-only assertion pass vacuously.
     """
 
-    call_command("seed_demo_project", "--with-personas")
+    call_command("load_sample_project", "--with-personas")
 
     login_capable = [u for u in User.objects.filter(is_active=True) if u.has_usable_password()]
     assert login_capable, (
@@ -239,4 +267,20 @@ def test_demo_share_link_read_needs_no_credentials(client: APIClient) -> None:
     response = client.get(f"/api/v1/share/schedule/{DEMO_TOKEN}/")
 
     assert response.status_code == 200
-    assert User.objects.filter(is_active=True).count() == 0
+    # This used to assert *zero user rows*. That held only incidentally:
+    # ``seed_demo_project`` built its personas lazily and left none behind on the
+    # non-persona path. ``load_sample_project`` (which replaced it in #3098) always
+    # materializes the sample's personas, because task assignees, risk owners and
+    # the per-project RBAC matrix all reference them — the same reason the old
+    # ``seed_ga_launch_program`` always created its seven.
+    #
+    # So the row count is no longer the property worth asserting; whether any of
+    # those rows can authenticate is. Be clear about the delta: the previous
+    # posture (no rows at all) was strictly stronger, and this one depends on
+    # every seeded row carrying an unusable password rather than on there being
+    # nothing to attack.
+    login_capable = [u for u in User.objects.filter(is_active=True) if u.has_usable_password()]
+    assert login_capable == [], (
+        "the anonymous demo read works, but seeded accounts can authenticate: "
+        f"{[u.get_username() for u in login_capable]}"
+    )

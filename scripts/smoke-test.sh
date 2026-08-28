@@ -53,9 +53,9 @@ green "stack running"
 # 2. Seed demo project (idempotent — safe to re-run)
 # ---------------------------------------------------------------------------
 header "Seed"
-docker compose exec -T api python manage.py seed_demo_project --with-personas \
+docker compose exec -T api python manage.py load_sample_project --with-personas \
   > /dev/null 2>&1
-green "seed_demo_project --with-personas"
+green "load_sample_project --with-personas"
 
 # ---------------------------------------------------------------------------
 # 3. Obtain a JWT for the demo user

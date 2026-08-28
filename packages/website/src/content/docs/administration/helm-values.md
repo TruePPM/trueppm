@@ -414,7 +414,7 @@ helm install trueppm ./packages/helm \
 ```
 
 :::danger[Never enable this against real data]
-`demo.enabled` runs `seed_demo_project` on every install **and every upgrade**, which
+`demo.enabled` runs `load_sample_project` on every install **and every upgrade**, which
 deletes the demo projects it previously created and re-seeds them. That is what stops a
 demo from drifting. The reset is scoped to the seeder's own output — it will not reap a
 real project that shares the demo name, nor a resource assigned to real work — but a

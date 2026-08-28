@@ -71,7 +71,7 @@ You don't need to learn the tool to judge it — and you shouldn't have to. Hand
 
    ```bash
    make up
-   docker compose exec api python manage.py seed_demo_project --with-personas
+   docker compose exec api python manage.py load_sample_project --with-personas
    ```
 
    The command prints the persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if set, otherwise a random token printed once.
