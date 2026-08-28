@@ -611,9 +611,7 @@ class TestLifecycleIsNotAClientWritableField:
         checked: set[str] = set()
         for name in dir(project_serializers):
             cls = getattr(project_serializers, name)
-            if not isinstance(cls, type) or not issubclass(
-                cls, drf_serializers.ModelSerializer
-            ):
+            if not isinstance(cls, type) or not issubclass(cls, drf_serializers.ModelSerializer):
                 continue
             if getattr(cls.Meta, "model", None) is not Project:
                 continue
