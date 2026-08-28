@@ -1,6 +1,6 @@
-# `design_handoff_trueppm_v4` beta-1 review — three items that must NOT be implemented as written
+# `design_handoff_trueppm_v4` beta-1 review — four items that must NOT be implemented as written
 
-> **Design decision record (#3139).** This file reconciles the beta-1 review of the
+> **Design decision record (#3139, extended by #3133).** This file reconciles the beta-1 review of the
 > `design_handoff_trueppm_v4` bundle against the Schedule as it actually shipped.
 > **Where this file and the review disagree, this file wins.** Each item below was
 > decided against deliberately, and until now the reasoning lived only in a source
@@ -12,12 +12,13 @@
 
 The v4 bundle is an external Claude Design deliverable; it is not mirrored into this
 repo. It is cited by name from `packages/web/CLAUDE.md` rules 302 / 309 / 327 / 328 / 329,
-from ADR-0776, ADR-0843, and ADR-0844, and from several source files. The three items
+from ADR-0776, ADR-0843, and ADR-0844, and from several source files. The four items
 below come from its beta-1 UX review pass, not from the bundle's own spec pages.
 
-**Two of the three would regress accessibility if applied literally. The third teaches
-a keystroke that does something else.** All three would pass every gate in the
-pipeline, because each is a change the code has no way to recognize as wrong.
+**Two of the four would regress accessibility if applied literally. One teaches a
+keystroke that does something else. The fourth would delete a value sighted users have
+no other way to read.** All four would pass every gate in the pipeline, because each is
+a change the code has no way to recognize as wrong.
 
 ---
 
@@ -140,9 +141,45 @@ a duplicate. Applying item 8 literally re-introduces the WCAG 2.1.2 keyboard tra
 
 ---
 
+## 4. A progress bar and its own numeral are one readout, not a duplication
+
+**Review, UX-REVIEW §8.4:** *"Board lane header reads `4 items · rolls up 62%` and then
+draws the same bar. Same double-statement pattern as §2."*
+
+**Rejected (#3133, closed wontfix).** §2's duplications are one value rendered on two
+*surfaces* — a rail and a view bar, a context bar and a forecast strip — which can drift
+apart, disagree, and leave the reader to reconcile them. A bar and its own data label are
+one value on two *channels* of a single readout: both derive from the same `pct` in the
+same 188px row, so they cannot diverge. `packages/web/CLAUDE.md` **rule 284** governs the
+first case and not the second, and it is not being widened to cover it.
+
+The change was implemented and measured before being rejected, which is what settled it:
+
+- The bar is `flex-1` beside a variable-width task count, so **a 55% lane can draw a
+  longer fill than a 60% lane**. Harmless while the numeral disambiguated; with the bar as
+  sole carrier, lane-to-lane comparison becomes meaningless.
+- A `title` tooltip cannot restore the figure. With `aria-label` already supplying the
+  accessible name, `title` falls through to the accessible *description* — Chromium
+  reports `{name: "Phase progress 55 percent", description: "55%"}`, announcing the number
+  twice. That is the very duplicate the change existed to remove, reintroduced in the
+  accessibility tree, and it has no touch affordance on a touch-primary surface.
+- Net effect: assistive-tech users keep the value via `aria-valuenow`, and **sighted users
+  lose it entirely**. That inverts the usual equity direction for no gain.
+
+Four of the nine `role="progressbar"` components in the tree render this pattern
+(`LaneMeta`, `EpicHeader`, `SchedulePulse`, `SubtasksSection`). If a future change does
+decide a bar owns its percentage alone, it is a **class** change under **rule 300** — settle
+the rule, add a check that counts the population, watch it fail against `origin/main`, give
+the bar a fixed width so lanes are comparable, and convert all four. It is not four point
+fixes; rule 284 is itself the artifact of point-fixing this class once already, in #2424.
+
+**Do not** delete a progressbar's numeral on its own.
+
+---
+
 ## If you are writing a spec from the v4 handoff
 
-Cite this file. The three corrections above are invisible to the bundle, invisible to
+Cite this file. The four corrections above are invisible to the bundle, invisible to
 CI, and — for items 1 and 3 — invisible to any test of the control being changed, which
 is exactly why they are written down here rather than left in a comment.
 
