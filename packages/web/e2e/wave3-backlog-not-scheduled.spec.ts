@@ -200,8 +200,10 @@ test.describe('Backlog cards must not display as scheduled (#332)', () => {
   test('Schedule view: uncommitted backlog task surfaces in the Unscheduled gutter', async ({ page }) => {
     await setup(page, null);
     await page.goto(`${BASE_URL}/schedule`);
-    // The Unscheduled gutter heading is always present; we wait for it to
-    // confirm the Schedule view is ready before asserting on the row.
+    // The gutter heading renders only while the tray holds something (#3131),
+    // and this fixture's backlog task is exactly that — so waiting on it is
+    // still a valid readiness gate here, but it is no longer an unconditional
+    // "the Schedule view is ready" signal on any other fixture.
     await expect(page.getByText('Unscheduled', { exact: true })).toBeVisible({ timeout: 10_000 });
     // The backlog task name should appear in the gutter row list — proving
     // useUnscheduledTasks now widens to BACKLOG (#332). Scope the lookup to

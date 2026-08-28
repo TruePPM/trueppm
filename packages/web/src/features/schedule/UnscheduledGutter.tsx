@@ -13,6 +13,9 @@ import { UnscheduledDragPreview } from './UnscheduledDragPreview';
 import { UnscheduledDropIndicator } from './UnscheduledDropIndicator';
 import { ScheduleTaskDialog } from './ScheduleTaskDialog';
 import { Button } from '@/components/Button';
+import { Tooltip } from '@/components/Tooltip';
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
+import { ROW_HEIGHT_COARSE } from './scheduleConstants';
 import { formatShortDate } from './scheduleUtils';
 
 interface UnscheduledGutterProps {
@@ -37,6 +40,20 @@ interface UnscheduledGutterProps {
    * why the button is omitted rather than disabled (rule 302).
    */
   onScheduleMany?: (taskIds: string[]) => void;
+  /**
+   * Walk the outline to the next row this tray is counting (#3131).
+   *
+   * The count is the tray's headline, and until this existed it was a caption:
+   * it named a number of rows and offered no way to reach one. This is that
+   * route, and it is a *different act* from `onScheduleMany` — that one selects
+   * every datable row and opens the bulk-edit sheet to write dates in a batch;
+   * this one only moves focus, writes nothing, and is therefore offered to a
+   * viewer with no edit rights too.
+   *
+   * Absent → the count renders as the plain span it has always been, rather
+   * than as a button that refuses (rule 302).
+   */
+  onWalkToUnscheduled?: () => void;
 }
 
 interface DragState {
@@ -76,13 +93,22 @@ export function UnscheduledGutter({
   taskListWidth,
   sprints,
   onScheduleMany,
+  onWalkToUnscheduled,
 }: UnscheduledGutterProps) {
   const itl = useIterationLabel();
   // Server-resolved today for the rows' date-gated disclosure (#3075).
   const { data: project } = useProject(projectId);
+  // The walk control's hit target, resolved from the row-height owner rather
+  // than a literal (rules 315/328): `ROW_HEIGHT_COARSE` on a coarse pointer,
+  // 32px on a mouse to match the collapse toggle beside it. A `text-xs` count
+  // would otherwise be a ~20px target on a touch tablet, which is ≥768px and
+  // therefore renders this desktop gutter.
+  const walkTargetSize = useIsCoarsePointer() ? ROW_HEIGHT_COARSE : 32;
   // Absent a persisted choice, default to collapsed when there is nothing
-  // unscheduled — the reassurance message is a one-time confirmation, not
-  // chrome worth showing forever on an otherwise fully-scheduled project.
+  // unscheduled. Since #3131 the empty tray does not render at all, so this no
+  // longer governs anything visible at zero — it governs the frame between the
+  // first unscheduled row arriving and the auto-expand effect below firing,
+  // which is why it stays.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem(COLLAPSED_KEY);
@@ -99,6 +125,39 @@ export function UnscheduledGutter({
       setCollapsed(false);
     }
     prevCountRef.current = tasks.length;
+  }, [tasks.length]);
+
+  /**
+   * Hand focus back to the outline when the tray removes itself from under it
+   * (#3131, WCAG 2.4.3).
+   *
+   * The tray now disappears at zero, and `usePromoteTask` is optimistic — so
+   * the count can hit zero from a *collaborator's* WebSocket update while this
+   * user's focus is resting on the walk control or the collapse toggle. React
+   * unmounts the node, the browser drops focus to `<body>`, and the next Tab
+   * restarts from the top of the document. That is the same class of loss the
+   * live region above is hoisted out of the gate to avoid, applied to focus
+   * instead of announcements.
+   *
+   * `focusWasInsideRef` is driven by the region's own focus/blur events, NOT
+   * sampled in an effect. Focusing a control does not re-render, so an effect
+   * that reads `document.activeElement` on each commit never observes the user
+   * arriving — it would still hold `false` at the moment the region vanishes,
+   * which is the whole case this exists for. React's `onFocus`/`onBlur` bubble,
+   * so one pair on the region covers every control inside it; when the node is
+   * removed while focused no blur fires, which leaves the flag `true` exactly
+   * when it should be. The `<body>` check is what then keeps this from stealing
+   * focus the user moved somewhere legitimate in the meantime.
+   */
+  const focusWasInsideRef = useRef(false);
+  useEffect(() => {
+    if (tasks.length > 0) return;
+    if (!focusWasInsideRef.current) return;
+    focusWasInsideRef.current = false;
+    if (document.activeElement !== null && document.activeElement !== document.body) return;
+    // The outline's roving-tabindex row is the one focusable anchor on this
+    // surface that is guaranteed to exist while the Schedule is rendered.
+    document.querySelector<HTMLElement>('[data-row-id][tabindex="0"]')?.focus();
   }, [tasks.length]);
 
   const persistCollapsed = useCallback((val: boolean) => {
@@ -385,10 +444,39 @@ export function UnscheduledGutter({
 
   return (
     <>
-      {/* Gutter panel */}
+      {/*
+        Gutter panel — rendered only while the tray is holding something (#3131).
+
+        An empty queue is not a status. Before this the panel was a permanent
+        44px lane across the bottom of the Schedule whose entire content was the
+        word "Unscheduled", a `(0)`, and a caption confirming nothing was wrong —
+        a standing reassurance about a problem nobody has, costing canvas height
+        on every fully-scheduled project forever. Absence is the empty state,
+        which is what the mobile tray has always done (`mobile/MobileSchedule.tsx`,
+        "No tasks → no tray at all").
+
+        The gate is HERE and not at the `<UnscheduledGutter>` call site in
+        `ScheduleView.tsx`, and moving it there would be a silent regression.
+        `usePromoteTask` is optimistic in `onMutate`, so scheduling the LAST
+        unscheduled row drops the count to zero *before* the mutation resolves.
+        Unmounting the component on that transition destroys the `aria-live`
+        node below, and the `onSuccess` handler firing a moment later then
+        writes its announcement to a `ref.current` that is already `null` — so
+        the one act a screen-reader user most needs confirmed ("that was the
+        last one") would be the one act that says nothing. #3064 added that
+        announcement precisely because "the chip left the tray" is not feedback
+        a screen reader can perceive. The live region, the drag portals and the
+        schedule dialog are therefore siblings of this gate, not children of it,
+        and stay mounted at zero.
+      */}
+      {totalCount > 0 && (
       <div
         role="region"
         aria-label="Unscheduled tasks"
+        // Focus bookkeeping for the hand-back above — these bubble, so one pair
+        // here covers every control in the tray.
+        onFocus={() => { focusWasInsideRef.current = true; }}
+        onBlur={() => { focusWasInsideRef.current = false; }}
         className="flex-shrink-0 border-t-2 border-neutral-border bg-neutral-surface-sunken"
       >
         {/* Header strip */}
@@ -399,19 +487,66 @@ export function UnscheduledGutter({
           <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-4">
             Unscheduled
           </span>
-          <span className="tppm-mono text-xs text-neutral-text-secondary ml-1">
-            ({totalCount})
+          {/*
+            The count is a control, not a caption (#3131). It walks the outline
+            to the next row this tray is counting, so the number names something
+            you can reach instead of merely describing a situation.
+
+            Deliberately NOT the F7 walk (`findUndatedRow`), even though that
+            helper is right there. F7's predicate is `!plannedStart` over every
+            visible row, which is a strictly WIDER set than this tray's — it
+            includes summaries, IN_PROGRESS rows and sprint-committed work that
+            the gutter's own filter excludes. Walking from "(3)" onto a row that
+            is not one of those 3 would make the number mean two things at once.
+            What the number MEANS is #2986's question, and this issue does not
+            answer it; this only makes the members of the existing count
+            reachable.
+          */}
+          {onWalkToUnscheduled ? (
+            // The `Tooltip` is not decoration (rule 287, restated by rule
+            // 328(b)): without it the control's whole visible form is `(2) →`
+            // and its meaning lives only in the `aria-label` — which is the
+            // inversion those rules name, handing screen-reader users a
+            // sentence sighted users never get. `describe={false}` because the
+            // accessible name already says the same thing, so AT hears it once.
+            <Tooltip
+              content={`Go to the next unscheduled ${ROW_NOUN} in the outline`}
+              describe={false}
+            >
+              <button
+                type="button"
+                onClick={onWalkToUnscheduled}
+                // The name LEADS with the visible token (WCAG 2.5.3 Label in
+                // Name): the visible label is `(2)`, so a speech-input user
+                // saying "click 2" must match.
+                aria-label={`(${totalCount}) — go to the next unscheduled ${ROW_NOUN} in the outline, ${countRows(totalCount)} unscheduled`}
+                // Sized from the row-height owner rather than a literal (rule
+                // 315/328): on a coarse pointer the target is `ROW_HEIGHT_COARSE`,
+                // the same route `NUDGE_SIZE_COARSE` takes. On a mouse it matches
+                // the 32px collapse toggle beside it rather than the `text-xs`
+                // glyph it wraps, so it is not a NEW sub-32px target on this strip.
+                style={{ minHeight: walkTargetSize, minWidth: walkTargetSize }}
+                className="group ml-1 inline-flex items-center justify-center gap-1 rounded-control px-1.5
+                  text-neutral-text-secondary hover:text-neutral-text-primary hover:underline
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                <span className="tppm-mono text-xs">({totalCount})</span>
+                <span
+                  aria-hidden="true"
+                  className="text-xs motion-safe:transition-transform group-hover:translate-x-0.5"
+                >
+                  →
+                </span>
+              </button>
+            </Tooltip>
+          ) : (
+            <span className="tppm-mono text-xs text-neutral-text-secondary ml-1">
+              ({totalCount})
+            </span>
+          )}
+          <span className="hidden md:inline text-xs italic text-neutral-text-secondary ml-3">
+            no committed start yet
           </span>
-          {totalCount === 0 && !collapsed && (
-            <span className="text-xs italic text-neutral-text-secondary ml-3">
-              All To Do and Backlog tasks have planned dates
-            </span>
-          )}
-          {totalCount > 0 && (
-            <span className="hidden md:inline text-xs italic text-neutral-text-secondary ml-3">
-              no committed start yet
-            </span>
-          )}
           <div className="flex-1" />
           {onScheduleMany && datableIds.length > 0 && (
             <Button
@@ -446,7 +581,7 @@ export function UnscheduledGutter({
         </div>
 
         {/* Two-section tray — one scroll container, sticky sub-headers (rule 132) */}
-        {!collapsed && totalCount > 0 && (
+        {!collapsed && (
           <div
             className="overflow-y-auto"
             style={{
@@ -575,20 +710,32 @@ export function UnscheduledGutter({
           </div>
         )}
 
-        {/* Loading skeleton — shown while promote mutation is in-flight */}
-        {promoteMutation.isPending && (
-          <div
-            aria-busy="true"
-            aria-label="Promoting task…"
-            style={{ paddingLeft: taskListWidth }}
-            className="px-4 py-2"
-          >
-            <div className="h-9 rounded-card motion-safe:animate-pulse bg-neutral-border/50" />
-          </div>
-        )}
       </div>
+      )}
 
-      {/* aria-live (polite) — promote announcements via DOM ref (rule 30) */}
+      {/* In-flight indicator — OUTSIDE the `totalCount > 0` gate, for exactly
+          the reason the live region is. `usePromoteTask` is optimistic, so
+          promoting the LAST row zeroes the count while the PATCH is still in
+          flight; leaving this inside the gate would unmount the only "something
+          is happening" signal at the moment it is doing its job, and flash the
+          whole panel back in if the mutation then fails and rolls back. Loading
+          is its own state and must not be erased by an optimistic empty (rule
+          248). */}
+      {promoteMutation.isPending && (
+        <div
+          aria-busy="true"
+          aria-label="Promoting task…"
+          style={{ paddingLeft: taskListWidth }}
+          className="px-4 py-2"
+        >
+          <div className="h-9 rounded-card motion-safe:animate-pulse bg-neutral-border/50" />
+        </div>
+      )}
+
+      {/* aria-live (polite) — promote announcements via DOM ref (rule 30).
+          Outside the `totalCount > 0` gate on purpose — see the note above it:
+          the last row leaving the tray is the announcement most worth keeping,
+          and it is the one an unmount would eat. */}
       <div ref={ariaLiveRef} aria-live="polite" aria-atomic="true" className="sr-only" />
 
       {/* Drag preview portal */}
