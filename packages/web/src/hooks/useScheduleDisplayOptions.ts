@@ -51,6 +51,14 @@ export interface ScheduleDisplayOptions {
    * A pin is a request, not a guarantee. The fit ladder still demotes a pinned
    * control before any tier-A one, and the Display popover states the refusal
    * ("pinned · no room at 1280") rather than letting the bar clip to honour it.
+   *
+   * Milestone defaults **off** (#3115), matching `structureButtons` above and on
+   * the same reasoning. It is an unconfirmed one-click structural insert sitting
+   * in the densest part of the bar, next to the layout toggle and mode pill a
+   * planner clicks constantly while *reading* — and the row it drops lands at the
+   * current insert target, which on a deep WBS is not obvious after the fact. ⌘M
+   * remains the primary route and the `···` menu the discoverable one, so nothing
+   * is lost but the stray click.
    */
   pinMilestone: boolean;
   /**
@@ -73,7 +81,7 @@ export const DEFAULT_DISPLAY_OPTIONS: ScheduleDisplayOptions = {
   coach: true,
   comfortableRows: false,
   enterCreatesRow: true,
-  pinMilestone: true,
+  pinMilestone: false,
   pinExportPdf: true,
   pinCounts: true,
   pinToday: true,

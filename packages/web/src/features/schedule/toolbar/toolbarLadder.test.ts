@@ -61,10 +61,20 @@ describe('baseComposition', () => {
     });
   });
 
-  it('ships the leaner reading as the default: structure off, the rest on', () => {
+  it('ships the leaner reading as the default: both create buttons off', () => {
+    // #3115 moved `milestone` to join `structure`. The two are the same kind of
+    // control — an unconfirmed structural insert — and now share a default.
     expect(DEFAULT_TOOLBAR_PINS.structure).toBe(false);
-    expect(DEFAULT_TOOLBAR_PINS.milestone).toBe(true);
+    expect(DEFAULT_TOOLBAR_PINS.milestone).toBe(false);
     expect(DEFAULT_TOOLBAR_PINS.today).toBe(true);
+  });
+
+  it('puts + Milestone one hop away by default, not out of reach (#3115)', () => {
+    // The whole safety argument rests on `overflow` rather than `hidden`: the
+    // button keeps its name and its chord and costs one extra click. If this
+    // ever reads 'hidden', the change stopped being a de-risk and became a
+    // removal.
+    expect(baseComposition(DEFAULT_TOOLBAR_PINS).milestone).toBe('overflow');
   });
 });
 

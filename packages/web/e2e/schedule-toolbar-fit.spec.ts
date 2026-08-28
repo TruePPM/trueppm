@@ -23,7 +23,11 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
-import { MAX_LADDER_STEP } from '../src/features/schedule/toolbar/toolbarLadder';
+import {
+  MAX_LADDER_STEP,
+  pinsFromDisplayOptions,
+} from '../src/features/schedule/toolbar/toolbarLadder';
+import { DEFAULT_DISPLAY_OPTIONS } from '../src/hooks/useScheduleDisplayOptions';
 
 const PROJECT_ID = 'e2e-tb-00000000-0000-0000-0000-000000003076';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -61,6 +65,19 @@ const TASKS = [
   { ...baseRow, id: 'c2', wbs_path: '1.2', name: 'Profile data quality', is_summary: false, parent_id: 'ph', is_critical: true },
   { ...baseRow, id: 'r2', wbs_path: '2', name: 'Migration tooling', is_summary: false, parent_id: null },
 ];
+
+/**
+ * How many pins a planner who has never opened the Display menu is asking for.
+ *
+ * Derived, not a literal: this is a product default that moves — #3115 took it
+ * from 4 to 3 by shipping `+ Milestone` unpinned — and a hard-coded denominator
+ * turns every such move into a spec failure that says nothing about the ladder.
+ * What is asserted is the sentence's *shape*: the "N of M" partial-honour branch
+ * rather than "All M ... fit". That distinction is the feature.
+ */
+const DEFAULT_PIN_COUNT = Object.values(pinsFromDisplayOptions(DEFAULT_DISPLAY_OPTIONS)).filter(
+  Boolean,
+).length;
 
 const toolbar = (page: Page) => page.getByRole('toolbar', { name: 'Schedule toolbar' });
 const outline = (page: Page) => page.getByRole('treegrid', { name: 'Item list' });
@@ -278,7 +295,9 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     // in words, with the two ways to fix it. A pin it overruled is stated,
     // never silently dropped and never allowed to clip the bar.
     await expect(
-      menu.getByRole('paragraph').filter({ hasText: /of 4 pinned controls fit at this width/ }),
+      menu.getByRole('paragraph').filter({
+        hasText: new RegExp(`\\d+ of ${DEFAULT_PIN_COUNT} pinned controls fit at this width`),
+      }),
     ).toBeVisible();
   });
 });

@@ -20,7 +20,12 @@
 // own accessible name becomes "Display, 1 active filter" once a filter is on.
 // Scoping to the toolbar is stable under both.
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  setupScheduleDisplayOptions,
+} from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-render-00000000-0000-0000-0000-000000000248';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
@@ -161,6 +166,11 @@ test.describe('Schedule milestone toolbar — +Milestone (#340)', () => {
       projectId: FIXTURE_PROJECT_ID,
       tasks: FIXTURE_TASKS,
     });
+    // #3115 ships `+ Milestone` unpinned. The tests below are about the button
+    // itself — its glyph, its accessible name, what clicking it opens — so they
+    // pin it into the bar, which is what a planner who wants it there does.
+    // `defaults to the overflow menu` below covers the unpinned state.
+    await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, { pinMilestone: true });
     // Stub the create task POST so the e2e doesn't hit a real backend.
     await page.route('**/api/v1/tasks/', (route) => {
       if (route.request().method() === 'POST') {
@@ -181,6 +191,26 @@ test.describe('Schedule milestone toolbar — +Milestone (#340)', () => {
       }
       return route.continue();
     });
+  });
+
+  test('+ Milestone defaults to the overflow menu, not the bar (#3115)', async ({ page }) => {
+    // The de-risk and its limit, in one test. Unpinned means the button is out
+    // of the bar's hot path — and still one hop away under its own name, with
+    // the chord that is actually bound. If this ever finds it absent from the
+    // menu too, the change stopped being a de-risk and became a removal.
+    await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, { pinMilestone: false });
+    await page.goto(BASE_URL);
+    // Gate on rendered rows before touching toolbar chrome — the same signal the
+    // rest of this file waits on.
+    await expect(page.getByText('Foundation')).toBeVisible();
+    await expect(page.getByTestId('add-milestone-button')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Project actions' }).click();
+    const item = page.getByRole('menuitem', { name: /Add milestone/ });
+    await expect(item).toBeVisible();
+    // ⌘M is the binding (`keyBindings['mod+m']`). The menu advertised ⌥⌘M —
+    // bound to nothing — until #3115.
+    await expect(item).toHaveAttribute('aria-keyshortcuts', 'Meta+M');
   });
 
   test('+ Milestone button is visible as peer to + Item', async ({ page }) => {

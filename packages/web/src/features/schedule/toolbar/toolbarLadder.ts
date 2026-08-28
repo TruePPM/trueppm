@@ -66,7 +66,11 @@ export interface ToolbarPins {
 }
 
 export const DEFAULT_TOOLBAR_PINS: ToolbarPins = {
-  milestone: true,
+  // Off by default (#3115), on the same reasoning as `structure` below: an
+  // unconfirmed one-click structural insert does not belong in the bar's hot
+  // path, where it neighbours the controls used for reading. ⌘M still creates a
+  // milestone from anywhere, and unpinned means `overflow`, not gone.
+  milestone: false,
   // Off by default, unchanged from #2955: ⌥⌘P / ⌥⌘G and ⇥ already make phases,
   // so the buttons are the discoverable route rather than the primary one.
   structure: false,
