@@ -96,7 +96,15 @@ export function cellAriaLabel(
   if (entry.status === 'rejected') {
     return `${verb} ${fmtCellDate(value)}, change refused: ${entry.reason ?? 'no reason given'}`;
   }
-  return `${field} moved from ${fmtCellDate(entry.expected)} to ${fmtCellDate(entry.actual)}, not yet reviewed`;
+  const move = `${field} moved from ${fmtCellDate(entry.expected)} to ${fmtCellDate(entry.actual)}`;
+  if (entry.status === 'cascade') {
+    // The ONLY channel that separates a cascade from a divergence without sight
+    // — the two differ visually by colour alone (see `DateCellValue`). "not your
+    // edit" is the whole point: it tells the listener there is nothing of theirs
+    // to re-check here, which "not yet reviewed" would imply the opposite of.
+    return `${move}, a knock-on change — not your edit`;
+  }
+  return `${move}, not yet reviewed`;
 }
 
 /**
@@ -107,9 +115,16 @@ export function cellAriaLabel(
  * Empty string when there is nothing to say, which clears the region rather than
  * leaving a stale count to be re-read.
  */
-export function announcement(divergedCount: number, projectFinishIso: string | null): string {
-  if (divergedCount === 0) return '';
-  const dates = divergedCount === 1 ? '1 date changed' : `${divergedCount} dates changed`;
+/**
+ * @param movedCount Every date that moved — the planner's own unconfirmed writes
+ *   AND the cascades onto rows they never touched (#3041). A count that excluded
+ *   the cascade rows would announce "1 date changed" for a run that moved twelve,
+ *   which is worse than silence: it states a number that is wrong rather than
+ *   leaving the listener to ask.
+ */
+export function announcement(movedCount: number, projectFinishIso: string | null): string {
+  if (movedCount === 0) return '';
+  const dates = movedCount === 1 ? '1 date changed' : `${movedCount} dates changed`;
   const finish = projectFinishIso ? ` Project finish now ${fmtUtcLong(projectFinishIso)}.` : '';
   return `Schedule recomputed. ${dates}.${finish}`;
 }

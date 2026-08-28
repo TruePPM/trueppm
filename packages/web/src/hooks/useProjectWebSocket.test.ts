@@ -13,6 +13,7 @@ import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { useProjectWebSocket } from './useProjectWebSocket';
 import { useAuthStore } from '@/stores/authStore';
+import { useReconcileStore } from '@/stores/reconcileStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
 import { usePresenceStore } from '@/stores/presenceStore';
@@ -831,6 +832,51 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
     expect(t2.start).toBe('2026-10-16');
     // No re-fetch of the tasks query — the whole point of the delta event.
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  // #3041 — the wiring seam. `reconcileState`'s reducer is covered exhaustively in
+  // `reconcile/reconcileCascade.test.ts`; what only this layer can prove is that
+  // the delta handler actually HANDS it the old value. Without `previous` the
+  // reducer cannot tell a cascade from a routine snapshot observation and marks
+  // nothing, which is precisely the bug #3041 reports — so a silent regression
+  // here would restore it with every reducer test still green.
+  it('feeds the pre-splice value to reconciliation, so an untouched row can be marked', () => {
+    seedTasks();
+    useReconcileStore.setState({ projectId: 'proj-1', entries: {} });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // Nobody previewed t1. Before #3041 this produced no entry at all.
+    dispatch({
+      count: 1,
+      tasks: [
+        {
+          id: 't1',
+          early_start: '2026-11-02',
+          early_finish: '2026-11-12',
+          late_start: '2026-11-05',
+          late_finish: '2026-11-15',
+          total_float: 0,
+          free_float: 0,
+          is_critical: true,
+          planned_start: null,
+          duration: 10,
+        },
+      ],
+    });
+
+    const entries = useReconcileStore.getState().entries;
+    expect(entries['t1:start']).toMatchObject({
+      status: 'cascade',
+      expected: '2026-10-05', // the value the planner was looking at
+      actual: '2026-11-02',
+    });
+    expect(entries['t1:finish']).toMatchObject({
+      status: 'cascade',
+      expected: '2026-10-15',
+      actual: '2026-11-12',
+    });
+    // t2 was not in the delta, so nothing was observed for it and nothing marked.
+    expect(entries['t2:start']).toBeUndefined();
   });
 
   it('invalidates the tasks query on a truncated payload', () => {

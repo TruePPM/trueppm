@@ -37,6 +37,68 @@ const props = {
   onDismiss: () => {},
 };
 
+/**
+ * A row nobody on this client touched: no `taskName` (the delta path has no name
+ * to give), and `status: 'cascade'` rather than `diverged` (#3041).
+ */
+function cascade(...ids: string[]): ReconcileEntries {
+  return Object.fromEntries(
+    ids.map((id) => [
+      `${id}:finish`,
+      {
+        taskId: id,
+        field: 'finish' as const,
+        taskName: '',
+        status: 'cascade' as const,
+        expected: '2026-04-10',
+        actual: '2026-04-14',
+        reason: null,
+      },
+    ]),
+  ) as ReconcileEntries;
+}
+
+describe('ReforecastPanel — cascade rows (#3041)', () => {
+  afterEach(cleanup);
+
+  it('lists rows the user never touched, with the driver named', () => {
+    // The whole finding: before this, neither row reached the panel unless THIS
+    // user had just written it — so the panel that exists to explain a downstream
+    // cascade could show every row except the cascade. Nobody on this client
+    // touched either of these.
+    render(<ReforecastPanel {...props} entries={cascade('permits', 'survey')} />);
+    expect(screen.getByRole('region', { name: 'What moved and why' })).toBeInTheDocument();
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('Permits');
+    expect(rows[1]).toHaveTextContent('moved because Permits moved');
+  });
+
+  it('resolves the name from tasks, since a cascade entry carries none', () => {
+    render(<ReforecastPanel {...props} entries={cascade('permits')} />);
+    expect(screen.getByText('Permits')).toBeInTheDocument();
+    expect(screen.queryByText('Untitled')).not.toBeInTheDocument();
+  });
+
+  it('orders a cascade under the local edit that drove it', () => {
+    const entries = { ...diverged('permits'), ...cascade('survey') };
+    render(<ReforecastPanel {...props} entries={entries} />);
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    // Cause first, consequence under it — the panel's whole point.
+    expect(rows[0]).toHaveTextContent('Permits');
+    expect(rows[1]).toHaveTextContent('Survey');
+    expect(rows[1]).toHaveTextContent('moved because Permits moved');
+  });
+
+  it('still refuses to invent a cause for an unattributable move', () => {
+    // `permits` has no driver in LINKS. It must read "changed on its own", not a
+    // plausible guess — the client cannot know why the engine moved a date.
+    render(<ReforecastPanel {...props} entries={cascade('permits')} />);
+    expect(screen.getByText('changed on its own')).toBeInTheDocument();
+  });
+});
+
 describe('ReforecastPanel', () => {
   afterEach(cleanup);
 

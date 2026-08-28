@@ -109,6 +109,36 @@ describe('cellAriaLabel — the only sightless carrier of the marker', () => {
   });
 });
 
+describe('cascade copy (#3041)', () => {
+  const entry = {
+    taskId: 't1',
+    field: 'finish' as const,
+    taskName: '',
+    status: 'cascade' as const,
+    expected: '2026-10-13',
+    actual: '2026-10-16',
+    reason: null,
+    retry: null,
+    since: 0,
+  };
+
+  it('says the move was not the listener’s edit', () => {
+    // The ONLY channel separating cascade from diverged without sight: the two
+    // differ visually by colour alone. "not yet reviewed" would tell a listener
+    // there is something of theirs to re-check, which is the opposite of true.
+    expect(cellAriaLabel('finish', '2026-10-16', entry)).toBe(
+      'finish moved from Oct 13 to Oct 16, a knock-on change — not your edit',
+    );
+  });
+
+  it('reads differently from a divergence on the same dates', () => {
+    const diverged = { ...entry, status: 'diverged' as const };
+    expect(cellAriaLabel('finish', '2026-10-16', diverged)).not.toBe(
+      cellAriaLabel('finish', '2026-10-16', entry),
+    );
+  });
+});
+
 describe('announcement', () => {
   it('is empty when there is nothing to say, so no stale count is re-read', () => {
     expect(announcement(0, '2026-10-16')).toBe('');

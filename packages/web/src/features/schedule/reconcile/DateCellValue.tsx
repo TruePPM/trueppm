@@ -69,6 +69,31 @@ export function DateCellValue({ value, entry, widthPx, fallback = '—' }: Props
     );
   }
 
+  if (entry?.status === 'cascade' && entry.actual) {
+    // Same STRUCTURE as diverged — the arrow is the non-color carrier of "this
+    // moved", and reusing it means a planner learns one shape, not two. Different
+    // TONE: `diverged` is at-risk amber because the server disagreed with what
+    // they typed and they may want to look again; a cascade asks nothing of them.
+    // Painting eleven consequences in amber would say eleven problems, which is
+    // the confusion the reforecast panel exists to remove.
+    //
+    // Amber vs. secondary is a colour difference, and colour alone cannot carry
+    // it (WCAG 1.4.1). The distinguishing text lives in `cellAriaLabel` and the
+    // cell's `title` — the same channel ADR-0784 §D7 already uses to separate
+    // pending from reviewed, where italic is likewise a purely visual signal.
+    const showOld = widthPx >= FULL_MARKER_MIN_WIDTH_PX;
+    return (
+      <span
+        data-testid="reconcile-cell-cascade"
+        className="inline-flex items-center gap-0.5 text-neutral-text-secondary"
+      >
+        {showOld && <s>{fmtCellDate(entry.expected)}</s>}
+        <span aria-hidden="true">→</span>
+        {fmtCellDate(entry.actual)}
+      </span>
+    );
+  }
+
   if (entry?.status === 'rejected') {
     return (
       <span data-testid="reconcile-cell-rejected" className="text-semantic-critical">
