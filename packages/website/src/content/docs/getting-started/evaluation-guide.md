@@ -149,8 +149,12 @@ before you start clicking:
 - **⌘K** opens the command palette — the fastest way to jump to a view or find a
   task by name if a walkthrough step names something you cannot spot.
 - **The forecast is a docked bar, not a modal.** On the Schedule view, the
-  **Forecast** strip sits along the bottom with the P50/P80/P95 chips, a
-  **Rerun** button, and **Details ›** for the full distribution.
+  **Forecast** strip sits along the bottom with the P50/P80/P95 chips and
+  **Details ›** for the full distribution. It also states when the forecast was
+  last run; move a task and the stamp is replaced by *Stale — rerun for updated
+  forecast* with a **Rerun** button beside it. That is the only state offering
+  the button — to force a run at any other time, use **Rerun forecast** on the
+  project Overview.
 
 ## Capability checklist
 
