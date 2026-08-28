@@ -375,7 +375,7 @@ export function UnscheduledTaskRow({
       {!isBacklog && menuOpen && menuPos && createPortal(
         <div
           ref={menuRef}
-          role="menu"
+          role="menu" // dropdown-scroll-ok: grandfathered hand-rolled spec (rule 260); content is 0-2 quick actions + a compact date form, provably bounded
           tabIndex={-1}
           onKeyDown={handleMenuKeyDown}
           style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: 200 }}

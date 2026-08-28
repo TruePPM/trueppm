@@ -372,7 +372,7 @@ function RiskOverflowMenu({
           </button>
           {isOverflowOpen && (
             <div
-              role="menu"
+              role="menu" // dropdown-scroll-ok: 2 fixed items (Import/Export CSV)
               className="absolute right-0 top-11 min-w-[180px] z-30 rounded-card
                   bg-neutral-surface border border-neutral-border py-1"
             >

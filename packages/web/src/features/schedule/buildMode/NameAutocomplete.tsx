@@ -61,7 +61,7 @@ export function NameAutocomplete({ query, suggestions, onSelect, onDismiss }: Pr
   return (
     <ul
       ref={listRef}
-      role="listbox"
+      role="listbox" // dropdown-scroll-ok: hard-capped slice(0, MAX_SUGGESTIONS)
       aria-label="Task name suggestions"
       className="absolute top-full left-0 z-50 w-[280px] mt-0.5 rounded-card border border-chrome-border
         bg-chrome-surface-raised overflow-hidden"

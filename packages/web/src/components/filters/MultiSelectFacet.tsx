@@ -450,7 +450,7 @@ export function MultiSelectFacet({
       {open && (
         <div
           id={menuId}
-          role="menu"
+          role="menu" // dropdown-scroll-ok: wraps {body}, which already carries its own overflow-y-auto + maxHeight: LIST_MAX_HEIGHT guard
           aria-label={menuLabel}
           className="absolute left-0 top-[calc(100%+4px)] z-20 w-[260px] rounded-card border
             border-neutral-border bg-neutral-surface py-1 shadow-pop"

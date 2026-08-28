@@ -834,7 +834,9 @@ lint:dropdown-scroll:
   # / role="listbox" panel taller than the viewport with no overflow-y-auto +
   # height guard spills off-screen with nothing to scroll it into view — the
   # Schedule "Display" menu bug. Ratchet with reviewed exclusions for panels
-  # that are genuinely safe by construction. See scripts/check-dropdown-scroll.sh.
+  # that are genuinely safe by construction; each is a `// dropdown-scroll-ok:
+  # <reason>` comment on the role= line itself, so no unrelated edit above it can
+  # invalidate the exemption (#3117). See scripts/check-dropdown-scroll.sh.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:

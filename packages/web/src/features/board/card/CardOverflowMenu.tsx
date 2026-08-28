@@ -155,7 +155,10 @@ export function CardOverflowMenu({
           </button>
 
           {moveOpen && (
-            <div role="menu" className="border-t border-neutral-border">
+            <div
+              role="menu" // dropdown-scroll-ok: nested 'Move to...' submenu renders in-flow inside the outer panel's own guard, not a second scrollable surface
+              className="border-t border-neutral-border"
+            >
               {otherColumns.map((col) => (
                 <button
                   key={col.status}

@@ -184,7 +184,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
             </button>
             {snoozeMenuOpen && (
               <div
-                role="menu"
+                role="menu" // dropdown-scroll-ok: fixed SNOOZE_PRESETS, never grows
                 aria-label="Snooze options"
                 className="absolute left-0 top-full mt-1 z-10 flex flex-col
                   min-w-[8rem] rounded-card border border-neutral-border bg-neutral-surface p-1"
