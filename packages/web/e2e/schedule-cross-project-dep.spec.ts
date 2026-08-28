@@ -2,7 +2,7 @@
  * Cross-project dependency creation (#1150 / ADR-0120 create side).
  *
  * The schedule dependency picker (opened from the build-mode row menu's
- * "Add successor…") gains a "This project / Program" scope toggle when the
+ * "Add dependency…") gains a "This project / Program" scope toggle when the
  * project belongs to a program. In Program scope the user searches sibling
  * projects and picks a task to gate against; the created edge is either modeled
  * immediately (creator has Scheduler+ on both sides) or created inert pending the
@@ -123,8 +123,8 @@ async function openSuccessorPicker(page: import('@playwright/test').Page) {
   await page.getByText('Foundation').click({ button: 'right' });
   const menu = page.getByRole('menu', { name: 'Row actions' });
   await expect(menu).toBeVisible();
-  await menu.getByRole('menuitem', { name: /Add successor/ }).click();
-  return page.getByRole('dialog', { name: /Add successor/ });
+  await menu.getByRole('menuitem', { name: /Add dependency/ }).click();
+  return page.getByRole('dialog', { name: /Add dependency/ });
 }
 
 /** Opens the task detail drawer and expands its (collapsed-by-default) Dependencies section. */
@@ -207,9 +207,9 @@ test.describe('Cross-project dependency picker (#1150)', () => {
     await page.goto(`/projects/${STANDALONE_ID}/schedule`);
     await expect(page.getByText('Foundation')).toBeVisible({ timeout: 10_000 });
     await page.getByText('Foundation').click({ button: 'right' });
-    await page.getByRole('menu', { name: 'Row actions' }).getByRole('menuitem', { name: /Add successor/ }).click();
+    await page.getByRole('menu', { name: 'Row actions' }).getByRole('menuitem', { name: /Add dependency/ }).click();
 
-    const dialog = page.getByRole('dialog', { name: /Add successor/ });
+    const dialog = page.getByRole('dialog', { name: /Add dependency/ });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('tab', { name: 'Program' })).toHaveCount(0);
     await expect(dialog.getByRole('listbox').getByRole('option').first()).toBeVisible();
@@ -238,7 +238,7 @@ test.describe('Drawer cross-project search link (gap closed — DependenciesTab 
       .first()
       .click();
 
-    const dialog = page.getByRole('dialog', { name: /Add predecessor/ });
+    const dialog = page.getByRole('dialog', { name: /Add dependency/ });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('tab', { name: 'Program', selected: true })).toBeVisible();
 

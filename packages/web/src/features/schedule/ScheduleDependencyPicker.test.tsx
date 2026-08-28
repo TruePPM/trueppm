@@ -145,11 +145,11 @@ beforeEach(() => {
 function renderPicker(props: Partial<ScheduleDependencyPickerProps> = {}) {
   const merged: ScheduleDependencyPickerProps = {
     task: makeTask(),
-    mode: 'predecessor',
+    initialDirection: 'predecessor',
     projectId: 'p1',
     programId: null,
     allTasks: LOCAL_TASKS,
-    excludedIds: new Set<string>(),
+    excludedIds: { predecessor: new Set<string>(), successor: new Set<string>() },
     onClose: vi.fn(),
     ...props,
   };
@@ -252,11 +252,11 @@ describe('ScheduleDependencyPicker — single-project (no regression)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId={null}
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -269,11 +269,11 @@ describe('ScheduleDependencyPicker — single-project (no regression)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId={null}
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={onClose}
       />,
     );
@@ -295,11 +295,11 @@ describe('ScheduleDependencyPicker — single-project (no regression)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId={null}
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -315,11 +315,11 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="successor"
+        initialDirection="successor"
         projectId="p1"
         programId="prog-1"
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -332,11 +332,11 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="successor"
+        initialDirection="successor"
         projectId="p1"
         programId="prog-1"
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -357,11 +357,11 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="successor"
+        initialDirection="successor"
         projectId="p1"
         programId="prog-1"
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={onClose}
       />,
     );
@@ -385,11 +385,11 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="successor"
+        initialDirection="successor"
         projectId="p1"
         programId="prog-1"
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -405,11 +405,11 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId="prog-1"
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         initialScope="program"
         onClose={vi.fn()}
       />,
@@ -422,11 +422,11 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId={null}
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         initialScope="program"
         onClose={vi.fn()}
       />,
@@ -440,11 +440,11 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="successor"
+        initialDirection="successor"
         projectId="p1"
         programId="prog-1"
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -459,11 +459,11 @@ describe('ScheduleDependencyPicker — focus trap (#1637, web-rule 206)', () => 
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId={null}
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -475,11 +475,11 @@ describe('ScheduleDependencyPicker — focus trap (#1637, web-rule 206)', () => 
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId={null}
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={onClose}
       />,
     );
@@ -491,11 +491,11 @@ describe('ScheduleDependencyPicker — focus trap (#1637, web-rule 206)', () => 
     wrap(
       <ScheduleDependencyPicker
         task={makeTask()}
-        mode="predecessor"
+        initialDirection="predecessor"
         projectId="p1"
         programId={null}
         allTasks={LOCAL_TASKS}
-        excludedIds={new Set()}
+        excludedIds={{ predecessor: new Set(), successor: new Set() }}
         onClose={vi.fn()}
       />,
     );
@@ -521,7 +521,7 @@ describe('ScheduleDependencyPicker — project-scope filtering', () => {
   });
 
   it('hides tasks already linked in this mode', () => {
-    renderPicker({ excludedIds: new Set(['t-local-1']) });
+    renderPicker({ excludedIds: { predecessor: new Set(['t-local-1']), successor: new Set<string>() } });
     expect(screen.queryByRole('option', { name: /Design review/ })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: /Build feature/ })).toBeInTheDocument();
   });
@@ -813,7 +813,7 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     renderPicker({
       programId: 'prog-1',
       initialScope: 'program',
-      excludedIds: new Set(['x1']),
+      excludedIds: { predecessor: new Set(['x1']), successor: new Set<string>() },
     });
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'e' } });
 
@@ -852,7 +852,7 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
   it('Enter adds the active cross-project row', async () => {
     searchState.data = CROSS_ROWS;
     setResponse({ pending_acceptance: false });
-    renderPicker({ programId: 'prog-1', initialScope: 'program', mode: 'predecessor' });
+    renderPicker({ programId: 'prog-1', initialScope: 'program', initialDirection: 'predecessor' });
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'e' } });
     await screen.findByRole('listbox', { name: 'Program task results' });
 
@@ -881,9 +881,9 @@ describe('ScheduleDependencyPicker — dismissal affordances', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('labels the dialog for the successor mode', () => {
-    renderPicker({ mode: 'successor', task: makeTask({ name: 'Cutover' }) });
-    expect(screen.getByRole('dialog', { name: 'Add successor to “Cutover”' })).toBeInTheDocument();
+  it('labels the dialog for the task it acts on — one name, because there is one dialog', () => {
+    renderPicker({ initialDirection: 'successor', task: makeTask({ name: 'Cutover' }) });
+    expect(screen.getByRole('dialog', { name: 'Add dependency to “Cutover”' })).toBeInTheDocument();
   });
 });
 
@@ -922,7 +922,7 @@ describe('ScheduleDependencyPicker — Space adds without closing (#3024)', () =
     // The picker STAYS OPEN — that is what makes it multi-add. `Enter` is the
     // only commit that closes.
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog', { name: /Add predecessor/ })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Add dependency/ })).toBeInTheDocument();
   });
 
   it('adds two links in one open, dropping each row as it lands', () => {
@@ -1162,7 +1162,7 @@ describe('ScheduleDependencyPicker — the count reads N of M in every scope (#3
     renderPicker({
       programId: 'prog-1',
       initialScope: 'program',
-      excludedIds: new Set(['x1']),
+      excludedIds: { predecessor: new Set(['x1']), successor: new Set<string>() },
     });
     fireEvent.change(searchInput(), { target: { value: 'e' } });
     await screen.findByRole('listbox', { name: 'Program task results' });
@@ -1302,7 +1302,7 @@ describe('ScheduleDependencyPicker — the link terms (#3023 step 3)', () => {
    *  combobox is the search field, and #3024's whole subject is that the two
    *  must not be confused. */
   function typeSelect(): HTMLSelectElement {
-    return screen.getByLabelText('Link');
+    return screen.getByLabelText('Relationship');
   }
   function lagInput(): HTMLInputElement {
     return screen.getByLabelText('Lag days');
@@ -1439,5 +1439,105 @@ describe('ScheduleDependencyPicker — the link terms (#3023 step 3)', () => {
     mutateSpy.mockClear();
     fireEvent.keyDown(lagInput(), { key: 'Enter' });
     expect(mutateSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direction is a field, and the four types are explained (#3113)
+// ---------------------------------------------------------------------------
+
+describe('ScheduleDependencyPicker — direction and the type reference (#3113)', () => {
+  const directionSelect = () => screen.getByLabelText<HTMLSelectElement>('Dependency type');
+  const relationshipSelect = () => screen.getByLabelText<HTMLSelectElement>('Relationship');
+  const helpTrigger = () =>
+    screen.getByRole('button', { name: 'What do the relationship types mean?' });
+
+  function commitFirstRow() {
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' });
+    fireEvent.keyDown(searchInput(), { key: 'Enter' });
+  }
+
+  it('defaults to successor — adding "what happens next" is the common act', () => {
+    renderPicker({ initialDirection: undefined });
+    expect(directionSelect().value).toBe('successor');
+  });
+
+  it('flips which end of the link the picked task lands on, without closing', () => {
+    // The whole issue: direction used to be fixed by the menu item that opened
+    // the dialog, so getting it wrong cost a close, a re-open, and a retype.
+    renderPicker({ initialDirection: 'successor' });
+    mutateSpy.mockClear();
+    fireEvent.change(directionSelect(), { target: { value: 'predecessor' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ successor: 't-source' });
+  });
+
+  it('resets the relationship to FS when direction changes', () => {
+    // The options are worded FOR the direction, so a carried-over value would
+    // leave the control reading the opposite of what it meant a moment ago.
+    renderPicker({ initialDirection: 'successor' });
+    fireEvent.change(relationshipSelect(), { target: { value: 'SF' } });
+    expect(relationshipSelect().value).toBe('SF');
+    fireEvent.change(directionSelect(), { target: { value: 'predecessor' } });
+    expect(relationshipSelect().value).toBe('FS');
+  });
+
+  it('rewords the relationship options for the direction in force', () => {
+    renderPicker({ initialDirection: 'successor' });
+    const successorWording = within(relationshipSelect())
+      .getAllByRole('option')
+      .map((o) => o.textContent);
+    fireEvent.change(directionSelect(), { target: { value: 'predecessor' } });
+    const predecessorWording = within(relationshipSelect())
+      .getAllByRole('option')
+      .map((o) => o.textContent);
+    expect(predecessorWording).not.toEqual(successorWording);
+  });
+
+  it('restates the choice in plain language, naming the gap before a row is picked', () => {
+    renderPicker({ initialDirection: 'successor', task: makeTask({ name: 'Foundation' }) });
+    expect(
+      screen.getByText('“Foundation” must finish before the task you pick starts.'),
+    ).toBeInTheDocument();
+  });
+
+  it('names the highlighted task in the summary once the caret enters the list', () => {
+    renderPicker({ initialDirection: 'successor', task: makeTask({ name: 'Foundation' }) });
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' });
+    expect(screen.getByText(/must finish before “.+” starts\./)).toBeInTheDocument();
+  });
+
+  it('opens a reference explaining all four types', () => {
+    // Nothing on the surface explained them before: LINK_TYPE_PROSE_NAME reached
+    // tooltips and screen readers only, so a sighted planner looking at
+    // "Start → Finish" had nowhere to ask.
+    renderPicker();
+    fireEvent.click(helpTrigger());
+    const panel = screen.getByRole('dialog', { name: 'Relationship types' });
+    for (const name of [
+      'Finish-to-Start',
+      'Start-to-Start',
+      'Finish-to-Finish',
+      'Start-to-Finish',
+    ]) {
+      expect(within(panel).getByText(name)).toBeInTheDocument();
+    }
+  });
+
+  it('Esc closes the reference and leaves the picker open', () => {
+    // useFocusTrap handles Escape for the modal at the window level, so without
+    // stopPropagation one press would throw away the whole search. Nested
+    // dismissables unwind one layer at a time.
+    const onClose = vi.fn();
+    renderPicker({ onClose });
+    fireEvent.click(helpTrigger());
+    expect(screen.getByRole('dialog', { name: 'Relationship types' })).toBeInTheDocument();
+    // Press on the TRIGGER, not the panel: clicking `?` leaves focus on the
+    // button, so that is where the real key lands. A handler scoped to the
+    // panel would never see it and the whole picker would close instead.
+    fireEvent.keyDown(helpTrigger(), { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Relationship types' })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: /Add dependency/ })).toBeInTheDocument();
   });
 });

@@ -348,7 +348,7 @@ describe('cross-project search link', () => {
     fireEvent.click(succLink);
 
     expect(
-      screen.getByRole('dialog', { name: 'Add successor to “Task B”' }),
+      screen.getByRole('dialog', { name: 'Add dependency to “Task B”' }),
     ).toBeInTheDocument();
   });
 });

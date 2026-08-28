@@ -574,11 +574,13 @@ describe('TaskListRow — build-mode context menu', () => {
     expect(screen.getByRole('menuitem', { name: /Mark complete/ })).toBeDisabled();
   });
 
-  it('Add predecessor / Add successor / Duplicate items render (#477)', () => {
+  it('Add dependency / Duplicate items render (#477, one item since #3113)', () => {
     renderHarness();
     fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
-    expect(screen.getByRole('menuitem', { name: /Add predecessor/ })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: /Add successor/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Add dependency/ })).toBeInTheDocument();
+    // The two old items are gone — direction is a field in the dialog now.
+    expect(screen.queryByRole('menuitem', { name: /Add predecessor/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Add successor/ })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /Duplicate/ })).toBeInTheDocument();
   });
 

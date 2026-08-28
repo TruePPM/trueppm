@@ -200,9 +200,12 @@ test.describe('Links cell — a control for an author', () => {
     // Named, not a bare `getByRole('dialog')`: the task drawer is a permanently
     // mounted (translated-off) `role="dialog"`, so an unnamed locator is a
     // strict-mode collision, not a missing picker.
-    const picker = page.getByRole('dialog', { name: /Add predecessor to/ });
+    const picker = page.getByRole('dialog', { name: /Add dependency to/ });
     await expect(picker).toBeVisible();
-    await expect(picker).toHaveAttribute('aria-label', 'Add predecessor to \u201CPour slab\u201D');
+    await expect(picker).toHaveAttribute('aria-label', 'Add dependency to \u201CPour slab\u201D');
+    // Since #3113 the title names the task, not the direction — one dialog, one
+    // name. Direction is a field, so that is where the chip's choice is read.
+    await expect(picker.getByLabel('Dependency type')).toHaveValue('predecessor');
   });
 
   test('the SUCCESSOR chip opens the successor direction, not the predecessor one', async ({
@@ -212,7 +215,11 @@ test.describe('Links cell — a control for an author', () => {
     await linksCell(page, 'survey')
       .getByRole('button', { name: 'Edit successor links' })
       .click();
-    await expect(page.getByRole('dialog', { name: /Add successor to/ })).toBeVisible();
+    const succPicker = page.getByRole('dialog', { name: /Add dependency to/ });
+    await expect(succPicker).toBeVisible();
+    // The assertion that carries this test. The title no longer differs by
+    // direction, so checking it would pass for BOTH chips and prove nothing.
+    await expect(succPicker.getByLabel('Dependency type')).toHaveValue('successor');
   });
 
   test('an unlinked row offers the cell as the "add your first link" control', async ({ page }) => {
@@ -220,13 +227,13 @@ test.describe('Links cell — a control for an author', () => {
     await linksCell(page, 'signage')
       .getByRole('button', { name: 'Add a dependency link to Signage' })
       .click();
-    await expect(page.getByRole('dialog', { name: /Add predecessor to/ })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: /Add dependency to/ })).toBeVisible();
   });
 
   test('clicking the cell does not select or rename the row underneath', async ({ page }) => {
     await goto(page);
     await linksCell(page, 'cure').getByRole('button', { name: 'Edit predecessor links' }).click();
-    await expect(page.getByRole('dialog', { name: /Add predecessor to/ })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: /Add dependency to/ })).toBeVisible();
     // The row's own click handler must not have fired through the button.
     await expect(row(page, 'cure').locator('input')).toHaveCount(0);
   });

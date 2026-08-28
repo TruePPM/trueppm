@@ -1,5 +1,12 @@
 import {
-  LINK_TYPE_OPTIONS,
+  DEFAULT_DEPENDENCY_DIRECTION,
+  DEFAULT_LINK_TYPE,
+  DEPENDENCY_DIRECTION_OPTIONS,
+  LAG_HELP,
+  LINK_TYPE_HELP,
+  describeLink,
+  linkTypeOptionsFor,
+  type DependencyDirection,
   LAG_MIN_DAYS,
   LAG_MAX_DAYS,
   LAG_FIELD_LABEL,
@@ -25,7 +32,9 @@ import { highlightSegments, prefixSegments } from '@/lib/searchHighlight';
  * Schedule-canvas dependency picker (ADR-0066 Q4; cross-project ADR-0120).
  *
  * Lightweight search-and-pick modal opened from the right-click context menu's
- * "Add predecessor…" / "Add successor…" actions. NOT a reuse of Board's
+ * single "Add dependency…" action. Direction (predecessor vs successor) is a
+ * field inside the dialog (#3113), not the thing that decides which dialog you
+ * get — it used to be fixed by the menu item and unchangeable once open. NOT a reuse of Board's
  * `PredecessorsEditor` — that one is embedded inside `TaskFormModal` and
  * row-list shaped; this surface needs an open → search → pick → close flow.
  *
@@ -58,8 +67,15 @@ import { highlightSegments, prefixSegments } from '@/lib/searchHighlight';
 export interface ScheduleDependencyPickerProps {
   /** Source task — never appears in the result list. */
   task: Task;
-  /** Picker mode. `predecessor` adds picked → source; `successor` adds source → picked. */
-  mode: 'predecessor' | 'successor';
+  /**
+   * Which side the picked task starts on. Defaults to `successor` — adding
+   * "what happens next" is the common planning act.
+   *
+   * This is an **initial value, not a mode** (#3113). Direction is a field
+   * inside the dialog now, so an entry point that opened the wrong one no
+   * longer costs a close-and-reopen with the search retyped.
+   */
+  initialDirection?: DependencyDirection;
   /** Project UUID — invalidates the right cache key after success. */
   projectId: string;
   /**
@@ -70,8 +86,13 @@ export interface ScheduleDependencyPickerProps {
   programId?: string | null;
   /** Full task list for filtering. */
   allTasks: Task[];
-  /** Task ids already linked to source in this mode (excluded from results). */
-  excludedIds: ReadonlySet<string>;
+  /**
+   * Already-linked ids **per direction**, because direction is now changeable
+   * without closing the dialog (#3113). A single set computed by the parent for
+   * the direction it opened in would go stale the moment the user flips, and
+   * the picker would offer a task it already links — or hide one it does not.
+   */
+  excludedIds: Readonly<Record<DependencyDirection, ReadonlySet<string>>>;
   /**
    * Scope tab to land on when opened. Defaults to `'project'` (unchanged
    * behavior for the right-click entry point). The drawer's Dependencies
@@ -164,19 +185,128 @@ export function matchKindFor(query: string): MatchKind {
   return /^\d/.test(q) ? 'wbs-prefix' : 'name-substring';
 }
 
+/**
+ * The `?` beside the relationship field — a reference for all four types.
+ *
+ * A disclosure rather than always-on copy: four definitions is more vertical
+ * space than the modal has, and a planner who already knows what SS means does
+ * not need to scroll past it every time. But *nothing* on the surface explained
+ * the four before this — `LINK_TYPE_PROSE_NAME` existed and reached only
+ * tooltips and screen-reader announcements, so a sighted planner staring at
+ * "Start → Finish" had nowhere to ask (#3113).
+ *
+ * **Esc closes the popover, not the dialog.** `useFocusTrap` handles Escape for
+ * the modal at the window level, so without `stopPropagation` here one press
+ * would throw away the whole search. Nested dismissables unwind one layer at a
+ * time — the popover is the innermost, so it goes first.
+ *
+ * Focus returns to the trigger on close, and the panel carries its own
+ * `max-h`/`overflow-y-auto` so it can never grow past the viewport.
+ */
+function LinkTypeHelp() {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+
+  const close = useCallback(() => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }, []);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Pointer-down outside dismisses. Registered only while open so the picker
+  // does not carry a listener for a panel nobody has asked for.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (panelRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  return (
+    // Escape is handled HERE, on the wrapper, and both halves of that matter.
+    //
+    // *On the wrapper* because the wrapper contains the trigger: after clicking
+    // `?` focus is still on the button, so a handler on the panel alone would
+    // never see the key and the modal would close instead of the popover.
+    //
+    // *Element-level* because `useFocusTrap` — the obvious reuse — attaches its
+    // Escape handler to `document`, and so does the dialog's. `stopPropagation`
+    // does not stop other listeners on the SAME element, so nesting two traps
+    // closes both layers on one press. An element-level handler is upstream of
+    // document, so stopping it there is what actually keeps the search alive.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Escape must be caught upstream of the two document-level focus traps; see above. The span is a positioning wrapper, not a control: the trigger inside it is a real <button>, and no interaction is added that a pointer or AT user could otherwise miss.
+    <span
+      className="relative shrink-0"
+      onKeyDown={(e) => {
+        if (!open || e.key !== 'Escape') return;
+        e.stopPropagation();
+        close();
+      }}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        aria-label="What do the relationship types mean?"
+        onClick={() => setOpen((v) => !v)}
+        // `focus:`, not `focus-visible:` — a popover trigger falls under the
+        // standalone-control carve-out (web rule 4/214), and Firefox and desktop
+        // Safari do not match :focus-visible on a pointer-clicked button. The
+        // eslint AST sweep NO_FOCUS_VISIBLE_ON_TRIGGER enforces this.
+        className="w-5 h-5 inline-flex items-center justify-center rounded-control
+          border border-neutral-border text-xs text-neutral-text-secondary
+          hover:bg-neutral-row-hover
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+      >
+        <span aria-hidden="true">?</span>
+      </button>
+      {open && (
+        <div
+          ref={panelRef}
+          id={panelId}
+          role="dialog"
+          aria-label="Relationship types"
+          className="absolute right-0 top-7 z-10 w-[300px] max-h-[240px] overflow-y-auto
+            rounded-card border border-neutral-border bg-neutral-surface p-3
+            text-xs text-neutral-text-secondary space-y-2"
+        >
+          {LINK_TYPE_HELP.map((h) => (
+            <p key={h.type}>
+              <span className="text-neutral-text-primary font-medium">{h.name}</span> — {h.body}
+            </p>
+          ))}
+          <p className="pt-1 border-t border-neutral-border">{LAG_HELP}</p>
+        </div>
+      )}
+    </span>
+  );
+}
+
 export function ScheduleDependencyPicker({
   task,
-  mode,
+  initialDirection = DEFAULT_DEPENDENCY_DIRECTION,
   projectId,
   programId,
   allTasks,
-  excludedIds,
+  excludedIds: excludedByDirection,
   initialScope = 'project',
   onClose,
 }: ScheduleDependencyPickerProps) {
   const addDep = useAddDependency(projectId);
   const inputRef = useRef<HTMLInputElement>(null);
   const canCrossProject = Boolean(programId);
+  const [direction, setDirection] = useState<DependencyDirection>(initialDirection);
+  // One of the two sets the parent passed — a stable reference, so the row
+  // filters below can depend on it without re-running every render.
+  const excludedIds = excludedByDirection[direction];
   const [scope, setScope] = useState<Scope>(canCrossProject ? initialScope : 'project');
   const [search, setSearch] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -343,6 +473,7 @@ export function ScheduleDependencyPicker({
    */
   const parsedLag = useMemo(() => clampLagDays(lagText), [lagText]);
 
+  const directionFieldId = `${listboxId}-direction`;
   const typeFieldId = `${listboxId}-type`;
   const lagFieldId = `${listboxId}-lag`;
 
@@ -351,7 +482,7 @@ export function ScheduleDependencyPicker({
       const keepOpen = opts?.keepOpen ?? false;
       setCycleMessage(null);
       const ends =
-        mode === 'predecessor'
+        direction === 'predecessor'
           ? { predecessor: target.id, successor: task.id }
           : { predecessor: task.id, successor: target.id };
       // The whole link, stated once. Before #3023 the picker posted FS/0 and
@@ -386,7 +517,7 @@ export function ScheduleDependencyPicker({
         },
       });
     },
-    [addDep, mode, task.id, onClose, depType, parsedLag],
+    [addDep, direction, task.id, onClose, depType, parsedLag],
   );
 
   // Keep refs in sync for the window keydown handler.
@@ -505,10 +636,9 @@ export function ScheduleDependencyPicker({
     return () => window.removeEventListener('keydown', handler);
   }, [canCrossProject, switchScope]);
 
-  const title =
-    mode === 'predecessor'
-      ? `Add predecessor to “${task.name}”`
-      : `Add successor to “${task.name}”`;
+  // One title, because there is one dialog now — direction is a field inside it
+  // rather than the thing that decided which dialog you got (#3113).
+  const title = `Add dependency to “${task.name}”`;
 
   /**
    * How the rows in front of the user were actually selected.
@@ -629,24 +759,57 @@ export function ScheduleDependencyPicker({
             a commit does has to be visible before the commit, not discovered
             afterwards in the drawer. Both persist across a Space multi-add, so
             a run of SS links is set once rather than per row. */}
-        <div className="flex items-center gap-2 px-4 pb-2">
-          <label htmlFor={typeFieldId} className="text-xs text-neutral-text-secondary shrink-0">
-            Link
+        <div className="flex items-center gap-2 px-4 pb-1.5">
+          <label
+            htmlFor={directionFieldId}
+            className="text-xs text-neutral-text-secondary shrink-0 w-[92px]"
+          >
+            Dependency type
+          </label>
+          <select
+            id={directionFieldId}
+            value={direction}
+            onChange={(e) => {
+              const next = e.target.value as DependencyDirection;
+              setDirection(next);
+              // Reset the relationship. The four options are worded FOR the
+              // direction, so keeping the old value would leave the control
+              // reading the opposite of what it meant a moment ago — and SF
+              // carried over from the other side is almost never what was
+              // wanted. FS is the honest restart (#3113).
+              setDepType(DEFAULT_LINK_TYPE);
+            }}
+            className="flex-1 min-w-0 text-xs border border-neutral-border rounded-control px-1.5 py-1
+              bg-neutral-surface text-neutral-text-primary
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            {DEPENDENCY_DIRECTION_OPTIONS.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 px-4 pb-1.5">
+          <label htmlFor={typeFieldId} className="text-xs text-neutral-text-secondary shrink-0 w-[92px]">
+            Relationship
           </label>
           <select
             id={typeFieldId}
             value={depType}
             onChange={(e) => setDepType(e.target.value as CanonicalLinkType)}
-            className="text-xs border border-neutral-border rounded-control px-1.5 py-1
+            className="flex-1 min-w-0 text-xs border border-neutral-border rounded-control px-1.5 py-1
               bg-neutral-surface text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            {LINK_TYPE_OPTIONS.map((dt) => (
+            {linkTypeOptionsFor(direction).map((dt) => (
               <option key={dt.value} value={dt.value}>
                 {dt.label}
               </option>
             ))}
           </select>
+          <LinkTypeHelp />
           <input
             id={lagFieldId}
             type="number"
@@ -662,6 +825,24 @@ export function ScheduleDependencyPicker({
           />
           <span className="text-xs text-neutral-text-secondary shrink-0">{LAG_UNIT_SUFFIX}</span>
         </div>
+
+        {/* The choice restated as one sentence, with the real task names in it.
+            The selects say which ENDS are tied; this says what that means for
+            these two tasks — the option is what you pick from, the sentence is
+            how you check you picked right. It names the gap ("the task you
+            pick") rather than disappearing before a row is highlighted, because
+            a summary that is absent exactly while you are deciding is a summary
+            nobody reads. Not a live region: it changes on every arrow press and
+            would talk over the row announcement the planner is navigating by. */}
+        <p className="px-4 pb-2 text-xs text-neutral-text-secondary">
+          {describeLink({
+            direction,
+            type: depType,
+            sourceName: task.name,
+            pickedName: (inList && flatItems[activeIdx]?.name) || null,
+            lag: parsedLag,
+          })}
+        </p>
 
         {matchTotal > 0 && (
           // "3 of 4" — and it is honest about the cap, so a planner who cannot
