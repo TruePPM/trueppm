@@ -617,10 +617,21 @@ async function fetchAllPagesParallel<T>(path: string, projectId: string): Promis
  * Reads projectId from the `:projectId` path param (ADR-0030).
  * An explicit `projectId` argument overrides the URL param for cases
  * where the hook is used outside the project route (e.g. tests).
+ *
+ * `options.enabled` defaults to true and exists for surfaces that need the task
+ * tree only on demand. The product backlog is one (#3035): it renders from its own
+ * grooming payload, and pulls the full tree only when someone opens the
+ * classification popover, whose subtree preview walks `parentId` links the backlog
+ * payload does not carry. Fetching it eagerly there would be a multi-page tasks +
+ * dependencies round trip on every backlog visit to serve a rare action.
  */
-export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
+export function useScheduleTasks(
+  projectId?: string,
+  options?: { enabled?: boolean },
+): UseScheduleTasksResult {
   const paramId = useProjectId();
   const resolvedId = projectId ?? paramId;
+  const enabled = (options?.enabled ?? true) && !!resolvedId;
 
   // Fallback polling is only needed when the live-update WebSocket is NOT
   // delivering events. When the socket is `live`, useProjectWebSocket
@@ -651,7 +662,7 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
       const wbsCodes = computeWbsCodes(rawTasks);
       return rawTasks.map((t) => ({ ...t, wbs: wbsCodes.get(t.id) ?? t.wbs }));
     },
-    enabled: !!resolvedId,
+    enabled,
     // WebSocket invalidations (useProjectWebSocket) handle live updates while
     // the socket is healthy. The 30 s fallback only runs when the socket is
     // down, so it catches missed events without hammering the API when the
@@ -670,7 +681,7 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
       const allDeps = await fetchAllPagesParallel<ApiDependency>('/dependencies/', resolvedId!);
       return allDeps.map(mapDependency);
     },
-    enabled: !!resolvedId,
+    enabled,
   });
 
   // Derive link criticality from the endpoint tasks: a dependency edge is on the

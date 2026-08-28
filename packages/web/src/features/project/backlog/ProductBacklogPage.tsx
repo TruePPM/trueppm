@@ -26,7 +26,7 @@
  * Rendered against the navy/sage design-system tokens.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useCreateIntentStore } from '@/stores/createIntentStore';
 import {
@@ -51,11 +51,19 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { isAxiosError } from 'axios';
 import { Button } from '@/components/Button';
+import { toast } from '@/components/Toast';
 import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { ListIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import { formatChord } from '@/lib/platform';
+import { ClassificationPopover } from '@/features/schedule/classification/ClassificationPopover';
+import {
+  useClassificationPopover,
+  type ClassificationAnnouncement,
+} from '@/features/schedule/classification/useClassificationPopover';
 import { useLabels } from '@/hooks/useLabels';
 import { countTasksByLabel } from '@/components/filters/labelFilter';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -107,8 +115,8 @@ const VIEW_STORAGE_KEY = 'trueppm.backlog.view';
  */
 function gridCols(hasScore: boolean): string {
   return hasScore
-    ? 'grid grid-cols-[44px_56px_1fr_120px_84px_56px_44px_88px_40px] items-center gap-2.5'
-    : 'grid grid-cols-[44px_56px_1fr_120px_84px_44px_88px_40px] items-center gap-2.5';
+    ? 'grid grid-cols-[44px_56px_1fr_120px_108px_56px_44px_88px_40px] items-center gap-2.5'
+    : 'grid grid-cols-[44px_56px_1fr_120px_108px_44px_88px_40px] items-center gap-2.5';
 }
 
 function GroomStat({
@@ -189,6 +197,7 @@ function StoryRow({
   selected,
   onToggleDor,
   onOpen,
+  onClassify,
   projectId,
   plannedSprint,
   canManage,
@@ -209,6 +218,9 @@ function StoryRow({
   selected: boolean;
   onToggleDor: (story: Task) => void;
   onOpen: (story: Task) => void;
+  /** Open the classification popover on this row (#3035). Omitted for a reader,
+   *  so the affordance is absent rather than disabled (web rule 302). */
+  onClassify?: (story: Task) => void;
   projectId: string;
   /** The sprint in PLANNED state (issue 1291) — turns the Sprint cell into a commit toggle. */
   plannedSprint: PlannedSprintRef | null;
@@ -231,6 +243,9 @@ function StoryRow({
     <div
       ref={draggable ? setNodeRef : undefined}
       style={style}
+      // The classification popover anchors to this rect (#3035), the same way the
+      // Schedule anchors to its own `data-row-id`.
+      data-backlog-row-id={story.id}
       role="button"
       tabIndex={0}
       aria-label={`Open ${story.taskType ?? 'story'} ${story.name}${
@@ -294,17 +309,36 @@ function StoryRow({
         )}
       </span>
       <AcMeter met={story.acMet ?? 0} total={story.acTotal ?? 0} />
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleDor(story);
-        }}
-        className="justify-self-start rounded-control focus:outline-none focus:ring-2 focus:ring-brand-primary"
-        title="Toggle Definition of Ready (ready / refine)"
-      >
-        <DorChip dor={story.dor ?? 'idea'} />
-      </button>
+      <span className="flex items-center gap-1 justify-self-start">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleDor(story);
+          }}
+          className="rounded-control focus:outline-none focus:ring-2 focus:ring-brand-primary"
+          title="Toggle Definition of Ready (ready / refine)"
+        >
+          <DorChip dor={story.dor ?? 'idea'} />
+        </button>
+        {onClassify && (
+          <button
+            type="button"
+            // stopPropagation because the whole row is a button that opens the detail
+            // drawer — and the drawer covers this side of the page, so a classification
+            // entry point that first opened it would be an entry point to nothing.
+            onClick={(e) => {
+              e.stopPropagation();
+              onClassify(story);
+            }}
+            className="rounded-control px-0.5 text-xs leading-none text-neutral-text-secondary hover:text-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary"
+            title={`Declare governance and delivery for this subtree (${formatChord('mod+shift+m')})`}
+            aria-label={`Classify ${story.name}`}
+          >
+            ⚖
+          </button>
+        )}
+      </span>
       {hasScore && (
         <span className="text-center font-mono text-[13px] font-semibold tabular-nums text-neutral-text-primary">
           {story.score != null ? (
@@ -618,6 +652,62 @@ function DesktopGroomingView() {
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  // ⌘⇧M classification (#3035). The popover shipped in #2736 but only the Schedule
+  // could open it — and an agile project *lands* here (ADR-0800 §3), so the PO who
+  // most needs to declare a gated compliance subtree was the one person who could
+  // not reach it. ADR-0800 §6 committed to this landing spot; this fills it.
+  //
+  // The task tree is pulled on demand, not on page load. The popover's subtree
+  // preview walks `parentId`, and the grooming payload groups by `parent_epic`
+  // instead — feeding it `allStories` would render "1 row" while the server cascades
+  // the whole subtree, which is a confidently wrong preview and worse than none.
+  // Arming on first use keeps the cost off every other backlog visit.
+  const [classifyArmed, setClassifyArmed] = useState(false);
+  const { tasks: classifyTasksRaw } = useScheduleTasks(projectId, { enabled: classifyArmed });
+  const classifyTasks = useMemo(() => classifyTasksRaw ?? [], [classifyTasksRaw]);
+  const announceClassification = useCallback((a: ClassificationAnnouncement) => {
+    if (a.action) toast.action(a.message, a.action, { durationMs: a.durationMs });
+    else toast.info(a.message, a.durationMs);
+  }, []);
+  const classify = useClassificationPopover({
+    projectId,
+    tasks: classifyTasks,
+    readOnly: !canManageBacklog,
+    announce: announceClassification,
+  });
+  const { open: openClassify } = classify;
+
+  const requestClassify = useCallback(
+    (taskId: string) => {
+      setClassifyArmed(true);
+      const card = document.querySelector<HTMLElement>(`[data-backlog-row-id="${taskId}"]`);
+      const rect = card?.getBoundingClientRect();
+      openClassify(taskId, rect ? { x: rect.left + 24, y: rect.bottom + 4 } : { x: 120, y: 160 });
+    },
+    [openClassify],
+  );
+
+  // ⌘⇧M / Ctrl+Shift+M — the same chord as the Schedule, on the selected card.
+  // Targets the single selection, not a range: the cascade endpoint takes one
+  // subtree root and resolves descendants itself, so a multi-row selection has no
+  // single root to name.
+  useEffect(() => {
+    if (!canManageBacklog) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== 'm' || !e.shiftKey) return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (!selectedId) return;
+      const el = document.activeElement;
+      // Never steal the chord from a text field — the quick-add input lives on
+      // this page and holds focus for most of a grooming session.
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+      e.preventDefault();
+      requestClassify(selectedId);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [canManageBacklog, selectedId, requestClassify]);
+
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overEpicId, setOverEpicId] = useState<string | null>(null);
   const liveRef = useRef<HTMLSpanElement>(null);
@@ -889,6 +979,7 @@ function DesktopGroomingView() {
           selected={s.id === selectedId}
           onToggleDor={toggleDor}
           onOpen={(st) => setSelectedId(st.id)}
+          onClassify={canManageBacklog ? (st) => requestClassify(st.id) : undefined}
           projectId={projectId as string}
           plannedSprint={plannedSprint}
           canManage={canManageBacklog}
@@ -912,6 +1003,7 @@ function DesktopGroomingView() {
         selected={s.id === selectedId}
         onToggleDor={toggleDor}
         onOpen={(st) => setSelectedId(st.id)}
+        onClassify={canManageBacklog ? (st) => requestClassify(st.id) : undefined}
         projectId={projectId as string}
         plannedSprint={plannedSprint}
         canManage={canManageBacklog}
@@ -973,11 +1065,13 @@ function DesktopGroomingView() {
           <Button variant="primary" size="sm" onClick={focusQuickAdd}>
             + Add story
           </Button>
-          {/* TODO(#3035): mount the classification-cascade popover's `⌘⇧M` entry
-              point here — the popover itself shipped in #2736, but nothing wires
-              it into this toolbar yet. The hybrid door (an agile project
-              declaring a gated compliance subtree, Epic C) must stay reachable
-              from this toolbar, not just the Schedule one. */}
+          {/* The hybrid door (#3035, ADR-0800 §6) is on the row, not here.
+              ADR-0800's placeholder asked for a toolbar entry point, but selecting a
+              row is what opens the detail drawer, and the drawer covers this header
+              — so a toolbar button acting on "the selected row" would be enabled
+              only in the state that makes it unreachable by pointer. The row's own
+              ⚖ affordance and ⌘⇧M are the two entry points, mirroring the
+              Schedule's row menu and chord. */}
         </header>
 
         <HealthStrip health={health} iterationLower={itl.lower} />
@@ -1244,6 +1338,7 @@ function DesktopGroomingView() {
                     selected={s.id === selectedId}
                     onToggleDor={toggleDor}
                     onOpen={(st) => setSelectedId(st.id)}
+                    onClassify={canManageBacklog ? (st) => requestClassify(st.id) : undefined}
                     projectId={projectId as string}
                     plannedSprint={plannedSprint}
                     canManage={canManageBacklog}
@@ -1322,6 +1417,22 @@ function DesktopGroomingView() {
           projectId={projectId as string}
           epic={selectedEpic}
           onClose={() => setSelectedId(null)}
+        />
+      )}
+
+      {/* Classification popover (#2736) reached from the backlog (#3035). Gated on
+          `target` as well as `state`, which is what makes the on-demand task fetch
+          safe: until the tree arrives the subtree root does not resolve, so the
+          popover waits rather than opening onto a preview it cannot yet compute. */}
+      {classify.state && classify.target && (
+        <ClassificationPopover
+          anchor={classify.state.anchor}
+          target={classify.target}
+          tasks={classifyTasks}
+          isPending={classify.isPending}
+          error={classify.error}
+          onApply={classify.apply}
+          onClose={classify.close}
         />
       )}
     </div>

@@ -75,7 +75,7 @@ $WEB_SRC/features/shell/ViewsMenu.tsx:316 # in-flow inside the rail's own overfl
 $WEB_SRC/features/board/card/CardOverflowMenu.tsx:158 # nested 'Move to…' submenu renders in-flow inside the outer panel's own guard (line 113), not a second scrollable surface
 $WEB_SRC/features/schedule/ScheduleAriaOverlay.tsx:551 # sr-only accessibility tree mirroring the Gantt canvas, not a floating menu/listbox
 $WEB_SRC/features/roster/RosterList.tsx:44 # in-page list inheriting its ancestor panel's overflow-y-auto (RosterPage.tsx), not a floating dropdown
-$WEB_SRC/features/schedule/ScheduleView.tsx:3620 # a document.querySelector CSS selector STRING, not a rendered role= attribute
+$WEB_SRC/features/schedule/ScheduleView.tsx:3550 # a document.querySelector CSS selector STRING, not a rendered role= attribute
 $WEB_SRC/features/schedule/UnscheduledTaskRow.tsx:378 # grandfathered hand-rolled spec (rule 260); content is 0-2 quick actions + a compact date form, provably bounded
 $WEB_SRC/components/filters/MultiSelectFacet.tsx:453 # wraps {body}, which already carries its own overflow-y-auto + maxHeight: LIST_MAX_HEIGHT guard
 $WEB_SRC/features/schedule/sections/RelatedLinkPicker.tsx:314 # flex-1 overflow-y-auto inside the picker dialog's own max-h-[520px] flex-col container

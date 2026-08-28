@@ -34,6 +34,10 @@ const h = vi.hoisted(() => ({
   autoRankPending: false,
   createEpicError: false,
   autoRankMutate: vi.fn(),
+  classifyTasks: [] as Task[],
+  classifyState: null as { taskId: string; anchor: { x: number; y: number } } | null,
+  classifyOpen: vi.fn(),
+  scheduleTasksEnabled: undefined as boolean | undefined,
   setDorMutate: vi.fn(),
   reorderMutate: vi.fn(),
   reparentMutate: vi.fn(),
@@ -152,6 +156,39 @@ vi.mock('./hooks/useGroomingFilters', () => ({
     setLabelIds: vi.fn(),
     reset: h.resetFilters,
   }),
+}));
+
+// #3035 — the classification popover reached from the backlog. The popover itself
+// has its own 170-test suite; these seams exist so the page's own wiring (who can
+// see the entry point, what it targets, when the task tree is fetched) is what the
+// assertions below are about.
+vi.mock('@/hooks/useScheduleTasks', () => ({
+  useScheduleTasks: (_id?: string, options?: { enabled?: boolean }) => {
+    h.scheduleTasksEnabled = options?.enabled;
+    return { tasks: h.classifyTasks };
+  },
+}));
+vi.mock('@/features/schedule/classification/useClassificationPopover', () => ({
+  useClassificationPopover: ({ readOnly }: { readOnly: boolean }) => ({
+    state: h.classifyState,
+    target: h.classifyState ? (h.classifyTasks[0] ?? null) : null,
+    isPending: false,
+    error: null,
+    open: (taskId: string, anchor: { x: number; y: number }) => {
+      if (readOnly) return;
+      h.classifyOpen(taskId, anchor);
+      h.classifyState = { taskId, anchor };
+    },
+    close: () => {
+      h.classifyState = null;
+    },
+    apply: vi.fn(),
+  }),
+}));
+vi.mock('@/features/schedule/classification/ClassificationPopover', () => ({
+  ClassificationPopover: ({ target }: { target: Task }) => (
+    <div data-testid="classification-popover">classify-{target.name}</div>
+  ),
 }));
 
 vi.mock('./hooks/useProductBacklog', () => ({
@@ -353,6 +390,9 @@ beforeEach(() => {
   h.projectId = 'proj-1';
   h.labels = undefined;
   h.rowDragging = false;
+  h.classifyTasks = [s1];
+  h.classifyState = null;
+  h.scheduleTasksEnabled = undefined;
   window.localStorage.clear();
 });
 
@@ -1666,5 +1706,98 @@ describe('Label facet counts', () => {
     expect(bar).toHaveTextContent('backend=1');
     // A catalog label carried by no loaded story truthfully reads 0.
     expect(bar).toHaveTextContent('design=0');
+  });
+});
+
+// ── ⌘⇧M classification from the backlog (#3035) ─────────────────────────────
+//
+// ADR-0800 §6 left a marked landing spot in this toolbar for the popover #2736
+// shipped, and it stayed empty: an agile project routes here on creation, so the
+// PO who most needs to declare a gated compliance subtree was the one person who
+// could not reach the popover that declares it.
+describe('classification entry point', () => {
+  const classifyButton = () => screen.getByRole('button', { name: 'Classify Login flow' });
+
+  it('is absent, not disabled, for a reader (web rule 302)', () => {
+    h.canManage = false;
+    setData(makeBacklog());
+    renderPage();
+    expect(screen.queryByRole('button', { name: /^Classify / })).toBeNull();
+  });
+
+  it('sits on the row, because selecting one opens the drawer over the toolbar', async () => {
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(classifyButton());
+    expect(h.classifyOpen).toHaveBeenCalledWith('s1', expect.any(Object));
+    expect(screen.getByTestId('classification-popover')).toHaveTextContent('classify-Login flow');
+  });
+
+  it('does not open the detail drawer on its way to the popover', async () => {
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(classifyButton());
+    expect(screen.queryByTestId('story-drawer')).toBeNull();
+  });
+
+  it('opens on the same chord the Schedule uses', async () => {
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /Open story Login flow/ }));
+    await user.keyboard('{Meta>}{Shift>}m{/Shift}{/Meta}');
+    expect(h.classifyOpen).toHaveBeenCalledWith('s1', expect.any(Object));
+  });
+
+  it('does not fire the chord with nothing selected', async () => {
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    await user.keyboard('{Meta>}{Shift>}m{/Shift}{/Meta}');
+    expect(h.classifyOpen).not.toHaveBeenCalled();
+  });
+
+  it('does not steal the chord from the quick-add input', async () => {
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /Open story Login flow/ }));
+    await user.click(screen.getByPlaceholderText(/story/i));
+    await user.keyboard('{Meta>}{Shift>}m{/Shift}{/Meta}');
+    expect(h.classifyOpen).not.toHaveBeenCalled();
+  });
+
+  it('ignores the chord entirely for a reader', async () => {
+    h.canManage = false;
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /Open story Login flow/ }));
+    await user.keyboard('{Meta>}{Shift>}m{/Shift}{/Meta}');
+    expect(h.classifyOpen).not.toHaveBeenCalled();
+  });
+
+  // The task tree is a multi-page tasks + dependencies round trip. It buys an
+  // accurate subtree preview and nothing else on this page, so a backlog visit
+  // that never classifies must not pay for it.
+  it('does not fetch the task tree until the popover is asked for', async () => {
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    expect(h.scheduleTasksEnabled).toBe(false);
+    await user.click(classifyButton());
+    expect(h.scheduleTasksEnabled).toBe(true);
+  });
+
+  it('waits for the tree rather than previewing a subtree it cannot resolve', async () => {
+    h.classifyTasks = [];
+    setData(makeBacklog());
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(classifyButton());
+    expect(h.classifyOpen).toHaveBeenCalled();
+    expect(screen.queryByTestId('classification-popover')).toBeNull();
   });
 });
