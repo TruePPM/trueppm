@@ -113,8 +113,8 @@ import { computeRowModes, type RowMode } from './deliveryModePresentation';
 import { ClassificationPopover } from './classification/ClassificationPopover';
 import { BulkEditSheet } from './buildMode/bulkEdit/BulkEditSheet';
 import { useBulkEdit } from './buildMode/bulkEdit/useBulkEdit';
-import { useClassifySubtree, type ClassificationApply } from '@/hooks/useTaskClassification';
-import { useUndoCascadeClassificationOperation, describeUndo } from '@/hooks/useBatchOperations';
+import type { ClassificationApply } from '@/hooks/useTaskClassification';
+import { useClassificationPopover } from './classification/useClassificationPopover';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   ToolbarOverflowMenu,
@@ -1787,17 +1787,15 @@ export function ScheduleView() {
   const surfaces = useSurfaceVisibility(projectIdUndef);
   const focus = useScheduleFocus();
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
-  // Classification popover (#2736). `anchor` is captured from the row's own
-  // rect at open time rather than tracked live: the popover is modalless but
-  // short-lived, and re-anchoring it on every scroll tick would make it chase
-  // the row out from under the cursor mid-choice.
-  const [classifyState, setClassifyState] = useState<{
-    taskId: string;
-    anchor: { x: number; y: number };
-  } | null>(null);
-  const classifyMut = useClassifySubtree();
-  const { reset: resetClassifyMut } = classifyMut;
-  const undoClassifyMut = useUndoCascadeClassificationOperation(projectId);
+  // Classification popover (#2736). The controller is shared with the product
+  // backlog, which grew the same entry point in #3035 — this surface owns only the
+  // anchor and the keybinding, which are the two genuinely surface-specific parts.
+  const classify = useClassificationPopover({
+    projectId: projectId ?? undefined,
+    tasks: allTasks,
+    readOnly,
+    announce: setScheduleActionToast,
+  });
   const indentTask = useIndentTask(projectId);
   const outdentTask = useOutdentTask(projectId);
   const updateTaskMut = useUpdateTask();
@@ -3420,84 +3418,16 @@ export function ScheduleView() {
   // #2736. Anchored to the row's own DOM rect so the popover opens beside what
   // it is about to classify; falls back to the viewport's top-left quadrant
   // when the row is virtualized out (⌘⇧M can fire on a row scrolled off-screen).
+  // The anchor is this surface's half of the popover — the backlog computes its
+  // own, because its cards are never virtualized out (#3035).
+  const { open: openClassify } = classify;
   const handleClassifyRequest = useCallback(
     (taskId: string) => {
-      if (readOnly) return;
-      resetClassifyMut();
       const row = document.querySelector<HTMLElement>(`[data-row-id="${taskId}"]`);
       const rect = row?.getBoundingClientRect();
-      setClassifyState({
-        taskId,
-        anchor: rect ? { x: rect.left + 24, y: rect.bottom + 4 } : { x: 120, y: 160 },
-      });
+      openClassify(taskId, rect ? { x: rect.left + 24, y: rect.bottom + 4 } : { x: 120, y: 160 });
     },
-    [readOnly, resetClassifyMut],
-  );
-
-  const closeClassify = useCallback(() => setClassifyState(null), []);
-
-  const classifyTarget = useMemo(
-    () => (classifyState ? (allTasks.find((t) => t.id === classifyState.taskId) ?? null) : null),
-    [classifyState, allTasks],
-  );
-
-  /**
-   * Render the server's own report, not the client's preview.
-   *
-   * The preview predicted what would happen; this states what did. They agree
-   * in every case the mirror is correct, and when they don't, the receipt is
-   * the one that is true — which is why the toast is built from `report` and
-   * never from the popover's state.
-   */
-  // ADR-0810 (#2756): reverses one cascade via its operation ledger — the server
-  // skips any row reclassified again since (e.g. a second cascade, or a person
-  // hand-editing the axis) rather than blindly stomping it.
-  const undoClassify = useCallback(
-    (operationId: string) => {
-      undoClassifyMut.mutate(operationId, {
-        onSuccess: (data) => setScheduleActionToast({ message: describeUndo(data.undo) }),
-        onError: () => setScheduleActionToast({ message: "Couldn't undo the cascade." }),
-      });
-    },
-    [undoClassifyMut, setScheduleActionToast],
-  );
-
-  const handleClassifyApply = useCallback(
-    (spec: ClassificationApply) => {
-      if (!projectId) return;
-      classifyMut.mutate(
-        { projectId, ...spec },
-        {
-          onSuccess: (report) => {
-            setClassifyState(null);
-            const parts: string[] = [];
-            if (report.governance) parts.push(`governance → ${report.governance.requested}`);
-            if (report.delivery_mode) parts.push(`delivery → ${report.delivery_mode.requested}`);
-            const written =
-              (report.governance?.applied ?? 0) + (report.delivery_mode?.applied ?? 0);
-            const kept = report.governance?.overrides_kept ?? 0;
-            const detail = [
-              `${written} field${written === 1 ? '' : 's'} written across ${report.matched} row${report.matched === 1 ? '' : 's'}`,
-              kept > 0 ? `${kept} governance override${kept === 1 ? '' : 's'} kept` : null,
-              report.skipped.length > 0
-                ? `${report.skipped.length} milestone${report.skipped.length === 1 ? '' : 's'} left alone`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(' · ');
-            const operationId = report.operation_id;
-            setScheduleActionToast({
-              message: `Classified: ${parts.join(', ')} — ${detail}.`,
-              durationMs: 8000,
-              action: operationId
-                ? { label: 'Undo', onClick: () => undoClassify(operationId) }
-                : undefined,
-            });
-          },
-        },
-      );
-    },
-    [projectId, classifyMut, setScheduleActionToast, undoClassify],
+    [openClassify],
   );
 
   // ⌘⇧K bulk-edit sheet (#2756 pt.2, ADR-0810) — acts on exactly the rows
@@ -4289,12 +4219,12 @@ export function ScheduleView() {
         setCheatsheetOpen={setCheatsheetOpen}
         scheduleExport={scheduleExport}
         pasteMany={pasteMany}
-        classifyState={classifyState}
-        classifyTarget={classifyTarget}
-        classifyPending={classifyMut.isPending}
-        classifyFailed={classifyMut.error !== null}
-        onClassifyApply={handleClassifyApply}
-        onClassifyClose={closeClassify}
+        classifyState={classify.state}
+        classifyTarget={classify.target}
+        classifyPending={classify.isPending}
+        classifyError={classify.error}
+        onClassifyApply={classify.apply}
+        onClassifyClose={classify.close}
       />
 
       {/* Bulk-edit sheet (#2756 pt.2) — ⌘⇧K. Mounted here rather than threaded
@@ -4414,7 +4344,7 @@ interface ScheduleOverlayLayerProps {
   classifyState: { taskId: string; anchor: { x: number; y: number } } | null;
   classifyTarget: Task | null;
   classifyPending: boolean;
-  classifyFailed: boolean;
+  classifyError: string | null;
   onClassifyApply: (spec: ClassificationApply) => void;
   onClassifyClose: () => void;
 }
@@ -4472,7 +4402,7 @@ function ScheduleOverlayLayer({
   classifyState,
   classifyTarget,
   classifyPending,
-  classifyFailed,
+  classifyError,
   onClassifyApply,
   onClassifyClose,
 }: ScheduleOverlayLayerProps) {
@@ -4545,7 +4475,7 @@ function ScheduleOverlayLayer({
           target={classifyTarget}
           tasks={allTasks}
           isPending={classifyPending}
-          error={classifyFailed ? 'Could not apply the classification.' : null}
+          error={classifyError}
           onApply={onClassifyApply}
           onClose={onClassifyClose}
         />

@@ -85,10 +85,18 @@ editor — so declaring that phase 4 runs as sprints meant opening every task un
 current release, use the per-task editor above.
 :::
 
-A hybrid plan is usually declared a **branch** at a time, not a row at a time. On the
-Schedule, focus a row and press `⌘⇧M` (`Ctrl+Shift+M` on Windows and Linux) — or
-right-click the row and choose **Classification…** — to open a popover that sets both
-axes for that task and, optionally, everything beneath it.
+A hybrid plan is usually declared a **branch** at a time, not a row at a time. Press
+`⌘⇧M` (`Ctrl+Shift+M` on Windows and Linux) to open a popover that sets both axes for a
+task and, optionally, everything beneath it.
+
+It is reachable from two surfaces, because an agile project and a scheduled one start in
+different places:
+
+- **Schedule** — focus a row and press the chord, or right-click the row and choose
+  **Classification…**.
+- **Product backlog** — select a story or epic and press the chord, or use the classify
+  affordance on the card itself. A project created with an agile methodology opens on the
+  backlog, so a compliance subtree can be declared without going to the Schedule first.
 
 The popover has three rows:
 
