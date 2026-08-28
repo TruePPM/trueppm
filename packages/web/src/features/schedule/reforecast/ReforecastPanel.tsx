@@ -40,9 +40,15 @@ export function ReforecastPanel({
   onDismiss,
 }: Props) {
   const rows = useMemo(() => {
+    // `diverged` AND `cascade` (#3041). Before this, a row only reached the panel
+    // if it had held an open client preview — i.e. if THIS user had just written
+    // it — so the panel that exists to explain a cascade could show every row
+    // except the cascade. A cascade entry carries no `taskName` (the delta path
+    // has no name to give), so it is resolved from `tasks` here.
+    const nameById = new Map(tasks.map((t) => [t.id, t.name]));
     const moved = Object.values(entries)
-      .filter((e) => e.status === 'diverged')
-      .map((e) => ({ taskId: e.taskId, taskName: e.taskName }));
+      .filter((e) => e.status === 'diverged' || e.status === 'cascade')
+      .map((e) => ({ taskId: e.taskId, taskName: e.taskName || (nameById.get(e.taskId) ?? '') }));
     // One row per task: a task whose start AND finish both moved is one change
     // to a planner, not two.
     const seen = new Set<string>();

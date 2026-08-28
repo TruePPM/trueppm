@@ -137,7 +137,10 @@ function clearFilterIfEmpty(
 ): { reviewFilterActive?: boolean } {
   if (!active) return {};
   const hasMarker = Object.values(entries).some(
-    (e) => e.status === 'diverged' || e.status === 'rejected',
+    // `cascade` counts (#3041): `reviewableTaskIds` narrows the outline to those
+    // rows too, so leaving them out here would clear the filter while rows it is
+    // still showing remain marked.
+    (e) => e.status === 'diverged' || e.status === 'cascade' || e.status === 'rejected',
   );
   return hasMarker ? {} : { reviewFilterActive: false };
 }

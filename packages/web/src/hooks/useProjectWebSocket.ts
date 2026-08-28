@@ -352,9 +352,19 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
             // will render; `deriveBarGeometry` can pick planned_start over
             // early_start, and comparing the wrong one would report a phantom
             // divergence on every drag.
+            // `t` is the row as cached a moment ago, `next` is the spliced result
+            // — so this is the one place in the app that holds both halves of a
+            // move. Passing `previous` is what lets `reconcile()` mark a row this
+            // user never touched (#3041); the full-snapshot path cannot, and must
+            // not, because it sees every task and knows nothing about movement.
             observations.push(
-              { taskId: t.id, field: 'start', value: next.start || null },
-              { taskId: t.id, field: 'finish', value: next.finish || null },
+              { taskId: t.id, field: 'start', value: next.start || null, previous: t.start || null },
+              {
+                taskId: t.id,
+                field: 'finish',
+                value: next.finish || null,
+                previous: t.finish || null,
+              },
             );
             return next;
           }),

@@ -21,7 +21,12 @@ import { useMemo } from 'react';
 import { useReconcileStore } from '@/stores/reconcileStore';
 
 import { announcement, changedCountLabel, describeDivergence } from './reconcileCopy';
-import { divergedEntries, rejectedEntries, type ReconcileEntry } from './reconcileState';
+import {
+  divergedEntries,
+  movedEntries,
+  rejectedEntries,
+  type ReconcileEntry,
+} from './reconcileState';
 
 // `h-7` matches `ScheduleForecastBar`'s BTN_CLS — this strip docks directly
 // above it, and the rule-118 `h-6` density exception is scoped to
@@ -99,7 +104,13 @@ export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }
 
   const diverged = useMemo(() => divergedEntries(entries), [entries]);
   const rejected = useMemo(() => rejectedEntries(entries), [entries]);
-  const liveText = announcement(diverged.length, projectFinish);
+  // The announcement counts EVERY date that moved, including cascades onto rows
+  // this user never touched (#3041). The visible list below stays diverged-only:
+  // it is a set of claims against what the planner authored, each with a Dismiss,
+  // and a row they never wrote has nothing for them to answer there. The
+  // reforecast panel is where cascades are read.
+  const moved = useMemo(() => movedEntries(entries), [entries]);
+  const liveText = announcement(moved.length, projectFinish);
   const idle = diverged.length === 0 && rejected.length === 0;
 
   return (

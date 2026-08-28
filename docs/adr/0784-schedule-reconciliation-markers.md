@@ -180,6 +180,40 @@ the acknowledgement gesture is for.
 Marking cascade moves onto untouched tasks needs the server to say which run
 caused them; that is the same follow-up as D5.
 
+> **Amended 2026-08-28 (#3041). The last sentence above was wrong, and the reason
+> it was wrong is the part worth keeping.**
+>
+> It states that marking cascades needs a server change. It does not — the server
+> already broadcasts exactly that. `scheduling/tasks.py` builds
+> `_member_cpm_delta(moved_tasks)` over *"the subset of `tasks_to_update` whose
+> broadcast-relevant fields actually moved"* — the whole project's moved set, with
+> no relationship to who wrote — and ships it as `task_dates_updated` (ADR-0091).
+> The `useProjectWebSocket` handler splices each delta into the cache, holding the
+> old row and the new one in the same closure, and pushes an observation for
+> every one. `reconcile()` then dropped them all, three lines later.
+>
+> So the deferral was real but its stated cause was not, and **that is what makes
+> a wrong reason more expensive than a wrong decision**: #2965 later shipped
+> `ReforecastPanel` — a section titled "What moved and why", sourced from
+> `status === 'diverged'` — and closed. A panel named for this question could show
+> every row *except* the rows a planner actually has to defend, and nothing in the
+> tracker said the question was open.
+>
+> The residual concern in the paragraph above is still correct and still enforced:
+> marking every *observation* would repaint the outline constantly, because the
+> full-snapshot path observes every task on every load and poll. #3041 resolves
+> this by making movement an explicit property of the observation
+> (`ReconcileObservation.previous`), which only the delta path can supply. A row
+> is marked when a committed CPM run moved it — not when it was merely seen.
+>
+> **Still deferred, and now for the honest reason:** a server-supplied *cause*.
+> `caused_by` remains absent rather than guessed. `orderByCausalChain` derives a
+> driver from links the client already holds, and `deriveCause` still refuses to
+> invent a reason it cannot prove (D5). And one real gap remains server-side:
+> when a run moves too many rows to ship as a delta, the broadcast sets
+> `truncated` and the client full-refetches — carrying no `previous`, so the
+> largest cascades produce no panel rows at all.
+
 ### D7 — The review strip is a sibling of the forecast bar, not part of it
 
 The issue names "the Forecast strip". Implemented literally that is wrong twice:
@@ -215,7 +249,7 @@ outline reads as "your project is gone".
 | Diff two consecutive task snapshots, no preview registration | No mutation-hook changes at all | Cannot tell my edit from a collaborator's — every teammate keystroke marks the outline. Fails D6 |
 | Hold reconciliation state in React Query `meta` | No new store | The refetch that carries the authoritative dates is the thing that would have to preserve it. Structurally unsound |
 | Component state in `ScheduleView` | Simplest | Marker dies on tab switch; the issue requires persistence until acknowledged |
-| Server-computed divergence + `reason` field | Real causes; covers cascades onto untouched tasks | API change, new serializer field, CPM must record provenance. Correct eventual answer, far past this issue's scope |
+| Server-computed divergence + `reason` field | Real causes; covers cascades onto untouched tasks | API change, new serializer field, CPM must record provenance. Correct eventual answer, far past this issue's scope. **Amended #3041:** the *cascade coverage* half of this row was already available with no API change — `task_dates_updated` carries the whole moved set (see D6). Only the narrative `reason` still needs server work |
 
 ## Consequences
 
