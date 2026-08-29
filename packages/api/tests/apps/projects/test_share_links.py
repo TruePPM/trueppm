@@ -7,10 +7,11 @@ default), the 410-vs-404 semantics, the instance kill switch, and access meterin
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -367,3 +368,80 @@ def test_policy_off_is_distinguishable_from_a_token_that_never_existed(project):
 
     assert APIClient().get(_public_url(raw)).status_code == 410
     assert APIClient().get(_public_url("nonexistenttoken")).status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Default expiry (#3177)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_omitting_expiry_applies_the_instance_default(admin_client, project):
+    """A mint that says nothing about expiry gets the default window, not "forever".
+
+    The web dialog always sends a value, so this is the path every non-dialog caller
+    takes — agent tokens, MCP clients, integrators, scripts. Those previously minted a
+    permanent link by saying nothing.
+    """
+    before = timezone.now()
+    resp = admin_client.post(_links_url(project), {"label": "Scripted"}, format="json")
+    assert resp.status_code == 201
+
+    link = ShareLink.objects.get(pk=resp.data["id"])
+    assert link.expires_at is not None
+    # `before` is stamped ahead of the request, and the window is measured from the
+    # serializer's own `now()`, so delta is 90 days plus the request's duration —
+    # bound it on both sides rather than asserting an exact 90.
+    delta = link.expires_at - before
+    assert timedelta(days=90) <= delta < timedelta(days=90, minutes=5)
+
+
+@pytest.mark.django_db
+def test_explicit_null_still_means_never(admin_client, project):
+    """The default is a default, not a ceiling — a standing embed is a real use case."""
+    resp = admin_client.post(
+        _links_url(project), {"label": "Wallboard", "expires_at": None}, format="json"
+    )
+    assert resp.status_code == 201
+    assert ShareLink.objects.get(pk=resp.data["id"]).expires_at is None
+
+
+@pytest.mark.django_db
+def test_an_explicit_expiry_is_not_overridden(admin_client, project):
+    chosen = timezone.now() + timedelta(days=3)
+    resp = admin_client.post(
+        _links_url(project),
+        {"label": "Short", "expires_at": chosen.isoformat()},
+        format="json",
+    )
+    assert resp.status_code == 201
+    stored = ShareLink.objects.get(pk=resp.data["id"]).expires_at
+    assert abs((stored - chosen).total_seconds()) < 2
+
+
+@pytest.mark.django_db
+def test_operators_can_restore_the_old_forever_behavior(admin_client, project, settings):
+    """0 disables the default rather than forcing a window on an unwilling operator."""
+    settings.TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS = 0
+    resp = admin_client.post(_links_url(project), {"label": "Forever"}, format="json")
+    assert resp.status_code == 201
+    assert ShareLink.objects.get(pk=resp.data["id"]).expires_at is None
+
+
+@pytest.mark.django_db
+def test_the_defaulted_link_actually_serves_and_then_410s(admin_client, project):
+    """End-to-end: the window is real, not just a stored column.
+
+    Guards the direction that would make this change worse than useless — a default
+    that accidentally minted an already-expired link would 410 immediately.
+    """
+    resp = admin_client.post(_links_url(project), {}, format="json")
+    token = resp.data["token"]
+
+    client = APIClient()
+    assert client.get(_public_url(token)).status_code == 200
+
+    link = ShareLink.objects.get(pk=resp.data["id"])
+    link.expires_at = timezone.now() - timedelta(seconds=1)
+    link.save(update_fields=["expires_at"])
+    assert client.get(_public_url(token)).status_code == 410

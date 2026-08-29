@@ -1166,6 +1166,14 @@ FORECAST_SNAPSHOT_RETENTION: dict[str, int] = {
 DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
 
+# Days a public share link lasts when the mint request omits ``expires_at`` (#3177).
+# An explicit null still means "never expires" — this is a default, not a ceiling, so
+# standing embeds and wallboards stay possible. Set to 0 to restore the pre-#3177
+# behavior in which an omitted expiry meant never.
+TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS = env.int(
+    "TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS", default=90
+)
+
 # Per-file cap for MS Project (.mpp/.xml) imports. Lower than the 100 MB
 # attachment ceiling on purpose: unlike attachments (FileField → disk), an
 # import is read fully into memory and stored base64-encoded in a single
