@@ -33,6 +33,11 @@ class WorkshopStartView(IdempotencyMixin, APIView):
     active session already exists (enforced by the DB unique constraint).
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     @extend_schema(
@@ -65,6 +70,11 @@ class WorkshopEndView(IdempotencyMixin, APIView):
     end it (IsProjectAdminOrSessionOwner).
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectAdminOrSessionOwner, IsProjectNotArchived]
 
     @extend_schema(
@@ -101,6 +111,11 @@ class WorkshopForceEndView(IdempotencyMixin, APIView):
     Requires ADMIN+. Returns 404 if no session is active.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     @extend_schema(
@@ -131,6 +146,11 @@ class WorkshopCurrentView(APIView):
     Returns the active session with nested participants, or 404 if none active.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(

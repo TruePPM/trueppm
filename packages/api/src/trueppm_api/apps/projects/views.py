@@ -7950,6 +7950,11 @@ class TaskReorderView(IdempotencyMixin, APIView):
         200 { "updated": [{ "id": "<uuid>", "wbs_path": "1.2.1" }, ...] }
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     @extend_schema(
@@ -8162,6 +8167,11 @@ class TaskIndentView(IdempotencyMixin, APIView):
         400 when the task is first at its level (no previous sibling).
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str, task_id: str) -> Response:
@@ -8296,6 +8306,11 @@ class TaskOutdentView(IdempotencyMixin, APIView):
         400 when the task is at root level.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str, task_id: str) -> Response:
@@ -8546,6 +8561,11 @@ class TaskReparentView(IdempotencyMixin, APIView):
         404 when new_parent_id does not exist in the project.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str, task_id: str) -> Response:
@@ -8670,6 +8690,11 @@ class _TaskGroupingViewBase(IdempotencyMixin, APIView):
     ``atomic()`` block, and whether a rejection can escape it having committed.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [
         IsAuthenticated,
         IsProjectMemberWrite,
@@ -8953,6 +8978,11 @@ class TaskBulkView(IdempotencyMixin, APIView):
     written.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [
         IsAuthenticated,
         IsProjectMemberWrite,
@@ -9153,6 +9183,11 @@ class TaskClassificationView(IdempotencyMixin, APIView):
     queries instead of a subtree lock plus a scan.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [
         IsAuthenticated,
         IsProjectMemberWrite,
@@ -10041,6 +10076,11 @@ class ProjectPresenceView(APIView):
     Response: ``[{user_id: str, display_name: str}, …]``
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
@@ -10659,6 +10699,11 @@ class BoardSavedViewListView(IdempotencyMixin, APIView):
     to IsProjectMember on safe methods (GET) and requires Member+ on writes (POST).
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
@@ -10719,6 +10764,11 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
     DELETE removes the view with the same role constraints.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def _get_view_or_403(self, request: Request, pk: str, view_pk: str) -> BoardSavedView:
@@ -11026,6 +11076,11 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
     # ADR-0678 (#2482): projects/<pk>/overview/
     mcp_scope = McpScope.PATH
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
@@ -11222,6 +11277,11 @@ class ProjectAttentionView(APIView):
     Permission: Member (any role ≥ Viewer).
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     # Maximum items returned per severity bucket — keeps the panel scannable.
@@ -11447,6 +11507,11 @@ class ProjectMyTasksView(APIView):
     Permission: Member (any role ≥ Viewer) — a user can only see their own tasks.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
@@ -12750,6 +12815,11 @@ class PhaseReorderView(IdempotencyMixin, APIView):
     belonging to this project — any violation returns 400.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     def patch(self, request: Request, pk: str) -> Response:
@@ -16329,6 +16399,11 @@ def _retro_owned_rows(
 class ProjectVelocityView(APIView):
     """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats."""
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
@@ -16394,6 +16469,11 @@ class ProjectSprintHealthView(McpReadableViewMixin, APIView):
     # ADR-0678 (#2482): projects/<pk>/sprint-health/
     mcp_scope = McpScope.PATH
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
@@ -16423,6 +16503,11 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
     mcp_scope = McpScope.PATH
 
     mcp_compute_heavy = True  # computed-on-read forecast (velocity Monte Carlo) (#1808 F4)
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(responses=ProjectForecastSerializer)
@@ -16495,6 +16580,11 @@ class ProjectSprintForecastView(McpReadableViewMixin, APIView):
     mcp_scope = McpScope.PATH
 
     mcp_compute_heavy = True  # computed-on-read backlog delivery forecast (#1808 F4)
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(responses=SprintForecastSerializer)
@@ -16553,6 +16643,11 @@ class FlowMetricsView(APIView):
     is not a performance signal and survives suppression.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
@@ -16601,6 +16696,11 @@ class ProjectMilestonesView(APIView):
     member; read-only.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
@@ -16643,6 +16743,11 @@ class ProjectBurnView(APIView):
       ``until``      — window end, ISO date; defaults to today
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(

@@ -95,6 +95,67 @@ check — appended alongside the role gate on every action except the ones that
 manage archival itself. It composes *additively*: a role that would otherwise
 pass is still blocked while the project is archived.
 
+## Naming the project kwarg: the fail-open a route inherits by accident
+
+Tier 0 only runs if the permission layer can find the project, and it finds it by
+reading **one URL kwarg by name**:
+
+```python
+def _project_pk_from_view(view: APIView) -> Any | None:
+    declared = getattr(view, "project_url_kwarg", None)
+    kwarg = declared if isinstance(declared, str) else DEFAULT_PROJECT_URL_KWARG
+    ...
+```
+
+Every project-scoped class then follows the same shape — enforce if the project
+resolved, and otherwise `return True`, because a genuinely top-level route
+(`/api/v1/dependencies/`) has no project in its URL and must fall through to the
+object-level check.
+
+That fallthrough is the trap. A route declared `projects/<pk>/…` rather than
+`projects/<project_pk>/…` resolves **nothing**, so the class returns `True` for
+everyone — while still sitting in `permission_classes` and reading as a live gate
+to anyone reviewing the view. Three separate issues turned out to share this one
+root cause, which is what makes it a pattern rather than an incident.
+
+**So a view whose route spells it differently says so:**
+
+```python
+class ProjectOverviewView(APIView):
+    project_url_kwarg = "pk"          # route is projects/<pk>/overview/
+    permission_classes = [IsAuthenticated, IsProjectMember]
+```
+
+Two things that look like simpler fixes, and why neither is one:
+
+- **Do not alias `pk` globally.** `pk` names the project on `projects/<pk>/…` and
+  names something else entirely everywhere else — a dependency on
+  `/dependencies/<pk>/`, a task on `/tasks/<pk>/`. A blanket alias would hand those
+  ids to the membership lookup, find no membership, and **deny every legitimate
+  request** on those routes. Guessing fails worse than the fail-open it replaces: a
+  silent no-op becomes a live outage.
+- **Do not make an unresolved project fail closed.** Top-level routes legitimately
+  resolve nothing, and denying them would break the object-level tier that is
+  supposed to handle them.
+
+Because neither the resolver nor the type system can tell an intentionally
+top-level route from a mistyped one, the guard is a **route-table test** rather
+than a runtime rule: `tests/apps/access/test_route_table_invariants.py` walks the
+live URL resolver and asserts that every route naming a project enforces access by
+*some* path — the declared kwarg, a ViewSet's object check, or an explicit call in
+the view body — and it names the routes in that last category so removing one is a
+failing test rather than a silent downgrade.
+
+One deliberate wrinkle: when a declared route is given an id that matches **no live
+project**, the permission layer stands down so the view's own `get_object_or_404`
+answers. Without that, an unknown id would start returning 403 where the published
+schema documents 404. Note the consequence — an existing-but-forbidden project
+answers 403 while an unknown one answers 404, so the two remain distinguishable
+here. That is deliberate scope, not an oversight: `ProjectScopedViewSet` above
+takes the opposite approach and hides existence behind an empty queryset, and
+reconciling the two conventions is an API-visible decision rather than something to
+settle inside a resolver fix.
+
 ## The shared predicate: one rule, enforced and declared from the same place
 
 `can_user_edit_task(request, task, method)` is the authoritative "may this user

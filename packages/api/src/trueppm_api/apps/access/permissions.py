@@ -364,16 +364,92 @@ def _mark_identity_refusal(request: Request, constraint: str) -> None:
     mark_refusal(request, AgentActionRefusalReason.IDENTITY, constraint)
 
 
-def _project_pk_from_view(view: APIView) -> Any | None:
-    """Extract project_pk from a view's URL kwargs (for nested routes).
+def _project_exists(project_pk: Any) -> bool:
+    """Does this project id name a real, live project? (#2745)
 
-    Project-nested routes use ``project_pk`` (e.g. /projects/<project_pk>/task-runs/).
-    Returns None for top-level routes that have no project_pk kwarg — in that case
-    has_permission cannot enforce membership and per-class fallthrough applies
-    (e.g. ProjectViewSet retrieves rely on ProjectScopedViewSet to filter the
-    queryset to member projects).
+    Used to keep an unknown id a **404** rather than a 403. `_membership_role`
+    returns None for "no membership" and for "no such project" alike, so a
+    permission class enforcing on a resolved kwarg would answer 403 to both — and
+    22 endpoints publish a 404 for an unknown project in `docs/api/openapi.json`.
+    Turning those into 403s would be an API contract change, made as a side effect
+    of an internal permission fix rather than as a decision.
+
+    So when the project does not exist the permission layer stands down and lets
+    the view's own `get_object_or_404` answer. Nothing is exposed by that: there is
+    no object to expose, and the view still runs its own object check for ids that
+    DO resolve.
+
+    Note what this deliberately does NOT change: an existing project the caller
+    cannot see still answers 403 while an unknown id answers 404, so the pair
+    remains distinguishable to a prober. That is the behavior on `main` today, it
+    is unchanged here, and making it uniform is a separate decision — the two
+    conventions already coexist in this codebase (`ProjectViewSet` hides existence
+    behind a queryset filter and 404s instead). Widening this fix into that one
+    would bury an API-visible security decision inside a resolver bugfix.
+
+    Only reached on the deny path — a caller with a membership row never gets here —
+    so the happy path costs no extra query.
     """
-    return getattr(view, "kwargs", {}).get("project_pk")
+    from trueppm_api.apps.projects.models import Project
+
+    return Project.objects.filter(pk=project_pk, is_deleted=False).exists()
+
+
+#: Default URL kwarg naming the project. A view whose route spells it differently
+#: overrides this with :attr:`project_url_kwarg` — see ``_project_pk_from_view``.
+DEFAULT_PROJECT_URL_KWARG = "project_pk"
+
+
+def _project_pk_from_view(view: APIView) -> Any | None:
+    """Extract the project id from a view's URL kwargs.
+
+    Nested routes spell it ``project_pk`` (``/projects/<project_pk>/task-runs/``) and
+    resolve with no further ceremony. Routes that spell it differently declare the
+    name on the view::
+
+        class ProjectOverviewView(APIView):
+            project_url_kwarg = "pk"   # route is projects/<pk>/overview/
+
+    **Why the declaration, rather than also trying ``pk`` (#2745).** ``pk`` names the
+    project on ``projects/<pk>/…`` and names something else entirely everywhere else —
+    a dependency on ``/dependencies/<pk>/``, a task on ``/tasks/<pk>/``. A blanket
+    alias would hand those ids to ``_membership_role``, which would find no membership
+    and **deny** every legitimate request on those routes. The failure mode of guessing
+    is worse than the fail-open it replaces: a silent no-op becomes a live outage. So
+    the kwarg is named by the view that knows, and by nothing else.
+
+    Returns None when the view declares no project kwarg and the route carries none —
+    a genuinely top-level route. Callers fall through to per-class handling (e.g.
+    ``ProjectViewSet`` retrieves rely on ``ProjectScopedViewSet`` to filter the
+    queryset to member projects, and object-level checks run on detail routes).
+
+    That None case is still permissive by design, and it is the reason this
+    indirection has to stay declarative rather than clever: an unresolvable route is
+    indistinguishable from an intentionally top-level one at this layer. What stops a
+    route from silently rejoining the fail-open set is the route-table invariant in
+    ``tests/apps/access/test_route_table_invariants.py`` (#2772), which asserts every
+    project-identifying route enforces membership by *some* path and names the ones
+    that do it in the view body.
+    """
+    declared = getattr(view, "project_url_kwarg", None)
+    kwarg = declared if isinstance(declared, str) else DEFAULT_PROJECT_URL_KWARG
+    # Only a real string counts. `getattr` on an object that synthesizes attributes
+    # (a bare `MagicMock` view in a permission test is the live example) hands back a
+    # truthy non-string, and `kwargs.get(<that>)` then misses every key and returns
+    # None — which every caller reads as "not project-scoped" and fails OPEN. That is
+    # this issue's own defect re-entering through its fix, so an unusable declaration
+    # is treated as no declaration rather than trusted.
+    project_pk = getattr(view, "kwargs", {}).get(kwarg)
+    if project_pk is None:
+        return None
+    # Unknown id on a route that only started enforcing here → stand down and let
+    # the view 404 (see `_project_exists`). Scoped to views that DECLARE the kwarg:
+    # nested `project_pk` routes have always enforced at this layer and always
+    # answered 403 for an unknown id, and this fix must not quietly restate their
+    # contract too. Costs one indexed EXISTS on the ~30 declaring routes.
+    if isinstance(declared, str) and not _project_exists(project_pk):
+        return None
+    return project_pk
 
 
 class IsProjectMember(BasePermission):
