@@ -2279,7 +2279,10 @@ backup:restore-drill:
     # AWS secret key is base64 and routinely does. Credential handling that
     # round-trips through a URL corrupts exactly these characters, so a plain
     # alphanumeric secret would let that regression through.
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends awscli
+    # One apt transaction for both remaining legs: awscli here, and curl +
+    # ca-certificates for the chart leg's helm/yq downloads below. postgres:16
+    # ships none of the three.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends awscli curl ca-certificates
     - export AWS_ACCESS_KEY_ID=drillkey AWS_SECRET_ACCESS_KEY='dr/ill+sec:ret12345' AWS_DEFAULT_REGION=us-east-1
     - echo "waiting for the minio service..."
     - |
@@ -2328,6 +2331,12 @@ backup:restore-drill:
     # postgres:16 family the CronJob uses.
     - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
     - curl -sSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64" && chmod +x /usr/local/bin/yq
+    # Assert both landed, on their own lines. `set -e` exempts a command that
+    # is not the last in an `&&` list, so a failed fetch above does not stop
+    # the script — it surfaces further down as a `command not found` naming a
+    # tool nobody asked about. These two put the error back at its cause.
+    - helm version --short
+    - yq --version
     - mkdir -p "$CI_PROJECT_DIR/chart-backups" "$CI_PROJECT_DIR/chart-media/sub"
     - echo "attachment-bytes" > "$CI_PROJECT_DIR/chart-media/sub/attachment.bin"
     # s3 stays OFF so the dump container is the sole container; with s3 on it is
