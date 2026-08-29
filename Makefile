@@ -381,6 +381,14 @@ e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 demo-nginx-allowlist-check: ## Run the demo nginx allowlist CI job locally (#2941)
 	@bash scripts/check-demo-nginx-allowlist.sh
 
+gate-selftest-parity-check: ## Fail if a CI gate never proves it can fail, in its own job (#3194)
+	@# boundary:imports passed a real Apache-2.0 violation for the whole life of the
+	@# gate (#3172) while carrying a test suite that ran in a DIFFERENT image, so the
+	@# suite was evidence about that image and nothing else. Same job is the only way
+	@# to say same image, which is why this matches per job rather than per repo.
+	@bash scripts/check-gate-selftest-parity.sh --self-test
+	@bash scripts/check-gate-selftest-parity.sh
+
 prepush-parity-check: ## Fail if a CI check script has no pre-push mirror and no opt-out (#2941)
 	@# The durable half of #2941. The pre-push list was a historical accretion —
 	@# each gate added by hand as it was written, and nothing checking the list
@@ -397,7 +405,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
