@@ -166,10 +166,18 @@ If you deploy without an Ingress — a `LoadBalancer` Service, or a service mesh
 set `probes.api.hostHeader` explicitly and add the same value here.
 :::
 
-`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` puts task attachments on the pod's
-ephemeral disk, where they are **lost on restart**. It is the right choice for a
-first install you are evaluating, and the wrong one for anything you intend to
-keep — swap it for the S3 pair when you are ready (see
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` puts task attachments on local
+disk. The pods run with a read-only root filesystem, so it needs a volume to
+write to — set `persistence.media.enabled=true` alongside it, or the API refuses
+to start. On a single-node evaluation cluster add
+`persistence.media.accessMode=ReadWriteOnce`; anywhere else the default
+`ReadWriteMany` is required, because an `ReadWriteOnce` claim binds to one node
+and the api, worker, and beat pods all mount it. See
+[attachment storage](/administration/helm-values/#attachment-storage-persistencemedia).
+
+It is a reasonable choice for a first install you are evaluating and the wrong
+one for anything you intend to keep on a multi-node cluster — swap it for the S3
+pair when you are ready (see
 [object storage](/administration/configuration/#object-storage-s3--minio)).
 
 At minimum, your values file then needs:
@@ -561,12 +569,17 @@ missing value — check `docker compose -f docker-compose.prod.yml logs api` if 
 stack does not come up.
 
 On the local-disk option: this stack runs the `api` container with a read-only
-root filesystem and mounts no attachments volume, so
-`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` lets the container boot but leaves
-uploads failing at write time. Choose it only if you have added a persistent,
-writable volume for attachments yourself. See
-[Configuration](/administration/configuration/) for the full S3 variable list,
-including non-AWS endpoints such as MinIO or Ceph.
+root filesystem, and from 0.4 it mounts a named `media` volume at
+`/var/lib/trueppm/media` for exactly this, so
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` works out of the box on a
+single-server install. Two consequences worth knowing: the files live only on
+that server, so backing them up is yours to arrange (`scripts/backup.sh` includes
+them when `TRUEPPM_MEDIA_ROOT` is set), and `docker compose down -v` deletes them
+with every other volume. If you point `TRUEPPM_MEDIA_ROOT` somewhere else,
+move the volume mount in `docker-compose.prod.yml` to match — the API probes the
+path at boot and refuses to start if it cannot write there, rather than failing
+on the first upload. See [Configuration](/administration/configuration/) for the
+full S3 variable list, including non-AWS endpoints such as MinIO or Ceph.
 :::
 
 You do not need to set `sslmode` on a database URL here. The stack composes its

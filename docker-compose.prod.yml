@@ -117,6 +117,10 @@ services:
     volumes:
       - admin_password:/run/trueppm
       - static_files:/app/staticfiles
+      # See the `media` volume note on the `api` service below. api-init runs
+      # settings.prod's import-time boot guards, so it needs the same writable
+      # MEDIA_ROOT the api container does or migrate fails before it starts.
+      - media:/var/lib/trueppm/media
     depends_on:
       db:
         condition: service_healthy
@@ -151,6 +155,16 @@ services:
     volumes:
       - admin_password:/run/trueppm
       - static_files:/app/staticfiles
+      # Task attachments and the workspace logo (#3184). `read_only: true` above
+      # makes every other path unwritable, and Django's MEDIA_ROOT default of ""
+      # resolved against the container working directory — so before this volume
+      # existed, an upload on a stack with
+      # TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true failed with EROFS while the
+      # boot guard reported the deployment healthy. settings/base.py defaults
+      # TRUEPPM_MEDIA_ROOT to this exact path; override both together if you
+      # move it. The celery services mount the same volume because the api
+      # writes a seed-import payload the worker reads back.
+      - media:/var/lib/trueppm/media
     depends_on:
       api-init:
         condition: service_completed_successfully
@@ -178,6 +192,11 @@ services:
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       # See the "Bundled-datastore posture" note above the api-init service.
       TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+    volumes:
+      # Same claim as the api service — see its note. The worker opens the
+      # seed-import payload the api wrote; beat needs it only because it runs
+      # settings.prod's MEDIA_ROOT boot guard at import.
+      - media:/var/lib/trueppm/media
     depends_on:
       api-init:
         condition: service_completed_successfully
@@ -217,6 +236,11 @@ services:
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       # See the "Bundled-datastore posture" note above the api-init service.
       TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+    volumes:
+      # Same claim as the api service — see its note. The worker opens the
+      # seed-import payload the api wrote; beat needs it only because it runs
+      # settings.prod's MEDIA_ROOT boot guard at import.
+      - media:/var/lib/trueppm/media
     depends_on:
       api-init:
         condition: service_completed_successfully
@@ -335,6 +359,10 @@ services:
 
 volumes:
   postgres_data:
+  # Task attachments + workspace logo, shared by api-init/api/celery/celery-beat.
+  # Included in the backup artifact when TRUEPPM_MEDIA_ROOT is set for
+  # scripts/backup.sh (#3184).
+  media:
   admin_password:
   frontend_dist:
   static_files:

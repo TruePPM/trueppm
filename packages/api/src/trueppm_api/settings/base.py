@@ -221,6 +221,22 @@ STORAGES = {
 if STORAGES["default"]["BACKEND"] in S3_STORAGE_BACKENDS:
     STORAGES["default"]["OPTIONS"] = build_s3_storage_options(os.environ)
 
+# Where FileSystemStorage writes task attachments. Django's own default is "",
+# which resolves upload paths against the process CWD — /app in the container
+# image, whose root filesystem is read-only on both supported production paths
+# (Helm readOnlyRootFilesystem, compose read_only). Every upload therefore failed
+# at write time with EROFS while the boot guard reported the deployment healthy
+# (#3184). TRUEPPM_MEDIA_ROOT was already read by scripts/backup.sh and
+# scripts/restore.sh but by nothing in Django, so the variable the backup tooling
+# documents now actually decides where the files it archives live.
+#
+# The default is the path the chart's persistence.media PVC and the compose
+# `media` volume both mount. It is deliberately outside BASE_DIR: BASE_DIR
+# resolves inside the read-only venv when the app is pip-installed, exactly as
+# STATIC_ROOT's comment below notes. settings/dev.py overrides it to a
+# repo-local directory so a workstation and pytest never need /var/lib.
+MEDIA_ROOT = Path(env("TRUEPPM_MEDIA_ROOT", default="/var/lib/trueppm/media"))
+
 # Operator opt-in to run prod on local-disk attachment storage (e.g. when it is
 # backed by a persistent volume). Consumed by validate_attachment_storage.
 ALLOW_LOCAL_ATTACHMENT_STORAGE = env.bool("TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE", default=False)

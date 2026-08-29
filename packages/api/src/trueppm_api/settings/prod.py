@@ -24,6 +24,7 @@ from .base import (
     DATABASES,
     DJANGO_LOG_LEVEL,
     INTEGRATION_ENCRYPTION_KEY,
+    MEDIA_ROOT,
     REDIS_URL,
     SIMPLE_JWT,
     STORAGES,
@@ -88,11 +89,16 @@ SECURE_REDIRECT_EXEMPT = [r"^api/v1/health/$", r"^api/v1/readyz$", r"^api/v1/edi
 
 # Refuse to boot when task attachments would land on ephemeral local disk in a
 # containerized deploy (#775) — same import-time enforcement as the SECRET_KEY
-# guard, since gunicorn/asgi workers never run `manage.py check`.
+# guard, since gunicorn/asgi workers never run `manage.py check`. Passing
+# MEDIA_ROOT extends the guard to the opted-in case (#3184): before this the
+# opt-in was an unverified claim, and the deployment it described — no MEDIA_ROOT
+# at all, on a read-only root filesystem — booted clean and then EROFS'd on the
+# first upload.
 _storage_errors = validate_attachment_storage(
     STORAGES["default"]["BACKEND"],
     debug=DEBUG,
     allow_local=ALLOW_LOCAL_ATTACHMENT_STORAGE,
+    media_root=MEDIA_ROOT,
 )
 if _storage_errors:
     raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _storage_errors))

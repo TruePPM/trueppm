@@ -247,8 +247,64 @@ missed a new env var was the #1892 failure mode this consolidates against).
 {{ include "trueppm.envVars" . }}
 {{ include "trueppm.connectionEnv" . }}
 {{ include "trueppm.datastoreSecurityEnv" . }}
+{{ include "trueppm.mediaEnv" . }}
 {{ include "trueppm.observabilityEnv" . }}
 {{ include "trueppm.loggingEnv" . }}
+{{- end -}}
+
+{{/*
+Attachment/media volume (#3184).
+
+Four defines, because the media claim has to reach every container that imports
+Django settings, not just the ones that serve uploads: settings/prod.py probes
+MEDIA_ROOT for writability at import time, so an unmounted migrate init container
+crash-loops the api pod before the api container is ever created.
+
+  trueppm.mediaEnv          TRUEPPM_MEDIA_ROOT, derived from mountPath so the app
+                            and the volume cannot disagree. Yields to an explicit
+                            env.TRUEPPM_MEDIA_ROOT.
+  trueppm.mediaVolume       the pod-level `volumes:` entry
+  trueppm.mediaVolumeMount  the container-level `volumeMounts:` entry
+  trueppm.mediaClaimName    chart-created claim, or the operator's existingClaim
+
+The access-mode guard lives in mediaVolume so it fires from every workload that
+mounts the claim, and only for a claim the chart itself creates — the mode of an
+existingClaim is not ours to police and cannot be read at render time.
+*/}}
+{{- define "trueppm.mediaClaimName" -}}
+{{- if .Values.persistence.media.existingClaim -}}
+{{- .Values.persistence.media.existingClaim -}}
+{{- else -}}
+{{- printf "%s-media" (include "trueppm.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "trueppm.mediaEnv" -}}
+{{- if and .Values.persistence.media.enabled (not (hasKey .Values.env "TRUEPPM_MEDIA_ROOT")) }}
+- name: TRUEPPM_MEDIA_ROOT
+  value: {{ .Values.persistence.media.mountPath | quote }}
+{{- end -}}
+{{- end -}}
+
+{{- define "trueppm.mediaVolume" -}}
+{{- if .Values.persistence.media.enabled -}}
+{{- $media := .Values.persistence.media -}}
+{{- if and (not $media.existingClaim) (ne $media.accessMode "ReadWriteMany") -}}
+{{- if or (gt (int .Values.replicaCount) 1) .Values.autoscaling.enabled -}}
+{{- fail (printf "persistence.media.accessMode is %q with more than one API replica (replicaCount=%d, autoscaling.enabled=%t). A ReadWriteOnce claim binds to one node, so an upload accepted by one API pod is a 404 from every other one. Use accessMode: ReadWriteMany, or put attachments on object storage (TRUEPPM_DEFAULT_FILE_STORAGE + TRUEPPM_S3_BUCKET_NAME) and set persistence.media.enabled=false." $media.accessMode (int .Values.replicaCount) .Values.autoscaling.enabled) -}}
+{{- end -}}
+{{- end -}}
+- name: media
+  persistentVolumeClaim:
+    claimName: {{ include "trueppm.mediaClaimName" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "trueppm.mediaVolumeMount" -}}
+{{- if .Values.persistence.media.enabled -}}
+- name: media
+  mountPath: {{ .Values.persistence.media.mountPath | quote }}
+{{- end -}}
 {{- end -}}
 
 {{/*

@@ -18,8 +18,10 @@ Two enforcement paths share the same validator:
 
 from __future__ import annotations
 
+import os
 import urllib.parse
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 from django.core.checks import Error, register
 from django.core.checks.messages import CheckMessage
@@ -279,24 +281,89 @@ _LOCAL_STORAGE_BACKENDS = frozenset(
 )
 
 
+def _media_root_write_failure(media_root: str | os.PathLike[str] | None) -> str | None:
+    """Return why ``media_root`` cannot receive uploads, or None if it can.
+
+    Probes with a real create-and-delete rather than ``os.access``: the container
+    runs as a non-root UID against a volume whose ownership the operator controls,
+    and ``os.access`` answers from the permission bits without accounting for a
+    read-only mount, so it returns True on exactly the path that then raises
+    EROFS. Missing parents are created — the chart mounts an empty PVC and Django
+    would otherwise only create the tree on the first upload.
+    """
+    if media_root is None or str(media_root) == "":
+        return "MEDIA_ROOT is empty, so uploads resolve against the process working directory"
+    path = Path(media_root)
+    if not path.is_absolute():
+        return (
+            f"MEDIA_ROOT {str(media_root)!r} is relative, so uploads follow the "
+            "process working directory"
+        )
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".trueppm-write-probe"
+        probe.write_bytes(b"")
+        probe.unlink()
+    except OSError as exc:
+        return f"MEDIA_ROOT {str(path)!r} is not writable: {exc.strerror or exc}"
+    return None
+
+
 def validate_attachment_storage(
     default_storage_backend: str | None,
     *,
     debug: bool,
     allow_local: bool,
+    media_root: str | os.PathLike[str] | None = None,
 ) -> list[CheckMessage]:
-    """Return a deploy error when attachments would land on ephemeral local disk.
+    """Return a deploy error when attachments cannot durably land on disk.
 
-    ``TaskAttachment.file`` uses the default file-storage backend. In a
-    containerized prod deploy a ``FileSystemStorage`` backend loses every upload
-    on pod restart and the signed-url action returns a non-signed static path.
-    Operators that back local storage with a persistent volume can opt in via
-    ``TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true``. Returns an empty list under
-    DEBUG so developer workstations keep using local storage.
+    Two distinct failures, both of which used to surface only on the first upload:
+
+    1. ``TaskAttachment.file`` uses the default file-storage backend. In a
+       containerized prod deploy a ``FileSystemStorage`` backend loses every
+       upload on pod restart and the signed-url action returns a non-signed
+       static path. Operators that back local storage with a persistent volume
+       can opt in via ``TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true``.
+    2. Having opted in, the operator may have no writable ``MEDIA_ROOT`` behind
+       the opt-in — which was every deployment before #3184, because the setting
+       did not exist and Django's default resolved against ``/app`` on a
+       read-only root filesystem. The opt-in is a claim about the deployment
+       ("local disk is durable here"); this check is what makes the claim testable
+       at boot instead of at the first EROFS on upload. ``media_root`` is optional
+       so a caller that only wants the backend question keeps the old signature.
+
+    Returns an empty list under DEBUG so developer workstations keep using local
+    storage.
     """
-    if debug or allow_local:
+    if debug:
         return []
-    if default_storage_backend in _LOCAL_STORAGE_BACKENDS:
+
+    is_local = default_storage_backend in _LOCAL_STORAGE_BACKENDS
+
+    if allow_local:
+        if not is_local or media_root is None:
+            return []
+        failure = _media_root_write_failure(media_root)
+        if failure is None:
+            return []
+        return [
+            Error(
+                "TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE is set, but local "
+                f"attachment storage cannot be used: {failure}.",
+                hint=(
+                    "Set TRUEPPM_MEDIA_ROOT to a writable persistent path and mount a "
+                    "volume there. On Helm set persistence.media.enabled=true (the "
+                    "chart mounts the claim on the api and celery-worker pods); on "
+                    "docker compose the `media` volume is mounted at "
+                    "/var/lib/trueppm/media. Or drop the opt-in and point "
+                    "TRUEPPM_DEFAULT_FILE_STORAGE at object storage."
+                ),
+                id="trueppm.E004",
+            )
+        ]
+
+    if is_local:
         return [
             Error(
                 "Task attachments use local filesystem storage "
@@ -307,7 +374,8 @@ def validate_attachment_storage(
                     "backend (e.g. S3/MinIO via django-storages) using the "
                     "TRUEPPM_DEFAULT_FILE_STORAGE env var, or set "
                     "TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true if local storage is "
-                    "backed by a persistent volume."
+                    "backed by a persistent volume (and TRUEPPM_MEDIA_ROOT points at "
+                    "that volume)."
                 ),
                 id="trueppm.E004",
             )
@@ -329,6 +397,7 @@ def check_attachment_storage(
         backend,
         debug=bool(getattr(settings, "DEBUG", False)),
         allow_local=bool(getattr(settings, "ALLOW_LOCAL_ATTACHMENT_STORAGE", False)),
+        media_root=getattr(settings, "MEDIA_ROOT", None),
     )
 
 

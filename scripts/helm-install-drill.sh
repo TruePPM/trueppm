@@ -180,9 +180,17 @@ kubectl create secret generic trueppm-env \
 # readyz leg both resolve — no version-skew overrides. The full chart (secret,
 # migrate->bootstrap init sequence, uvicorn, postgres, valkey, celery, Services)
 # boots and readiness gates on the real deep /readyz check the deploy ships with.
+# persistence.media is enabled deliberately (#3184): the chart's pods run with
+# readOnlyRootFilesystem, so a local-attachment-storage install has nowhere to
+# write without this claim and the boot guard now refuses to start rather than
+# accept uploads it would lose. ReadWriteOnce is correct on this single-node kind
+# cluster — the guard only rejects RWO above one replica, where it would mean an
+# upload accepted by one pod 404s from another.
 log "helm install ${RELEASE} (image tag ${RELEASE_IMAGE_TAG})"
 helm install "$RELEASE" "$CHART" \
   --set image.tag="$RELEASE_IMAGE_TAG" \
+  --set persistence.media.enabled=true \
+  --set persistence.media.accessMode=ReadWriteOnce \
   --set 'envFrom[0].secretRef.name=trueppm-env' \
   --wait --timeout "$INSTALL_TIMEOUT"
 log "rollout complete"
