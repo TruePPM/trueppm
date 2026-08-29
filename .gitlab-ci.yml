@@ -691,8 +691,19 @@ boundary:imports:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - apk add --no-cache bash
+    # grep MUST be GNU grep: both this job's script and the one below filter with
+    # --include / --exclude-dir, and alpine's default BusyBox grep does not
+    # implement them — it rejects the option, the script's `|| true` swallows the
+    # error, and an empty result reads as "no violations". That is how this gate
+    # passed a real `from trueppm_enterprise import ...` for as long as it has
+    # existed (#3172). The script's --self-test now fails closed if that recurs,
+    # but keep the package: the self-test is the alarm, this is the fix.
+    - apk add --no-cache bash grep
   script:
+    # Self-test FIRST: this gate's failure mode is a green pipeline over an
+    # unenforced licensing boundary, so "it passed" is not evidence that it can
+    # still fail. Replays a real import in each pattern family (#3172).
+    - bash scripts/check-enterprise-imports.sh --self-test
     - bash scripts/check-enterprise-imports.sh
     # The documentation half (#2859): a doc that tells a contributor to verify
     # the boundary with the naive grep reports the invariant as broken on a
@@ -723,8 +734,14 @@ suppressions:check:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - apk add --no-cache curl jq bash
+    # GNU grep — see the note on boundary:imports (#3172). BusyBox grep does not
+    # implement --exclude-dir, so this gate reported "no SUPPRESSED-UNTIL markers"
+    # on a tree carrying five of them in two tracked files.
+    - apk add --no-cache curl jq bash grep
   script:
+    # Self-test first — same reason as boundary:imports (#3172). Asserts the
+    # discovery half still finds a marker it is given; a blind grep reds here.
+    - bash scripts/check-suppression-issues.sh --self-test
     - bash scripts/check-suppression-issues.sh
 
 lint:todo-grep:

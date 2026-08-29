@@ -41,6 +41,57 @@
 
 set -euo pipefail
 
+if [ "${1:-}" = "--self-test" ]; then
+  # This gate never detected anything. The CI image's BusyBox grep rejects
+  # --include outright, the `|| true` below swallowed the option error, and an
+  # empty result read as "no violations" -- so a real
+  # `from trueppm_enterprise.portfolio import RollupService` passed, exit 0
+  # (#3172). Installing GNU grep is the fix; this is the alarm. A base-image
+  # bump, a slimmed package list, or an option rename that silently disarms the
+  # filters again must red the pipeline instead of passing it.
+  #
+  # Every case runs the REAL script against a fixture root, so there is no
+  # second copy of the patterns to drift.
+  st_tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064  # expand now, not at trap time
+  trap "rm -rf '$st_tmp'" EXIT
+  st_rc=0
+  st_probe() { # <name> <expect-pass|expect-fail> <dir>
+    if bash "$0" "$3" >/dev/null 2>&1; then
+      if [ "$2" = "expect-pass" ]; then echo "SELF-TEST OK: $1 accepted."
+      else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; st_rc=1; fi
+    else
+      if [ "$2" = "expect-fail" ]; then echo "SELF-TEST OK: $1 correctly rejected."
+      else echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; st_rc=1; fi
+    fi
+  }
+
+  d="$st_tmp/clean"; mkdir -p "$d/api/src"
+  printf 'from trueppm_api.core import thing\n' > "$d/api/src/ok.py"
+  st_probe "clean tree" expect-pass "$d"
+
+  d="$st_tmp/py"; mkdir -p "$d/api/src"
+  printf 'from trueppm_enterprise.portfolio import RollupService\n' > "$d/api/src/v.py"
+  st_probe "python import" expect-fail "$d"
+
+  d="$st_tmp/ts"; mkdir -p "$d/web/src"
+  printf 'import { X } from "@trueppm/trueppm-enterprise";\n' > "$d/web/src/v.ts"
+  st_probe "typescript import" expect-fail "$d"
+
+  d="$st_tmp/manifest"; mkdir -p "$d/api"
+  printf '[project]\ndependencies = ["trueppm-enterprise>=1.0"]\n' > "$d/api/pyproject.toml"
+  st_probe "manifest dependency" expect-fail "$d"
+
+  # The documented exemption has to hold too, or the gate becomes noisy enough
+  # to get disabled -- which is how the protection is really lost.
+  d="$st_tmp/prose"; mkdir -p "$d/api/src"
+  printf '# See ``trueppm_enterprise`` for the proprietary half.\n' > "$d/api/src/doc.py"
+  st_probe "package named in prose (double backticks)" expect-pass "$d"
+
+  [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
+  exit "$st_rc"
+fi
+
 ROOT="${1:-packages}"
 
 if [ ! -d "$ROOT" ]; then

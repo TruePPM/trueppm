@@ -43,6 +43,43 @@
 
 set -euo pipefail
 
+if [ "${1:-}" = "--self-test" ]; then
+  # The comment on --list below says a marker the regex stops matching "fails
+  # open and silently, which is the exact failure mode this gate was written to
+  # end". That is precisely what happened: the CI image's BusyBox grep rejects
+  # --exclude-dir, the `|| true` swallowed it, and this gate reported "no
+  # SUPPRESSED-UNTIL markers found" on a tree carrying five of them in two
+  # tracked files (#3172). --list made the discovery half testable offline;
+  # nothing was testing it. This does.
+  st_tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064  # expand now, not at trap time
+  trap "rm -rf '$st_tmp'" EXIT
+  st_rc=0
+
+  mkdir -p "$st_tmp/marked"
+  printf '// SUPPRESSED-UNTIL(#2618) verified still failing\n' > "$st_tmp/marked/a.ts"
+  case "$(bash "$0" --list "$st_tmp/marked" 2>/dev/null || true)" in
+    *'SUPPRESSED-UNTIL(#2618)'*)
+      echo "SELF-TEST OK: a marker in the tree is discovered." ;;
+    *)
+      echo "SELF-TEST FAILED: discovery found nothing in a tree that carries a marker." >&2
+      echo "                  The gate is BLIND -- it would report OK on any tree." >&2
+      st_rc=1 ;;
+  esac
+
+  mkdir -p "$st_tmp/clean"
+  printf 'nothing to see here\n' > "$st_tmp/clean/b.ts"
+  case "$(bash "$0" --list "$st_tmp/clean" 2>/dev/null || true)" in
+    *'no SUPPRESSED-UNTIL markers found'*)
+      echo "SELF-TEST OK: a clean tree reports none." ;;
+    *)
+      echo "SELF-TEST FAILED: a clean tree did not report clean." >&2; st_rc=1 ;;
+  esac
+
+  [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
+  exit "$st_rc"
+fi
+
 ROOT="${1:-.}"
 LIST_ONLY=""
 if [ "${2:-}" = "--list" ] || [ "${1:-}" = "--list" ]; then
