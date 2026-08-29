@@ -13,7 +13,6 @@
 # declares documentedFor.
 #
 # Regenerate, never hand-edit.
-administration/admin-password.md c7781d6e2c0b61e2926e6a01dcac5fe8faa41fb033f11c1e4f046eba8d4f8fdf
 administration/attachment-policy.md a47b5cbe0ecfa391241c9ed8114ce33005fa8dbe1cd0a5b585e5e39b2c1dca7a
 administration/data-export.md fe5f1e39a2ec30cabdab8efe11b86258154ec2c7acb82fcf27a241a78e7f8476
 administration/durability.md e4220e3c9951aa43116f15a0657f7dbafde43ff67ef70049b7801b3bb0161448

@@ -4,6 +4,14 @@ Runs automatically on container startup (both Docker Compose and Kubernetes).
 Idempotent: if a superuser already exists the command exits immediately — it
 will NOT reset a production password on re-deploy.
 
+"A superuser already exists" is the *only* thing that stops it. When none does,
+the command resolves ``DJANGO_SUPERUSER_EMAIL`` with ``get_or_create`` and then
+sets ``is_staff``/``is_superuser`` and a fresh password unconditionally — so an
+existing **non-superuser** holding that address is promoted and has its password
+reset. That is intended (it is how an operator recovers an install whose only
+superuser was demoted), but it is a privilege grant, so it is announced on stdout
+rather than reported as an ordinary create (#3175).
+
 Credential delivery
 -------------------
 The password is written to a file (default ``/tmp/trueppm_admin_password``)
@@ -16,7 +24,13 @@ passed to ``logger.*`` which would forward it to log aggregators.
 Environment variables
 ---------------------
 ``DJANGO_SUPERUSER_EMAIL``
-    Admin email address (default: ``admin@trueppm.com``).
+    Admin email address (default: ``admin@example.com``).
+
+    The default is an RFC 2606 reserved domain, chosen so it can never be
+    delivered to. It used to be ``admin@trueppm.com`` — a domain the *vendor*
+    owns and the operator does not, which put every un-overridden install's
+    root account at an address its owner could not receive password-reset mail
+    at, and someone else could (#3175). Always set this explicitly.
 ``DJANGO_SUPERUSER_USERNAME``
     Admin username; defaults to the local part of the email.
 ``DJANGO_SUPERUSER_PASSWORD``
@@ -68,7 +82,7 @@ class Command(BaseCommand):
             self.stdout.write("Admin user already exists — skipping bootstrap.")
             return
 
-        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@trueppm.com").strip()
+        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@example.com").strip()
         username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "").strip() or email.split("@")[0]
         password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "").strip() or secrets.token_urlsafe(
             16
@@ -90,7 +104,20 @@ class Command(BaseCommand):
         user.is_superuser = True
         user.save()
 
-        action = "Created" if created else "Promoted existing user to"
+        # An existing row being promoted is a privilege grant on an account the
+        # operator did not necessarily know was there — say so plainly rather than
+        # letting it read like a routine bootstrap line.
+        if created:
+            action = "Created"
+        else:
+            action = "Promoted existing user to"
+            self.stdout.write(
+                self.style.WARNING(
+                    f"WARNING: {email} already existed as a non-superuser. It has been "
+                    "granted superuser + staff and its password has been RESET. If this "
+                    "was not intended, set DJANGO_SUPERUSER_EMAIL to an unused address."
+                )
+            )
 
         # Write to file rather than stdout — credentials in stdout end up in
         # every log aggregator that ships container output.

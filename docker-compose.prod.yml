@@ -28,7 +28,8 @@
 #                line for you; without it TLS expires at ~90 days)
 #
 # Optional .env variables:
-#   DJANGO_SUPERUSER_EMAIL=admin@example.com  (default: admin@trueppm.com)
+#   DJANGO_SUPERUSER_EMAIL=you@yourdomain.com  (default: admin@example.com,
+#     a reserved domain that cannot receive password-reset mail — set this)
 #   TRUEPPM_ADMIN_PASSWORD_FILE=/run/trueppm/admin_password  (default)
 #
 # Retrieve the initial admin password after first deploy:

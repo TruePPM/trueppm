@@ -25,7 +25,7 @@ def test_creates_superuser_on_first_run(tmp_path: Path) -> None:
         out = StringIO()
         call_command("create_admin", stdout=out)
 
-    user = User.objects.get(email="admin@trueppm.com")
+    user = User.objects.get(email="admin@example.com")
     assert user.is_staff
     assert user.is_superuser
     assert user.username == "admin"
@@ -86,7 +86,7 @@ def test_explicit_password_is_used(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     with patch(_CMD, pw_file):
         call_command("create_admin")
 
-    user = User.objects.get(email="admin@trueppm.com")
+    user = User.objects.get(email="admin@example.com")
     assert user.check_password("explicit-password-123")
 
 
@@ -125,4 +125,45 @@ def test_password_printed_to_stdout_when_file_write_fails(tmp_path: Path) -> Non
     # On failure path the password appears in stdout, NOT the REDACTED placeholder.
     assert "REDACTED" not in output
     # Admin user was still created despite the file write failure.
-    assert User.objects.filter(email="admin@trueppm.com", is_superuser=True).exists()
+    assert User.objects.filter(email="admin@example.com", is_superuser=True).exists()
+
+
+@pytest.mark.django_db
+def test_default_email_is_a_reserved_domain(tmp_path: Path) -> None:
+    """The fallback must never be a domain someone other than the operator owns (#3175).
+
+    It was ``admin@trueppm.com`` — the vendor's domain — so every install that did not
+    override it had its root account at an address its own operator could not receive
+    password-reset mail at. ``example.com`` is RFC 2606 reserved and undeliverable,
+    which is the point: it fails visibly rather than routing somewhere real.
+    """
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin")
+
+    user = User.objects.get(is_superuser=True)
+    assert user.email.endswith("@example.com")
+    assert "trueppm.com" not in user.email
+
+
+@pytest.mark.django_db
+def test_promoting_an_existing_user_is_announced(tmp_path: Path) -> None:
+    """Promotion is a privilege grant + password reset — it must not read as a create.
+
+    Reachable whenever no superuser exists and some ordinary account already holds
+    DJANGO_SUPERUSER_EMAIL.
+    """
+    existing = User.objects.create_user(
+        username="someone", email="admin@example.com", password="their-own-password"
+    )
+
+    with patch(_CMD, str(tmp_path / "pw")):
+        out = StringIO()
+        call_command("create_admin", stdout=out)
+
+    existing.refresh_from_db()
+    assert existing.is_superuser
+    assert not existing.check_password("their-own-password")
+
+    output = out.getvalue()
+    assert "WARNING" in output
+    assert "password has been RESET" in output

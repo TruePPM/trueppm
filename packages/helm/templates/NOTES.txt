@@ -18,6 +18,17 @@ Retrieve the one-time admin password (written by the bootstrap init container):
 
   kubectl exec -n {{ .Release.Namespace }} deployment/{{ include "trueppm.fullname" . }}-api \
     -- cat {{ .Values.admin.passwordFile | default "/run/trueppm/admin_password" }}
+{{- if not .Values.admin.email }}
+
+!! admin.email was not set, so the bootstrap superuser is admin@example.com.
+!! That is a reserved domain and cannot receive mail, so password reset for this
+!! account will not work. Set admin.email to an address you control and upgrade:
+!!
+!!   helm upgrade {{ .Release.Name }} ... --set admin.email=you@yourdomain.com
+!!
+!! Note the bootstrap only runs while no superuser exists. If one has already been
+!! created, change the address on the account itself rather than in values.
+{{- end }}
 
 {{- if .Values.ingress.enabled }}
 
