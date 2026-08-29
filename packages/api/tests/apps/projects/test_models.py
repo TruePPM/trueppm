@@ -738,7 +738,12 @@ class TestTaskBlockerStamping:
 
 @pytest.mark.django_db
 class TestTaskSubtaskCascade:
-    def test_soft_delete_cascades_to_drawer_subtasks(self, project: Project) -> None:
+    def test_soft_delete_cascades_to_the_whole_wbs_subtree(self, project: Project) -> None:
+        """Both child kinds ride the cascade (#3173).
+
+        Structural children used to be left live under a deleted ancestor, which is
+        the #3048 dangling-path state reached from an ordinary delete.
+        """
         parent = Task.objects.create(project=project, name="Parent", duration=1, wbs_path="1")
         child = Task.objects.create(
             project=project, name="Child", duration=1, wbs_path="1.1", is_subtask=True
@@ -750,8 +755,42 @@ class TestTaskSubtaskCascade:
         child.refresh_from_db()
         structural.refresh_from_db()
         assert child.is_deleted is True
-        # WBS-structure children are the PM's to delete explicitly.
-        assert structural.is_deleted is False
+        assert structural.is_deleted is True
+
+    def test_soft_delete_reaches_a_grandchild(self, project: Project) -> None:
+        """Depth comes from each child's own soft_delete, so it must not stop at depth 1."""
+        parent = Task.objects.create(project=project, name="Parent", duration=1, wbs_path="1")
+        mid = Task.objects.create(project=project, name="Mid", duration=1, wbs_path="1.1")
+        leaf = Task.objects.create(project=project, name="Leaf", duration=1, wbs_path="1.1.1")
+        parent.soft_delete()
+        for row in (mid, leaf):
+            row.refresh_from_db()
+            assert row.is_deleted is True
+
+    def test_soft_delete_bumps_each_descendant_exactly_once(self, project: Project) -> None:
+        """Selecting the whole subtree per level would re-visit and double-bump rows."""
+        parent = Task.objects.create(project=project, name="Parent", duration=1, wbs_path="1")
+        mid = Task.objects.create(project=project, name="Mid", duration=1, wbs_path="1.1")
+        leaf = Task.objects.create(project=project, name="Leaf", duration=1, wbs_path="1.1.1")
+        before = {row.pk: row.server_version for row in (mid, leaf)}
+        parent.soft_delete()
+        for row in (mid, leaf):
+            row.refresh_from_db()
+            assert row.server_version == before[row.pk] + 1
+
+    def test_soft_delete_does_not_reach_another_project(self, project: Project) -> None:
+        """wbs_path is project-scoped and every project numbers from "1" (#3010)."""
+        other_project = Project.objects.create(
+            name="Other", start_date=project.start_date, calendar=project.calendar
+        )
+        parent = Task.objects.create(project=project, name="Parent", duration=1, wbs_path="1")
+        Task.objects.create(project=project, name="Child", duration=1, wbs_path="1.1")
+        bystander = Task.objects.create(
+            project=other_project, name="Same path", duration=1, wbs_path="1.1"
+        )
+        parent.soft_delete()
+        bystander.refresh_from_db()
+        assert bystander.is_deleted is False
 
     def test_restore_cascade_brings_back_subtasks_and_live_edges(self, project: Project) -> None:
         parent = Task.objects.create(project=project, name="Parent", duration=1, wbs_path="1")

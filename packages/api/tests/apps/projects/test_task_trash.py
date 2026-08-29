@@ -220,14 +220,12 @@ def test_tombstoned_subtree_collapses_to_one_restorable_root(owner: Any, project
 
 
 @pytest.mark.django_db
-def test_a_wbs_child_under_a_tombstoned_parent_stays_its_own_row(
-    owner: Any, project: Project
-) -> None:
-    """Only ``is_subtask`` descendants ride the restore cascade.
+def test_a_wbs_child_under_a_tombstoned_parent_folds_into_it(owner: Any, project: Project) -> None:
+    """The full subtree rides the restore cascade, so Trash shows one row (#3173).
 
-    A tombstoned WBS-structure child was deleted separately and the parent's restore
-    will not touch it, so folding it into the parent's row would hide a task that
-    stays deleted after the visible Restore.
+    Inverted from the ``is_subtask``-only era: a structural child under a tombstoned
+    parent *will* come back with it, so listing it separately would offer a Restore
+    that does nothing the parent's has not already done.
     """
     parent = Task.objects.create(project=project, name="Parent", duration=2, wbs_path="1")
     wbs_child = Task.objects.create(
@@ -237,8 +235,9 @@ def test_a_wbs_child_under_a_tombstoned_parent_stays_its_own_row(
         _trash(t)
 
     res = _client(owner).get(TRASH_URL, {"project": str(project.pk)})
-    names = {r["name"] for r in res.json()["results"]}
-    assert names == {"Parent", "WbsChild"}
+    (row,) = res.json()["results"]
+    assert row["name"] == "Parent"
+    assert row["subtree_count"] == 1
 
 
 @pytest.mark.django_db

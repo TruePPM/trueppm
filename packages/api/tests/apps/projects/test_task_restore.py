@@ -135,16 +135,21 @@ def test_restore_untombstones_task_subtree_and_edges(
 
 
 @pytest.mark.django_db
-def test_restore_only_touches_is_subtask_descendants(owner: Any, project: Project) -> None:
-    """A WBS-structure child (is_subtask=False) is not auto-deleted, so restore of the
-    parent must not resurrect a WBS child that was independently deleted."""
+def test_restore_brings_back_the_whole_wbs_subtree(owner: Any, project: Project) -> None:
+    """Restore mirrors the delete cascade's scope exactly (#3173).
+
+    Both are the full ``wbs_path`` subtree now. The accepted cost, unchanged from
+    when this was ``is_subtask``-scoped, is that a child deleted *earlier* and
+    independently comes back with the parent: ``server_version`` is a per-row counter,
+    not a clock, so nothing distinguishes "tombstoned by this cascade" from "already
+    tombstoned". Half-restore is worse than over-restore — see
+    ``cascade_task_children_restore``.
+    """
     client = _client(owner)
     parent = Task.objects.create(project=project, name="Parent", duration=2, wbs_path="1")
     wbs_child = Task.objects.create(
         project=project, name="WbsChild", duration=1, wbs_path="1.1", is_subtask=False
     )
-    # Independently delete the WBS child first, then the parent.
-    _delete_task(client, wbs_child)
     _delete_task(client, parent)
 
     client.post(f"/api/v1/tasks/{parent.pk}/restore/")
@@ -152,9 +157,34 @@ def test_restore_only_touches_is_subtask_descendants(owner: Any, project: Projec
     parent.refresh_from_db()
     wbs_child.refresh_from_db()
     assert parent.is_deleted is False
-    # The WBS child was NOT an is_subtask cascade target, so it stays tombstoned —
-    # restore mirrors the delete's is_subtask scope exactly.
-    assert wbs_child.is_deleted is True
+    assert wbs_child.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_delete_then_restore_leaves_no_dangling_wbs_ancestor(owner: Any, project: Project) -> None:
+    """The invariant the cascade exists to hold (#3173, #3048).
+
+    No live row may carry a ``wbs_path`` whose parent path has no live row — that is
+    the state that serializes ``parent_id = NULL`` and renders a "3.1" at root depth.
+    """
+    client = _client(owner)
+    parent = Task.objects.create(project=project, name="Parent", duration=2, wbs_path="1")
+    Task.objects.create(project=project, name="Child", duration=1, wbs_path="1.1")
+    Task.objects.create(project=project, name="Grandchild", duration=1, wbs_path="1.1.1")
+
+    def dangling() -> list[str]:
+        live = {
+            str(t.wbs_path)
+            for t in Task.objects.filter(project=project, is_deleted=False)
+            if t.wbs_path
+        }
+        return sorted(p for p in live if "." in p and p.rpartition(".")[0] not in live)
+
+    _delete_task(client, parent)
+    assert dangling() == []
+
+    client.post(f"/api/v1/tasks/{parent.pk}/restore/")
+    assert dangling() == []
 
 
 @pytest.mark.django_db
