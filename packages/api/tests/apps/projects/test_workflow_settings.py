@@ -264,6 +264,29 @@ def test_delete_phase_refuses_with_descendants(admin_client, project):
     assert phase.is_deleted is False
 
 
+@pytest.mark.django_db
+def test_task_endpoint_cascades_the_same_phase_this_one_refuses(admin_client, project):
+    """The two delete surfaces differ on purpose — pin both halves (#3173).
+
+    ``DELETE /tasks/{id}/`` cascades the subtree, because the Schedule confirms the
+    descendant count first and backs it with a faithful Undo. The phases endpoint above
+    refuses, because the Workflow settings page fires straight from the row with no
+    confirmation. If someone relaxes the phase guard, this test says what has to be
+    built first; if someone re-narrows the task cascade, the assertions here fail.
+    """
+    phase = _seed_phase(project, "Engineering", 1)
+    child = Task.objects.create(project=project, name="Child task", wbs_path="1.1")
+
+    refused = admin_client.delete(f"/api/v1/projects/{project.pk}/phases/{phase.pk}/")
+    assert refused.status_code == 400
+
+    cascaded = admin_client.delete(f"/api/v1/tasks/{phase.pk}/")
+    assert cascaded.status_code == 204
+    for row in (phase, child):
+        row.refresh_from_db()
+        assert row.is_deleted is True
+
+
 # ---------------------------------------------------------------------------
 # Phases — permissions
 # ---------------------------------------------------------------------------

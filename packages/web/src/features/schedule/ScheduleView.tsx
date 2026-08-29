@@ -2088,10 +2088,12 @@ export function ScheduleView() {
   // stack (keeps the callback nesting shallow).
   //
   // Faithful restore (#2078, ADR-0494): the server un-tombstones the whole graph
-  // — the task under its original id, its is_subtask subtree, its dependency edges,
-  // and its assignments — so Undo is truthful and the copy is a plain "Restored"
-  // regardless of subtree size (no more create-a-new-row approximation or the
-  // "subtasks were not recovered" caveat).
+  // — the task under its original id, its whole wbs_path subtree, its dependency
+  // edges, and its assignments — so Undo is truthful and the copy is a plain
+  // "Restored" regardless of subtree size (no more create-a-new-row approximation
+  // or the "subtasks were not recovered" caveat). The subtree half of that only
+  // became true in #3173; before it, the delete cascade reached is_subtask rows
+  // only and structural children were never tombstoned to restore.
   const undoBuildModeDelete = useCallback(
     (taskId: string) => {
       restoreTaskMut.mutate(taskId, {
@@ -2651,10 +2653,15 @@ export function ScheduleView() {
       },
       deleteTask: (taskId) => {
         // Leaf rows delete immediately with the Undo safety net (#1762) — the
-        // fast daily build path. But a summary/phase row carries a WBS subtree
-        // that Undo cannot bring back, so gate that case behind a confirm that
-        // names the descendant count (#2029). `childCountById` only holds
-        // summaries, so a plain leaf never trips the guard.
+        // fast daily build path. A summary/phase row takes its whole WBS subtree
+        // with it, so gate that case behind a confirm that names the descendant
+        // count (#2029). `childCountById` only holds summaries, so a plain leaf
+        // never trips the guard.
+        //
+        // The confirm is about SIZE, not recoverability: since #3173 the server
+        // cascades the subtree and `cascade_task_children_restore` brings all of
+        // it back, so Undo is a faithful inverse here too. Deleting 37 rows on one
+        // keypress still deserves to be announced before it happens.
         const summary = childCountById.get(taskId);
         if (summary && summary.count > 0) {
           setPendingSubtreeDelete({

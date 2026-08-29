@@ -3849,17 +3849,20 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
 def _collapse_trashed_subtrees(tasks: list[Task]) -> list[tuple[Task, int]]:
     """Reduce a flat list of tombstoned tasks to its restore *roots* (#2494, ADR-0689).
 
-    ``Task.soft_delete`` tombstones the task's ``is_subtask=True`` subtree, and
+    ``Task.soft_delete`` tombstones the task's whole ``wbs_path`` subtree, and
     ``cascade_task_children_restore`` brings that whole subtree back from one POST. So a
     trash list that showed every tombstoned row would present N entries for a single
     delete, N-1 of which restore nothing the first one didn't already.
 
-    A task is dropped when it is ``is_subtask`` **and** some other task in ``tasks`` is a
-    strict ``wbs_path`` ancestor of it — that ancestor's restore will resurrect it. The
-    ``is_subtask`` condition is not decoration: the delete cascade only tombstones subtask
-    descendants, so a tombstoned *WBS-structure* child under a tombstoned parent was
-    deleted separately and stays its own independently restorable row (the restore cascade
-    will not touch it).
+    A task is dropped when some other task in ``tasks`` is a strict ``wbs_path`` ancestor
+    of it — that ancestor's restore will resurrect it.
+
+    This used to additionally require ``is_subtask``, because the delete cascade reached
+    only drawer subtasks and a tombstoned *structural* child under a tombstoned parent
+    really had been deleted separately. #3173 widened the delete (and restore) cascade to
+    the full subtree, so that condition would now hide nothing and split one delete back
+    into N trash rows. The two must move together: this predicate is only correct while it
+    mirrors exactly what :func:`cascade_task_children_restore` will resurrect.
 
     Returns ``(root, subtree_count)`` pairs preserving input order, where ``subtree_count``
     is how many tombstoned descendants come back with the root.
@@ -3867,7 +3870,7 @@ def _collapse_trashed_subtrees(tasks: list[Task]) -> list[tuple[Task, int]]:
     paths = [(t, str(t.wbs_path) if t.wbs_path else "") for t in tasks]
     roots: list[tuple[Task, int]] = []
     for task, path in paths:
-        if task.is_subtask and path:
+        if path:
             covered_by_other = any(
                 other is not task and other_path and path.startswith(other_path + ".")
                 for other, other_path in paths
@@ -3878,10 +3881,7 @@ def _collapse_trashed_subtrees(tasks: list[Task]) -> list[tuple[Task, int]]:
             sum(
                 1
                 for other, other_path in paths
-                if other is not task
-                and other.is_subtask
-                and other_path
-                and other_path.startswith(path + ".")
+                if other is not task and other_path and other_path.startswith(path + ".")
             )
             if path
             else 0
@@ -5760,12 +5760,12 @@ class TaskViewSet(
         membership-scoped, so a foreign id simply matches nothing and never confirms the
         project exists.
 
-        **Restore roots only.** Deleting a parent tombstones its ``is_subtask`` subtree and
-        ``cascade_task_children_restore`` brings the whole subtree back, so listing every
-        descendant would show N rows for one delete, N-1 of them no-ops. A row is dropped
-        when it is ``is_subtask`` *and* another tombstoned row in the same set is a strict
-        ``wbs_path`` ancestor; the survivor carries ``subtree_count`` so the user can see
-        what returns with it.
+        **Restore roots only.** Deleting a parent tombstones its whole ``wbs_path`` subtree
+        and ``cascade_task_children_restore`` brings the whole subtree back, so listing
+        every descendant would show N rows for one delete, N-1 of them no-ops. A row is
+        dropped when another tombstoned row in the same set is a strict ``wbs_path``
+        ancestor; the survivor carries ``subtree_count`` so the user can see what returns
+        with it.
 
         The window is ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` read straight from settings —
         deliberately NOT via the ADR-0173 ``resolve_retention`` coordinator, because the
@@ -12924,9 +12924,18 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     endpoint (ADR-0046); this viewset does not expose its own reorder action
     to avoid drift.
 
-    Destroy refuses (409) when the phase has any descendant tasks — silently
+    Destroy refuses (400) when the phase has any descendant tasks — silently
     cascading 36 tasks would surprise a PM. The client should move or delete
     the children first.
+
+    **Deliberately stricter than ``DELETE /tasks/{id}/``** (#3173). Since that fix the
+    task endpoint *does* cascade the subtree, because the surface that calls it — the
+    Schedule — raises a confirm dialog naming the descendant count and backs it with a
+    faithful Undo. The Workflow settings page that calls *this* endpoint has neither: it
+    fires ``remove.mutate(phase.id)`` straight from the row and renders the refusal
+    inline. A cascade here would be the unannounced 36-task delete this guard was written
+    to prevent. Give this endpoint a confirm affordance before relaxing it — the two
+    differ because the surfaces differ, not because one of them is out of date.
     """
 
     serializer_class = PhaseSerializer

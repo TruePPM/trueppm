@@ -1911,15 +1911,15 @@ def cascade_task_children_restore(task: Task) -> None:
     """Restore a task's tombstoned subtree and dependency edges — inverse of
     :meth:`Task.soft_delete`'s cascade (#2078).
 
-    The subtree-scoped analog of :func:`cascade_project_children_restore`. The single
-    point where it is NOT a copy of the project cascade: it restores only
-    ``is_subtask=True`` descendants, matching the ``is_subtask`` scope of the delete
-    cascade exactly — WBS-structure children are never auto-restored because the delete
-    never auto-tombstones them (the PM deletes/restores those explicitly). Restores, in
-    order (tasks before edges, so an un-tombstoned task is a live endpoint the edge pass
-    relies on):
+    The subtree-scoped analog of :func:`cascade_project_children_restore`. Restores the
+    **whole** tombstoned subtree — structural WBS children and drawer subtasks alike —
+    matching the scope of :meth:`Task.soft_delete`'s cascade exactly. Until #3173 both
+    sides were narrowed to ``is_subtask=True``; the delete half was the bug, and
+    narrowing the restore to match it would have made Undo a partial inverse, which is
+    worse than either consistent choice. Restores, in order (tasks before edges, so an
+    un-tombstoned task is a live endpoint the edge pass relies on):
 
-    1. **Descendants** — ``is_deleted=True, is_subtask=True`` tasks under
+    1. **Descendants** — ``is_deleted=True`` tasks under
        ``wbs_path__startswith=task.wbs_path + "."``.
     2. **Dependency edges** — tombstoned edges touching the restored subtree, restored
        only when BOTH endpoints are now live and no already-live duplicate exists on the
@@ -1937,7 +1937,7 @@ def cascade_task_children_restore(task: Task) -> None:
     distinguishing "tombstoned by this delete cascade" from "a subtask individually deleted
     earlier, then its parent deleted". Restoring the parent may resurrect that earlier-
     deleted subtask — the same bounded, accepted tradeoff ("half-restore is worse than
-    none"), with a narrower blast radius (one task's ``is_subtask`` subtree, not a project).
+    none"), with a narrower blast radius (one task's wbs subtree, not a project).
     """
     # Bulk .update() bypasses save(), so the restored subtree needs an explicit
     # cursor or it stays below every client checkpoint and never syncs (ADR-0686).
@@ -1953,7 +1953,6 @@ def cascade_task_children_restore(task: Task) -> None:
             # project, corrupting their delta cursor as well.
             project_id=task.project_id,
             is_deleted=True,
-            is_subtask=True,
             wbs_path__startswith=str(task.wbs_path) + ".",
         ).update(
             is_deleted=False,
@@ -1997,9 +1996,10 @@ def _repath_occupied_descendants(task: Task, seq: int) -> None:
     The cascade below un-deletes the subtree with one bulk ``.update()``, which cannot
     see a per-row conflict — and ``unique_task_wbs_path_per_project_live`` is
     ``DEFERRED``, so the collision it creates surfaces at ``COMMIT`` as an
-    ``IntegrityError`` naming a constraint and no row. A tombstoned subtask's slot can
-    be reallocated the moment it is deleted, because the constraint covers live rows
-    only, so this is reachable from delete-a-subtask / add-a-subtask / undo.
+    ``IntegrityError`` naming a constraint and no row. A tombstoned row's slot can be
+    reallocated the moment it is deleted, because the constraint covers live rows only,
+    so this is reachable from delete / add-in-its-place / undo — for a structural child
+    (since #3173) exactly as for a drawer subtask.
 
     **Re-path rather than refuse**, the opposite of the single-row endpoint's policy.
     A cascade has no person to ask and no useful partial outcome: abandoning the restore
@@ -2016,7 +2016,6 @@ def _repath_occupied_descendants(task: Task, seq: int) -> None:
         Task.objects.filter(
             project_id=task.project_id,
             is_deleted=True,
-            is_subtask=True,
             wbs_path__startswith=str(task.wbs_path) + ".",
         )
         .filter(
@@ -3686,13 +3685,27 @@ class Task(VersionedModel):
         return kwargs
 
     def soft_delete(self) -> None:
-        """Soft-delete the task, its dependency edges, and any is_subtask children.
+        """Soft-delete the task, its dependency edges, and its whole WBS subtree.
 
         Dependency rows that reference this task are themselves soft-deleted so
         the sync endpoint can tombstone them on connected mobile clients.
 
-        Subtask children (is_subtask=True) are cascade-deleted when the parent
-        is deleted — they have no independent existence outside the parent task.
+        **Both kinds of child cascade** (#3173): drawer subtasks
+        (``is_subtask=True``) and structural WBS children. This method used to
+        tombstone only the former, on the reasoning that "the PM deletes structure
+        explicitly" — but nothing enforced that, so deleting a summary row left its
+        structural children live with a ``wbs_path`` under a deleted ancestor. Those
+        rows serialize with ``parent_id = NULL`` (the annotation resolves parents
+        ``is_deleted=False``), which the client renders at **root depth** still
+        labelled ``3.1`` — the #3048 dangling-path class, reached from an ordinary
+        delete. The schedule's confirm dialog had meanwhile promised the cascade and
+        promised Undo would reverse it; both are now true.
+
+        Only **direct** children are selected here; depth is handled by their own
+        ``soft_delete()``. Selecting the whole subtree instead would re-visit rows an
+        inner pass had already tombstoned and double-bump their ``server_version``.
+        The "not a deeper level" exclusion is the same idiom
+        :func:`next_free_wbs_path` uses.
 
         Stamps ``deleted_at`` before delegating to ``VersionedModel.soft_delete()``
         (which performs the actual save), so the nightly tombstone reap can apply
@@ -3706,21 +3719,22 @@ class Task(VersionedModel):
         for dep in list(edges):
             if not dep.is_deleted:
                 dep.soft_delete()
-        # Cascade to drawer-created subtask children (depth-1 only; WBS structure
-        # children are not auto-deleted — the PM must explicitly delete them).
         if self.wbs_path:
-            subtask_children = Task.objects.filter(
-                # The delete side of the same missing scope as
-                # `cascade_task_children_restore` (#3010), and the more dangerous half:
-                # `wbs_path` is project-scoped and every project numbers from "1", so
-                # without this deleting a row here tombstoned the live subtasks under
-                # the same-shaped path in EVERY other project.
-                project_id=self.project_id,
-                is_subtask=True,
-                is_deleted=False,
-                wbs_path__startswith=str(self.wbs_path) + ".",
-            ).select_for_update()
-            for child in list(subtask_children):
+            path = str(self.wbs_path)
+            children = (
+                Task.objects.filter(
+                    # `wbs_path` is project-scoped and every project numbers from "1",
+                    # so the prefix alone is not a subtree — it matches the same-shaped
+                    # path in EVERY other project (#3010). Without this, deleting a row
+                    # here tombstoned live rows under the same path in every project.
+                    project_id=self.project_id,
+                    is_deleted=False,
+                    wbs_path__startswith=path + ".",
+                )
+                .exclude(wbs_path__regex=rf"^{re.escape(path)}\.\d+\.")
+                .select_for_update()
+            )
+            for child in list(children):
                 child.soft_delete()
         self.deleted_at = timezone.now()
         # Deleting a row is not editing its content (ADR-0786 §4). Without this a
