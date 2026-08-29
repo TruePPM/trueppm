@@ -204,4 +204,5 @@ See the API reference for full schemas.
   and Prometheus gauge this UI complements.
 - [Retention](/administration/retention) — the environment/settings the retention
   summary reflects.
-- [Durability](/administration/durability) — the transactional outbox the dispatchers run.
+- [Durability & Redundancy](/administration/durability/) — the transactional outbox the dispatchers run, and what survives a pod or node loss.
+- [Troubleshooting](/administration/troubleshooting/) — the same diagnosis from a shell when the UI is what is down.

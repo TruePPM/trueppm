@@ -408,7 +408,9 @@ A backup you have never restored is a hypothesis, not a backup. Prove it:
 
 - [Deployment](/administration/deployment/) — the stateful services and the
   managed-datastore path.
-- [Beat Liveness & Durability](/administration/durability/) — keeping async work
-  durable, the companion to not losing data.
+- [Durability & Redundancy](/administration/durability/) — what is authoritative,
+  what is reconstructible, and the redundancy ladder this backup sits on.
+- [Beat Liveness](/administration/beat-liveness/) — detecting the dead scheduler
+  that would otherwise stall every drain.
 - [Record retention](/administration/retention/) — what the purge jobs remove
   before a backup is even taken.
