@@ -39,6 +39,9 @@
 
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+
 ROOT="${1:-packages/api/src}"
 
 if [ ! -d "$ROOT" ]; then
@@ -62,6 +65,7 @@ checked=0
 for sig in $signals; do
   # Bare `.send(` on this signal, excluding `.send_robust(`.
   hits=$(grep -rn "${sig}\.send(" "$ROOT" --include='*.py' 2>/dev/null || true)
+  hits="$(printf '%s\n' "$hits" | drop_ignored_lines)"
   [ -z "$hits" ] && continue
   while IFS= read -r hit; do
     [ -z "$hit" ] && continue

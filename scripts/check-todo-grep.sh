@@ -200,6 +200,9 @@ fi
 #   resulting id is unusable as a URL path segment. `-n` is added back
 #   explicitly on the two calls (STUB:/WIP: and the bare-TODO warning) that
 #   print a human-readable line locator instead of parsing the match.
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+
 GREP_OPTS=(
   -r
   --include='*.py'
@@ -224,7 +227,8 @@ GREP_OPTS=(
 violations=0
 
 # 1. Hard-fail STUB: / WIP: markers. -n: print the line locator for the fix.
-if stub_hits=$(grep "${GREP_OPTS[@]}" -nE '(STUB|WIP):' "${EXISTING_ROOTS[@]}" 2>/dev/null); then
+if stub_hits=$(grep "${GREP_OPTS[@]}" -nE '(STUB|WIP):' "${EXISTING_ROOTS[@]}" 2>/dev/null \
+     | drop_ignored_lines | grep .); then
   {
     echo "ERROR: STUB:/WIP: marker(s) found in source — these must not ship:"
     echo "$stub_hits"
@@ -236,8 +240,16 @@ fi
 # 2. TODO(#NNN) — every referenced issue must still be open on GitLab.
 #    TODO(upstream#NNN) is a deliberate escape hatch (see header) and is
 #    reported for visibility only — never resolved, never a violation.
-todo_refs=$(grep "${GREP_OPTS[@]}" -hoE 'TODO\(#[0-9]+\)' "${EXISTING_ROOTS[@]}" 2>/dev/null | sort -u || true)
-upstream_refs=$(grep "${GREP_OPTS[@]}" -hoE 'TODO\(upstream#[0-9]+\)' "${EXISTING_ROOTS[@]}" 2>/dev/null | sort -u || true)
+todo_refs=$(grep "${GREP_OPTS[@]}" -lE 'TODO\(#[0-9]+\)' "${EXISTING_ROOTS[@]}" 2>/dev/null \
+  | drop_ignored_lines \
+  | while IFS= read -r todo_file; do
+      [ -n "$todo_file" ] && grep -hoE 'TODO\(#[0-9]+\)' "$todo_file"
+    done | sort -u || true)
+upstream_refs=$(grep "${GREP_OPTS[@]}" -lE 'TODO\(upstream#[0-9]+\)' "${EXISTING_ROOTS[@]}" 2>/dev/null \
+  | drop_ignored_lines \
+  | while IFS= read -r todo_file; do
+      [ -n "$todo_file" ] && grep -hoE 'TODO\(upstream#[0-9]+\)' "$todo_file"
+    done | sort -u || true)
 
 if [ -n "$upstream_refs" ]; then
   {
@@ -325,6 +337,7 @@ fi
 # 3. Warn-only — bare TODO with no #NNN reference (and not the upstream# form).
 #    -n: print the line locator so a developer can find and link it.
 bare_hits=$(grep "${GREP_OPTS[@]}" -nE 'TODO[: (]' "${EXISTING_ROOTS[@]}" 2>/dev/null |
+  drop_ignored_lines |
   grep -vE 'TODO\(#[0-9]+\)' | grep -vE 'TODO\(upstream#[0-9]+\)' || true)
 if [ -n "$bare_hits" ]; then
   {

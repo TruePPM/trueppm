@@ -217,7 +217,20 @@ fi
 # exit 1 as a clean empty result, but still propagate a real grep error (>=2) so
 # a broken pattern fails loudly rather than silently counting zero. The
 # over-baseline `fail=1` comparison below is unchanged — enforcement is intact.
-g() { grep "$@" || [ "$?" -eq 1 ]; }
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+
+# Recursive forms enumerate files, so they must not report a path git ignores
+# (#3178) — a gitignored `src/**/dist/*.tsx` used to count against the ratchet
+# and red `make pre-push` on a file CI never sees. The stdin forms (-E, -vE)
+# filter a pipeline whose paths were already filtered upstream, so they are
+# left alone; the brace group preserves grep's no-match exit either way.
+g() {
+  case "${1:-}" in
+    -*r*) { grep "$@" || [ "$?" -eq 1 ]; } | drop_ignored_lines ;;
+    *)    grep "$@" || [ "$?" -eq 1 ] ;;
+  esac
+}
 
 hex_count() {
   g -rIE "$HEX_COLOR_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \

@@ -39,6 +39,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
 ROADMAP_DEFAULT="packages/website/src/content/docs/overview/roadmap.md"
 DOCS_ROOT_DEFAULT="packages/website/src/content/docs"
 BASELINE_DEFAULT="packages/website/docs-declaration-baseline.txt"
@@ -104,7 +107,8 @@ declaration_pages() {
   local docs_root="$1" d rel
   for d in $DECLARATION_DIRS; do
     [ -d "$docs_root/$d" ] || continue
-    find "$docs_root/$d" -type f \( -name '*.md' -o -name '*.mdx' \) 2>/dev/null
+    find "$docs_root/$d" -type f \( -name '*.md' -o -name '*.mdx' \) 2>/dev/null \
+      | drop_ignored_lines
   done | sed "s#^$docs_root/##" | sort | while IFS= read -r rel; do
     [ -z "$rel" ] && continue
     case " $DECLARATION_EXEMPT " in
@@ -452,7 +456,7 @@ run_scan() {
   # (ADRs live under docs/adr, outside docs_root, so they are excluded already.)
   local files
   files="$(find "$docs_root" -type f \( -name '*.md' -o -name '*.mdx' \) \
-    ! -path "$roadmap" 2>/dev/null | sort)"
+    ! -path "$roadmap" 2>/dev/null | drop_ignored_lines | sort)"
 
   local violations=0
   local f hits lineno line ver

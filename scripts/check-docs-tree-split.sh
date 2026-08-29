@@ -93,26 +93,8 @@ is_exempt_source() {
   return 1
 }
 
-# True when git ignores <path>. Files git ignores are not the repository's
-# contents, and this gate exists to assert things about the repository. The
-# concrete case is `docs/audit/`, which .gitignore ignores ON PURPOSE -- audit
-# reports carry live exploit detail ahead of the fix, so they are filed as
-# tracker entries rather than committed. That made the developers who reliably
-# have files there the ones doing security work, and this gate red their
-# `make pre-push` with a docs-pointer violation CI can never see, because CI
-# scans a clean clone. A local red that the same gate passes in CI reads as "my
-# branch broke something", which is the opposite of true (#3151).
-#
-# False whenever the question cannot be asked: git absent (docs:tree-split runs
-# on bare alpine), or the path outside any worktree (self_test's mktemp
-# fixtures). Both leave the scan exactly as wide as it was. Answering "ignored"
-# in those cases instead would pass every expect-fail case in the self-test and
-# hollow this gate out while looking green -- the failure mode it was written
-# to prevent, reintroduced through its own fix.
-is_ignored() { # <path>
-  command -v git >/dev/null 2>&1 || return 1
-  git check-ignore -q -- "$1" 2>/dev/null
-}
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
 
 # Rule 1: basenames shared between the two trees.
 check_shared_basenames() { # <docs_root> <website_root>

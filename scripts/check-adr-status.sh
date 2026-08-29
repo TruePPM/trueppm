@@ -58,9 +58,23 @@ ADR_STATUS_ALLOWLIST="
 #
 # Newline-delimited rather than a bash array: macOS ships bash 3.2, which has no
 # `mapfile`, and this script has to run identically on a developer laptop and in CI.
+# -l + -I, not -ho: without -I, grep emits "Binary file <path> matches" for the
+# gitignored __pycache__/*.pyc under packages/*/src, and the unquoted
+# `for num in $CITED` below word-splits that sentence into four bogus ADR ids.
+# That is why this reported 2489 cited / 2176 unresolved locally against CI's
+# 313 / 0 — 544 binary notices, ~2170 fake references, and any genuinely broken
+# reference invisible among them (#3178). Listing files first also gives
+# drop_ignored_lines a path to judge, which -ho does not.
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+
 CITED="$(
-  grep -rhoE 'ADR-[0-9]{4}' packages/*/src 2>/dev/null \
+  grep -rlIE 'ADR-[0-9]{4}' packages/*/src 2>/dev/null \
     --exclude-dir=content \
+    | drop_ignored_lines \
+    | while IFS= read -r adr_file; do
+        [ -n "$adr_file" ] && grep -hoE 'ADR-[0-9]{4}' "$adr_file"
+      done \
     | sed 's/^ADR-//' \
     | sort -u
 )"
