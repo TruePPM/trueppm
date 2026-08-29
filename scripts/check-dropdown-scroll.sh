@@ -137,7 +137,20 @@ window_is_guarded() {
 
 # grep wrapper: exit 1 ("no match") is a clean empty result under `set -e`,
 # exit >=2 is a real error and must still propagate.
-g() { grep "$@" || [ "$?" -eq 1 ]; }
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+
+# Recursive forms enumerate files, so they must not report a path git ignores
+# (#3178) — a gitignored `src/**/dist/*.tsx` used to count against the ratchet
+# and red `make pre-push` on a file CI never sees. The stdin forms (-E, -vE)
+# filter a pipeline whose paths were already filtered upstream, so they are
+# left alone; the brace group preserves grep's no-match exit either way.
+g() {
+  case "${1:-}" in
+    -*r*) { grep "$@" || [ "$?" -eq 1 ]; } | drop_ignored_lines ;;
+    *)    grep "$@" || [ "$?" -eq 1 ] ;;
+  esac
+}
 
 # Does this source line still declare a JSX role after the CSS-selector forms are
 # stripped out? Shared by the scan (skip selector strings) and the stale-marker

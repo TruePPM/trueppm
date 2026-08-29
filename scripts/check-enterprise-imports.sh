@@ -41,6 +41,9 @@
 
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+
 if [ "${1:-}" = "--self-test" ]; then
   # This gate never detected anything. The CI image's BusyBox grep rejects
   # --include outright, the `|| true` below swallowed the option error, and an
@@ -111,11 +114,14 @@ MANIFEST_PATTERN='trueppm[-_]enterprise'
 
 # `|| true` on each grep: no match is exit 1, which `set -e` would treat as fatal.
 py_hits=$(grep -rnE "$PY_PATTERN" "$ROOT" --include='*.py' 2>/dev/null || true)
+py_hits="$(printf '%s\n' "$py_hits" | drop_ignored_lines)"
 ts_hits=$(grep -rnE "$TS_PATTERN" "$ROOT" \
   --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' 2>/dev/null || true)
+ts_hits="$(printf '%s\n' "$ts_hits" | drop_ignored_lines)"
 manifest_hits=$(grep -rnE "$MANIFEST_PATTERN" "$ROOT" \
   --include='pyproject.toml' --include='package.json' --include='Cargo.toml' \
   --include='requirements*.txt' 2>/dev/null || true)
+manifest_hits="$(printf '%s\n' "$manifest_hits" | drop_ignored_lines)"
 
 # Drop comment lines. grep -n output is `path:line:content`, so the comment
 # marker is tested after the second colon — a path containing a `#` cannot

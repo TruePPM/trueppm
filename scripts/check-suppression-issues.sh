@@ -43,6 +43,9 @@
 
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+
 if [ "${1:-}" = "--self-test" ]; then
   # The comment on --list below says a marker the regex stops matching "fails
   # open and silently, which is the exact failure mode this gate was written to
@@ -114,6 +117,7 @@ markers=$(grep -rnE 'SUPPRESSED-UNTIL\(#[0-9]+\)' "$ROOT" \
   --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=.git \
   --exclude-dir=dist --exclude-dir=target --exclude-dir=coverage \
   2>/dev/null || true)
+markers="$(printf '%s\n' "$markers" | drop_ignored_lines)"
 
 if [ -z "$markers" ]; then
   echo "OK: no SUPPRESSED-UNTIL markers found."
