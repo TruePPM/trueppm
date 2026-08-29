@@ -11,6 +11,7 @@ from trueppm_api.apps.observability.logging import build_logging_config
 from trueppm_api.core.security_checks import (
     validate_attachment_storage,
     validate_integration_encryption_key,
+    validate_project_soft_delete_retention,
     validate_secret_key,
     validate_service_credentials,
     validate_signing_key,
@@ -26,6 +27,7 @@ from .base import (
     REDIS_URL,
     SIMPLE_JWT,
     STORAGES,
+    TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS,
 )
 
 env = environ.Env()
@@ -104,6 +106,20 @@ _integration_key_errors = validate_integration_encryption_key(
 )
 if _integration_key_errors:
     raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _integration_key_errors))
+
+# Refuse to boot when the soft-delete retention window is 0 (#3186). 0 sets the
+# purge cutoff to the present moment, so the next tick HARD-deletes every
+# trashed project and all of its children via CASCADE — irreversibly, with no
+# tombstone. The API has always refused this value
+# (RetentionPolicyWriteSerializer.value is min_value=1); the env var had no
+# floor, and the chart's own comment told operators to set exactly this "to keep
+# the default". Same import-time posture as the guards above, since asgi workers
+# never run `manage.py check`.
+_retention_errors = validate_project_soft_delete_retention(
+    TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS
+)
+if _retention_errors:
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _retention_errors))
 
 # Refuse to boot when DATABASE_URL has no sslmode parameter in a non-DEBUG
 # deployment (#1550). Without sslmode=require the connection falls back to
