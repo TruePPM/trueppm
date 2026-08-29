@@ -13,7 +13,15 @@
  */
 
 import type { Task } from '@/types';
-import { parseUTCDate, formatDayLabel, formatMonthLabel } from './calendarUtils';
+import {
+  parseUTCDate,
+  formatDayLabel,
+  formatISODate,
+  formatWindowNoun,
+  weekStart,
+  addDays,
+  type CalViewMode,
+} from './calendarUtils';
 
 /**
  * Status color bar — mirrors the legend and the TaskDetailBanner status dot
@@ -49,27 +57,43 @@ interface DayGroup {
 
 interface CalendarMobileListProps {
   anchorIso: string;
+  /**
+   * Which window to group by. Defaults to month — this list was month-only
+   * until #3167, so the default preserves every existing caller's meaning.
+   */
+  calView?: CalViewMode;
   tasks: Task[];
   onTaskClick: (taskId: string) => void;
 }
 
-export function CalendarMobileList({ anchorIso, tasks, onTaskClick }: CalendarMobileListProps) {
+export function CalendarMobileList({
+  anchorIso,
+  calView = 'month',
+  tasks,
+  onTaskClick,
+}: CalendarMobileListProps) {
   const anchor = parseUTCDate(anchorIso);
   const year = anchor.getUTCFullYear();
   const month = anchor.getUTCMonth();
   const pad = (n: number) => String(n).padStart(2, '0');
   // ISO strings are zero-padded YYYY-MM-DD, so lexical comparison == date order.
-  const monthStartIso = `${year}-${pad(month + 1)}-01`;
+  // The window is the anchored week in week mode, the anchored month otherwise —
+  // the rest of the grouping is identical, so only these two bounds branch.
+  const mon = weekStart(anchor);
+  const windowStartIso = calView === 'week' ? formatISODate(mon) : `${year}-${pad(month + 1)}-01`;
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const monthEndIso = `${year}-${pad(month + 1)}-${pad(lastDay)}`;
+  const windowEndIso =
+    calView === 'week'
+      ? formatISODate(addDays(mon, 6))
+      : `${year}-${pad(month + 1)}-${pad(lastDay)}`;
 
   const groupsByIso = new Map<string, Task[]>();
   for (const task of tasks) {
     if (!task.start) continue;
     const finish = task.finish || task.start;
     // Keep tasks whose span intersects the visible month.
-    if (finish < monthStartIso || task.start > monthEndIso) continue;
-    const key = task.start < monthStartIso ? monthStartIso : task.start;
+    if (finish < windowStartIso || task.start > windowEndIso) continue;
+    const key = task.start < windowStartIso ? windowStartIso : task.start;
     const list = groupsByIso.get(key) ?? [];
     list.push(task);
     groupsByIso.set(key, list);
@@ -86,16 +110,13 @@ export function CalendarMobileList({ anchorIso, tasks, onTaskClick }: CalendarMo
     }));
 
   // Tasks may exist elsewhere in the project but not intersect the anchored
-  // month — an empty scroll container would read as a broken surface, so name
+  // window — an empty scroll container would read as a broken surface, so name
   // the empty window explicitly (the desktop grid conveys this via empty cells).
   if (groups.length === 0) {
     return (
-      <div
-        role="status"
-        className="flex flex-1 items-center justify-center px-6 py-16 text-center"
-      >
+      <div role="status" className="flex flex-1 items-center justify-center px-6 py-16 text-center">
         <p className="text-sm text-neutral-text-secondary">
-          No tasks in {formatMonthLabel(anchor)}.
+          No tasks in {formatWindowNoun(anchor, calView)}.
         </p>
       </div>
     );

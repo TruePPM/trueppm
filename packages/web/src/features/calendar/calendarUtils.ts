@@ -67,6 +67,17 @@ export function monthWeekStarts(d: Date): Date[] {
   return weeks;
 }
 
+/**
+ * Return the week-start Dates the grid should render for `view`.
+ *
+ * This is the single place the month/week split is decided. Both the grid and
+ * the chip builders route through it, so a week never renders a month's worth
+ * of rows just because one of them forgot to branch (#3167).
+ */
+export function viewWeekStarts(d: Date, view: CalViewMode = 'month'): Date[] {
+  return view === 'week' ? [weekStart(d)] : monthWeekStarts(d);
+}
+
 // ---------------------------------------------------------------------------
 // Chip placement
 // ---------------------------------------------------------------------------
@@ -108,11 +119,16 @@ export interface MilestoneMark {
 }
 
 /**
- * Compute chip fragments for regular (non-milestone) tasks visible in the month
- * containing `anchorDate`. Each task is split into one fragment per calendar week row.
+ * Compute chip fragments for regular (non-milestone) tasks visible in the window
+ * `view` puts around `anchorDate` — the whole month, or just the anchored week.
+ * Each task is split into one fragment per calendar week row in that window.
  */
-export function buildChips(tasks: Task[], anchorDate: Date): CalendarChipData[] {
-  const weeks = monthWeekStarts(anchorDate);
+export function buildChips(
+  tasks: Task[],
+  anchorDate: Date,
+  view: CalViewMode = 'month',
+): CalendarChipData[] {
+  const weeks = viewWeekStarts(anchorDate, view);
   if (weeks.length === 0) return [];
 
   const viewStart = weeks[0];
@@ -175,9 +191,13 @@ function weekFragments(
   return fragments;
 }
 
-/** Compute milestone diamond markers for the month grid. */
-export function buildMilestoneMarks(tasks: Task[], anchorDate: Date): MilestoneMark[] {
-  const weeks = monthWeekStarts(anchorDate);
+/** Compute milestone diamond markers for the rendered window (month or week). */
+export function buildMilestoneMarks(
+  tasks: Task[],
+  anchorDate: Date,
+  view: CalViewMode = 'month',
+): MilestoneMark[] {
+  const weeks = viewWeekStarts(anchorDate, view);
   if (weeks.length === 0) return [];
   const viewStart = weeks[0];
   const viewEnd = addDays(weeks[weeks.length - 1], 6);
@@ -220,6 +240,47 @@ export function nextWeek(d: Date): Date {
 /** Retreat anchorDate by one week. */
 export function prevWeek(d: Date): Date {
   return addDays(d, -7);
+}
+
+/**
+ * Format the Mon–Sun week containing `d` as a date range.
+ *
+ * Three shapes, so the label never repeats information it doesn't need to and
+ * never drops information the reader does:
+ *   - within one month:  "Aug 24 – 30, 2026"
+ *   - crossing a month:  "Aug 31 – Sep 6, 2026"
+ *   - crossing a year:   "Dec 29, 2025 – Jan 4, 2026"
+ */
+export function formatWeekRangeLabel(d: Date): string {
+  const mon = weekStart(d);
+  const sun = addDays(mon, 6);
+  const y1 = mon.getUTCFullYear();
+  const y2 = sun.getUTCFullYear();
+  const mo = (x: Date) => x.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
+
+  if (y1 !== y2) {
+    return `${mo(mon)} ${mon.getUTCDate()}, ${y1} \u2013 ${mo(sun)} ${sun.getUTCDate()}, ${y2}`;
+  }
+  if (mon.getUTCMonth() !== sun.getUTCMonth()) {
+    return `${mo(mon)} ${mon.getUTCDate()} \u2013 ${mo(sun)} ${sun.getUTCDate()}, ${y1}`;
+  }
+  return `${mo(mon)} ${mon.getUTCDate()} \u2013 ${sun.getUTCDate()}, ${y1}`;
+}
+
+/** Format the label for the window `view` renders around `d`. */
+export function formatViewLabel(d: Date, view: CalViewMode): string {
+  return view === 'week' ? formatWeekRangeLabel(d) : formatMonthLabel(d);
+}
+
+/**
+ * The window as a noun phrase, for sentences like "No tasks in ___."
+ *
+ * A month name is already a noun ("May 2026"); a bare date range is not, so the
+ * week form needs "the week of" to read as English. One builder so the desktop
+ * grid and the mobile list cannot drift apart.
+ */
+export function formatWindowNoun(d: Date, view: CalViewMode): string {
+  return view === 'week' ? `the week of ${formatWeekRangeLabel(d)}` : formatMonthLabel(d);
 }
 
 /** Format a UTC Date as a human-readable month + year, e.g. "March 2026". */

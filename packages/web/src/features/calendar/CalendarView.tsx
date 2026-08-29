@@ -18,12 +18,12 @@
  * reuses it — no extra fetch.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { Task, TaskStatus } from '@/types';
 import { useCalendarFilter } from './useCalendarFilter';
 import { CalendarGrid } from './CalendarGrid';
-import { parseUTCDate, formatMonthLabel, formatDayLabel } from './calendarUtils';
+import { parseUTCDate, formatViewLabel, formatDayLabel } from './calendarUtils';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -164,7 +164,23 @@ export function CalendarView() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const anchor = parseUTCDate(anchorIso);
-  const label = formatMonthLabel(anchor);
+  const label = formatViewLabel(anchor, calView);
+
+  // WCAG 4.1.3 — switching mode or stepping the window swaps grid content with
+  // no focus change, so a screen-reader user gets nothing. The region is mounted
+  // permanently and empty on first paint: a live region inserted together with
+  // its own text is announced inconsistently across AT, and announcing on load
+  // would narrate a view the user never changed.
+  const [announcement, setAnnouncement] = useState('');
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const mode = calView === 'week' ? 'Week' : 'Month';
+    setAnnouncement(`${mode} view, ${formatViewLabel(parseUTCDate(anchorIso), calView)}`);
+  }, [calView, anchorIso]);
 
   // The clicked task is already loaded for chip rendering — resolve it by id
   // rather than re-fetching. Falls back to null if it scrolled out of the window.
@@ -228,8 +244,12 @@ export function CalendarView() {
           </button>
         </div>
 
-        {/* Month label */}
-        <h2 className="text-sm font-semibold text-neutral-text-primary ml-1">{label}</h2>
+        {/* Window label — month name, or the week's date range in week mode.
+            shrink-0 + nowrap: the cross-year form ("Dec 29, 2025 – Jan 4, 2026")
+            is ~25 chars and would otherwise wrap inside this h-10 strip. */}
+        <h2 className="text-sm font-semibold text-neutral-text-primary ml-1 whitespace-nowrap flex-shrink-0">
+          {label}
+        </h2>
 
         <div className="flex-1" />
 
@@ -246,8 +266,8 @@ export function CalendarView() {
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 ${
                   calView === mode
-                    ? 'border-brand-primary/40 bg-brand-primary/10 text-brand-primary'
-                    : 'border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary'
+                    ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
+                    : 'border-neutral-border bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'
                 }
               `}
             >
@@ -256,6 +276,12 @@ export function CalendarView() {
           ))}
         </div>
       </div>
+
+      {/* Mode/window announcements (WCAG 4.1.3) — permanently mounted, empty
+          until the first user-driven change. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
 
       {/* Selected task detail banner */}
       {selectedTask && (
@@ -313,6 +339,7 @@ export function CalendarView() {
         ) : (
           <CalendarGrid
             anchorIso={anchorIso}
+            calView={calView}
             tasks={tasks}
             onTaskClick={handleTaskClick}
             sprintBoundaries={sprintBoundaries}

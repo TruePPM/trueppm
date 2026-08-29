@@ -30,7 +30,10 @@ describe('CalendarMobileList', () => {
     render(
       <CalendarMobileList
         anchorIso={ANCHOR}
-        tasks={[task(), task({ id: 't2', name: 'Later Task', start: '2026-05-20', finish: '2026-05-22' })]}
+        tasks={[
+          task(),
+          task({ id: 't2', name: 'Later Task', start: '2026-05-20', finish: '2026-05-22' }),
+        ]}
         onTaskClick={vi.fn()}
       />,
     );
@@ -67,7 +70,9 @@ describe('CalendarMobileList', () => {
     render(
       <CalendarMobileList
         anchorIso={ANCHOR}
-        tasks={[task({ id: 'span', name: 'Spanning Task', start: '2026-04-25', finish: '2026-05-10' })]}
+        tasks={[
+          task({ id: 'span', name: 'Spanning Task', start: '2026-04-25', finish: '2026-05-10' }),
+        ]}
         onTaskClick={vi.fn()}
       />,
     );
@@ -87,5 +92,66 @@ describe('CalendarMobileList', () => {
     render(<CalendarMobileList anchorIso={ANCHOR} tasks={[task()]} onTaskClick={vi.fn()} />);
     const row = screen.getByRole('button', { name: /Integration Test/ });
     expect(row.className).toContain('min-h-[44px]');
+  });
+
+  // -------------------------------------------------------------------------
+  // Week view (#3167)
+  // -------------------------------------------------------------------------
+
+  it('week mode lists only tasks overlapping the anchored week', () => {
+    // ANCHOR 2026-05-01 is a Friday → the Apr 27 – May 3 week.
+    render(
+      <CalendarMobileList
+        anchorIso={ANCHOR}
+        calView="week"
+        tasks={[
+          task({ id: 'in', name: 'In Week', start: '2026-04-29', finish: '2026-04-30' }),
+          task({ id: 'out', name: 'Later Task', start: '2026-05-20', finish: '2026-05-22' }),
+        ]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('In Week')).toBeInTheDocument();
+    expect(screen.queryByText('Later Task')).not.toBeInTheDocument();
+  });
+
+  it('week mode groups a task that began before the week under the Monday', () => {
+    render(
+      <CalendarMobileList
+        anchorIso={ANCHOR}
+        calView="week"
+        tasks={[
+          task({ id: 'early', name: 'Started Earlier', start: '2026-04-20', finish: '2026-04-29' }),
+        ]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    // Apr 27 is the Monday of the anchored week — day one of the window.
+    expect(screen.getByRole('heading', { level: 3, name: 'Apr 27' })).toBeInTheDocument();
+  });
+
+  it('names the empty window as a week, not a month', () => {
+    render(
+      <CalendarMobileList
+        anchorIso={ANCHOR}
+        calView="week"
+        tasks={[task({ id: 'far', name: 'Far', start: '2026-09-01', finish: '2026-09-02' })]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText('No tasks in the week of Apr 27 \u2013 May 3, 2026.'),
+    ).toBeInTheDocument();
+  });
+
+  it('month mode keeps its empty copy byte-identical', () => {
+    render(
+      <CalendarMobileList
+        anchorIso={ANCHOR}
+        tasks={[task({ id: 'far', name: 'Far', start: '2026-09-01', finish: '2026-09-02' })]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('No tasks in May 2026.')).toBeInTheDocument();
   });
 });
