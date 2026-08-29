@@ -8,12 +8,16 @@ has no serializer here — these cover only the authenticated management surface
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from django.utils import timezone
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.models import ShareContentKind, ShareLink
+from trueppm_api.apps.projects.sharing_settings import (
+    default_share_link_expiry_days,
+)
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 
@@ -72,8 +76,14 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
         choices=ShareContentKind.choices,
         default=ShareContentKind.BOARD,
     )
-    # Optional auto-expiry (#1486). Null/absent = never expires.
-    expires_at = serializers.DateTimeField(required=False, allow_null=True, default=None)
+    # Optional auto-expiry (#1486, #3177). An explicit ``null`` means never expires;
+    # OMITTING the field now means "the instance default" (90 days out of the box).
+    #
+    # No ``default=`` on purpose — that is what makes the two distinguishable. With a
+    # default, DRF materializes the key in ``validated_data`` whether the caller sent
+    # it or not, and "absent" and "explicit null" collapse into the same value. Absent
+    # is filled in ``validate()`` instead.
+    expires_at = serializers.DateTimeField(required=False, allow_null=True)
 
     def validate_expires_at(self, value: Any) -> Any:
         """Reject an expiry in the past — a link that is born already-gone is a
@@ -94,6 +104,15 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
         """
         if attrs.get("content_kind") != ShareContentKind.SCHEDULE:
             attrs["show_milestone_dates"] = True
+
+        # Absent (not null) → the instance default window (#3177). The web dialog always
+        # sends a value, so this is the path taken by every non-dialog caller: agent
+        # tokens, MCP clients, integrators, scripts. Those previously minted a permanent
+        # link by saying nothing, which is the one default a sharing feature should not
+        # have. An explicit null is left alone and still means never.
+        if "expires_at" not in attrs:
+            days = default_share_link_expiry_days()
+            attrs["expires_at"] = timezone.now() + timedelta(days=days) if days > 0 else None
         return attrs
 
 

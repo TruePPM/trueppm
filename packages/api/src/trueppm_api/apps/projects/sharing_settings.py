@@ -79,6 +79,27 @@ def public_sharing_instance_enabled() -> bool:
     return bool(getattr(settings, "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED", True))
 
 
+def default_share_link_expiry_days() -> int:
+    """Days a minted link lasts when the caller does not say (#3177).
+
+    Applies only when ``expires_at`` is **absent** from the request. An explicit
+    ``null`` still mints a link that never expires — a standing wallboard or embed is
+    a real use case and this is a default, not a ceiling.
+
+    Why a default at all: the share *serve* path is thorough — it re-checks the kill
+    switch, revocation, expiry, project Trash and the ADR-0135 policy on every read —
+    but all of that is someone remembering to act. A link nobody revokes serves
+    delivery status to whoever still holds the URL, including after they leave. The
+    web dialog already prefills a 30-day nudge, so this closes the gap for callers
+    that are not the dialog: agent tokens, MCP clients, integrators and scripts, which
+    previously minted a permanent link by saying nothing.
+
+    ``0`` or a negative value restores the pre-#3177 behavior (omitted means never)
+    for an operator who wants it.
+    """
+    return int(getattr(settings, "TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS", 90))
+
+
 def _enforced(workspace: Workspace) -> bool:
     """Whether the workspace value is a hard ceiling (Enterprise lock active)."""
     from trueppm_api.apps.workspace.models import TermOverridePolicy
