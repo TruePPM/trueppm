@@ -98,8 +98,9 @@ web:
   # setting's own comment instructs operators to set nginx to 100m. At 50M every
   # attachment between 50 and 100 MB got a bare 413 at the edge, on every
   # deployment path. The extra 10M covers multipart framing: at exactly 100M a
-  # legal 100 MB upload still 413s. Keep the ingress annotation in step
-  # (values-prod.yaml carries a commented example).
+  # legal 100 MB upload still 413s. `ingress.annotations` proxy-body-size below
+  # is raised to 110m in step with this — that one, not this, is what binds on
+  # the default topology.
   maxBodySize: 110M
   # Security response headers on everything the web tier serves (#2849).
   #
@@ -162,11 +163,21 @@ ingress:
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
   #
   # proxy-body-size (#2604): the transport limit must be >= the largest
-  # application upload cap, or the import fails at the edge with a bare 413 and
-  # the app never sees the request. 50m matches MSPROJECT_MAX_UPLOAD_MB, the
-  # largest of the four caps (MS Project 50 / Jira 25 / CSV 10 / seed 5). Without
-  # it, ingress-nginx applies its own 1m default and **every import above 1 MB
-  # fails on a default install** — which is how this shipped before 0.4.
+  # application upload cap, or the upload fails at the edge with a bare 413 and
+  # the app never sees the request. Without it, ingress-nginx applies its own 1m
+  # default and **every import above 1 MB fails on a default install** — which is
+  # how this shipped before 0.4.
+  #
+  # 110m, raised from 50m in #3189. This is the knob that BINDS on the default
+  # topology: the Ingress routes /api straight to the API Service, so attachment
+  # and import uploads never traverse the web tier's nginx and never see
+  # web.maxBodySize. 50m was chosen against MSPROJECT_MAX_UPLOAD_MB (MS Project
+  # 50 / Jira 25 / CSV 10 / seed 5), which overlooked the largest cap of all:
+  # attachments at 100 MB (serializers.py MAX_ATTACHMENT_SIZE_BYTES and
+  # settings/base.py DATA_UPLOAD_MAX_MEMORY_SIZE). Every attachment between 50
+  # and 100 MB was rejected at the edge on every Kubernetes install. The extra
+  # 10m covers multipart framing: at exactly 100m a legal 100 MB upload still
+  # 413s. Keep this in step with web.maxBodySize.
   #
   # The app cap, not this one, is what should reject an oversized file: it
   # returns a validation error naming the limit, where the edge returns an
@@ -178,7 +189,7 @@ ingress:
   # `haproxy.org/client-body-buffer-size`. Helm deep-merges this map, so adding
   # your own keys keeps this one unless you override it by name.
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
   # One or more virtual hosts. Each path routes to either the web SPA or the API,
   # selected by its `service:` key (`web` or `api`, default `api`). The default
   # below sends /api and /ws to the Django API Service and everything else (/) to

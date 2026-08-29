@@ -10,7 +10,13 @@ and `DATA_UPLOAD_MAX_MEMORY_SIZE` are both 100 MB, and that setting's own commen
 tells operators to configure nginx to match — but all three edge configs capped
 at 50M, so every attachment between 50 and 100 MB got a bare nginx 413 on every
 deployment path. The baked web image set nothing at all and inherited nginx's
-1 MB default.
+1 MB default. On Kubernetes the binding limit is the Ingress annotation, not the
+chart's `web.maxBodySize`: the default routing sends `/api` straight to the API
+Service, so an attachment upload never traverses the web tier's nginx. Both are
+now 110 — `ingress.annotations` proxy-body-size and `web.maxBodySize` — and the
+Helm values reference no longer omits the 100 MB attachment cap from its table of
+application limits, which is the omission that sized every transport limit
+against the 50 MB MS Project import instead.
 
 **The dev stack no longer publishes PostgreSQL on `0.0.0.0`** with its hardcoded
 password (Docker's published ports bypass most host firewalls), and the docs no
