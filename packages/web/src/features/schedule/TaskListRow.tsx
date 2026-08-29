@@ -76,7 +76,7 @@ import {
   UndoIcon,
 } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { canEditTaskRow } from '@/lib/roles';
+import { canEditTaskRow, canAuthorDependencies } from '@/lib/roles';
 import {
   DepthGuides,
   PhaseBandEdge,
@@ -2062,6 +2062,17 @@ interface RowSurfaceCtx {
    * mode (#2961).
    */
   canEdit: boolean;
+  /**
+   * May this reader author dependency EDGES? (#3142)
+   *
+   * A third band, not a synonym for either flag above. Edges are
+   * `IsProjectScheduler`; task content is `IsProjectPlanAuthor`; neither
+   * contains the other (ADR-0773 §7). `canEdit` is therefore false for the
+   * whole Scheduler band, which is exactly the band that MAY author edges —
+   * so gating the dependency affordances on `authoring` refused a Scheduler
+   * the server accepts, and offered a Member a 403.
+   */
+  canAuthorDeps: boolean;
   task: Task;
   isSelected: boolean;
   setSelectedTaskId: (id: string | null) => void;
@@ -2116,17 +2127,25 @@ function handleRowDoubleClick(ctx: RowSurfaceCtx): void {
 }
 
 function handleRowContextMenu(e: React.MouseEvent, ctx: RowSurfaceCtx): void {
-  // `authoring`, not `buildMode`: every item in this menu mutates, so without
-  // edit rights the menu has nothing to show and the native menu is better than
-  // an empty one (#2961).
-  if (!ctx.authoring) return;
+  // The menu opens if EITHER band has something in it (#3142). It used to test
+  // `authoring` alone, which is null for the whole Scheduler band — so the one
+  // role that may author dependencies got the native browser menu instead of
+  // the row menu carrying `Add dependency…`, on the surface where they do their
+  // work. A reader with neither band still gets the native menu rather than an
+  // empty one (#2961).
+  const nav = ctx.buildMode;
+  if (!nav) return;
+  if (!ctx.authoring && !ctx.canAuthorDeps) return;
   // #806: suppress right-click while a structural mutation (indent/outdent/
   // delete) is in flight for this row. Opening the menu mid-delete strands
   // the BuildModeRowMenu portal when the row unmounts on cache invalidation,
   // which then blocks subsequent right-clicks on other rows until refresh.
-  if (ctx.authoring.isMutationPending(ctx.task.id)) return;
+  //
+  // Read off `buildMode`, not `authoring`: it is the same object when both are
+  // present, and it is the one that survives the Scheduler case.
+  if (nav.isMutationPending(ctx.task.id)) return;
   e.preventDefault();
-  ctx.authoring.focus.focusRow(ctx.task.id);
+  nav.focus.focusRow(ctx.task.id);
   ctx.setMenuAnchor({ x: e.clientX, y: e.clientY });
 }
 
@@ -2145,10 +2164,40 @@ function handleRowBlur(e: React.FocusEvent, ctx: RowSurfaceCtx): void {
  */
 function buildRowMenuItemsFor(
   buildMode: BuildMode | null,
+  canAuthorDeps: boolean,
   ctx: Omit<RowMenuCtx, 'buildMode'>,
 ): RowMenuItem[] {
-  if (!buildMode) return [];
-  return buildRowMenuItems({ ...ctx, buildMode });
+  // A Scheduler has no task-content authoring and therefore no `buildMode`
+  // here, but MAY author edges — so the menu is not all-or-nothing any more
+  // (#3142). Build the dependency item on its own band and the rest on
+  // task-content authoring; a reader with neither gets `[]` and
+  // `handleRowContextMenu` never opens the menu.
+  const contentItems = buildMode ? buildRowMenuItems({ ...ctx, buildMode }) : [];
+
+  // Role decides PRESENCE; the handler decides DISABLED. They are different
+  // questions and folding them together loses the second: "no picker host to
+  // open into" is a wiring state that has always rendered as a disabled item,
+  // and it must keep doing so for a reader who holds the band.
+  if (contentItems.length > 0) {
+    return canAuthorDeps ? contentItems : contentItems.filter((i) => i.key !== 'add-dependency');
+  }
+
+  // A dependency-ONLY menu is the exception: a lone disabled item is a menu
+  // with nothing to do in it, so here the missing handler suppresses the menu
+  // rather than dimming its only entry.
+  if (!canAuthorDeps || ctx.onAddDependencyRequest === undefined) return [];
+
+  // Dependency-only menu. `startsGroup` is dropped: it draws a separator above
+  // the item, which reads as "the group before this one was suppressed" when it
+  // is the first and only entry.
+  return [
+    {
+      key: 'add-dependency',
+      label: 'Add dependency…',
+      icon: <ArrowDownLeftIcon className="h-4 w-4" aria-hidden="true" />,
+      onSelect: () => ctx.onAddDependencyRequest?.(ctx.task.id),
+    },
+  ];
 }
 
 /**
@@ -2296,6 +2345,17 @@ function TaskListRowInner({
   // a settled answer and does not depend on the role query at all.
   const roleUnsettled = roleLoading || roleError === true;
   const canEdit = canEditTaskRow(task.canEdit, currentRole, roleUnsettled);
+  /**
+   * The dependency-edge band (#3142) — Scheduler and above, resolved
+   * independently of `canEdit`.
+   *
+   * `roleUnsettled` is OR'd in for the same reason `canEditTaskRow` folds it:
+   * `useCurrentUserRole` sets `retry: false`, so one dropped request is
+   * terminal and indistinguishable from "not a member". Assume rights on an
+   * unknown — the server is the enforcement point, so the cost is at worst one
+   * silent refusal, against permanently removing a working control.
+   */
+  const canAuthorDeps = roleUnsettled || canAuthorDependencies(currentRole);
 
   // #2639: confirmation gate for the progress=100 auto-status side effect
   // (REVIEW for contributors, COMPLETE for Admin+ — Option E, #381 follow-up),
@@ -2410,9 +2470,10 @@ function TaskListRowInner({
   });
 
   const isComplete = task.status === 'COMPLETE';
-  // Every item in this menu mutates, so a viewer gets an empty list and
-  // `handleRowContextMenu` never opens it (#2961).
-  const menuItems: RowMenuItem[] = buildRowMenuItemsFor(authoring, {
+  // A viewer gets an empty list and `handleRowContextMenu` never opens it
+  // (#2961). "Every item mutates" is still true, but they no longer mutate on
+  // ONE band: the dependency item rides `canAuthorDeps` (#3142).
+  const menuItems: RowMenuItem[] = buildRowMenuItemsFor(authoring, canAuthorDeps, {
     task,
     level,
     isComplete,
@@ -2490,6 +2551,7 @@ function TaskListRowInner({
     buildMode,
     authoring,
     canEdit,
+    canAuthorDeps,
     task,
     isSelected,
     setSelectedTaskId,
@@ -2842,11 +2904,15 @@ function TaskListRowInner({
         itl={itl}
         requestProgressCommit={requestProgressCommit}
         depChips={depChips}
-        // `authoring`, not `buildMode` (#3023 / web rule 302): a viewer's Links
-        // cell is text. `onAddDependencyRequest` being absent means the picker
-        // has no host to open into, which is also text — not a dead button.
+        // `canAuthorDeps`, not `authoring` (#3142): this chip opens the
+        // dependency picker, so it answers to the EDGE band. Gating it on
+        // task-content authoring made a viewer's Links cell text — correct —
+        // and a Scheduler's Links cell text too, which is not: they are the
+        // role the server accepts here (web rule 302, #3023, ADR-0773 §7).
+        // `onAddDependencyRequest` being absent means the picker has no host to
+        // open into, which is also text — not a dead button.
         onOpenLinkPicker={
-          authoring && onAddDependencyRequest
+          canAuthorDeps && onAddDependencyRequest
             ? (direction) => onAddDependencyRequest(task.id, direction)
             : undefined
         }
@@ -2867,7 +2933,7 @@ function TaskListRowInner({
         task={task}
         updateTask={updateTask}
       />
-      {buildMode && menuAnchor && (
+      {menuItems.length > 0 && menuAnchor && (
         <BuildModeRowMenu
           anchor={menuAnchor}
           items={menuItems}

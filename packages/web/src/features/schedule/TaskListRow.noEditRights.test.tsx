@@ -323,7 +323,12 @@ describe('a failed role lookup does not read as "no rights"', () => {
 // ───────────────────────────────────────────────────────────────────────────
 // The Links cell: a field for an author, TEXT for a viewer (#3023, rule 302).
 // ───────────────────────────────────────────────────────────────────────────
-describe('Links cell — control for an author, text for a viewer', () => {
+// "Author" here means EDGE author — Scheduler and above (#3142). These cases
+// used `role = 100`, i.e. they asserted a **Member** gets a working picker
+// control, which is the defect: the server answers a Member's edge write 403.
+// The intent of each case is unchanged; only the role that qualifies for this
+// particular cell moved, which is the whole finding.
+describe('Links cell — control for an edge author, text for everyone else', () => {
   const CHIPS = {
     preds: [
       { type: 'FS' as const, lag: 0 },
@@ -354,7 +359,7 @@ describe('Links cell — control for an author, text for a viewer', () => {
   });
 
   it('gives an author a control that opens the picker in predecessor mode', async () => {
-    mocks.role = 100;
+    mocks.role = 200;
     const onAdd = vi.fn();
     renderBuild({ depChips: CHIPS, onAddDependencyRequest: onAdd });
 
@@ -366,7 +371,7 @@ describe('Links cell — control for an author, text for a viewer', () => {
   it('routes the SUCCESSOR chip to the successor direction, not the predecessor one', async () => {
     // Two chips that look like two targets are two targets. Sending both to the
     // predecessor picker lands half the clicks on the wrong direction.
-    mocks.role = 100;
+    mocks.role = 200;
     const onAdd = vi.fn();
     renderBuild({
       depChips: { ...CHIPS, succs: [{ type: 'FF' as const, lag: 0 }] },
@@ -377,7 +382,7 @@ describe('Links cell — control for an author, text for a viewer', () => {
   });
 
   it('offers the empty cell as an add-a-link control, and names the act', async () => {
-    mocks.role = 100;
+    mocks.role = 200;
     const onAdd = vi.fn();
     renderBuild({ onAddDependencyRequest: onAdd });
     const control = screen.getByRole('button', { name: 'Add a dependency link to Design Phase' });
@@ -401,7 +406,7 @@ describe('Links cell — control for an author, text for a viewer', () => {
     // that the control carries the SAME tabindex the row does — 0 on the active
     // row (this harness renders one row, so that is the case observable here),
     // -1 everywhere else.
-    mocks.role = 100;
+    mocks.role = 200;
     renderBuild({ depChips: CHIPS, onAddDependencyRequest: vi.fn() });
     const row = screen.getByRole('row');
     expect(screen.getByTestId('links-cell-control')).toHaveAttribute(
@@ -414,9 +419,87 @@ describe('Links cell — control for an author, text for a viewer', () => {
   it('is text, not a dead button, when there is no picker host to open into', () => {
     // `onAddDependencyRequest` undefined means nothing can host the picker
     // (the print layout, for one). A button there would refuse every click.
-    mocks.role = 100;
+    mocks.role = 200;
     renderBuild({ depChips: CHIPS });
     expect(screen.queryByTestId('links-cell-control')).not.toBeInTheDocument();
     expect(screen.getByTestId('dep-flag-predecessor')).toHaveTextContent('←FS·SS');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// The dependency band (#3142) — a THIRD answer, not a synonym for the two above.
+//
+// Edges are `IsProjectScheduler`; task content is `IsProjectPlanAuthor`; neither
+// band contains the other (ADR-0773 §7). The outline resolved both from
+// `authoring`, so a Scheduler was refused the picker the server accepts and a
+// Member was offered one it 403s.
+//
+// Every case below drives `task.canEdit` AND the role, because they are the two
+// inputs that must disagree for the bug to appear: a suite that varied only the
+// role would keep passing against a gate re-collapsed onto the task-content
+// verdict, which is the regression this file exists to prevent.
+// ───────────────────────────────────────────────────────────────────────────
+describe('dependency authoring band at the row (#3142)', () => {
+  /** Server sends `can_edit: false` across the whole Scheduler band. */
+  const schedulerRow: Task = { ...base, canEdit: false };
+  /** A Member authors content on their own row and no edges. */
+  const memberRow: Task = { ...base, canEdit: true };
+
+  function openRowMenu() {
+    fireEvent.contextMenu(screen.getByRole('row'));
+  }
+
+  it('a Scheduler reaches Add dependency… — the stranding this issue is named for', () => {
+    mocks.role = 200;
+    renderBuild({ task: schedulerRow, onAddDependencyRequest: vi.fn() });
+    openRowMenu();
+    expect(screen.getByRole('menuitem', { name: /Add dependency/ })).toBeInTheDocument();
+  });
+
+  it('and reaches nothing else — the menu is the one band they hold', () => {
+    mocks.role = 200;
+    renderBuild({ task: schedulerRow, onAddDependencyRequest: vi.fn() });
+    openRowMenu();
+    // Task-content items stay absent: a Scheduler may not edit the row itself.
+    expect(screen.queryByRole('menuitem', { name: /Delete/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Duplicate/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+  });
+
+  it('a Member gets the content menu WITHOUT the dependency item', () => {
+    mocks.role = 100;
+    renderBuild({ task: memberRow, onAddDependencyRequest: vi.fn() });
+    openRowMenu();
+    // The content half is theirs…
+    expect(screen.getByRole('menuitem', { name: /Duplicate/ })).toBeInTheDocument();
+    // …and the edge half is not.
+    expect(screen.queryByRole('menuitem', { name: /Add dependency/ })).not.toBeInTheDocument();
+  });
+
+  it('a Viewer opens no menu at all', () => {
+    mocks.role = 1;
+    renderBuild({ task: schedulerRow, onAddDependencyRequest: vi.fn() });
+    openRowMenu();
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0);
+  });
+
+  it('the Links-cell control follows the EDGE band, not the content one', () => {
+    mocks.role = 200;
+    renderBuild({ task: schedulerRow, onAddDependencyRequest: vi.fn() });
+    // A Scheduler gets the picker chip even though `canEdit` is false…
+    expect(screen.getByTestId('links-cell-control')).toBeInTheDocument();
+  });
+
+  it('…and a Member does not, even though `canEdit` is true', () => {
+    mocks.role = 100;
+    renderBuild({ task: memberRow, onAddDependencyRequest: vi.fn() });
+    expect(screen.queryByTestId('links-cell-control')).not.toBeInTheDocument();
+  });
+
+  it('a failed role read grants both bands rather than stripping them (#2961)', () => {
+    mocks.role = null;
+    mocks.roleError = true;
+    renderBuild({ task: base, onAddDependencyRequest: vi.fn() });
+    expect(screen.getByTestId('links-cell-control')).toBeInTheDocument();
   });
 });
