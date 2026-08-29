@@ -689,7 +689,7 @@ All services share the same Valkey instance. Celery-originated broadcasts (e.g.,
 
 PostgreSQL is the only stateful service. Back up the `trueppm` database on your preferred schedule.
 
-Valkey is a broker and cache — it does not store persistent data. Losing Valkey state means in-flight Celery tasks are lost (they'll be re-triggered by the next write) and WebSocket connections will drop and reconnect.
+Valkey holds no authoritative data, so it is never restored from a backup — but whether it *persists* differs by artifact, and it is worth knowing which you run: the Helm sub-chart runs `valkey-server --appendonly yes` against a 2Gi PVC (~1 s broker RPO at the default `appendfsync everysec`), while `docker-compose.prod.yml` mounts `/data` as a `tmpfs` with no AOF and loses the queue on every container restart. Either way the work itself survives — fourteen outbox drains re-dispatch pending rows every 30 seconds and every task carries `acks_late` — and WebSocket connections simply drop and reconnect. See [Durability & Redundancy](/administration/durability/#broker-persistence-per-artifact).
 
 TruePPM ships tested backup and restore scripts (`scripts/backup.sh` / `scripts/restore.sh`) and an opt-in Helm backup CronJob. See [Backup & Restore](/administration/backup-restore/) for the full runbook: manual backups on Compose and Helm, restoring onto a fresh stack, what is and isn't captured, and the restore-drill cadence.
 
@@ -774,7 +774,7 @@ Monitor the Celery worker logs for scheduling errors. If Valkey becomes unavaila
 In a single-pod deployment there is exactly one Celery Beat process driving every
 periodic drain. If it dies silently, async work stops accumulating signal. TruePPM
 exposes a heartbeat endpoint (`GET /api/v1/health/beat/`) so monitoring can detect a
-dead Beat. See [Beat Liveness & Durability](/administration/durability/) for how to wire
+dead Beat. See [Beat Liveness](/administration/beat-liveness/) for how to wire
 it into Prometheus or Kubernetes.
 
 ### Outbox & record retention

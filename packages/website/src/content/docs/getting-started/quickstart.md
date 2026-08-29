@@ -5,10 +5,16 @@ documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4]
-The `load_sample_project` command shown below replaces the `seed_demo_project`
-and `seed_ga_launch_program` seeders in **0.4**. On the current release (0.3),
-seed the demo with `python manage.py seed_demo_project --with-personas` instead.
-See the [roadmap](/overview/roadmap/).
+The `--with-personas` flag shown below ships in **0.4**, alongside the retirement
+of the `seed_demo_project` and `seed_ga_launch_program` Python seeders in favor of
+the bundled JSON samples.
+
+This page assumes you followed [Installation](/getting-started/installation/) and
+cloned `main`, where `load_sample_project --with-personas` is correct and
+`seed_demo_project` no longer exists. If you are running the released
+`v0.3.0-alpha.3` images instead, run plain `load_sample_project` — on that release
+it creates the persona logins unconditionally and does not accept
+`--with-personas`. See the [roadmap](/overview/roadmap/).
 :::
 
 The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** (recommended for evaluation) and the **API tutorial** (recommended for learning the data model).

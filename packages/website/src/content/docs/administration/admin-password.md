@@ -30,6 +30,22 @@ The api container runs `create_admin` automatically on startup (both in `docker 
 
 ## Retrieve the first-run password
 
+:::danger[Retrieve it on the first rollout, or it is gone for good]
+`create_admin` is a hard no-op once any superuser exists — it prints
+`Admin user already exists — skipping bootstrap.` and returns without writing
+anything. So the password file is written **once**, and where it is written
+decides whether you get a second chance:
+
+| Path | Where it lands | Survives a restart? |
+|---|---|---|
+| `docker compose` (dev) | `/tmp/trueppm_admin_password` inside the `api` container | **No** — a recreated container has an empty `/tmp`. |
+| `docker-compose.prod.yml` | `/run/trueppm/admin_password` on the **named `admin_password` volume**, shared by `api-init` and `api` | Yes, until you `docker compose down -v`. |
+| Helm | `/run/trueppm/admin_password` on a **per-pod `emptyDir`** | **No.** Gone on any pod restart, node reschedule, or `helm upgrade` — permanently. |
+
+If you have already lost it, do not go looking: reset it with
+[`changepassword`](#rotate-the-password-after-first-run).
+:::
+
 ### docker compose
 
 ```bash
@@ -44,7 +60,7 @@ docker compose exec api rm /tmp/trueppm_admin_password
 
 ### Kubernetes / Helm
 
-The chart writes the one-time password to `/run/trueppm/admin_password`, an `emptyDir` mount the chart provides (lost when the pod restarts — fine for first-run-only retrieval). The path is controlled by the `admin.passwordFile` value, which the chart renders into the `TRUEPPM_ADMIN_PASSWORD_FILE` env var:
+The chart writes the one-time password to `/run/trueppm/admin_password`, an `emptyDir` mount the chart provides. The path is controlled by the `admin.passwordFile` value, which the chart renders into the `TRUEPPM_ADMIN_PASSWORD_FILE` env var:
 
 ```yaml
 admin:
@@ -54,8 +70,37 @@ admin:
 Retrieve it with:
 
 ```bash
-kubectl exec deployment/<release>-api -- cat /run/trueppm/admin_password
+kubectl exec -n <namespace> deployment/<release>-trueppm-api \
+  -- cat /run/trueppm/admin_password
 ```
+
+**Get the Deployment name right.** The chart's `fullname` helper yields
+`<release>-trueppm-api`, not `<release>-api` — unless the release name already
+contains "trueppm", in which case the duplicate segment is dropped and a release
+called `trueppm` gives plain `trueppm-api`. When in doubt:
+
+```bash
+kubectl get deploy -n <namespace> -l app.kubernetes.io/component=api
+```
+
+:::caution[At two or more replicas, the printed password may not be the real one]
+The `bootstrap` init container runs on **every** API pod. At `replicaCount: 2` —
+which `values-prod.yaml` sets — both pods start with no superuser in the database,
+so both generate a password, both write it to their **own** `emptyDir`, and the
+last `user.save()` wins. `kubectl exec deployment/…` picks an arbitrary pod, so
+the value you read may be the loser's.
+
+Two ways to avoid the ambiguity entirely:
+
+- **Install at one replica**, retrieve the password, then scale up.
+- **Supply your own** via `DJANGO_SUPERUSER_PASSWORD` from a Kubernetes Secret
+  (through `envFrom`), so every pod bootstraps the same credential and there is
+  nothing to race over.
+
+If you are already past it and the password does not work, reset it with
+[`changepassword`](#kubernetes) — that is the reliable path, not re-reading
+another pod's file.
+:::
 
 ## Set a known password at startup
 
@@ -179,3 +224,5 @@ EOF
 - [Installation](/getting-started/installation/) — how the api container is started
 - [Configuration](/administration/configuration/) — environment variables reference
 - [Security](/administration/security/) — broader hardening guide
+- [Durability & Redundancy](/administration/durability/#singletons-and-one-per-pod-work) — why the `bootstrap` init container behaves this way at two or more replicas
+- [Troubleshooting](/administration/troubleshooting/#the-helm-admin-password-is-gone) — what to do when the file is already gone
