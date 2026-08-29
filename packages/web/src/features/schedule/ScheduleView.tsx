@@ -1830,6 +1830,10 @@ export function ScheduleView() {
     statusDate,
     authoringActive,
     onOpenDatePopover: handleOpenDatePopover,
+    // The keyboard path's PATCH (#3141). Shares the pointer path's floor guard,
+    // payload and `onCommitSuccess` so the two cannot disagree about what a
+    // reschedule is; only the confirmation gesture differs (Enter vs popover).
+    onCommitReschedule: scheduleCommit.commitKeyboardReschedule,
   });
 
   /**

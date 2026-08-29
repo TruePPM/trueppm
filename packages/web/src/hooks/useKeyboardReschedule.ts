@@ -49,6 +49,21 @@ export interface UseKeyboardRescheduleOptions {
    */
   ariaAssertiveRef: RefObject<HTMLDivElement | null>;
   /**
+   * Persist the confirmed nudge (#3141).
+   *
+   * Required, not optional. This hook used to end its Enter handler at
+   * `commitDrag()` — which only moves the drag store to `'committing'` — and
+   * then announce "Reschedule confirmed." unconditionally. `useScheduleCommit`
+   * listens for the engine's `drag-task-end`, which ONLY the pointer path
+   * emits, so the keyboard path reached `'committing'` and stopped there: the
+   * date never moved and the user was told it had. An optional prop would let a
+   * future call site reintroduce exactly that silence.
+   *
+   * The callee owns the success announcement, since only it knows whether the
+   * write landed.
+   */
+  onCommitReschedule: (taskId: string, newStartIso: string) => void;
+  /**
    * Mutable ref set to `true` while keyboard mode is active. Read by
    * useDragCpm to prevent its Escape handler from double-cancelling.
    */
@@ -94,6 +109,7 @@ export function useKeyboardReschedule({
   statusDate,
   authoringActive = false,
   onOpenDatePopover,
+  onCommitReschedule,
 }: UseKeyboardRescheduleOptions): void {
   const workerRef = useRef<Worker | null>(null);
   const seqRef = useRef(0);
@@ -283,9 +299,14 @@ export function useKeyboardReschedule({
         return;
       }
       const confirmedStart = nudgeWorkingDays(origStartRef.current, cumulativeDeltaRef.current);
+      const taskId = selectedTaskIdRef.current;
       commitDrag(confirmedStart);
       exitKeyboardMode();
-      announce('Reschedule confirmed.');
+      // No announcement here. The write is async and its outcome is not knowable
+      // at this point — announcing success unconditionally is the defect this
+      // fixes (#3141). `onCommitReschedule` announces confirmation on success
+      // and the reason on failure.
+      if (taskId) onCommitReschedule(taskId, confirmedStart);
     };
 
     /** Escape in keyboard mode: discard the pending nudge. */
@@ -352,6 +373,7 @@ export function useKeyboardReschedule({
     keyboardModeRef,
     startDrag,
     commitDrag,
+    onCommitReschedule,
     cancelDrag,
     setKeyboardDelta,
     ariaLiveRef,

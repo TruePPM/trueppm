@@ -437,6 +437,52 @@ describe('useScheduleCommit', () => {
     expect(result.current.state).toBeNull();
   });
 
+  // -------------------------------------------------------------------------
+  // The keyboard path (#3141). It had NO commit at all: `commitDrag()` moved the
+  // drag store to 'committing', the hook announced "Reschedule confirmed.", and
+  // nothing PATCHed — `useScheduleCommit` only listens for `drag-task-end`,
+  // which the pointer path alone emits.
+  // -------------------------------------------------------------------------
+
+  it('commitKeyboardReschedule fires PATCH and calls onCommitSuccess (#3141)', async () => {
+    const engine = new ControllableEngine();
+    const onCommitSuccess = vi.fn();
+    const { result } = renderCommit(engine, { onCommitSuccess });
+    act(() => result.current.commitKeyboardReschedule('t1', '2026-01-31'));
+    await waitFor(() => expect(onCommitSuccess).toHaveBeenCalled());
+    // Same endpoint and same payload shape as the pointer path above — that is
+    // the point of routing both through one function.
+    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' });
+  });
+
+  it('commitKeyboardReschedule opens no popover — Enter already confirmed', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine);
+    act(() => result.current.commitKeyboardReschedule('t1', '2026-01-31'));
+    expect(result.current.state).toBeNull();
+  });
+
+  it('commitKeyboardReschedule skips a no-op move', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine);
+    // Same date the task already has — nothing to persist.
+    act(() => result.current.commitKeyboardReschedule('t1', TASK_A.start));
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('commitKeyboardReschedule honours the project-start floor instead of PATCHing (#868)', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, {
+      projectStartDate: '2026-02-01',
+      effectiveFloorDate: '2026-02-02',
+    });
+    act(() => result.current.commitKeyboardReschedule('t1', '2026-01-20'));
+    // Same rule as the pointer path: below the floor opens the snap/move/cancel
+    // prompt rather than silently clamping or writing.
+    expect(patchMock).not.toHaveBeenCalled();
+    expect(result.current.beforeStartPrompt?.attemptedStart).toBe('2026-01-20');
+  });
+
   it('Confirm on resize PATCHes planned_finish, not duration (#951)', async () => {
     const engine = new ControllableEngine();
     const onCommitSuccess = vi.fn();
