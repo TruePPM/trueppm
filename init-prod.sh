@@ -30,6 +30,27 @@ set +a
 : "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
 : "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}"
 
+# The :? checks above only assert non-empty, which the ".env.example" placeholder
+# satisfied — so catch the copy-paste here rather than letting the stack come up on a
+# documented credential. The API container enforces the same rule at import time
+# (validate_service_credentials, #3176); failing in the script gives the operator the
+# error at the point they can still fix it, instead of in a crash-looping container.
+for _cred in DB_PASSWORD REDIS_PASSWORD; do
+  _val="${!_cred}"
+  case "$(printf '%s' "${_val}" | tr '[:upper:]' '[:lower:]')" in
+    change-me|changeme|password|postgres|trueppm|secret)
+      echo "ERROR: ${_cred} is still the placeholder '${_val}'. Generate a real one:" >&2
+      echo "  python3 -c \"import secrets; print(secrets.token_urlsafe(32))\"" >&2
+      exit 1
+      ;;
+  esac
+  if (( ${#_val} < 12 )); then
+    echo "ERROR: ${_cred} is ${#_val} characters; minimum is 12." >&2
+    exit 1
+  fi
+done
+unset _cred _val
+
 TLS_MODE="${TLS_MODE:-letsencrypt}"
 
 # ---------------------------------------------------------------------------
