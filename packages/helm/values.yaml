@@ -1,3 +1,13 @@
+# TruePPM Helm chart values.
+#
+# Full reference for every key here:  https://docs.trueppm.com/administration/helm-values/
+# Application settings passed through `env:`: https://docs.trueppm.com/administration/configuration/
+#
+# Links below are absolute on purpose (#3190). This file had none: its only two
+# `https://` strings were example VALUES, and its one pointer at the sizing page
+# was written as `(see /administration/sizing/)` — a site-relative path, which
+# resolves to nothing from inside a values file on someone's disk.
+
 replicaCount: 1
 
 # Global values propagate to the bundled postgresql / valkey subcharts. The
@@ -10,6 +20,7 @@ global:
   trueppm:
     connectionSecretName: ""
 
+# https://docs.trueppm.com/administration/helm-values/#image-and-replicas
 image:
   repository: registry.gitlab.com/trueppm/trueppm/api
   # Web tier image: an nginx build of the compiled React SPA (#1896). Shares the
@@ -30,6 +41,7 @@ service:
 # `helm install` renders a complete, browsable instance (there was no web tier
 # before 0.4). Disable it if you front the SPA from your own CDN / static host and
 # only want the API + workers from this chart.
+# https://docs.trueppm.com/administration/helm-values/#service-and-web-tier
 web:
   enabled: true
   # Independent replica count; falls back to the top-level replicaCount when unset.
@@ -144,6 +156,7 @@ web:
 # would render a broken object on first install. Enable it and fill hosts/tls to
 # expose the API over HTTPS. The Service stays ClusterIP; the Ingress is the sole
 # externally-facing object and the TLS termination point.
+# https://docs.trueppm.com/administration/helm-values/#ingress
 ingress:
   enabled: false
   # IngressClass to bind (e.g. "nginx", "traefik"). Empty uses the cluster's
@@ -198,6 +211,7 @@ ingress:
   #    hosts:
   #      - trueppm.example.com
 
+# https://docs.trueppm.com/administration/helm-values/#bundled-datastores
 postgresql:
   enabled: true
   auth:
@@ -210,6 +224,7 @@ postgresql:
     password: ""
     database: trueppm
 
+# https://docs.trueppm.com/administration/valkey-ha/
 valkey:
   # Valkey (BSD-licensed Redis fork, wire-compatible). NOTE: this bundled Valkey
   # pod is SINGLE-NODE — no replication, no failover. It is load-bearing for
@@ -293,6 +308,7 @@ valkey:
 # clients by `app.kubernetes.io/component`. A new Deployment/Job/CronJob that opens
 # PostgreSQL or Valkey must be added there, or its connections are dropped on any
 # enforcing cluster while every render-time gate stays green.
+# https://docs.trueppm.com/administration/helm-values/#network-and-pod-security
 networkPolicy:
   enabled: true
 
@@ -337,10 +353,11 @@ containerSecurityContext:
 # CPM recalculation, imports, notification email, and Beat down with it. The
 # break-even is around 10 cores, well under a routine cloud node size, so the
 # concurrency MUST be pinned in-chart rather than left to auto-detection.
+# https://docs.trueppm.com/administration/helm-values/#celery-worker-tuning
 celeryWorker:
   # Pinned, not auto-detected. 2 matches the small-profile sizing guidance and
   # the dev compose file; raise it toward the pod's CPU limit as you scale
-  # (see /administration/sizing/). Must be >= 1.
+  # (see https://docs.trueppm.com/administration/sizing/). Must be >= 1.
   concurrency: 2
   # Recycle each prefork child after this many tasks so a long-running job
   # (workspace export and MS Project import can run for minutes and hold large
@@ -353,6 +370,7 @@ celeryWorker:
 
 # Default resource requests/limits for the API and Celery worker containers.
 # Tune for your workload; these are conservative single-team defaults.
+# https://docs.trueppm.com/administration/sizing/
 resources:
   api:
     requests:
@@ -401,6 +419,7 @@ resources:
 # beat use a `celery inspect ping` exec probe (a control-plane round-trip catches a
 # wedged event loop that a bare process-alive check would miss). Every field is
 # tunable so operators can loosen timings on constrained clusters.
+# https://docs.trueppm.com/administration/helm-values/#health-probes
 probes:
   api:
     # Readiness points at the deep /readyz check (#1894, #2217) so a pod only joins
@@ -452,6 +471,7 @@ probes:
 # Root Django log level threaded into the api, worker, and beat containers via
 # DJANGO_LOG_LEVEL (#1899). Empty = leave the app default. Set to DEBUG/INFO/
 # WARNING/ERROR to tune verbosity fleet-wide from one knob.
+# https://docs.trueppm.com/administration/observability/
 logging:
   level: ""
 
@@ -459,6 +479,7 @@ logging:
 # is only meaningful at replicaCount >= 2 (the production posture); on a
 # single-replica dev install it adds nothing. Expressed as maxUnavailable so it
 # never wedges a node drain. Beat is excluded (pinned singleton).
+# https://docs.trueppm.com/administration/helm-values/#scaling-and-availability
 podDisruptionBudget:
   enabled: false
   api:
@@ -469,6 +490,7 @@ podDisruptionBudget:
 # Optional HorizontalPodAutoscaler (#1904). OFF by default: an HPA overrides the
 # static replicaCount and needs metrics-server (or a custom metrics adapter)
 # installed. Enable to scale the API (and optionally the worker) on CPU/memory.
+# https://docs.trueppm.com/administration/helm-values/#scaling-and-availability
 autoscaling:
   enabled: false
   api:
@@ -483,6 +505,7 @@ autoscaling:
     maxReplicas: 6
     targetCPUUtilizationPercentage: 75
 
+# https://docs.trueppm.com/administration/configuration/
 env:
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
   # Where collectstatic writes and WhiteNoise reads (#3183). Must match the
@@ -724,6 +747,7 @@ envFrom: []
 # structured block wins (it renders after `env:` in trueppm.appEnv, and Kubernetes
 # keeps the last entry for a duplicated name), so the hand-set values silently do
 # nothing. Configure telemetry here, not there (#2879).
+# https://docs.trueppm.com/administration/observability/
 observability:
   otlp:
     # Collector endpoint. EMPTY = telemetry off (default). Examples:
@@ -795,6 +819,7 @@ observability:
 # is watching for the `grafana_dashboard` label to auto-import dashboards. Enable it
 # on such a cluster to get the "TruePPM — Async & Outbox Health" dashboard (outbox
 # depth/age, dead-letter, beat liveness) with zero manual upload.
+# https://docs.trueppm.com/administration/observability/
 dashboards:
   enabled: false
   # The label key/value your Grafana sidecar watches. Defaults match the upstream
@@ -813,6 +838,7 @@ dashboards:
 # `trueppm_task_dead_letter_parked` gauge — which is Prometheus text exposition on
 # /api/v1/health/dead-letter/, NOT an OTLP metric, so it needs its own scrape job;
 # see docs → Administration → Observability for both wirings.
+# https://docs.trueppm.com/administration/observability/
 alerts:
   enabled: false
   # Extra labels stamped on the PrometheusRule (e.g. `release: kube-prometheus-stack`
@@ -863,6 +889,7 @@ otelCollector:
 # This is LOGICAL backup only (pg_dump). Continuous archiving / point-in-time
 # recovery (WAL shipping), cross-region replication, and managed backup automation
 # are Enterprise HA features (trueppm-enterprise #20).
+# https://docs.trueppm.com/administration/backup-restore/
 backup:
   enabled: false
   # Cron schedule (cluster timezone). Default: 02:00 every day.
@@ -973,6 +1000,7 @@ backup:
 # The bootstrap init container runs `create_admin` once on first deploy and
 # writes the one-time password to passwordFile (emptyDir, 0o600).
 # Retrieve it with: kubectl exec <api-pod> -- cat /run/trueppm/admin_password
+# https://docs.trueppm.com/administration/admin-password/
 admin:
   # Path inside the container where the one-time password is written.
   # Must match the emptyDir mountPath in the deployment template.
@@ -1013,6 +1041,7 @@ admin:
 #
 # See values-demo.yaml for a ready-made fragment, and packages/helm/README.md for the
 # full walkthrough.
+# https://docs.trueppm.com/administration/helm-values/#public-read-only-demo-mode
 demo:
   # Master switch. Everything else in this block is inert while false.
   enabled: false
