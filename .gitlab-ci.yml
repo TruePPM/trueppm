@@ -803,6 +803,27 @@ lint:sonar-exclusions:
     - bash scripts/check-sonar-exclusions.sh
     - bash scripts/check-sonar-exclusions.sh --self-test
 
+ci:gate-selftest-parity:
+  extends: .fast-job
+  # Every CI gate proves it can still fail, in its own job, or records why it cannot
+  # (#3194). The sibling of ci:prepush-parity, and the same defect shape: a list that
+  # was never asserted to stay complete. boundary:imports passed a real Apache-2.0
+  # violation for its entire existence (#3172) while carrying a test suite that ran on
+  # a different image — so the suite proved something about python:3.11-slim, not about
+  # the gate. Same job is the only way to say same image. ~1s, no network.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep
+  script:
+    # This gate polices "prove you can fail"; running its own self-test first is the
+    # minimum it can ask of itself.
+    - bash scripts/check-gate-selftest-parity.sh --self-test
+    - bash scripts/check-gate-selftest-parity.sh
+
 ci:prepush-parity:
   extends: .fast-job
   # Pre-push parity gate (#2941). `pre-push-checks` mirrored eight bespoke CI gates
@@ -862,6 +883,8 @@ lint:dropdown-scroll:
   before_script:
     - apk add --no-cache bash grep sed
   script:
+    # Self-test first (#3194) — likewise implemented long ago and never run.
+    - bash scripts/check-dropdown-scroll.sh --self-test
     - bash scripts/check-dropdown-scroll.sh
 
 lint:e2e-catchall:
@@ -914,6 +937,10 @@ lint:adr-collisions:
   before_script:
     - apk add --no-cache bash git curl jq
   script:
+    # Self-test first (#3194): this --self-test was implemented and never invoked,
+    # so nothing would have noticed the gate going blind. A gate's failure mode is a
+    # green pipeline, which makes "it passed" no evidence that it can still fail.
+    - bash scripts/check-adr-collisions.sh --self-test
     - bash scripts/check-adr-collisions.sh
 
 lint:package-licenses:
