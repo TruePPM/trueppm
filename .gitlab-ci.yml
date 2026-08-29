@@ -1000,7 +1000,13 @@ docs:tree-split:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash grep sed findutils
+    # git is needed by the #3151 self-test cases, which `git init` a fixture to
+    # prove a gitignored artifact is not scanned (and that the same file,
+    # un-ignored, still fails). Without it those two cases print SELF-TEST
+    # SKIPPED and the job stays green — a test nobody watches run, which is the
+    # exact failure mode this script's self-test exists to prevent. The scan
+    # itself does not need git: a clean CI clone has nothing ignored to skip.
+    - apk add --no-cache bash grep sed findutils git
   script:
     - bash scripts/check-docs-tree-split.sh
     - bash scripts/check-docs-tree-split.sh --self-test
