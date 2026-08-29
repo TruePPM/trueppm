@@ -93,6 +93,27 @@ is_exempt_source() {
   return 1
 }
 
+# True when git ignores <path>. Files git ignores are not the repository's
+# contents, and this gate exists to assert things about the repository. The
+# concrete case is `docs/audit/`, which .gitignore ignores ON PURPOSE -- audit
+# reports carry live exploit detail ahead of the fix, so they are filed as
+# tracker entries rather than committed. That made the developers who reliably
+# have files there the ones doing security work, and this gate red their
+# `make pre-push` with a docs-pointer violation CI can never see, because CI
+# scans a clean clone. A local red that the same gate passes in CI reads as "my
+# branch broke something", which is the opposite of true (#3151).
+#
+# False whenever the question cannot be asked: git absent (docs:tree-split runs
+# on bare alpine), or the path outside any worktree (self_test's mktemp
+# fixtures). Both leave the scan exactly as wide as it was. Answering "ignored"
+# in those cases instead would pass every expect-fail case in the self-test and
+# hollow this gate out while looking green -- the failure mode it was written
+# to prevent, reintroduced through its own fix.
+is_ignored() { # <path>
+  command -v git >/dev/null 2>&1 || return 1
+  git check-ignore -q -- "$1" 2>/dev/null
+}
+
 # Rule 1: basenames shared between the two trees.
 check_shared_basenames() { # <docs_root> <website_root>
   local docs_root="$1" website_root="$2" violations=0
@@ -111,6 +132,7 @@ check_shared_basenames() { # <docs_root> <website_root>
 
   while IFS= read -r f; do
     [ -z "$f" ] && continue
+    is_ignored "$f" && continue
     base="${f##*/}"
     if printf '%s\n' "$website_names" | grep -qxF "$base"; then
       match="$(find "$website_root" -name "$base" -print 2>/dev/null | head -n 1)"
@@ -145,6 +167,7 @@ check_source_pointers() { # <root>
     [ -z "$line" ] && continue
     f="${line%%:*}"
     is_exempt_source "$f" && continue
+    is_ignored "$f" && continue
     # grep -o output is  <file>:<lineno>:<match>; the match may carry the
     # boundary character the pattern had to consume.
     path="${line#*:}"; path="${path#*:}"
@@ -285,6 +308,39 @@ self_test() {
   echo "# page" > "$d/web/features/scheduler.md"
   printf 'Add a row to the table in `docs/features/scheduler.md`.\n' > "$d/pkg/CONTRIBUTING.md"
   _case "code-cites-missing-published-page" expect-fail "$d"
+
+  # #3151: a gitignored artifact is not the repository's contents. This is the
+  # only case that needs a real worktree -- every fixture above is a bare
+  # mktemp directory, where is_ignored() cannot answer and correctly says no.
+  # Checked in BOTH directions on the SAME file: ignoring it must silence the
+  # violation, and un-ignoring it must bring the identical violation straight
+  # back. Without the second half the fix could have disabled rule 2 outright
+  # and this case would still read green.
+  if command -v git >/dev/null 2>&1; then
+    d="$tmp/gitignored"; mkdir -p "$d/docs/audit" "$d/web/administration"
+    echo "# page" > "$d/web/administration/configuration.md"
+    printf 'Config surface is documented (`docs/administration/configuration.md`).\n' \
+      > "$d/docs/audit/state-of-repo.md"
+    git init -q "$d" >/dev/null 2>&1
+
+    printf 'docs/audit/\n' > "$d/.gitignore"
+    if ( cd "$d" && run_scan docs web . ) >/dev/null 2>&1; then
+      echo "SELF-TEST OK: gitignored artifact is not scanned."
+    else
+      echo "SELF-TEST FAILED: gitignored artifact was still scanned." >&2
+      fails=$((fails+1))
+    fi
+
+    printf '# nothing ignored\n' > "$d/.gitignore"
+    if ( cd "$d" && run_scan docs web . ) >/dev/null 2>&1; then
+      echo "SELF-TEST FAILED: the same file, un-ignored, was accepted." >&2
+      fails=$((fails+1))
+    else
+      echo "SELF-TEST OK: the same file, un-ignored, is still rejected."
+    fi
+  else
+    echo "SELF-TEST SKIPPED: git not on PATH -- the #3151 ignore cases did not run." >&2
+  fi
 
   if [ "$fails" -gt 0 ]; then
     echo "SELF-TEST: $fails case(s) failed." >&2
