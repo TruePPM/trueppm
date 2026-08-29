@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderWithRouter } from '@/test/utils';
+import { renderWithRouter, renderWithProvidersAndRouter } from '@/test/utils';
 import { ROLE_VIEWER, ROLE_MEMBER } from '@/lib/roles';
 import type { Task } from '@/types';
 import { CalendarView } from './CalendarView';
@@ -27,10 +27,17 @@ vi.mock('@/hooks/useIterationLabel', () => ({
     possessive: "Sprint's",
   }),
 }));
+// Mutable so a case can drive the view mode (#3167); reset in beforeEach.
+const calFilterMock = vi.hoisted(() => ({
+  state: {
+    calView: 'month' as 'month' | 'week',
+    anchorIso: '2026-05-01',
+  },
+}));
 vi.mock('./useCalendarFilter', () => ({
   useCalendarFilter: () => ({
-    calView: 'month',
-    anchorIso: '2026-05-01',
+    calView: calFilterMock.state.calView,
+    anchorIso: calFilterMock.state.anchorIso,
     setCalView: vi.fn(),
     goToToday: vi.fn(),
     goNext: vi.fn(),
@@ -40,7 +47,9 @@ vi.mock('./useCalendarFilter', () => ({
 // Stub the heavy grid + modal — this suite exercises CalendarView's state
 // branching, not their internals.
 vi.mock('./CalendarGrid', () => ({
-  CalendarGrid: () => <div data-testid="calendar-grid" />,
+  CalendarGrid: ({ calView }: { calView?: string }) => (
+    <div data-testid="calendar-grid" data-cal-view={calView} />
+  ),
 }));
 vi.mock('@/features/board/TaskFormModal', () => ({
   TaskFormModal: ({ onClose }: { onClose: () => void }) => (
@@ -76,6 +85,7 @@ beforeEach(() => {
   calendarTasksMock.mockReturnValue({ tasks: [], isLoading: false, error: null, refetch });
   roleMock.mockReturnValue({ role: ROLE_MEMBER, roleLabel: null, isLoading: false });
   projectMock.mockReturnValue({ data: undefined, isLoading: false, error: null });
+  calFilterMock.state = { calView: 'month', anchorIso: '2026-05-01' };
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -160,5 +170,142 @@ describe('CalendarView state branches (#2161)', () => {
     expect(
       screen.queryByText("Calendar isn't part of this project's workflow"),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('CalendarView week mode (#3167)', () => {
+  it('heads the toolbar with the month name in month mode', () => {
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.getByRole('heading', { level: 2, name: 'May 2026' })).toBeInTheDocument();
+  });
+
+  it('heads the toolbar with the week range in week mode', () => {
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Apr 27 \u2013 May 3, 2026' }),
+    ).toBeInTheDocument();
+  });
+
+  it('threads calView down to the grid — the defect was that it did not', () => {
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-cal-view', 'week');
+  });
+
+  it('mounts the live region empty — no announcement on first paint', () => {
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    // Present in the a11y tree from the start (so a later write is a mutation of
+    // an existing node), but silent until the user actually changes something.
+    const live = screen.getByRole('status');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveTextContent('');
+  });
+
+  it('announces the window after a mode change', async () => {
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    // renderWithRouter bakes the element into createMemoryRouter, so its
+    // rerender does not reach the component (see src/test/utils.tsx). This case
+    // needs a real rerender to fire the effect, so it uses the MemoryRouter form.
+    const { rerender } = renderWithProvidersAndRouter(<CalendarView />, {
+      initialEntries: ['/projects/proj-1?view=calendar'],
+    });
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    rerender(<CalendarView />);
+    // sampleTask spans May 5-8, which is outside the Apr 27 - May 3 week, so
+    // the emptiness of the window is folded into the same announcement rather
+    // than left to a second live region (web rule 354).
+    expect(
+      await screen.findByText('Week view, Apr 27 \u2013 May 3, 2026, no tasks'),
+    ).toBeInTheDocument();
+  });
+
+  it('announces without the no-tasks suffix when the window has work in it', async () => {
+    // A task inside the Apr 27 - May 3 week.
+    const inWeek: Task = {
+      ...sampleTask,
+      id: 'in-week',
+      start: '2026-04-29',
+      finish: '2026-04-30',
+    };
+    calendarTasksMock.mockReturnValue({ tasks: [inWeek], isLoading: false, error: null, refetch });
+    const { rerender } = renderWithProvidersAndRouter(<CalendarView />, {
+      initialEntries: ['/projects/proj-1?view=calendar'],
+    });
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    rerender(<CalendarView />);
+    expect(await screen.findByText('Week view, Apr 27 \u2013 May 3, 2026')).toBeInTheDocument();
+  });
+
+  it('marks the active mode with a filled toggle, not color alone (WCAG 1.4.1)', () => {
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    const week = screen.getByRole('button', { name: 'week' });
+    expect(week).toHaveAttribute('aria-pressed', 'true');
+    expect(week.className).toContain('bg-brand-primary');
+    expect(week.className).not.toContain('bg-brand-primary/10');
+  });
+
+  it('announces the empty window on DESKTOP too, not only in the mobile list (rule 354)', async () => {
+    // The paired half of web rule 354: "this window holds no tasks" is one state
+    // rendered by two breakpoint-selected components. CalendarMobileList wraps
+    // its copy in role="status"; the desktop grid's hint is an absolutely
+    // positioned, pointer-events-none <p> that is decoration to a screen reader.
+    // The contract therefore lives on this surface's single permanent announcer.
+    // CalendarMobileList.test.tsx holds the mobile half.
+    const outsideWeek: Task = {
+      ...sampleTask,
+      id: 'outside',
+      start: '2026-05-20',
+      finish: '2026-05-22',
+    };
+    calendarTasksMock.mockReturnValue({
+      tasks: [outsideWeek],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    const { rerender } = renderWithProvidersAndRouter(<CalendarView />, {
+      initialEntries: ['/projects/proj-1?view=calendar'],
+    });
+    // Step to a week that holds none of the project's tasks.
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    rerender(<CalendarView />);
+    expect(await screen.findByText(/, no tasks$/)).toBeInTheDocument();
   });
 });

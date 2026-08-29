@@ -367,6 +367,7 @@ export default defineConfig({
                 { slug: "features/schedule" },
                 { slug: "features/program-schedule" },
                 { slug: "features/schedule-toolbar" },
+                { slug: "features/calendar-view" },
                 { slug: "features/schedule-build-mode" },
                 { slug: "features/summary-tasks" },
                 { slug: "features/subtasks" },

@@ -21,13 +21,15 @@
 import type { Task } from '@/types';
 import {
   parseUTCDate,
-  monthWeekStarts,
+  viewWeekStarts,
   weekDays,
   formatISODate,
   isSameDay,
   buildChips,
   buildMilestoneMarks,
+  formatWindowNoun,
   type CalendarChipData,
+  type CalViewMode,
   type MilestoneMark,
 } from './calendarUtils';
 import { CalendarChip } from './CalendarChip';
@@ -45,7 +47,9 @@ const CELL_MIN_HEIGHT_PX = DATE_NUMBER_HEIGHT_PX + MAX_LANES * LANE_HEIGHT_PX + 
  * Returns a Map<chip index → lane number (0-based)>.
  */
 function assignLanes(chips: CalendarChipData[]): Map<number, number> {
-  const sorted = chips.map((c, i) => ({ c, i })).sort((a, b) => a.c.chipStartOffset - b.c.chipStartOffset);
+  const sorted = chips
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => a.c.chipStartOffset - b.c.chipStartOffset);
   const laneEnd: number[] = [];
   const result = new Map<number, number>();
 
@@ -74,7 +78,12 @@ function assignLanes(chips: CalendarChipData[]): Map<number, number> {
 // ---------------------------------------------------------------------------
 
 function LegendSwatch({ className }: { className: string }) {
-  return <span className={`inline-block w-4 h-2 rounded-chip flex-shrink-0 ${className}`} aria-hidden="true" />;
+  return (
+    <span
+      className={`inline-block w-4 h-2 rounded-chip flex-shrink-0 ${className}`}
+      aria-hidden="true"
+    />
+  );
 }
 
 function CalendarLegend() {
@@ -100,7 +109,13 @@ function CalendarLegend() {
         On track
       </span>
       <span className="flex items-center gap-2 text-xs text-neutral-text-secondary">
-        <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" className="flex-shrink-0 text-brand-accent fill-current">
+        <svg
+          aria-hidden="true"
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          className="flex-shrink-0 text-brand-accent fill-current"
+        >
           <polygon points="5,0 10,5 5,10 0,5" />
         </svg>
         Milestone
@@ -149,14 +164,16 @@ function MilestoneMarkButton({
         focus-visible:outline-none focus-visible:ring-2
         focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
     >
-      <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10"
+      <svg
+        aria-hidden="true"
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
         className="flex-shrink-0 text-brand-accent fill-current"
       >
         <polygon points="5,0 10,5 5,10 0,5" />
       </svg>
-      <span className="text-xs text-brand-accent-dark truncate leading-tight">
-        {mark.taskName}
-      </span>
+      <span className="text-xs text-brand-accent-dark truncate leading-tight">{mark.taskName}</span>
     </button>
   );
 }
@@ -167,6 +184,14 @@ function MilestoneMarkButton({
 
 interface CalendarGridProps {
   anchorIso: string;
+  /**
+   * Which window to render. Week mode draws the single Mon-Sun row containing
+   * the anchor; month mode draws the 4-6 rows of the anchored month.
+   *
+   * Defaults to month so the prop is additive — this component rendered a month
+   * unconditionally until #3167, and every existing caller and test means month.
+   */
+  calView?: CalViewMode;
   tasks: Task[];
   onTaskClick: (taskId: string) => void;
   /**
@@ -178,6 +203,7 @@ interface CalendarGridProps {
 
 export function CalendarGrid({
   anchorIso,
+  calView = 'month',
   tasks,
   onTaskClick,
   sprintBoundaries,
@@ -185,10 +211,21 @@ export function CalendarGrid({
   // Below the `md` breakpoint the 7-column grid collapses to unusable ~60px
   // columns; render the documented date-grouped agenda list instead (#2161).
   const breakpoint = useBreakpoint();
+  // A landmark's accessible name is an IDENTITY, not a state readout — renaming
+  // it on every Prev/Next would churn the rotor entry a user navigates by. The
+  // volatile window lives in the toolbar heading and in CalendarView's live
+  // region instead (#3167).
+  const regionLabel = 'Calendar';
+
   if (breakpoint === 'sm') {
     return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <CalendarMobileList anchorIso={anchorIso} tasks={tasks} onTaskClick={onTaskClick} />
+      <div role="region" aria-label={regionLabel} className="flex flex-col h-full overflow-hidden">
+        <CalendarMobileList
+          anchorIso={anchorIso}
+          calView={calView}
+          tasks={tasks}
+          onTaskClick={onTaskClick}
+        />
         <CalendarLegend />
       </div>
     );
@@ -196,10 +233,19 @@ export function CalendarGrid({
 
   const anchor = parseUTCDate(anchorIso);
   const today = new Date();
-  const weeks = monthWeekStarts(anchor);
-  const allChips = buildChips(tasks, anchor);
-  const allMarks = buildMilestoneMarks(tasks, anchor);
+  const isWeek = calView === 'week';
+  const weeks = viewWeekStarts(anchor, calView);
+  const allChips = buildChips(tasks, anchor, calView);
+  const allMarks = buildMilestoneMarks(tasks, anchor, calView);
   const currentMonth = anchor.getUTCMonth();
+
+  // The 4-lane cap exists because a month packs 4-6 rows into one viewport, so
+  // each row can only afford ~4 chips. A week row has that whole budget to
+  // itself, so week mode lifts the cap entirely and shows every task touching
+  // the week. The cap is not a display preference — "+N more" is inert text, so
+  // a capped row silently hides most of a busy week, and every project with 10+
+  // tasks has such a week (#3167).
+  const maxLanes = isWeek ? Number.POSITIVE_INFINITY : MAX_LANES;
 
   // Group chips by weekStart ISO
   const chipsByWeek = new Map<string, CalendarChipData[]>();
@@ -219,7 +265,7 @@ export function CalendarGrid({
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div role="region" aria-label={regionLabel} className="flex flex-col h-full overflow-hidden">
       {/* Day-of-week header */}
       <div className="grid grid-cols-7 border-b border-neutral-border flex-shrink-0">
         {DAY_HEADERS.map((d) => (
@@ -235,7 +281,13 @@ export function CalendarGrid({
       </div>
 
       {/* Week rows */}
-      <div className="flex-1 overflow-y-auto divide-y divide-neutral-border">
+      <div
+        className={
+          isWeek
+            ? 'flex flex-1 min-h-0 flex-col overflow-y-auto divide-y divide-neutral-border'
+            : 'flex-1 overflow-y-auto divide-y divide-neutral-border'
+        }
+      >
         {weeks.map((ws) => {
           const wsIso = formatISODate(ws);
           const days = weekDays(ws);
@@ -245,22 +297,53 @@ export function CalendarGrid({
           const overflowByDay = new Map<number, number>();
           weekChips.forEach((chip, idx) => {
             const lane = laneMap.get(idx) ?? 0;
-            if (lane >= MAX_LANES) {
+            if (lane >= maxLanes) {
               const dayOffset = chip.chipStartOffset;
               overflowByDay.set(dayOffset, (overflowByDay.get(dayOffset) ?? 0) + 1);
             }
           });
 
-          const visibleChips = weekChips.filter((_, idx) => (laneMap.get(idx) ?? 0) < MAX_LANES);
+          // Carry each chip's lane alongside it rather than re-deriving it from
+          // an array position later. `laneMap` is keyed by index into
+          // `weekChips`, so any *filtered* array's indices stop corresponding to
+          // it — reading `laneMap.get(i)` with a filtered `i` paints chips at
+          // other chips' lanes, and can place one past the row's own height
+          // (see the regression test in CalendarGrid.test.tsx).
+          const visibleChips = weekChips
+            .map((chip, idx) => ({ chip, lane: laneMap.get(idx) ?? 0 }))
+            .filter(({ lane }) => lane < maxLanes);
+
+          // Week mode grows the row to fit however many lanes it actually uses,
+          // never below the month row's height so a quiet week doesn't collapse
+          // into a strip. Month mode keeps the fixed 4-lane height.
+          const laneCount = visibleChips.reduce((max, { lane }) => Math.max(max, lane + 1), 0);
+
+          // Count THIS row's milestones, not the whole window's. Identical today
+          // because week mode renders exactly one row — but only by coincidence
+          // of the loop having one iteration, which a future multi-week mode
+          // would silently break.
+          const weekMarkCount = days.reduce(
+            (n, _d, i) => n + (marksByWeekDay.get(`${wsIso}:${i}`)?.length ?? 0),
+            0,
+          );
+          const rowMinHeight = isWeek
+            ? Math.max(CELL_MIN_HEIGHT_PX, DATE_NUMBER_HEIGHT_PX + laneCount * LANE_HEIGHT_PX + 8)
+            : CELL_MIN_HEIGHT_PX;
 
           return (
-            <div key={wsIso} className="relative" style={{ minHeight: CELL_MIN_HEIGHT_PX }}>
+            <div
+              key={wsIso}
+              className={`relative ${isWeek ? 'flex-1' : ''}`}
+              style={{ minHeight: rowMinHeight }}
+            >
               {/* Day cells grid */}
               <div className="grid grid-cols-7 h-full">
                 {days.map((day, dayIdx) => {
                   const iso = formatISODate(day);
                   const isToday = isSameDay(day, today);
-                  const isCurrentMonth = day.getUTCMonth() === currentMonth;
+                  // Every day a week row renders is inside the window, so the
+                  // out-of-month graying is a month-mode concept only.
+                  const isCurrentMonth = isWeek || day.getUTCMonth() === currentMonth;
                   const dayOffset = Math.round((day.getTime() - ws.getTime()) / 86_400_000);
                   const overflow = overflowByDay.get(dayOffset) ?? 0;
                   const dayMarks = marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? [];
@@ -275,17 +358,18 @@ export function CalendarGrid({
                         ${!isCurrentMonth ? 'bg-neutral-surface-sunken' : ''}
                         ${dayIdx >= 5 ? 'opacity-60' : ''}
                       `}
-                      style={{ minHeight: CELL_MIN_HEIGHT_PX }}
+                      style={{ minHeight: rowMinHeight }}
                     >
                       {/* Day number */}
                       <span
                         className={`
                           block tppm-mono text-xs font-medium leading-5 w-5 text-center rounded-full
-                          ${isToday
-                            ? 'bg-sage-500 text-navy-900 font-semibold'
-                            : isCurrentMonth
-                              ? 'text-neutral-text-primary'
-                              : 'text-neutral-text-disabled'
+                          ${
+                            isToday
+                              ? 'bg-sage-500 text-navy-900 font-semibold'
+                              : isCurrentMonth
+                                ? 'text-neutral-text-primary'
+                                : 'text-neutral-text-disabled'
                           }
                         `}
                       >
@@ -321,13 +405,24 @@ export function CalendarGrid({
                 })}
               </div>
 
+              {/* A quiet week stretches to fill the viewport, and an empty
+                  stretched row reads as a failed render rather than as "nothing
+                  scheduled" — so name it. Month mode needs no equivalent: 30
+                  dated empty cells already say it. */}
+              {isWeek && visibleChips.length === 0 && weekMarkCount === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <p className="text-sm text-neutral-text-secondary">
+                    No tasks in {formatWindowNoun(anchor, calView)}.
+                  </p>
+                </div>
+              )}
+
               {/* Chip overlay — absolutely positioned over the day cells */}
               <div
                 className="absolute inset-0 pointer-events-none"
                 style={{ top: DATE_NUMBER_HEIGHT_PX }}
               >
-                {visibleChips.map((chip, idx) => {
-                  const lane = laneMap.get(idx) ?? 0;
+                {visibleChips.map(({ chip, lane }, idx) => {
                   const top = lane * LANE_HEIGHT_PX + 2;
                   const leftPct = (chip.chipStartOffset / 7) * 100;
                   const widthPct = (chip.chipDays / 7) * 100;
