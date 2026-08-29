@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
 import pytest
@@ -104,6 +104,13 @@ def _make_view(project_pk: object | None = None) -> MagicMock:
     """
     view = MagicMock()
     view.kwargs = {"project_pk": str(project_pk)} if project_pk is not None else {}
+    # Model the real attribute (#2745). A bare MagicMock SYNTHESIZES
+    # `project_url_kwarg`, so `_project_pk_from_view` would read a Mock instead of a
+    # kwarg name, miss every key, and fail open — making these role-matrix tests pass
+    # against a permission class that enforced nothing. The resolver now ignores a
+    # non-string, but pin the interface here too: a mock that does not model the
+    # object it stands in for is the thing being tested, not a detail of the mock.
+    view.project_url_kwarg = "project_pk"
     return view
 
 
@@ -465,6 +472,94 @@ class TestH1NonMemberCannotCreate:
             {"predecessor": str(t1.pk), "successor": str(t2.pk), "dep_type": "FS"},
         )
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# #2745: the five task-authoring routes are gated by has_permission, not only
+# by the compensating in-body object check
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestTaskAuthoringRoutesGateInHasPermission:
+    """`has_permission` must deny a Viewer on `projects/<pk>/tasks/…` routes.
+
+    These routes are declared `projects/<pk>/…`, not `projects/<project_pk>/…`, so
+    `_project_pk_from_view` used to resolve nothing and every project-scoped class
+    fell through to `return True`. The route still *read* as gated — the class was
+    right there in `permission_classes` — while enforcement rested entirely on a
+    hand-written `check_object_permissions` line in the view body. Three issues
+    shared that shape (#2508, #2551, #2745).
+
+    The views now declare `project_url_kwarg = "pk"`. These assertions go at the
+    permission class directly rather than through the client on purpose: a request
+    test would be satisfied by the in-body check and would therefore pass just as
+    well with the declaration deleted, which is precisely the thing that went
+    unnoticed for three issues. The in-body call is still there and still tested —
+    see `DEFENSE_IN_DEPTH_ROUTES` in `test_route_table_invariants.py`.
+    """
+
+    # (view class, the permission class that must refuse a Viewer)
+    AUTHORING_VIEWS: ClassVar[list[tuple[str, type]]] = [
+        ("TaskBulkView", IsProjectMemberWrite),
+        ("TaskReorderView", IsProjectMemberWrite),
+        ("TaskIndentView", IsProjectMemberWrite),
+        ("TaskOutdentView", IsProjectMemberWrite),
+        ("TaskReparentView", IsProjectMemberWrite),
+    ]
+
+    @staticmethod
+    def _view_for(name: str) -> Any:
+        from trueppm_api.apps.projects import views as project_views
+
+        return getattr(project_views, name)
+
+    @pytest.mark.parametrize("view_name,_perm", AUTHORING_VIEWS)
+    def test_view_declares_the_project_kwarg(self, view_name: str, _perm: Any) -> None:
+        """Without the declaration the resolver reads `project_pk`, which is absent."""
+        assert self._view_for(view_name).project_url_kwarg == "pk"
+
+    @pytest.mark.parametrize("view_name,perm_class", AUTHORING_VIEWS)
+    def test_viewer_denied_by_has_permission(
+        self, view_name: str, perm_class: Any, user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.VIEWER)
+        view = self._view_for(view_name)()
+        view.kwargs = {"pk": str(project.pk)}
+        assert perm_class().has_permission(_make_request(user, "POST"), view) is False
+
+    @pytest.mark.parametrize("view_name,perm_class", AUTHORING_VIEWS)
+    def test_member_allowed_by_has_permission(
+        self, view_name: str, perm_class: Any, user: object, project: Project
+    ) -> None:
+        """The control — otherwise a resolver that denied everyone would pass above.
+
+        This is the assertion that would have caught a naive "also try `pk`" fix:
+        aliasing `pk` globally would hand a task/dependency id to `_membership_role`
+        on other routes and deny legitimate callers there. Here the id IS the
+        project, so a Member must pass.
+        """
+        _add_member(user, project, Role.MEMBER)
+        view = self._view_for(view_name)()
+        view.kwargs = {"pk": str(project.pk)}
+        assert perm_class().has_permission(_make_request(user, "POST"), view) is True
+
+    def test_a_non_string_declaration_does_not_reopen_the_gate(
+        self, user: object, project: Project
+    ) -> None:
+        """An unusable declaration must fall back, never silently fail open.
+
+        `getattr` on an object that synthesizes attributes returns a truthy
+        non-string; indexing `kwargs` with it misses every key and yields None,
+        which every caller reads as "not project-scoped". That is this issue's own
+        defect, reachable through its fix.
+        """
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(project.pk)}
+        # A bare MagicMock synthesizes `project_url_kwarg` as a Mock.
+        assert not isinstance(view.project_url_kwarg, str)
+        _add_member(user, project, Role.VIEWER)
+        assert IsProjectMemberWrite().has_permission(_make_request(user, "POST"), view) is False
 
 
 # ---------------------------------------------------------------------------

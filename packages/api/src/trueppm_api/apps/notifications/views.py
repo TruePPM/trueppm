@@ -535,6 +535,11 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
     PATCH accepts a partial matrix and merges it onto the stored document.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember]
 
     def _get_project(self, request: Request, pk: str) -> Project:

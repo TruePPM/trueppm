@@ -722,6 +722,11 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
     mcp_scope = McpScope.PATH
 
     mcp_compute_heavy = True  # part of the F4 compute-heavy MCP tool set (#1808)
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
@@ -912,6 +917,11 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     mcp_scope = McpScope.PATH
 
     mcp_compute_heavy = True  # two CPM passes + two Monte Carlo runs per call (#1808 F4)
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "monte_carlo_whatif"
@@ -1286,6 +1296,11 @@ class MonteCarloHistoryView(APIView):
     Permission: Member (any role ≥ Viewer), consistent with the forecast read.
     """
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
@@ -1376,6 +1391,11 @@ class ForecastSnapshotListView(ListAPIView[ProjectForecastSnapshot]):
     """
 
     serializer_class = ProjectForecastSnapshotSerializer
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get_queryset(self) -> models.QuerySet[ProjectForecastSnapshot]:
@@ -2120,6 +2140,11 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
     # ADR-0678 (#2482): projects/<pk>/schedule/derivation/
     mcp_scope = McpScope.PATH
 
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
+    # this the project-scoped classes below resolve nothing and `has_permission`
+    # returns True for everyone — the gate reads as live in review and enforces
+    # nothing. Declared per view because `pk` means something else on other routes.
+    project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(

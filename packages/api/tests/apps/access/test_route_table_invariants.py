@@ -26,6 +26,7 @@ from django.urls import URLPattern, URLResolver, get_resolver
 from rest_framework.viewsets import ViewSetMixin
 
 from trueppm_api.apps.access import permissions as permissions_module
+from trueppm_api.apps.access.permissions import DEFAULT_PROJECT_URL_KWARG
 from trueppm_api.apps.projects.authentication import OwnerScopedApiTokenAuthentication
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -191,8 +192,25 @@ _BODY_CHECK_IDIOMS = ("check_object_permissions", "has_object_permission(")
 KNOWN_UNENFORCED: frozenset[str] = frozenset()
 
 
+def _declared_project_kwarg(entry: URLPattern) -> str:
+    """The kwarg this view says names the project (#2745).
+
+    Mirrors `_project_pk_from_view`, non-string guard included — if this helper and
+    the resolver disagreed about what counts as a declaration, the invariant would
+    certify an enforcement path the running code does not take.
+    """
+
+    declared = getattr(_view_class(entry), "project_url_kwarg", DEFAULT_PROJECT_URL_KWARG)
+    return declared if isinstance(declared, str) else DEFAULT_PROJECT_URL_KWARG
+
+
 def _enforcement_path(path: str, entry: URLPattern, kwarg: str) -> str | None:
-    if kwarg == "project_pk":
+    # Resolved against the view's DECLARED kwarg, not the literal `project_pk`
+    # (#2745). A route spelling it `<pk>` whose view declares `project_url_kwarg
+    # = "pk"` is enforced in `has_permission` exactly like a nested route — that
+    # is the whole point of the declaration, and reading only the literal name
+    # here would keep classifying those routes as body-compensated forever.
+    if kwarg == _declared_project_kwarg(entry):
         return ENFORCED_BY_KWARG
     cls = _view_class(entry)
     if cls is not None and issubclass(cls, ViewSetMixin):
@@ -274,53 +292,80 @@ def test_compensating_object_checks_are_pinned() -> None:
 
 
 # Routes under `projects/<pk>/…` whose enforcement lives in the view body rather
-# than in `has_permission`. Every entry is a route where the permission class is
-# declarative documentation and the in-body call is the actual gate.
+# than in `has_permission`.
+#
+# This set was 34 routes until #2745. It is now two, and the two are two because
+# they are `@api_view` FUNCTION views: there is no class of our own to hang a
+# `project_url_kwarg` declaration on, and their gate is a direct
+# `IsProjectMember().has_object_permission(...)` call rather than
+# `check_object_permissions`. That is a real gate — it is simply not one
+# `has_permission` can take over without converting the views first, which is a
+# larger change than the resolver fix and is not carried here.
+#
+# Everything else that used to be in this set now declares the kwarg and is
+# enforced in `has_permission`, with the in-body call retained as defense in depth
+# and pinned by `test_declared_kwarg_routes_keep_their_in_body_check` below.
 COMPENSATING_ROUTES: frozenset[str] = frozenset(
     {
-        "api/v1/projects/<pk>/attention/",
-        "api/v1/projects/<pk>/board-views/",
-        "api/v1/projects/<pk>/board-views/<view_pk>/",
-        "api/v1/projects/<pk>/burn/",
-        "api/v1/projects/<pk>/flow-metrics/",
-        "api/v1/projects/<pk>/forecast/",
-        "api/v1/projects/<pk>/milestones/",
-        "api/v1/projects/<pk>/my-tasks/",
-        "api/v1/projects/<pk>/overview/",
-        "api/v1/projects/<pk>/phases/reorder/",
-        "api/v1/projects/<pk>/presence/",
-        "api/v1/projects/<pk>/sprint-forecast/",
-        "api/v1/projects/<pk>/sprint-health/",
-        # The five #2745 task-authoring routes. views.py:7674 carries a comment
-        # asking that the check not be refactored away; this is that comment as a
-        # test.
+        "api/v1/projects/<str:pk>/monte-carlo/",
+        "api/v1/projects/<str:pk>/schedule/",
+    }
+)
+
+
+# The five task-authoring routes #2745 was filed about, plus the #2955 grouping
+# primitives that inherited the same shape. `views.py` carries a comment asking that
+# their in-body object check not be refactored away; before #2745 that check was the
+# ONLY gate. It is now the second of two, and it stays: ADR-0184's additive doctrine
+# is that a redundant check is the point, not the smell. Naming them here means
+# deleting one is a failing test rather than a silent downgrade to single-gated.
+DEFENSE_IN_DEPTH_ROUTES: frozenset[str] = frozenset(
+    {
         "api/v1/projects/<pk>/tasks/<task_id>/indent/",
         "api/v1/projects/<pk>/tasks/<task_id>/outdent/",
         "api/v1/projects/<pk>/tasks/<task_id>/reparent/",
         "api/v1/projects/<pk>/tasks/bulk/",
         "api/v1/projects/<pk>/tasks/classification/",
-        # The #2955 group/ungroup primitives, same in-body gate for the same reason.
         "api/v1/projects/<pk>/tasks/group/",
         "api/v1/projects/<pk>/tasks/reorder/",
         "api/v1/projects/<pk>/tasks/ungroup/",
-        "api/v1/projects/<pk>/velocity/",
-        "api/v1/projects/<pk>/workshop/current/",
-        "api/v1/projects/<pk>/workshop/end/",
-        "api/v1/projects/<pk>/workshop/force-end/",
-        "api/v1/projects/<pk>/workshop/start/",
-        "api/v1/projects/<str:pk>/forecast-snapshots/",
-        # Function views (`@api_view`): the gate is a direct
-        # `IsProjectMember().has_object_permission(...)` call, not
-        # `check_object_permissions`. Both idioms count.
-        "api/v1/projects/<str:pk>/monte-carlo/",
-        "api/v1/projects/<str:pk>/monte-carlo/history/",
-        "api/v1/projects/<str:pk>/monte-carlo/latest/",
-        "api/v1/projects/<str:pk>/monte-carlo/whatif/",
-        "api/v1/projects/<str:pk>/schedule/",
-        "api/v1/projects/<str:pk>/schedule/derivation/",
-        "api/v1/projects/<uuid:pk>/notification-preferences/",
     }
 )
+
+
+def test_declared_kwarg_routes_keep_their_in_body_check() -> None:
+    """A route that gained `has_permission` enforcement must not lose its body check.
+
+    #2745 moved these routes from "the in-body call is the only gate" to "the
+    declared kwarg gates them too". The hazard that creates is a reviewer reading
+    the new declaration and deleting the now-redundant in-body call as cleanup —
+    which would leave the route single-gated again, this time with nothing naming
+    what was lost. `_enforcement_path` reports the FIRST path it finds, so it can
+    no longer see these calls; this asserts the source directly.
+    """
+
+    by_path = {path: entry for path, entry, _, _ in _project_identifying_routes()}
+    missing = sorted(
+        path
+        for path in DEFENSE_IN_DEPTH_ROUTES
+        if path in by_path
+        and not any(idiom in _view_source(by_path[path]) for idiom in _BODY_CHECK_IDIOMS)
+    )
+
+    assert missing == [], (
+        "route(s) lost the in-body object-permission check they are pinned to keep:\n"
+        + "\n".join(f"    {p}" for p in missing)
+        + "\n\nSince #2745 these are gated twice on purpose (ADR-0184). If removing the "
+        "second gate is genuinely intended, drop the route from DEFENSE_IN_DEPTH_ROUTES "
+        "in the same commit so the change is on the record."
+    )
+
+    unresolved = sorted(DEFENSE_IN_DEPTH_ROUTES - set(by_path))
+    assert unresolved == [], (
+        "DEFENSE_IN_DEPTH_ROUTES names route(s) that no longer exist:\n"
+        + "\n".join(f"    {p}" for p in unresolved)
+        + "\n\nA stale entry makes this test vacuous for that route — remove or rename it."
+    )
 
 
 # ---------------------------------------------------------------------------
