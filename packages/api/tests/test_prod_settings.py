@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -51,6 +52,19 @@ _REDIS_URL_CLEAN = "redis://valkey:6379/0"
 # the gitleaks pre-commit hook, and no test here needs the entropy.
 _STRONG_DATASTORE_PASSWORD = "s" * MIN_SERVICE_PASSWORD_LENGTH
 
+# A writable MEDIA_ROOT for the #3184 boot probe. Module-scoped rather than a
+# tmp_path fixture because _load_prod is a plain helper, not a fixture consumer,
+# and every caller that opts into local storage needs one.
+_WRITABLE_MEDIA_ROOT = Path(tempfile.mkdtemp(prefix="trueppm-prod-settings-media-"))
+
+#: chmod cannot make a directory unwritable to root, so the refusal cases below
+#: would report a false red on a root runner rather than exercise anything.
+#: CI runs as `ci` (.gitlab/ci-images/api.Dockerfile).
+_requires_non_root = pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root bypasses directory permissions, so the unwritable-path probe cannot fail",
+)
+
 
 def _load_prod(
     *,
@@ -62,6 +76,7 @@ def _load_prod(
     jwt_signing_key: str | None = None,
     db_password: str | None = None,
     redis_url: str = _REDIS_URL_CLEAN,
+    media_root: str | Path | None = None,
 ) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
@@ -76,6 +91,11 @@ def _load_prod(
     unset, prod's JWT_SIGNING_KEY inherits SECRET_KEY. ``db_password``/``redis_url``
     feed the #3176 datastore-credential guard and default to a passwordless pair,
     which that guard deliberately treats as none of its business.
+
+    ``media_root`` feeds the #3184 writability probe, which only runs behind the
+    local-storage opt-in. It defaults to a writable temp directory so a test
+    asserting "the opt-in boots" is asserting the opt-in and not the test host's
+    /var/lib permissions; pass an unwritable path to exercise the refusal.
     """
     storages = {
         "default": {"BACKEND": backend},
@@ -97,6 +117,7 @@ def _load_prod(
         mock.patch.object(base, "INTEGRATION_ENCRYPTION_KEY", encryption_key),
         mock.patch.object(base, "DATABASES", {"default": {"PASSWORD": db_password}}),
         mock.patch.object(base, "REDIS_URL", redis_url),
+        mock.patch.object(base, "MEDIA_ROOT", Path(media_root or _WRITABLE_MEDIA_ROOT)),
     ):
         # Ensure a stale JWT_SIGNING_KEY from a prior test's patched env never
         # bleeds in when this call means to test the inherit-SECRET_KEY default.
@@ -163,6 +184,38 @@ def test_prod_boots_on_local_storage_when_opted_in() -> None:
     """TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE lets local storage through."""
     prod = _load_prod(backend=_LOCAL, allow_local=True)
     assert prod.STORAGES["default"]["BACKEND"] == _LOCAL
+
+
+@_requires_non_root
+def test_prod_refuses_local_storage_opt_in_without_a_writable_media_root(
+    tmp_path: Path,
+) -> None:
+    """The opt-in is a claim about the deployment; #3184 made it falsifiable.
+
+    Before this, the opt-in plus no MEDIA_ROOT at all — every containerized
+    deploy — booted clean and then failed every upload with EROFS.
+    """
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        with pytest.raises(RuntimeError, match="Refusing to start"):
+            _load_prod(backend=_LOCAL, allow_local=True, media_root=locked)
+    finally:
+        locked.chmod(0o700)
+
+
+@_requires_non_root
+def test_prod_ignores_media_root_on_object_storage(tmp_path: Path) -> None:
+    """An S3 deploy never touches MEDIA_ROOT, so the probe must not gate it."""
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        prod = _load_prod(backend=_S3, allow_local=True, media_root=locked)
+        assert prod.STORAGES["default"]["BACKEND"] == _S3
+    finally:
+        locked.chmod(0o700)
 
 
 def test_prod_refuses_empty_integration_encryption_key() -> None:
