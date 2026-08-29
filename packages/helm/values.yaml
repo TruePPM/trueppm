@@ -414,6 +414,25 @@ probes:
     livenessPath: /api/v1/health/
     livenessInitialDelaySeconds: 30
     livenessPeriodSeconds: 30
+    # Host header kubelet sends on the two probes above (#3183).
+    #
+    # kubelet dials a probe by POD IP, so with no header it sends
+    # `Host: <podIP>:8000`. Django checks that against ALLOWED_HOSTS inside
+    # HttpRequest.get_host(), which runs BEFORE any view and which
+    # SECURE_REDIRECT_EXEMPT does not reach — so a perfectly correct
+    # `ALLOWED_HOSTS=trueppm.example.com` makes /readyz answer 400
+    # DisallowedHost, the pod never turns Ready, the Service gets no endpoints,
+    # and the Ingress serves 503. Nothing in that failure names ALLOWED_HOSTS.
+    #
+    # Empty (the default) resolves to the first ingress host — the name you
+    # already had to put in ALLOWED_HOSTS to serve traffic at all — so the
+    # common case needs no configuration. Set it explicitly when you run
+    # without an Ingress (a LoadBalancer Service, a service mesh) and
+    # ALLOWED_HOSTS is not a wildcard. Setting it to a name absent from
+    # ALLOWED_HOSTS reproduces the bug, so keep the two in step.
+    #
+    # https://docs.trueppm.com/administration/configuration/
+    hostHeader: ""
   worker:
     enabled: true
     initialDelaySeconds: 30
@@ -466,6 +485,14 @@ autoscaling:
 
 env:
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+  # Where collectstatic writes and WhiteNoise reads (#3183). Must match the
+  # staticfiles emptyDir mountPath in the api Deployment, and must be set
+  # explicitly: the settings default is BASE_DIR/staticfiles, and BASE_DIR
+  # resolves INSIDE the read-only venv when the app is pip-installed, as it is
+  # in the published image (settings/base.py:891-894). Leaving it unset made
+  # /static/ 404 on every Helm install. Change it only if you also change the
+  # mountPath.
+  STATIC_ROOT: /app/staticfiles
   # Public origin the web app is served from, e.g. "https://trueppm.example.com".
   # Used to build absolute task deep-links in notification emails (ADR-0143, #1158).
   # Leave empty to omit the link line (emails still carry blocker type/age/actor).

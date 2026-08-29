@@ -602,6 +602,57 @@ for overlay in "" "$CHART/values-dev.yaml" "$CHART/values-prod.yaml"; do
     || fail "helm lint failed for overlay '${overlay:-<defaults>}' — values.schema.json rejects a value the chart ships (#2879)"
 done
 
+# N. Probe Host header (#3183). kubelet dials a probe by POD IP, so with no Host
+#    header Django validates `<podIP>:8000` against ALLOWED_HOSTS in get_host()
+#    — before any view, and out of reach of SECURE_REDIRECT_EXEMPT — and answers
+#    400 DisallowedHost. The pod never turns Ready and the Ingress serves 503,
+#    with nothing in the failure naming ALLOWED_HOSTS. Assert both api probes
+#    carry the header and that it equals the ingress host an operator would have
+#    put in ALLOWED_HOSTS.
+ing_host="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --show-only templates/api/deployment.yaml \
+  | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
+[ -n "$ing_host" ] && [ "$ing_host" != "null" ] \
+  || fail "readinessProbe carries no Host header — kubelet will send Host: <podIP> and Django will 400 it against ALLOWED_HOSTS (#3183)"
+live_host="$(echo "$DEP" | yq '.spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
+[ "$live_host" = "$ing_host" ] \
+  || fail "livenessProbe Host header is '$live_host', expected '$ing_host' — the two probes must agree (#3183)"
+default_ing="$(yq '.ingress.hosts[0].host' "$CHART/values.yaml")"
+[ "$ing_host" = "$default_ing" ] \
+  || fail "probe Host header '$ing_host' does not resolve to the first ingress host '$default_ing' (#3183)"
+# The override must win, so an operator without an Ingress can still name the host.
+ovr="$(helm template trueppm "$CHART" --set image.tag=latest --set probes.api.hostHeader=probe.example.test \
+  --show-only templates/api/deployment.yaml \
+  | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
+[ "$ovr" = "probe.example.test" ] \
+  || fail "probes.api.hostHeader override did not take effect (got '$ovr') (#3183)"
+
+# N+1. collectstatic (#3183). The image does not bake collectstatic output
+#      (packages/api/Dockerfile:103 — it "writes here at startup"), the api
+#      container serves /static/ through WhiteNoise from STATIC_ROOT, and the
+#      chart mounts an emptyDir over that path. Without a collectstatic step the
+#      directory stays empty and every /static/ asset 404s: unstyled Django admin
+#      (the surface web.adminAccess exists to expose) and a blank Swagger UI.
+#      Assert the step exists, shares the volume, and agrees with STATIC_ROOT.
+cs_sel='.spec.template.spec.initContainers[] | select(.name == "collectstatic")'
+cs_name="$(echo "$DEP" | yq "$cs_sel | .name")"
+[ "$cs_name" = "collectstatic" ] \
+  || fail "api Deployment has no 'collectstatic' init container — /static/ will 404 (#3183)"
+cs_cmd="$(echo "$DEP" | yq "$cs_sel | .command | join(\" \")")"
+case "$cs_cmd" in
+  *collectstatic*) : ;;
+  *) fail "init container 'collectstatic' does not run collectstatic (command: $cs_cmd)" ;;
+esac
+static_root="$(echo "$DEP" | yq '.spec.template.spec.containers[0].env[] | select(.name == "STATIC_ROOT") | .value')"
+[ -n "$static_root" ] && [ "$static_root" != "null" ] \
+  || fail "api container sets no STATIC_ROOT — the settings default resolves inside the read-only venv (#3183)"
+cs_mount="$(echo "$DEP" | yq "$cs_sel | .volumeMounts[] | select(.name == \"staticfiles\") | .mountPath")"
+api_static_mount="$(echo "$DEP" | yq '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "staticfiles") | .mountPath')"
+[ "$cs_mount" = "$static_root" ] \
+  || fail "collectstatic mounts staticfiles at '$cs_mount' but STATIC_ROOT is '$static_root' — it would write where nothing reads (#3183)"
+[ "$api_static_mount" = "$static_root" ] \
+  || fail "the api container mounts staticfiles at '$api_static_mount' but STATIC_ROOT is '$static_root' — WhiteNoise would serve an empty directory (#3183)"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
@@ -618,3 +669,5 @@ echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op
 echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays quiet once they are configured"
 echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
+echo "  - both api probes send Host: $ing_host (kubelet would otherwise send the pod IP and Django would 400 it)"
+echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"

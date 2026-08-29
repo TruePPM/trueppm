@@ -690,3 +690,27 @@ enforced at the network layer).
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Host header for the api container's HTTP probes (#3183).
+
+kubelet connects to a probe by POD IP, so without an explicit Host header it
+sends `Host: <podIP>:8000`. Django validates that against ALLOWED_HOSTS *before*
+any view runs — in HttpRequest.get_host(), which no SECURE_REDIRECT_EXEMPT entry
+reaches — so a correct, documented `ALLOWED_HOSTS=trueppm.example.com` makes
+/readyz return 400 DisallowedHost. The pod never turns Ready, the Service never
+gets an endpoint, and the Ingress serves 503 with nothing in the output naming
+ALLOWED_HOSTS.
+
+Resolution order: an explicit probes.api.hostHeader, else the first ingress host
+(the name the operator already had to put in ALLOWED_HOSTS to serve traffic at
+all). Empty renders NO header, preserving the by-pod-IP behavior for a wildcard
+ALLOWED_HOSTS dev install.
+*/}}
+{{- define "trueppm.probeHostHeader" -}}
+{{- if .Values.probes.api.hostHeader -}}
+{{- .Values.probes.api.hostHeader -}}
+{{- else if .Values.ingress.hosts -}}
+{{- (first .Values.ingress.hosts).host | default "" -}}
+{{- end -}}
+{{- end -}}

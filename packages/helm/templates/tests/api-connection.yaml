@@ -60,6 +60,17 @@ spec:
           echo "probing http://${host}/api/v1/health/ ..."
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors "http://${host}/api/v1/health/"
           echo
+          # /static/ proves the collectstatic init container actually populated the
+          # shared emptyDir (#3183). The chart never ran collectstatic and the image
+          # does not bake the output, so this 404'd on every install — taking the
+          # Django admin CSS (the surface web.adminAccess exists to expose) and the
+          # Swagger UI with it. admin/css/base.css ships with Django itself, so it
+          # is present whenever collection ran at all.
+          echo "probing http://${host}/static/admin/css/base.css ..."
+          curl -fsS --retry 10 --retry-delay 2 --retry-all-errors \
+            -o /dev/null "http://${host}/static/admin/css/base.css" \
+            || { echo "FAIL: /static/ 404 — collectstatic did not populate STATIC_ROOT"; exit 1; }
+          echo
           {{- if .Values.tests.probeReadyz }}
           echo "probing http://${host}/api/v1/readyz ..."
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors "http://${host}/api/v1/readyz"

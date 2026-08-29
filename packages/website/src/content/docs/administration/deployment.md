@@ -124,18 +124,39 @@ container before the API ever runs, so this is not an optional hardening step:
 | Key | What it is |
 |-----|-----------|
 | `SECRET_KEY` | Django signing key, 32 characters minimum |
-| `ALLOWED_HOSTS` | Comma-separated hostnames the app will answer on |
+| `ALLOWED_HOSTS` | Comma-separated hostnames the app will answer on — see the callout below, it must cover more than your public name |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key that encrypts integration credentials at rest |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` **or** `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` | Where task attachments are stored |
 
 ```bash
 kubectl create secret generic trueppm-env --namespace trueppm \
   --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
-  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
     'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
 ```
+
+:::caution[`ALLOWED_HOSTS` must cover every name a request arrives under]
+Django validates the `Host` header inside `get_host()` — before any view runs —
+and answers **400 DisallowedHost** on a miss. Nothing in that response names
+`ALLOWED_HOSTS`, so it reads like a routing or ingress fault.
+
+Two internal callers reach the API under a name that is *not* your public
+hostname:
+
+- **The `helm test` connection probe** curls the API Service by its DNS name
+  (`<release>-trueppm-api`), so that name belongs in the list.
+- **kubelet's liveness and readiness probes** connect by pod IP. The chart
+  handles this for you — it sets an explicit `Host` header on both probes,
+  resolved from `ingress.hosts[0].host` (override with
+  `probes.api.hostHeader`). Keep that value in `ALLOWED_HOSTS`: if the two
+  disagree, `/readyz` returns 400, the pod never becomes Ready, the Service
+  gets no endpoints, and the Ingress serves 503.
+
+If you deploy without an Ingress — a `LoadBalancer` Service, or a service mesh —
+set `probes.api.hostHeader` explicitly and add the same value here.
+:::
 
 `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` puts task attachments on the pod's
 ephemeral disk, where they are **lost on restart**. It is the right choice for a

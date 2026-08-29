@@ -435,6 +435,10 @@
             "livenessPeriodSeconds": {
               "type": "integer",
               "minimum": 1
+            },
+            "hostHeader": {
+              "description": "Host header kubelet sends on the api probes. Empty resolves to the first ingress host. Must be present in ALLOWED_HOSTS or the probe 400s (#3183).",
+              "type": "string"
             }
           }
         },
