@@ -20,6 +20,7 @@ from unittest import mock
 
 import pytest
 
+from trueppm_api.core.security_checks import MIN_SERVICE_PASSWORD_LENGTH
 from trueppm_api.settings import base
 
 # Repo root holds the install artifact operators copy to .env. From
@@ -41,6 +42,15 @@ _DB_URL_TLS = "postgres://u:p@db.example.com:5432/trueppm?sslmode=require"
 # A DATABASE_URL that trips the #1550 guard (no sslmode parameter).
 _DB_URL_PLAINTEXT = "postgres://u:p@db.example.com:5432/trueppm"
 
+# A REDIS_URL with no password at all, so the #3176 datastore-credential guard is
+# neutral unless a test deliberately supplies one.
+_REDIS_URL_CLEAN = "redis://valkey:6379/0"
+# Long enough to clear the #3176 length floor and not a known placeholder. Derived
+# from the constant so it cannot drift if the floor moves, and deliberately a
+# repeated character: a high-entropy literal next to a PASSWORD identifier trips
+# the gitleaks pre-commit hook, and no test here needs the entropy.
+_STRONG_DATASTORE_PASSWORD = "s" * MIN_SERVICE_PASSWORD_LENGTH
+
 
 def _load_prod(
     *,
@@ -50,6 +60,8 @@ def _load_prod(
     database_url: str = _DB_URL_TLS,
     allow_unencrypted_db: bool = False,
     jwt_signing_key: str | None = None,
+    db_password: str | None = None,
+    redis_url: str = _REDIS_URL_CLEAN,
 ) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
@@ -61,7 +73,9 @@ def _load_prod(
     shared dict). ``database_url`` defaults to an sslmode=require URL so the #1550
     guard passes unless a test deliberately supplies a plaintext one.
     ``jwt_signing_key`` is only injected into the env when provided (#2247); left
-    unset, prod's JWT_SIGNING_KEY inherits SECRET_KEY.
+    unset, prod's JWT_SIGNING_KEY inherits SECRET_KEY. ``db_password``/``redis_url``
+    feed the #3176 datastore-credential guard and default to a passwordless pair,
+    which that guard deliberately treats as none of its business.
     """
     storages = {
         "default": {"BACKEND": backend},
@@ -81,7 +95,8 @@ def _load_prod(
         mock.patch.object(base, "ALLOW_LOCAL_ATTACHMENT_STORAGE", allow_local),
         mock.patch.object(base, "ALLOW_UNENCRYPTED_DB", allow_unencrypted_db),
         mock.patch.object(base, "INTEGRATION_ENCRYPTION_KEY", encryption_key),
-        mock.patch.object(base, "DATABASES", {"default": {}}),
+        mock.patch.object(base, "DATABASES", {"default": {"PASSWORD": db_password}}),
+        mock.patch.object(base, "REDIS_URL", redis_url),
     ):
         # Ensure a stale JWT_SIGNING_KEY from a prior test's patched env never
         # bleeds in when this call means to test the inherit-SECRET_KEY default.
@@ -176,6 +191,52 @@ def test_prod_boots_on_unencrypted_db_when_opted_in() -> None:
         database_url=_DB_URL_PLAINTEXT,
         allow_unencrypted_db=True,
     )
+    assert prod.DEBUG is False
+
+
+# ---------------------------------------------------------------------------
+# #3176: datastore credentials. compose's ${DB_PASSWORD:?...} only proves the
+# variable is *set*, which the change-me string .env.example shipped satisfies —
+# so the documented copy-paste path produced a deploy nothing rejected.
+# ---------------------------------------------------------------------------
+
+
+def test_prod_refuses_placeholder_database_password() -> None:
+    """The exact string .env.example shipped stops the boot (#3176)."""
+    with pytest.raises(RuntimeError, match="Refusing to start"):
+        _load_prod(backend=_S3, allow_local=False, db_password="change-me")
+
+
+def test_prod_refuses_placeholder_valkey_password() -> None:
+    """The cache credential is guarded independently of the database one (#3176)."""
+    with pytest.raises(RuntimeError, match="Refusing to start"):
+        _load_prod(
+            backend=_S3,
+            allow_local=False,
+            redis_url="redis://:change-me@valkey:6379/0",
+        )
+
+
+def test_prod_refuses_short_database_password() -> None:
+    """Weak-but-not-placeholder is refused too, or the guard only blocks one string."""
+    with pytest.raises(RuntimeError, match="Refusing to start"):
+        _load_prod(backend=_S3, allow_local=False, db_password="short")
+
+
+def test_prod_boots_with_strong_datastore_passwords() -> None:
+    """Strong credentials on both datastores clear the #3176 guard."""
+    prod = _load_prod(
+        backend=_S3,
+        allow_local=False,
+        db_password=_STRONG_DATASTORE_PASSWORD,
+        redis_url=f"redis://:{_STRONG_DATASTORE_PASSWORD}@valkey:6379/0",
+    )
+    assert prod.DEBUG is False
+
+
+def test_prod_boots_when_datastores_use_passwordless_auth() -> None:
+    """Trust auth / IAM / client certs have no password for the guard to weaken."""
+    prod = _load_prod(backend=_S3, allow_local=False)
     assert prod.DEBUG is False
 
 

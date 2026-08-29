@@ -13,7 +13,10 @@ import-time guard in ``settings/prod.py``. Both call the pure
 
 from __future__ import annotations
 
+from unittest import mock
+
 import pytest
+from django.conf import settings as django_settings
 from django.core.checks import registry
 
 from trueppm_api.core.security_checks import (
@@ -81,3 +84,42 @@ def test_both_credentials_are_reported_independently() -> None:
 
 def test_system_check_is_registered_under_the_security_tag() -> None:
     assert check_service_credentials in registry.registry.get_checks(include_deployment_checks=True)
+
+
+def test_system_check_reads_live_settings(settings: pytest.FixtureRequest) -> None:
+    """The entry point reads DATABASES/REDIS_URL/DEBUG off django.conf.settings.
+
+    The pure validator above is exercised directly; this proves the check actually
+    pulls the two credentials out of live settings, which is the half a wrong
+    attribute name would silently break while every validator test stayed green.
+
+    ``DATABASES["default"]`` is patched in place rather than reassigned: replacing
+    the whole setting makes Django warn and drops the configured connections.
+    """
+    settings.DEBUG = False  # type: ignore[attr-defined]
+    settings.REDIS_URL = "redis://:change-me@valkey:6379/0"  # type: ignore[attr-defined]
+    with mock.patch.dict(django_settings.DATABASES["default"], {"PASSWORD": "change-me"}):
+        assert [e.id for e in check_service_credentials()] == ["trueppm.E010", "trueppm.E011"]
+
+
+def test_system_check_passes_on_strong_live_credentials(
+    settings: pytest.FixtureRequest,
+) -> None:
+    settings.DEBUG = False  # type: ignore[attr-defined]
+    settings.REDIS_URL = f"redis://:{STRONG}@valkey:6379/0"  # type: ignore[attr-defined]
+    with mock.patch.dict(django_settings.DATABASES["default"], {"PASSWORD": STRONG}):
+        assert check_service_credentials() == []
+
+
+def test_system_check_tolerates_credentials_being_absent(
+    settings: pytest.FixtureRequest,
+) -> None:
+    """Trust auth and an unauthenticated cache leave both lookups empty.
+
+    The getattr/or defaults must absorb that rather than raising inside a check
+    whose whole job is to report, not to crash the checks run.
+    """
+    settings.DEBUG = False  # type: ignore[attr-defined]
+    settings.REDIS_URL = ""  # type: ignore[attr-defined]
+    with mock.patch.dict(django_settings.DATABASES["default"], {"PASSWORD": None}):
+        assert check_service_credentials() == []
