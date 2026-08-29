@@ -87,6 +87,34 @@ spec:
               mountPath: /run/trueppm
             - name: tmp
               mountPath: /tmp
+        # collectstatic populates the /app/staticfiles emptyDir the api container
+        # serves through WhiteNoise (#3183). The image deliberately does NOT bake
+        # the output — packages/api/Dockerfile:103 says it "writes here at
+        # startup" — and the chart never ran it, so `/static/` 404'd on every Helm
+        # install: unstyled Django admin (the surface web.adminAccess exists to
+        # expose) and a blank Swagger UI. STATIC_ROOT must be set explicitly
+        # because the default resolves to BASE_DIR, which is inside the read-only
+        # venv when the app is pip-installed (settings/base.py:891-894). The
+        # compose path has always done both (docker-compose.prod.yml:104,115).
+        - name: collectstatic
+          image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "manage.py", "collectstatic", "--noinput"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- include "trueppm.envVars" . | nindent 12 }}
+            {{- include "trueppm.connectionEnv" . | nindent 12 }}
+            {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: staticfiles
+              mountPath: /app/staticfiles
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
@@ -121,12 +149,24 @@ spec:
             httpGet:
               path: {{ .Values.probes.api.readinessPath | default "/api/v1/readyz" }}
               port: http
+              {{- with include "trueppm.probeHostHeader" . }}
+              # Without this, kubelet sends `Host: <podIP>:8000` and Django rejects
+              # it against ALLOWED_HOSTS with a 400 before the view runs (#3183).
+              httpHeaders:
+                - name: Host
+                  value: {{ . | quote }}
+              {{- end }}
             initialDelaySeconds: {{ .Values.probes.api.readinessInitialDelaySeconds | default 10 }}
             periodSeconds: {{ .Values.probes.api.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.api.livenessPath | default "/api/v1/health/" }}
               port: http
+              {{- with include "trueppm.probeHostHeader" . }}
+              httpHeaders:
+                - name: Host
+                  value: {{ . | quote }}
+              {{- end }}
             initialDelaySeconds: {{ .Values.probes.api.livenessInitialDelaySeconds | default 30 }}
             periodSeconds: {{ .Values.probes.api.livenessPeriodSeconds | default 30 }}
           resources:

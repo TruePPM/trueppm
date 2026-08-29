@@ -144,10 +144,33 @@ done
 # here — proving that default path boots.
 secret_key="$(head -c 50 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 60)"
 integration_key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
+# ALLOWED_HOSTS is a CONCRETE list, never '*' (#3183). A wildcard makes this
+# drill prove the chart boots under a configuration configuration.md marks
+# :::danger and no operator should run — and it hid a real install blocker: the
+# api probes had no Host header, so kubelet sent `Host: <podIP>:8000`, Django
+# answered 400 DisallowedHost from get_host() before any view, and a documented
+# single-host ALLOWED_HOSTS left every pod NotReady behind a 503. Listing the
+# exact names traffic actually arrives under is what makes that class fail here.
+#
+# Both names are derived from the render rather than typed, so a change to the
+# chart's default ingress host or fullname template cannot silently desync them:
+#   - the probe Host header the chart resolves (default: ingress.hosts[0].host)
+#   - the api Service DNS name, which is the Host `helm test` curls
+probe_host="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
+  --show-only templates/api/deployment.yaml \
+  | awk '/httpHeaders:/{h=1} h && /value:/{gsub(/"/,"",$2); print $2; exit}')"
+api_svc="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
+  --show-only templates/api/service.yaml \
+  | awk '/^  name:/{print $2; exit}')"
+[ -n "$probe_host" ] || fail "could not resolve the probe Host header from the render (#3183)"
+[ -n "$api_svc" ] || fail "could not resolve the api Service name from the render"
+allowed_hosts="${probe_host},${api_svc},localhost,127.0.0.1"
+log "ALLOWED_HOSTS=${allowed_hosts}"
+
 log "creating trueppm-env secret"
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY="$secret_key" \
-  --from-literal=ALLOWED_HOSTS='*' \
+  --from-literal=ALLOWED_HOSTS="$allowed_hosts" \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
 
@@ -184,6 +207,9 @@ log "admin password present (${#admin_pw} chars) — bootstrap wrote the shared 
 # in reach — no connection strings needed here. It must exit non-zero rather than
 # start with an insecure default.
 log "negative probe: api image without SECRET_KEY must refuse to start"
+# ALLOWED_HOSTS='*' is deliberate here, and only here: this throwaway pod must
+# fail on SECRET_KEY alone, so host validation is taken out of the picture. It
+# never serves a request (#3183).
 kubectl run secret-guard-probe \
   --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
   --env=DJANGO_SETTINGS_MODULE=trueppm_api.settings.prod \

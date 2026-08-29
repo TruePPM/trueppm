@@ -92,6 +92,14 @@ packages/api/seed-imports/
 .wt-owner
 .wt-reservation
 
+# The operator's real secrets. init-prod.sh WRITES this file at the repo root —
+# SECRET_KEY (which is also the JWT signing key), DB_PASSWORD, REDIS_PASSWORD —
+# and nothing else stopped `git add -A` from committing it. .env.example is the
+# tracked template; .env never is (#3183).
+.env
+.env.*
+!.env.example
+
 # SonarCloud / sonar-scanner scratch output
 .scannerwork/
 .sonar/

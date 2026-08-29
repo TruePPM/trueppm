@@ -60,6 +60,24 @@ spec:
           echo "probing http://${host}/api/v1/health/ ..."
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors "http://${host}/api/v1/health/"
           echo
+          # /static/ proves the collectstatic init container actually populated the
+          # shared emptyDir (#3183). The chart never ran collectstatic and the image
+          # does not bake the output, so this 404'd on every install — taking the
+          # Django admin CSS (the surface web.adminAccess exists to expose) and the
+          # Swagger UI with it. admin/css/base.css ships with Django itself, so it
+          # is present whenever collection ran at all.
+          # Assert the CODE, not just a non-error exit. `curl -f` succeeds on a
+          # 3xx, and /static/ is NOT in prod.py's SECURE_REDIRECT_EXEMPT list —
+          # so under TRUEPPM_SECURE_SSL_REDIRECT=true this leg would pass on a
+          # 301 while proving nothing. Same technique as prod-compose-drill.sh.
+          echo "probing http://${host}/static/admin/css/base.css ..."
+          static_code="$(curl -sS --retry 10 --retry-delay 2 --retry-all-errors \
+            -o /dev/null -w '%{http_code}' "http://${host}/static/admin/css/base.css" || echo 000)"
+          if [ "$static_code" != "200" ]; then
+            echo "FAIL: /static/ returned ${static_code}, expected 200 — collectstatic did not populate STATIC_ROOT"
+            exit 1
+          fi
+          echo
           {{- if .Values.tests.probeReadyz }}
           echo "probing http://${host}/api/v1/readyz ..."
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors "http://${host}/api/v1/readyz"

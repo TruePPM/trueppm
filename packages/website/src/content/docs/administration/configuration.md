@@ -19,7 +19,7 @@ All configuration is via environment variables. For local development, `docker-c
 | `TRUEPPM_VALKEY_SENTINEL_PASSWORD` | Password for the **Sentinel** nodes themselves, when it differs from the data-node password. | `s3ntinel` |
 | `TRUEPPM_VALKEY_USE_TLS` | Use TLS to the Valkey data nodes in Sentinel mode. | `false` |
 | `DJANGO_SETTINGS_MODULE` | Settings module to load. | `trueppm_api.settings.prod` |
-| `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames. | `trueppm.example.com` |
+| `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames. Must include every name a request arrives under, not just your public one — see [Host names you must include](#host-names-you-must-include). | `trueppm.example.com,localhost,127.0.0.1` |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key that encrypts stored integration credentials (connected-account PATs) at rest. **Production refuses to boot if this is empty** — the guard runs at settings-import time, so a missing key crash-loops the deploy rather than failing later. | `$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")` |
 | Attachment storage | Pick one: set `TRUEPPM_DEFAULT_FILE_STORAGE` to a persistent object-storage backend **and** `TRUEPPM_S3_BUCKET_NAME` to its bucket, **or** set `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` if local disk is backed by a persistent volume. **Production refuses to boot on the ephemeral local default** otherwise (see [object storage](#object-storage-s3--minio) for the full variable set). | `storages.backends.s3.S3Storage` |
 
@@ -36,6 +36,36 @@ All configuration is via environment variables. For local development, `docker-c
 :::danger
 Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The default secret key is public — anyone who knows it can forge session cookies and JWTs.
 :::
+
+### Host names you must include
+
+Django validates the `Host` header in `get_host()`, before any view runs, and
+returns **400 DisallowedHost** on a miss. The response does not mention
+`ALLOWED_HOSTS`, so the symptom looks like a proxy or ingress fault rather than a
+configuration one.
+
+Your public hostname is rarely the only name in play:
+
+| Caller | `Host` it sends | Applies to |
+|---|---|---|
+| Browsers and API clients | your public hostname | every deployment |
+| The api container's healthcheck | `localhost` | Docker Compose — `docker-compose.prod.yml` curls `http://localhost:8000/api/v1/health/` |
+| kubelet liveness/readiness probes | the pod IP, unless a `Host` header is set | Kubernetes |
+| The `helm test` connection probe | `<release>-trueppm-api` | Kubernetes |
+
+On **Compose**, omit `localhost` and the api container reports `unhealthy`
+forever while the site itself serves correctly — nginx passes `Host $host`, so
+real traffic is unaffected and only the healthcheck fails.
+
+On **Kubernetes**, the chart sets an explicit `Host` header on both probes,
+resolved from `ingress.hosts[0].host` and overridable with
+`probes.api.hostHeader`. That value must appear in `ALLOWED_HOSTS`. If it does
+not, `/readyz` returns 400, no pod becomes Ready, the Service has no endpoints,
+and the Ingress serves 503.
+
+Wildcards are not a fix. `ALLOWED_HOSTS=*` disables host validation entirely and
+is never appropriate in production — list the names instead.
+
 
 ## Optional / advanced settings
 
