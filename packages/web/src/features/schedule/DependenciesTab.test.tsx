@@ -133,6 +133,7 @@ function renderTab(
   links: TaskLink[] = [],
   tasks: Task[] = [TASK_A, TASK_B],
   programId: string | null = null,
+  canWrite = true,
 ) {
   const task = tasks.find((t) => t.id === taskId) ?? TASK_B;
   return renderWithProviders(
@@ -142,6 +143,7 @@ function renderTab(
       links={links}
       projectId="proj-1"
       programId={programId}
+      canWrite={canWrite}
     />,
   );
 }
@@ -682,6 +684,7 @@ describe('task switch', () => {
         links={[]}
         projectId="proj-1"
         programId={null}
+        canWrite
       />,
     );
 
@@ -701,6 +704,7 @@ describe('task switch', () => {
         links={[]}
         projectId="proj-1"
         programId={null}
+        canWrite
       />,
     );
 
