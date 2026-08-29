@@ -200,10 +200,27 @@ fi
 # postgresql.enabled && networkPolicy.enabled, and this drill is what earns that.
 secret_key="$(head -c 50 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 60)"
 integration_key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
+# ALLOWED_HOSTS is concrete here for the same reason as the install drill
+# (#3183): a wildcard makes every drill prove the chart boots under a config
+# configuration.md marks :::danger, and it is what let a missing probe Host
+# header — which left every pod NotReady behind a 503 — stay green in CI. Derived
+# from the render so a change to the chart's default ingress host or fullname
+# template cannot silently desync it.
+probe_host="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
+  --show-only templates/api/deployment.yaml \
+  | awk '/httpHeaders:/{h=1} h && /value:/{gsub(/"/,"",$2); print $2; exit}')"
+api_svc="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
+  --show-only templates/api/service.yaml \
+  | awk '/^  name:/{print $2; exit}')"
+[ -n "$probe_host" ] || fail "could not resolve the probe Host header from the render (#3183)"
+[ -n "$api_svc" ] || fail "could not resolve the api Service name from the render"
+allowed_hosts="${probe_host},${api_svc},localhost,127.0.0.1"
+log "ALLOWED_HOSTS=${allowed_hosts}"
+
 log "creating trueppm-env secret"
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY="$secret_key" \
-  --from-literal=ALLOWED_HOSTS='*' \
+  --from-literal=ALLOWED_HOSTS="$allowed_hosts" \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
 

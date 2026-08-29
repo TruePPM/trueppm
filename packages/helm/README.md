@@ -13,7 +13,7 @@ starts (details: [Required secrets](#required-secrets-prod-refuses-to-boot-witho
 # 1. the four values settings.prod enforces at import time
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
-  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
     'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
@@ -121,6 +121,7 @@ kubectl get secret <release>-trueppm-connection \
 | `image.webRepository` | `.../web` | Web tier image (shares `image.tag`/`pullPolicy` with the API). |
 | `image.tag` | `""` | Empty resolves to `v<appVersion>` (e.g. `v0.4.0`) — release images are published under v-prefixed tags. A value set here is used verbatim. |
 | `probes.api.readinessPath` | `/api/v1/readyz` | Deep API readiness check; liveness stays on `probes.api.livenessPath` (`/api/v1/health/`). |
+| `probes.api.hostHeader` | `""` → first ingress host | `Host` header kubelet sends on both api probes. kubelet dials by pod IP, so without it Django validates `<podIP>:8000` against `ALLOWED_HOSTS` and answers 400 — the pod never turns Ready and the Ingress serves 503. Empty resolves to `ingress.hosts[0].host`. Set it explicitly when deploying without an Ingress, and keep it in `ALLOWED_HOSTS`. |
 | `probes.worker.enabled` / `probes.beat.enabled` | `true` | `celery inspect ping` exec probe on the worker/beat tiers. |
 | `logging.level` | `""` | Root Django log level (`DJANGO_LOG_LEVEL`) for api/worker/beat. Empty = app default. |
 | `observability.otlp.tracesSampler` / `tracesSamplerArg` | `""` | Trace sampling → `OTEL_TRACES_SAMPLER[_ARG]`. |
@@ -376,14 +377,14 @@ API, Celery worker, **and** the init containers all consume it):
 | Key | Why | Issue |
 |-----|-----|-------|
 | `SECRET_KEY` | ≥ 32 chars; Django signing | #566 |
-| `ALLOWED_HOSTS` | comma-separated hostnames | — |
+| `ALLOWED_HOSTS` | comma-separated hostnames | Must cover every name a request arrives under, not just your public one: the `helm test` probe curls the api Service by DNS name (`<release>-trueppm-api`, collapsed to `trueppm-api` when the release name already contains "trueppm"), and the kubelet probes send the `probes.api.hostHeader` value. A miss is a 400 DisallowedHost, which reads like a routing fault. |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key; encrypts integration PATs at rest | #1002 |
 | `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` *or* `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` | attachment storage choice | #775, #2559 |
 
 ```bash
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
-  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api \
   --from-literal=INTEGRATION_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") \
   --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage \
   --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments

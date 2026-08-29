@@ -41,18 +41,27 @@ i1="$(echo "$DEP" | yq '.spec.template.spec.initContainers[1].name')"
 [ "$i1" = "bootstrap" ] || fail "initContainers[1] is '$i1', expected 'bootstrap'"
 
 # 2. The operator secret (SECRET_KEY / INTEGRATION_ENCRYPTION_KEY / ALLOWED_HOSTS)
-#    must reach BOTH init containers AND the api container: settings.prod's
-#    import-time boot guards (#1002, #775, #1550) crash-loop migrate and bootstrap
-#    too, not just the long-running app — so a secret wired only to the app would
-#    still fail the deploy at the migrate step.
-for path in \
-  '.spec.template.spec.initContainers[0]' \
-  '.spec.template.spec.initContainers[1]' \
-  '.spec.template.spec.containers[0]'; do
+#    must reach EVERY init container AND the api container: settings.prod's
+#    import-time boot guards (#1002, #775, #1550) crash-loop migrate, bootstrap
+#    and collectstatic too, not just the long-running app — so a secret wired
+#    only to the app would still fail the deploy at the first init step.
+#
+#    Enumerated over initContainers[] rather than by index (#3183): the list was
+#    hardcoded to [0] and [1], so a third init container could be added with no
+#    envFrom and no gate would name why the pod crash-looped.
+init_count="$(echo "$DEP" | yq '.spec.template.spec.initContainers | length')"
+[ "$init_count" -ge 2 ] || fail "expected at least 2 init containers, found $init_count"
+env_checked=0
+for i in $(seq 0 $((init_count - 1))); do
+  path=".spec.template.spec.initContainers[$i]"
   name="$(echo "$DEP" | yq "${path}.name")"
   found="$(echo "$DEP" | yq "[${path}.envFrom[].secretRef.name] | contains([\"${ENV_SECRET}\"])")"
-  [ "$found" = "true" ] || fail "container '$name' does not envFrom secret '${ENV_SECRET}'"
+  [ "$found" = "true" ] || fail "init container '$name' does not envFrom secret '${ENV_SECRET}'"
+  env_checked=$((env_checked + 1))
 done
+api_found="$(echo "$DEP" | yq "[.spec.template.spec.containers[0].envFrom[].secretRef.name] | contains([\"${ENV_SECRET}\"])")"
+[ "$api_found" = "true" ] || fail "the api container does not envFrom secret '${ENV_SECRET}'"
+env_checked=$((env_checked + 1))
 
 # 3. The one-time admin password lands in a shared emptyDir that BOTH the
 #    bootstrap init container (writer) and the api container (reader) mount at the
@@ -655,7 +664,7 @@ api_static_mount="$(echo "$DEP" | yq '.spec.template.spec.containers[0].volumeMo
 
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
-echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
+echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
 echo "  - shared admin-password emptyDir mounted by bootstrap ($boot_mount) and api ($api_mount)"
 echo "  - web nginx proxies to release-scoped trueppm-api (baked compose 'api' host overridden)"
 echo "  - web nginx ships X-Frame-Options + nosniff + a frame-ancestors CSP by default, and web.securityHeaders.* still overrides/disables them"

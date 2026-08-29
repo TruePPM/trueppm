@@ -34,6 +34,9 @@ All configuration is via environment variables. For local development, `docker-c
 | `ALLOWED_HOSTS` | `*` |
 
 :::danger
+Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The default secret key is public — anyone who knows it can forge session cookies and JWTs.
+:::
+
 ### Host names you must include
 
 Django validates the `Host` header in `get_host()`, before any view runs, and
@@ -63,8 +66,6 @@ and the Ingress serves 503.
 Wildcards are not a fix. `ALLOWED_HOSTS=*` disables host validation entirely and
 is never appropriate in production — list the names instead.
 
-Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The default secret key is public — anyone who knows it can forge session cookies and JWTs.
-:::
 
 ## Optional / advanced settings
 
