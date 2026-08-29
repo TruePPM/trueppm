@@ -834,6 +834,28 @@ alerts:
     emailFailedFor: "10m"
     emailQueueAging: 0
     emailQueueAgingFor: "15m"
+    # Backup alerting (#3185). These read kube-state-metrics and kubelet series,
+    # not TruePPM's own instrumentation, so they need no extra scrape job — but
+    # they do need kube-state-metrics, which kube-prometheus-stack bundles. The
+    # backup rules render only when backup.enabled.
+    backup:
+      jobFailedFor: "5m"
+      # No successful backup within this many seconds fires TruePPMBackupStale.
+      # 172800 = 48h = 2x the default daily schedule, so one missed run is
+      # tolerated and two are not. RAISE THIS if you lengthen backup.schedule —
+      # a weekly schedule under a 48h window alerts every week by construction.
+      staleAfterSeconds: 172800
+      staleFor: "30m"
+      # TruePPMBackupNeverSucceeded is the separate "enabled but nothing has
+      # ever been produced" rule. It must exceed one full schedule period plus
+      # slack, or a fresh install alerts before its first scheduled run can
+      # happen. 26h suits the default daily schedule; raise it with the schedule.
+      neverSucceededFor: "26h"
+    # Free space below this percentage on ANY claim in the namespace (database,
+    # Valkey, backups, media) fires TruePPMVolumeFillingUp. A full PostgreSQL
+    # PVC is silent until it is an outage.
+    volumeAvailablePercent: 15
+    volumeAvailableFor: "15m"
 
 # OPTIONAL in-cluster OpenTelemetry Collector guidance (#1905). This chart does NOT
 # bundle a Collector subchart — running one is a deliberate operational choice with
@@ -855,10 +877,17 @@ otelCollector:
 # S3-compatible bucket), and enabling it silently would create a PVC the operator
 # never asked for. Turn it on deliberately once you have chosen a destination.
 #
-# The CronJob runs scripts/backup.sh inside the API image (which carries
-# postgresql-client + the script), dumps the database with pg_dump --format=custom,
-# and writes a single timestamped artifact. Restore is a manual, deliberate action
-# with scripts/restore.sh — see docs → Administration → Backup & Restore.
+# The CronJob runs an INLINE command in the PostgreSQL client image (see
+# backup.image below for why it is not the application image), dumping the
+# database with pg_dump --format=custom into a single timestamped artifact whose
+# MANIFEST carries the same fields scripts/backup.sh writes. Restore is a manual,
+# deliberate action with scripts/restore.sh, which consumes either producer's
+# artifact — see docs → Administration → Backup & Restore.
+#
+# REQUIRED once enabled: a destination. With none, the artifact lands in an
+# emptyDir and dies with the Job pod while the CronJob reports success — so the
+# chart REFUSES to render that combination rather than ship a backup that is not
+# one (#3185).
 #
 # This is LOGICAL backup only (pg_dump). Continuous archiving / point-in-time
 # recovery (WAL shipping), cross-region replication, and managed backup automation
@@ -893,7 +922,11 @@ backup:
   # artifacts after each run. It is local-only by design and NEVER deletes from
   # the bucket: a scheduled job that removes remote backups is the one component
   # whose bug destroys the thing it exists to protect. keepWeekly is likewise
-  # advisory metadata — the CronJob does not promote dailies to weeklies.
+  # advisory metadata — NO template reads keepWeekly, and the CronJob does not
+  # promote dailies to weeklies. It is kept as the documented place to record
+  # the weekly retention your object store's lifecycle policy enforces, so the
+  # intent lives next to the schedule it belongs to; changing it changes nothing
+  # on the cluster.
   # For an S3 destination, set retention with the bucket's own lifecycle policy
   # and document it alongside these values.
   keepDaily: 7
@@ -905,7 +938,9 @@ backup:
   #                                the same job actually performs the upload)
   # With s3.enabled the local copy is still written to outputDir first, so a
   # PVC is worth keeping as a staging area even when the bucket is the target.
-  # Leave both off only if you are supplying your own volume via extraVolumes.
+  # Leave both off ONLY if you are supplying your own volume via extraVolumes —
+  # and note that extraVolumes is ignored unless mediaDir is also set, so the
+  # render accepts that fourth form only when both are present.
   persistence:
     enabled: false
     # Reuse an existing claim instead of creating one.

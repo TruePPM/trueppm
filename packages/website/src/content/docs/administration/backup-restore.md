@@ -270,6 +270,15 @@ The chart ships an **opt-in** backup CronJob, **off by default**. Enabling it
 silently would create a PersistentVolumeClaim you never asked for, so you turn it
 on deliberately once you have chosen a destination.
 
+:::caution[The destination is required, and the chart enforces it]
+`backup.enabled=true` with no destination is worse than no backup: the artifact
+would go to an `emptyDir`, the Job would exit 0, the artifact would die with the
+pod, and the CronJob would report success indefinitely. From 0.4 the chart
+**refuses to render** that combination — `persistence.enabled`,
+`persistence.existingClaim`, `s3.enabled`, or `extraVolumes` **plus** `mediaDir`.
+See [Helm values](/administration/helm-values/#scheduled-backups).
+:::
+
 ```yaml
 # values.yaml
 backup:
@@ -277,7 +286,8 @@ backup:
   schedule: "0 2 * * *"     # 02:00 daily, cluster timezone
   outputDir: /backups
   keepDaily: 7              # in-job prune to the 7 newest artifacts
-  keepWeekly: 4             # advisory — enforce with your off-cluster lifecycle policy
+  keepWeekly: 4             # read by NO template — a place to record the weekly
+                            # retention your bucket's lifecycle policy enforces
   persistence:
     enabled: true           # chart-managed PVC at outputDir
     size: 10Gi
@@ -287,6 +297,34 @@ backup:
 The CronJob runs a `pg_dump --format=custom` against the database (connection from
 the same chart-owned Secret the API uses — no second copy of the password) and
 writes a timestamped artifact to the PVC, pruning to `keepDaily`.
+
+It runs an **inlined command** rather than `scripts/backup.sh` — the lean
+application image carries no `pg_dump`, so the Job runs from a PostgreSQL client
+image with no application code in it. The two producers write the **same
+`MANIFEST` field set** (`created_utc`, `run_context`, `pg_dump_version`,
+`db_included`, `media_included`, `redis_included`, `s3_destination`) and
+`restore.sh` consumes either artifact. `run_context` is what tells you which one
+you are holding. The CronJob cannot include a Redis snapshot — it has no
+`redis-cli` and no route to the RDB file — and its manifest says so rather than
+omitting the field.
+
+### Alert on it
+
+A scheduled backup nobody is alerting on is the same silent failure one step
+later. With `alerts.enabled=true`, enabling backups also renders:
+
+| Alert | Fires when |
+|---|---|
+| `TruePPMBackupJobFailed` | a backup Job exhausted its `backoffLimit` |
+| `TruePPMBackupStale` | no **successful** backup within `alerts.thresholds.backup.staleAfterSeconds` (default 48h — two missed daily runs) |
+| `TruePPMBackupNeverSucceeded` | backups are enabled and **no** success has ever been recorded. Catches a suspended CronJob, Jobs that never schedule, and kube-state-metrics not being scraped — in which case `TruePPMBackupStale` cannot fire either |
+
+`TruePPMVolumeFillingUp` covers every claim in the namespace, including the
+backup PVC: a full one turns every subsequent run into a failure.
+
+**Raise `staleAfterSeconds` if you lengthen `backup.schedule`.** The default is
+2x a daily schedule; a weekly schedule under a 48h window alerts every week by
+construction.
 
 ### Shipping the artifact off-cluster
 
