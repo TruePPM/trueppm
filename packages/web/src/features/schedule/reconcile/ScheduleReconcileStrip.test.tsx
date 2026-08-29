@@ -90,6 +90,22 @@ describe('ScheduleReconcileStrip', () => {
     );
   });
 
+  it('caps and scrolls its change list — a cascade is unbounded (#3166)', async () => {
+    const user = userEvent.setup();
+    renderStrip();
+    diverge('t1', 'Spec freeze', '2026-10-13', '2026-10-16');
+    await user.click(screen.getByTestId('reconcile-review-toggle'));
+    // This strip is a `flex-shrink-0` child of ScheduleView's `overflow-hidden`
+    // column and renders one row per diverged entry — a CPM cascade moves as
+    // many dates as the plan has downstream tasks. Uncapped, the rows past the
+    // column's bottom edge are painted nowhere and their "Got it" buttons are
+    // reachable by nothing. `ReforecastPanel` two strips up already capped its
+    // own list at the same 220px; this one and the forecast bar missed it.
+    const list = screen.getByTestId('reconcile-change-list');
+    expect(list).toHaveClass('max-h-[220px]');
+    expect(list).toHaveClass('overflow-y-auto');
+  });
+
   it('acknowledging the last change clears the filter — an empty outline reads as data loss', async () => {
     const user = userEvent.setup();
     renderStrip();

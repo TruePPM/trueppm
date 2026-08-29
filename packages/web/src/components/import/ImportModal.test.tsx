@@ -45,13 +45,14 @@ describe('ImportModal', () => {
   it('applies the mobile full-screen-sheet variant on the dialog (#788)', () => {
     setup();
     const dialog = screen.getByRole('dialog', { name: 'Import from MS Project' });
-    // Below md the centered card becomes an edge-to-edge, full-height flex column
-    // with no rounding/border so header + scrollable body + docked footer stack.
+    // Below md the centered card becomes an edge-to-edge, full-height sheet with
+    // no rounding/border so header + scrollable body + docked footer stack.
+    // `max-md:flex` / `max-md:flex-col` used to be asserted here and are gone on
+    // purpose: the flex column is now unconditional (#2674, see below), so a
+    // breakpoint-scoped assertion would be pinning the bug rather than the sheet.
     for (const cls of [
-      'max-md:flex',
       'max-md:h-full',
       'max-md:max-w-none',
-      'max-md:flex-col',
       'max-md:rounded-none',
       'max-md:border-0',
     ]) {
@@ -60,6 +61,28 @@ describe('ImportModal', () => {
     // Desktop card sizing is untouched.
     expect(dialog).toHaveClass('max-w-[560px]');
     expect(dialog).toHaveClass('rounded-card');
+  });
+
+  it('caps its height and scrolls its body at EVERY width, not only below md (#2674)', () => {
+    setup();
+    const dialog = screen.getByRole('dialog', { name: 'Import from MS Project' });
+    // The bug: the flex + scroll shape was `max-md:`-scoped, so the mobile sheet
+    // scrolled and the ordinary desktop dialog had no height cap and no scroller
+    // — on a short viewport its footer (Cancel / Import) went off-screen with
+    // nothing to scroll, the same exposure #2665 fixed on NewProjectModal.
+    for (const cls of ['flex', 'flex-col', 'max-h-[90vh]', 'overflow-hidden']) {
+      expect(dialog).toHaveClass(cls);
+    }
+    // And the body between the pinned header and the pinned footer is the
+    // scroller — a cap with no scroller inside it just clips higher up.
+    const body = screen
+      .getByRole('button', { name: /Choose file or drag one here/ })
+      .closest('.overflow-y-auto');
+    expect(body).not.toBeNull();
+    // `min-h-0` is what makes that scroller work: a flex item defaults to
+    // `min-height: auto` and refuses to shrink below its content, which pushes
+    // the overflow back up to the capped ancestor instead of scrolling here.
+    expect(body).toHaveClass('min-h-0');
   });
 
   it('docks the footer with a safe-area inset in the mobile sheet (#788)', () => {

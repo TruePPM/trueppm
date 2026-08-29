@@ -182,8 +182,18 @@ export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }
         </div>
       )}
 
+      {/* Capped and scrollable for the same reason `ReforecastPanel` caps its
+          own list and `ScheduleForecastBar` caps its body (#3166): this strip is
+          a `flex-shrink-0` child of ScheduleView's `overflow-hidden` column, and
+          one row per diverged entry is unbounded — a CPM cascade moves as many
+          dates as the plan has downstream tasks. Uncapped, the rows past the
+          column's bottom edge are painted nowhere and their "Got it" buttons are
+          reachable by nothing. */}
       {diverged.length > 0 && reviewFilterActive && (
-        <ul data-testid="reconcile-change-list" className="mt-1 flex flex-col gap-0.5">
+        <ul
+          data-testid="reconcile-change-list"
+          className="mt-1 flex max-h-[220px] flex-col gap-0.5 overflow-y-auto"
+        >
           {diverged.map((e) => (
             <li key={`${e.taskId}:${e.field}`} className="flex items-center gap-2 py-0.5">
               <span className="truncate text-xs font-medium text-neutral-text-primary">
@@ -208,7 +218,10 @@ export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }
       )}
 
       {rejected.length > 0 && (
-        <ul data-testid="reconcile-rejected-list" className="mt-1 flex flex-col gap-0.5">
+        <ul
+          data-testid="reconcile-rejected-list"
+          className="mt-1 flex max-h-[220px] flex-col gap-0.5 overflow-y-auto"
+        >
           {rejected.map((e) => (
             <RejectedRow
               key={`${e.taskId}:${e.field}`}
