@@ -110,21 +110,28 @@ export function ImportModal({ projectId, onClose }: Props) {
           aria-modal="true"
           aria-label="Import from MS Project"
           tabIndex={-1}
-          className="pointer-events-auto w-full max-w-[560px] rounded-card border border-neutral-border
+          // #2674: the flex + scroll shape below used to be `max-md:` only, so
+          // the mobile sheet scrolled and the ordinary desktop dialog had no
+          // height cap and no scroller at all — the exposure #2665 fixed on
+          // `NewProjectModal`, left live here. It is now unconditional; the
+          // `max-md:` classes that remain are the sheet's own chrome (edge-to-
+          // edge, no rounding, safe-area padding), not its scrolling.
+          className="pointer-events-auto flex max-h-[90vh] w-full max-w-[560px] flex-col overflow-hidden
+            rounded-card border border-neutral-border
             bg-neutral-surface p-6 focus-visible:outline-none
-            max-md:flex max-md:h-full max-md:max-w-none max-md:flex-col max-md:rounded-none max-md:border-0 max-md:pb-0"
+            max-md:h-full max-md:max-w-none max-md:rounded-none max-md:border-0 max-md:pb-0"
         >
-          <h2 className="mb-1 text-base font-semibold text-neutral-text-primary">
+          <h2 className="mb-1 shrink-0 text-base font-semibold text-neutral-text-primary">
             Import from MS Project
           </h2>
-          <p className="mb-5 text-xs text-neutral-text-secondary">
+          <p className="mb-5 shrink-0 text-xs text-neutral-text-secondary">
             Upload a Microsoft Project file to add its tasks to this project.
           </p>
 
           {/* Success — the import was queued. */}
           {importMut.isSuccess ? (
-            <div role="status" className="flex flex-col gap-3 max-md:min-h-0 max-md:flex-1">
-              <div className="flex flex-col gap-3 max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto">
+            <div role="status" className="flex min-h-0 flex-1 flex-col gap-3">
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
                 <p className="text-sm text-neutral-text-primary">
                   <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
                   Import started. Your tasks will appear in the schedule shortly.
@@ -134,7 +141,7 @@ export function ImportModal({ projectId, onClose }: Props) {
                   the import finishes.
                 </p>
               </div>
-              <div className="flex justify-end pt-2 max-md:-mx-6 max-md:border-t max-md:border-neutral-border max-md:px-6 max-md:pt-4 max-md:pb-[env(safe-area-inset-bottom)]">
+              <div className="flex shrink-0 justify-end pt-2 max-md:-mx-6 max-md:border-t max-md:border-neutral-border max-md:px-6 max-md:pt-4 max-md:pb-[env(safe-area-inset-bottom)]">
                 <button
                   type="button"
                   onClick={onClose}
@@ -148,14 +155,14 @@ export function ImportModal({ projectId, onClose }: Props) {
             </div>
           ) : importMut.isError ? (
             /* Hard error — nothing committed. */
-            <div role="alert" className="flex flex-col gap-3 max-md:min-h-0 max-md:flex-1">
-              <div className="flex flex-col gap-3 max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto">
+            <div role="alert" className="flex min-h-0 flex-1 flex-col gap-3">
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
                 <p className="text-sm text-neutral-text-primary">
                   <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
                   {importErrorMessage(importMut.error)}
                 </p>
               </div>
-              <div className="flex justify-end gap-2 pt-2 max-md:-mx-6 max-md:border-t max-md:border-neutral-border max-md:px-6 max-md:pt-4 max-md:pb-[env(safe-area-inset-bottom)]">
+              <div className="flex shrink-0 justify-end gap-2 pt-2 max-md:-mx-6 max-md:border-t max-md:border-neutral-border max-md:px-6 max-md:pt-4 max-md:pb-[env(safe-area-inset-bottom)]">
                 <button
                   type="button"
                   onClick={onClose}
@@ -178,7 +185,7 @@ export function ImportModal({ projectId, onClose }: Props) {
             </div>
           ) : importMut.isPending ? (
             /* Uploading — server-side parse progress is deferred to #61. */
-            <div role="status" className="flex flex-col gap-3 max-md:min-h-0 max-md:flex-1">
+            <div role="status" className="flex min-h-0 flex-1 flex-col gap-3">
               <p className="text-sm text-neutral-text-primary">Uploading {file?.name}…</p>
               <div
                 className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-raised"
@@ -190,8 +197,8 @@ export function ImportModal({ projectId, onClose }: Props) {
             </div>
           ) : (
             /* Idle / file-selected. */
-            <div className="flex flex-col gap-4 max-md:min-h-0 max-md:flex-1">
-              <div className="flex flex-col gap-4 max-md:min-h-0 max-md:flex-1 max-md:overflow-y-auto">
+            <div className="flex min-h-0 flex-1 flex-col gap-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
                 <ImportDropzone
                   accept={MS_PROJECT_ACCEPT}
                   maxSizeMb={MS_PROJECT_MAX_UPLOAD_MB}

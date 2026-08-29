@@ -551,6 +551,14 @@ export function ScheduleAriaOverlay({
       role="listbox" // dropdown-scroll-ok: sr-only accessibility tree mirroring the Gantt canvas, not a floating menu/listbox
       aria-label="Schedule chart"
       aria-describedby="schedule-grid-help"
+      // Reviewed exception to the clipped-content gate (#3166). This overlay is
+      // a `pointer-events: none` mirror of the canvas for the accessibility
+      // tree, not a visual surface: its option nodes are positioned per row over
+      // the FULL task set while the box is the canvas viewport, so it is taller
+      // than its container by construction. Nothing here is "unreachable" —
+      // reachability is the canvas's own scroll container, and these nodes
+      // reposition with it.
+      data-clip-ok="sr-only mirror of the canvas; the canvas scroller owns reachability"
       style={{
         position: 'absolute',
         inset: 0,

@@ -204,14 +204,32 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
 
   return (
     <>
+      {/* The height cap and the body scroller below are load-bearing, not
+          tidiness (#3166). This bar is a `flex-shrink-0` child of ScheduleView's
+          root `flex flex-col h-full overflow-hidden` column, so without a cap its
+          expanded body simply grows: a twelve-run history measured 1685px inside
+          a 640px column, which put 1114px of content past an ancestor that
+          cannot scroll — unreachable by pointer, wheel and keyboard alike — and
+          starved `ScheduleMainArea` until the Gantt canvas itself was zero
+          pixels tall. The cap is `40vh` rather than half the column so the Gantt
+          stays the larger surface at every viewport — this is a
+          scheduling-first product and the forecast is a strip about the plan,
+          not the plan — and nothing is lost to the smaller cap because the body
+          below scrolls. `vh` rather than a percentage of the parent because a
+          `%` max-height silently resolves to `none` if any link in the height
+          chain stops being definite, which fails back to exactly this bug with
+          no signal. `ReforecastPanel`, two strips up, already caps its own list
+          this way; this bar and `ScheduleReconcileStrip` were the two that
+          missed it. Pinned by `e2e/clipped-content.spec.ts`. */}
       <section
-        className="hidden md:block flex-shrink-0 border-t border-neutral-border bg-neutral-surface"
+        className="hidden md:flex md:flex-col flex-shrink-0 max-h-[40vh] border-t border-neutral-border bg-neutral-surface"
         aria-label="Schedule forecast"
       >
         {/* Collapsed header row — chips (once) + top driver + the constant
             affordances (toggle / Details), plus Rerun on the stale branch
-            only (#3132). */}
-        <div className="flex w-full items-center gap-3 px-5 py-2.5">
+            only (#3132). Pinned: the percentiles must stay readable while the
+            body below them scrolls. */}
+        <div className="flex w-full shrink-0 items-center gap-3 px-5 py-2.5">
           <button
             type="button"
             onClick={toggle}
@@ -326,9 +344,17 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
         </div>
 
         {/* Expanded body — histogram + tornado + run-history disclosure. Motion
-            uses only the shared empty-state-in keyframe (rule 177/186). */}
+            uses only the shared empty-state-in keyframe (rule 177/186).
+            `min-h-0` is what makes `overflow-y-auto` work at all: a flex item
+            defaults to `min-height: auto` and so refuses to shrink below its
+            content, which pushes the overflow up to the clipping ancestor
+            instead of scrolling here (the same omission SettingsShell documents
+            on its own two scrollers). */}
         {expanded && (
-          <div id={panelId} className="motion-safe:animate-empty-state-in">
+          <div
+            id={panelId}
+            className="min-h-0 flex-1 overflow-y-auto motion-safe:animate-empty-state-in"
+          >
             <div className="grid grid-cols-1 gap-5 px-5 pb-4 pt-1 lg:grid-cols-2">
               {/* Finish-date forecast */}
               <div className="rounded-card border border-neutral-border p-4">

@@ -187,6 +187,37 @@ describe('ScheduleForecastBar', () => {
     ).toBeInTheDocument();
   });
 
+  it('caps its own height and makes the expanded body the scroller (#3166)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    const bar = screen.getByRole('region', { name: 'Schedule forecast' });
+
+    // The bar is a `flex-shrink-0` child of ScheduleView's
+    // `flex flex-col h-full overflow-hidden` column. Without a cap its expanded
+    // body grows without bound: a twelve-run history measured 1685px inside a
+    // 640px column, putting 1114px past an ancestor that cannot scroll and
+    // squeezing the Gantt canvas to zero height.
+    expect(bar).toHaveClass('max-h-[40vh]');
+    expect(bar).toHaveClass('md:flex');
+    expect(bar).toHaveClass('md:flex-col');
+
+    await user.click(screen.getByRole('button', { name: /Maximize forecast detail/i }));
+    const body = document.getElementById('schedule-forecast-panel');
+    expect(body).not.toBeNull();
+    expect(body).toHaveClass('overflow-y-auto');
+    // `min-h-0` is the load-bearing half: a flex item defaults to
+    // `min-height: auto` and refuses to shrink below its content, so without it
+    // the scroller never engages and the overflow goes back to the clipping
+    // ancestor — the cap alone would just move where the content is lost.
+    expect(body).toHaveClass('min-h-0');
+    expect(body).toHaveClass('flex-1');
+
+    // jsdom computes no layout, so this pins the MECHANISM only. The measured
+    // values — that the bar fits, that the body has somewhere to scroll, and
+    // that the canvas is no longer 0px — are asserted in a real engine by
+    // `e2e/clipped-content.spec.ts` (web rule 300(b) / 330(c)).
+  });
+
   it('restores the expanded state from localStorage on mount', () => {
     localStorage.setItem('schedule.insightsExpanded', 'true');
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
