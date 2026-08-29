@@ -32,8 +32,14 @@ service:
 # only want the API + workers from this chart.
 web:
   enabled: true
-  # Independent replica count; falls back to the top-level replicaCount when unset.
-  replicaCount: 1
+  # Independent replica count. EMPTY means "follow the top-level replicaCount",
+  # which is what the fallback in the template was always documented to do and
+  # never did: this shipped as `1`, and Helm's `default` treats any truthy value
+  # as set, so the fallback could not fire. Under values-prod.yaml's
+  # replicaCount: 2 the render was api=2, worker=2, web=1 — the only tier a user
+  # actually loads was the unprotected singleton (#3188). Set a number here only
+  # to scale the web tier independently of the rest.
+  replicaCount: ""
   # Port nginx listens on inside the container. The stock unprivileged nginx SPA
   # image serves on 8080 as a non-root user, which satisfies the restricted
   # podSecurityContext (runAsNonRoot).
@@ -315,6 +321,69 @@ tests:
   # 404s on an endpoint the image simply does not have yet.
   probeReadyz: true
 
+# ---------------------------------------------------------------------------
+# Placement and scheduling (#3188)
+# ---------------------------------------------------------------------------
+# Pass-through blocks applied to the api, celery-worker, celery-beat, and web
+# pods. Rendered verbatim with toYaml, so the valid keys are Kubernetes', not
+# this chart's. None of these existed before 0.4, and because values.schema.json
+# closes the root they were REJECTED rather than ignored — an operator mirroring
+# our images into a private registry could not install the chart at all.
+
+# Image pull secrets for a private / mirrored registry. THIS IS THE AIR-GAPPED
+# PATH: mirror registry.gitlab.com/trueppm/trueppm/* into your own registry, set
+# image.repository and web.image.repository to it, and name the pull secret here.
+#   imagePullSecrets:
+#     - name: regcred
+imagePullSecrets: []
+
+# Scheduling priority. Set to a PriorityClass you have created — the chart
+# creates none, because a chart that mints a cluster-scoped PriorityClass steps
+# on the cluster's own priority budget.
+priorityClassName: ""
+
+#   nodeSelector:
+#     kubernetes.io/os: linux
+#     node.kubernetes.io/instance-type: m6i.xlarge
+nodeSelector: {}
+
+#   tolerations:
+#     - key: dedicated
+#       operator: Equal
+#       value: trueppm
+#       effect: NoSchedule
+tolerations: []
+
+# Full affinity/anti-affinity control. Prefer topologySpreadConstraints below for
+# the ordinary "spread my replicas across nodes" case — this is here for the
+# cases that cannot express (node affinity to a label set, inter-pod affinity to
+# a co-located cache).
+affinity: {}
+
+# Spread replicas across failure domains.
+#
+# WITHOUT THIS, replicaCount: 2 PLUS A PDB PROTECTS NOTHING: both API pods can
+# land on the same node, where a node failure takes 100% of the tier and the
+# budget is never consulted. That was the chart's real redundancy ceiling.
+#
+# LEAVE labelSelector OUT and the chart fills it in per tier (this release's
+# selector labels plus that tier's component), so ONE constraint written here
+# means the right thing on api, celery-worker, celery-beat, and web
+# independently. Supply your own labelSelector only to override that.
+#
+# whenUnsatisfiable: ScheduleAnyway is the deliberate default in the example
+# below — DoNotSchedule on a single-node or capacity-constrained cluster leaves
+# the second replica Pending forever, which is a worse failure than an
+# imperfect spread. Switch to DoNotSchedule once you have the nodes for it.
+#
+#   topologySpreadConstraints:
+#     - maxSkew: 1
+#       topologyKey: kubernetes.io/hostname
+#       whenUnsatisfiable: ScheduleAnyway
+#
+# values-prod.yaml sets exactly that, alongside replicaCount: 2.
+topologySpreadConstraints: []
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
@@ -401,8 +470,59 @@ resources:
 # beat use a `celery inspect ping` exec probe (a control-plane round-trip catches a
 # wedged event loop that a bare process-alive check would miss). Every field is
 # tunable so operators can loosen timings on constrained clusters.
+# ---------------------------------------------------------------------------
+# Graceful shutdown (#3188)
+# ---------------------------------------------------------------------------
+# terminationGracePeriodSeconds and preStop existed nowhere across all six
+# workloads, so every pod took Kubernetes' 30s default with no drain window.
+#
+# The API is the one that hurt: it serves Channels WebSockets for real-time
+# collaboration, and a rollout SIGKILLed them with no chance to close. The
+# preStop sleep is NOT about finishing in-flight work — it covers the window
+# where kubelet has begun termination but Endpoints/ingress have not yet stopped
+# routing to this pod, which is a race no application-level handling can win.
+lifecycle:
+  api:
+    # >= 60 so a long-poll / WebSocket has a real drain window.
+    terminationGracePeriodSeconds: 60
+    # Seconds to sleep in preStop before SIGTERM reaches the process, letting
+    # endpoint deregistration propagate. 0 disables the hook entirely.
+    preStopSleepSeconds: 5
+  worker:
+    # MUST exceed your longest task, or Kubernetes SIGKILLs a worker mid-import
+    # and the task waits out CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"]
+    # (900s, settings/base.py) before anything retries it. MS Project import and
+    # workspace export are the multi-minute ones. Celery's own warm shutdown
+    # stops prefetching and finishes what it holds, so this is the ceiling on
+    # that, not a fixed wait.
+    terminationGracePeriodSeconds: 300
+    preStopSleepSeconds: 0
+  beat:
+    # Beat holds no request and no task; it just needs to write its shelve.
+    terminationGracePeriodSeconds: 30
+    preStopSleepSeconds: 0
+  web:
+    # nginx: finish in-flight responses, then go.
+    terminationGracePeriodSeconds: 30
+    preStopSleepSeconds: 5
+
 probes:
   api:
+    # Startup probe (#3188). OFF by default because it changes restart semantics
+    # and not every cluster wants it; ON is the right choice on a loaded node.
+    #
+    # Without one, liveness governs the boot: initialDelay 30 + period 30 x the
+    # default failureThreshold 3 gives roughly 120s before a restart loop begins
+    # — measured from the moment the container starts, AFTER the migrate,
+    # bootstrap, and collectstatic init containers have already consumed
+    # wall-clock. A startup probe moves that budget to failureThreshold x
+    # periodSeconds (default 30 x 5s = 150s) and suspends liveness until it
+    # passes, so a slow first boot cannot restart-loop while a genuinely wedged
+    # process is still caught.
+    startupEnabled: false
+    startupPath: /api/v1/health/
+    startupPeriodSeconds: 5
+    startupFailureThreshold: 30
     # Readiness points at the deep /readyz check (#1894, #2217) so a pod only joins
     # the Service once its DB/cache dependencies are reachable AND every migration
     # shipped in its image is applied — during a rolling upgrade this keeps traffic
@@ -464,6 +584,10 @@ podDisruptionBudget:
   api:
     maxUnavailable: 1
   worker:
+    maxUnavailable: 1
+  # The web tier had no budget at all until #3188 — the one tier a browser
+  # actually loads was the unprotected one.
+  web:
     maxUnavailable: 1
 
 # Optional HorizontalPodAutoscaler (#1904). OFF by default: an HPA overrides the

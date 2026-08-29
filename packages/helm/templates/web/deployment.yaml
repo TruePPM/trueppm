@@ -7,6 +7,10 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
+  # `default` treats 0 and "" as unset, so this fallback only works because
+  # web.replicaCount now ships EMPTY. It shipped as 1 — truthy — so the
+  # fallback could never fire and the tier every user actually loads was a
+  # singleton under values-prod.yaml's replicaCount: 2 (#3188).
   replicas: {{ .Values.web.replicaCount | default .Values.replicaCount }}
   selector:
     matchLabels:
@@ -19,6 +23,8 @@ spec:
         app.kubernetes.io/component: web
     spec:
       automountServiceAccountToken: false
+      {{- include "trueppm.terminationGrace" (dict "root" $ "tier" "web") | nindent 6 }}
+      {{- include "trueppm.podPlacement" (dict "root" $ "component" "web") | nindent 6 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:
@@ -70,6 +76,7 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 30
+          {{- include "trueppm.preStop" (dict "root" $ "tier" "web") | nindent 10 }}
           resources:
             {{- toYaml .Values.resources.web | nindent 12 }}
 {{- end }}

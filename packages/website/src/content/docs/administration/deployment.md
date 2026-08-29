@@ -89,9 +89,21 @@ helm lint packages/helm
 helm install trueppm packages/helm -f packages/helm/values-dev.yaml
 ```
 
-Separate `values-dev.yaml` and `values-prod.yaml` overlays are provided. The
-chart [README](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/helm/README.md)
+Separate `values-dev.yaml` and `values-prod.yaml` overlays are provided.
+`values-prod.yaml` is a **commented template**, not a working configuration: it
+carries every key you must supply present-but-empty, and the render fails with a
+named error rather than installing something that neither routes nor encrypts.
+The chart [README](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/helm/README.md)
 is the full value reference.
+
+**Version floor.** The chart declares `kubeVersion: ">= 1.23.0-0"`, so
+`helm install` refuses an older cluster with a version message instead of
+applying and failing with an opaque "no matches for kind". 1.23 is the real
+floor — the highest GA API the chart renders is `autoscaling/v2` (GA 1.23);
+`batch/v1` CronJob and `policy/v1` PodDisruptionBudget are both 1.21. The 1.27
+recommended above is a support-policy preference, not a technical requirement.
+Any Helm 3.2+ has the `lookup` function the chart's password helpers use; there
+is no 3.14-specific dependency.
 
 **Good for:** production deployment, horizontal scaling, enterprise environments.
 

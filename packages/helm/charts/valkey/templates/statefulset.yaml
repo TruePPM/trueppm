@@ -49,6 +49,8 @@ spec:
             - sh
             - -c
             - exec valkey-server --appendonly yes --requirepass "$VALKEY_PASSWORD"
+              {{- if .Values.maxmemory }} --maxmemory {{ .Values.maxmemory }}{{- end }}
+              {{- if .Values.maxmemoryPolicy }} --maxmemory-policy {{ .Values.maxmemoryPolicy }}{{- end }}
           env:
             - name: VALKEY_PASSWORD
               valueFrom:
@@ -64,6 +66,14 @@ spec:
             - valkey-server
             - --appendonly
             - "yes"
+            {{- with .Values.maxmemory }}
+            - --maxmemory
+            - {{ . | quote }}
+            {{- end }}
+            {{- with .Values.maxmemoryPolicy }}
+            - --maxmemory-policy
+            - {{ . | quote }}
+            {{- end }}
           {{- end }}
           ports:
             - name: valkey

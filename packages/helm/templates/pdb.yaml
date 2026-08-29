@@ -1,12 +1,23 @@
 {{- if .Values.podDisruptionBudget.enabled }}
 {{- /*
-PodDisruptionBudgets for the API and Celery worker tiers (#1904). Both express the
-budget as maxUnavailable so a single-replica install stays drain-able (a
-minAvailable PDB would wedge node drains when replicaCount is 1); the protection
-only becomes meaningful once replicaCount >= 2, which is the production posture
-(values-prod sets replicaCount: 2). Off by default — enable alongside a
-multi-replica deployment. Beat is deliberately excluded: it is a pinned singleton,
-so any PDB on it would only block voluntary node drains.
+PodDisruptionBudgets for the API, Celery worker, and web tiers (#1904, #3188).
+All express the budget as maxUnavailable so a single-replica install stays
+drain-able (a minAvailable PDB would wedge node drains when replicaCount is 1);
+the protection only becomes meaningful once replicaCount >= 2, which is the
+production posture (values-prod sets replicaCount: 2). Off by default — enable
+alongside a multi-replica deployment. Beat is deliberately excluded: it is a
+pinned singleton, so any PDB on it would only block voluntary node drains.
+
+The web tier was missing until #3188 — the only tier a browser actually loads
+had no budget, while the two it never talks to directly did. Combined with
+web.replicaCount shipping as a truthy `1` (so its documented fallback to the
+top-level replicaCount could never fire), a values-prod deploy rendered api=2,
+worker=2, web=1, PDBs=0: an unprotected singleton in front of a redundant
+backend.
+
+A PDB alone is still not redundancy. Without topologySpreadConstraints (see
+values.yaml) both replicas can land on one node, and a node failure takes the
+whole tier without the budget ever being consulted.
 */}}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -35,4 +46,20 @@ spec:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: celery-worker
+{{- if .Values.web.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "trueppm.fullname" . }}-web
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.web.maxUnavailable | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+{{- end }}
 {{- end }}

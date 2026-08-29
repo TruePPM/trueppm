@@ -226,6 +226,13 @@ Availability](/administration/valkey-ha/).
 | `valkey.enabled` | `true` | Deploy the bundled Valkey. Load-bearing for Channels, the Celery broker, **and** the cache at once. |
 | `valkey.auth.enabled` | `true` | Valkey auth on by default. |
 | `valkey.auth.password` | `""` | Same generate-and-persist pattern as PostgreSQL. |
+| `postgresql.persistence.size` / `.storageClass` | `8Gi` / `""` | Bundled database volume. Undocumented before 0.4, so the default was undiscoverable. |
+| `valkey.persistence.size` / `.storageClass` | `2Gi` / `""` | Bundled Valkey volume. |
+| `valkey.maxmemory` | `768mb` | Memory ceiling, set **below** the 1Gi container limit. Valkey accounts for its dataset, not for copy-on-write during AOF rewrite or allocator overhead, so a `maxmemory` equal to the limit still OOMKills. Neither this nor the policy below was set before 0.4 — Valkey grew until the container was OOMKilled, and because `/readyz` gates on cache reachability that is a full API outage, not a cache miss. |
+| `valkey.maxmemoryPolicy` | `noeviction` | **Required, not a preference.** This instance is the Celery broker and the Channels layer, not only a cache: under `allkeys-lru` a memory-pressure event silently discards queued tasks and in-flight WebSocket group state. With `noeviction` the write fails loudly instead, which is recoverable. |
+| `postgresql.podDisruptionBudget.enabled` | `true` | PDB on the bundled database, `maxUnavailable: 0`. This does **not** make a single-replica database highly available — it makes a node drain *block* and surface as something the operator can see, rather than a silent eviction that takes the whole release down behind it. Override with `kubectl drain --disable-eviction`. |
+| `postgresql.priorityClassName` | `""` | A PriorityClass you have created, so the database is not the first thing evicted under pressure. |
+| `postgresql.terminationGracePeriodSeconds` | `120` | Time to finish a checkpoint and shut down cleanly. The 30s Kubernetes default can cut a large checkpoint short and force crash recovery on next start. |
 | `global.trueppm.connectionSecretName` | `""` | Override only if you renamed the chart-owned connection Secret. |
 
 ## Network and pod security
@@ -255,12 +262,126 @@ large request buffering). Tune per the [sizing profiles](/administration/sizing/
 | `probes.worker.*` | ping every 60s, `failureThreshold: 3` | `celery inspect ping` exec probe — catches a wedged event loop a process-alive check would miss. |
 | `probes.beat.*` | ping every 60s, `failureThreshold: 5` | Beat ping targets broker reachability; generous threshold avoids restarts on a brief worker blip. |
 
+## GitOps: `helm template` mints a new password every sync
+
+The chart generates the bundled PostgreSQL and Valkey passwords when you do not
+supply them, and memoizes them against the existing connection Secret via Helm's
+`lookup` so repeat `helm install` / `helm upgrade` runs never churn the
+credential and orphan the database PVC.
+
+**`lookup` returns empty under `helm template`.** An Argo CD or Flux pipeline
+that renders manifests and then applies them therefore takes the
+generate-a-fresh-one branch on *every sync*, rotating the password against a
+database that still holds the old one. The symptom is an API tier that
+authenticates fine until the next reconcile and then cannot connect.
+
+Two ways out, and the first is better:
+
+1. **Run managed datastores** — `postgresql.enabled: false`,
+   `valkey.enabled: false`, and supply `env.DATABASE_URL` / `env.REDIS_URL` as
+   `secretKeyRef` entries. Nothing is generated, so nothing can rotate.
+2. **Set the passwords explicitly** — `postgresql.auth.password` and
+   `valkey.auth.password`, sourced from your secret manager. The generate branch
+   never runs.
+
+This affects render-then-apply pipelines only. `helm install` and `helm upgrade`
+run against a live cluster where `lookup` works as intended.
+
+## Placement and scheduling
+
+None of these existed before 0.4, and because `values.schema.json` closes the
+root with `additionalProperties: false` they were **rejected**, not ignored:
+`--set imagePullSecrets[0].name=regcred` failed schema validation, so an
+operator mirroring the images into a private registry could not install the
+chart at all without forking it. There was no air-gapped path.
+
+Each is rendered verbatim into the api, celery-worker, celery-beat, and web pod
+specs, so the valid keys are Kubernetes', not this chart's.
+
+| Key | Default | What it does |
+|---|---|---|
+| `imagePullSecrets` | `[]` | Pull secrets for a private or mirrored registry. **This is the air-gapped path**: mirror the images, point `image.repository` and `web.image.repository` at your registry, and name the secret here. |
+| `priorityClassName` | `""` | A PriorityClass you have created. The chart creates none — a chart that mints a cluster-scoped PriorityClass steps on the cluster's own priority budget. |
+| `nodeSelector` | `{}` | Node label constraints. |
+| `tolerations` | `[]` | Taint tolerations, e.g. for a dedicated node pool. |
+| `affinity` | `{}` | Full affinity / anti-affinity. Prefer `topologySpreadConstraints` for the ordinary "spread my replicas" case. |
+| `topologySpreadConstraints` | `[]` | Spread replicas across failure domains. See below. |
+
+### `topologySpreadConstraints` is what makes `replicaCount: 2` mean something
+
+Without it, both API pods can be scheduled onto the same node — where a node
+failure takes 100% of the tier and the PodDisruptionBudget is never consulted.
+That was the chart's real redundancy ceiling, below what its documentation
+implied.
+
+**Omit `labelSelector` and the chart fills it in per tier** (this release's
+selector labels plus that tier's component), so one constraint written once
+means the right thing on api, worker, beat, and web independently. A single
+global list applied verbatim would spread whichever tier your selector happened
+to name and silently no-op on the other three. Supply your own `labelSelector`
+only to override that.
+
+```yaml
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+```
+
+`ScheduleAnyway`, not `DoNotSchedule`: on a cluster with fewer nodes than
+replicas, `DoNotSchedule` leaves the second replica `Pending` forever, which is
+a worse outcome than an imperfect spread. Tighten it once you have the nodes.
+`values-prod.yaml` ships exactly this alongside `replicaCount: 2`.
+
+## Graceful shutdown
+
+`terminationGracePeriodSeconds` and `preStop` existed on none of the six
+workloads before 0.4, so every pod took Kubernetes' 30-second default with no
+drain window. The API serves Channels WebSockets, so every rollout dropped live
+collaboration sockets.
+
+| Key | Default | What it does |
+|---|---|---|
+| `lifecycle.api.terminationGracePeriodSeconds` | `60` | Drain window for in-flight requests and WebSockets. |
+| `lifecycle.api.preStopSleepSeconds` | `5` | Sleep before SIGTERM so endpoint deregistration propagates. This is **not** about finishing work — it covers the window where kubelet has begun termination but the ingress is still routing here, a race the application cannot win from inside. `0` omits the hook. |
+| `lifecycle.worker.terminationGracePeriodSeconds` | `300` | **Must exceed your longest task.** Celery's warm shutdown stops prefetching and finishes what it holds; this is the ceiling on that. Too low and Kubernetes SIGKILLs mid-import, after which the task waits out the broker's visibility timeout before anything retries it. |
+| `lifecycle.worker.preStopSleepSeconds` | `0` | No hook — the worker receives no ingress traffic. |
+| `lifecycle.beat.terminationGracePeriodSeconds` | `30` | Beat holds no request; it just writes its schedule shelve. |
+| `lifecycle.web.terminationGracePeriodSeconds` | `30` | nginx finishes in-flight responses. |
+| `lifecycle.web.preStopSleepSeconds` | `5` | Same endpoint-deregistration race as the API. |
+
+Related: `CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"]` is now bounded
+at 900s in `settings/base.py`. Tasks carry `acks_late=True`, so a killed worker
+does not *lose* work — but Kombu's Redis default hid the unacked message for
+**3600s** first, so a worker killed during a rolling upgrade left that task
+invisible for up to an hour with nothing to say why.
+
+### Startup probe
+
+| Key | Default | What it does |
+|---|---|---|
+| `probes.api.startupEnabled` | `false` | Enable a startup probe on the API. |
+| `probes.api.startupPath` | `/api/v1/health/` | Shallow health path. |
+| `probes.api.startupPeriodSeconds` | `5` | Poll interval. |
+| `probes.api.startupFailureThreshold` | `30` | Failures before the container is restarted — 30 x 5s = 150s of boot budget. |
+
+Without one, liveness governs the boot: `initialDelay 30` + `period 30` x the
+default `failureThreshold: 3` gives roughly 120s before a restart loop begins,
+measured *after* the migrate, bootstrap, and collectstatic init containers have
+already consumed wall-clock. A startup probe moves that budget somewhere
+explicit and suspends liveness until it passes, so a slow first boot on a loaded
+node cannot restart-loop while a genuinely wedged process is still caught. Off
+by default because it changes restart semantics; on is the right call on a
+loaded cluster.
+
 ## Scaling and availability
 
 | Key | Default | What it does |
 |---|---|---|
-| `podDisruptionBudget.enabled` | `false` | PDBs for API/worker (`maxUnavailable: 1`). Only meaningful at `replicaCount >= 2`; beat is excluded (pinned singleton). |
-| `autoscaling.enabled` | `false` | HorizontalPodAutoscaler for the API (and optionally worker). Overrides the static replica count and **requires metrics-server**. Defaults: API 2–6 replicas at 75% CPU. |
+| `podDisruptionBudget.enabled` | `false` | PDBs for API, worker, **and web** (`maxUnavailable: 1`). Only meaningful at `replicaCount >= 2`; beat is excluded (pinned singleton). The web tier had no PDB before 0.4 — the one tier a browser loads was the unprotected one. |
+| `podDisruptionBudget.web.maxUnavailable` | `1` | Budget for the web tier. |
+| `autoscaling.enabled` | `false` | HorizontalPodAutoscaler for the API (and optionally worker). **Requires metrics-server.** Defaults: API 2–6 replicas at 75% CPU. From 0.4 the Deployment omits `replicas` entirely while an HPA owns the tier — previously it set `replicas` unconditionally, so every `helm upgrade` reset the count and the HPA scaled it back up: a scale-down flap per release. |
+| `autoscaling.worker.enabled` | `false` | Worker HPA. **Leave off.** It scales on CPU, which is the wrong signal for a queue consumer blocked on `BRPOP` — it will not scale out under backlog, and it can scale *in* while tasks are queued. Use fixed worker replicas with a pinned `celeryWorker.concurrency` until queue-depth scaling exists. |
 | `logging.level` | `""` | Fleet-wide `DJANGO_LOG_LEVEL` (DEBUG/INFO/WARNING/ERROR). Empty keeps the app default. |
 
 ## Application environment (`env`)

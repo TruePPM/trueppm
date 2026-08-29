@@ -406,6 +406,23 @@ if VALKEY_SENTINEL_MODE:
 else:
     CELERY_BROKER_URL = f"{REDIS_URL}/0"
     CELERY_RESULT_BACKEND = f"{REDIS_URL}/0"
+    # Bound the redelivery window on the non-sentinel path (#3188). Tasks carry
+    # acks_late=True + reject_on_worker_lost=True in 60+ places, so a worker
+    # killed mid-task does not LOSE the work — the broker redelivers it. But
+    # Kombu's Redis transport hides an unacked message for `visibility_timeout`
+    # seconds first, and its default is 3600. A worker SIGKILLed during a
+    # rolling upgrade therefore left that task invisible for up to an hour, with
+    # nothing in the queue depth or the task list to say why. This block set
+    # transport options only on the sentinel path, so the default applied to
+    # every ordinary deploy.
+    #
+    # 900s is chosen against the longest task we actually run rather than a
+    # round number: MS Project import and workspace export are the multi-minute
+    # ones. It MUST exceed the longest task's runtime — a visibility timeout
+    # shorter than the work redelivers a task that is still running, which turns
+    # one slow import into two concurrent ones. Raise it if you raise
+    # terminationGracePeriodSeconds on the worker past this.
+    CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 900}
 
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"

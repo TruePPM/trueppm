@@ -243,6 +243,96 @@ security posture, OpenTelemetry, and the log-level knob. Kept as one helper so t
 three long-lived Python processes stay wired identically (a drifted beat that
 missed a new env var was the #1892 failure mode this consolidates against).
 */}}
+{{/*
+Pod placement and scheduling (#3188).
+
+None of nodeSelector / tolerations / affinity / topologySpreadConstraints /
+imagePullSecrets / priorityClassName existed, and because values.schema.json
+closes the root with additionalProperties:false they were not merely absent —
+they were actively REJECTED. `--set imagePullSecrets[0].name=regcred` failed
+schema validation, which meant an operator mirroring our images into a private
+registry could not install the chart at all without forking it. There was no
+air-gapped path.
+
+Usage: include "trueppm.podPlacement" (dict "root" . "component" "api")
+
+`component` is what makes topologySpreadConstraints correct rather than
+decorative. A spread constraint needs a labelSelector, and a single global list
+applied verbatim to four Deployments would spread whichever tier the operator's
+selector happened to name and silently no-op on the rest. So the chart FILLS IN
+the selector per tier — this release's selectorLabels plus that tier's
+component — and honors an explicit labelSelector if the operator supplies one.
+Write the constraint once; it means the right thing on every tier.
+*/}}
+{{/*
+Graceful shutdown (#3188). Usage:
+  include "trueppm.terminationGrace" (dict "root" . "tier" "api")
+  include "trueppm.preStop"          (dict "root" . "tier" "api")
+
+The preStop sleep runs `sleep` from the container's own shell rather than
+Kubernetes' `sleep` lifecycle action, which is 1.29+ and behind a feature gate on
+1.29-1.30 — the chart's floor is lower than that (Chart.yaml kubeVersion).
+Emitted only when the tier's preStopSleepSeconds is > 0, so a tier that does not
+want the hook gets no `lifecycle:` block at all rather than a no-op one.
+*/}}
+{{- define "trueppm.terminationGrace" -}}
+{{- $tier := index .root.Values.lifecycle .tier -}}
+{{- with $tier.terminationGracePeriodSeconds }}
+terminationGracePeriodSeconds: {{ . }}
+{{- end }}
+{{- end -}}
+
+{{- define "trueppm.preStop" -}}
+{{- $tier := index .root.Values.lifecycle .tier -}}
+{{- if gt (int $tier.preStopSleepSeconds) 0 }}
+lifecycle:
+  preStop:
+    exec:
+      # Endpoints/ingress deregistration is asynchronous with SIGTERM, so this
+      # covers the window where the pod is terminating but still being routed
+      # to — a race the application cannot win from inside.
+      command: ["/bin/sh", "-c", "sleep {{ int $tier.preStopSleepSeconds }}"]
+{{- end }}
+{{- end -}}
+
+{{- define "trueppm.podPlacement" -}}
+{{- $root := .root -}}
+{{- $component := .component -}}
+{{- with $root.Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $root.Values.priorityClassName }}
+priorityClassName: {{ . | quote }}
+{{- end }}
+{{- with $root.Values.nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $root.Values.tolerations }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $root.Values.affinity }}
+affinity:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $root.Values.topologySpreadConstraints }}
+topologySpreadConstraints:
+{{- range . }}
+  - {{- if .labelSelector }}
+    {{- toYaml . | nindent 4 }}
+    {{- else }}
+    {{- toYaml . | nindent 4 }}
+    labelSelector:
+      matchLabels:
+        {{- include "trueppm.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "trueppm.appEnv" -}}
 {{ include "trueppm.envVars" . }}
 {{ include "trueppm.connectionEnv" . }}

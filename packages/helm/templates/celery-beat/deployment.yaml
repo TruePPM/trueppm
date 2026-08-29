@@ -25,6 +25,8 @@ spec:
         app.kubernetes.io/component: celery-beat
     spec:
       automountServiceAccountToken: false
+      {{- include "trueppm.terminationGrace" (dict "root" $ "tier" "beat") | nindent 6 }}
+      {{- include "trueppm.podPlacement" (dict "root" $ "component" "celery-beat") | nindent 6 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:

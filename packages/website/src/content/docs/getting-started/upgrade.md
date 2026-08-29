@@ -305,6 +305,23 @@ docker exec -i trueppm-db-1 psql -U trueppm trueppm < trueppm-backup-<date>.sql
 # Then bring up the full stack at the previous version.
 ```
 
+### Concurrent migrations at `replicaCount >= 2`
+
+`migrate` runs as a **per-pod init container**, not as a `pre-upgrade` hook Job,
+so at two or more API replicas every pod runs it concurrently against one
+database. Django has no concurrency control of its own: each process reads
+`django_migrations`, decides the same migration is unapplied, and both run it.
+
+From 0.4 the chart runs `manage.py migrate_locked`, which serializes them behind
+a PostgreSQL advisory lock. The losers block rather than fail, and by the time
+they acquire the lock the winner has finished, so their own `migrate` is a
+no-op. Advisory locks release automatically when the holder's connection dies,
+so a killed init container cannot wedge the next rollout.
+
+Nothing to configure. If a migration legitimately runs longer than ten minutes,
+raise the wait with `--lock-timeout` in the init container's command, or scale
+the API to one replica for that upgrade.
+
 ### Helm rollback
 
 ```bash

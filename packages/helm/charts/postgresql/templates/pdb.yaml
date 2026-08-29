@@ -1,0 +1,27 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- /*
+PodDisruptionBudget for the bundled database (#3188).
+
+maxUnavailable: 0 on a single-replica stateful workload is deliberate and is NOT
+the same promise the app tiers' maxUnavailable: 1 makes. Nothing here can keep
+the database available across a node drain — there is one replica. What this
+does is turn a silent eviction into a BLOCKED drain: the operator sees it, and
+decides. Every other tier's readiness gates on this pod, so an unannounced
+eviction takes the whole release down behind it.
+
+Override deliberately with `kubectl drain --disable-eviction`, or set
+postgresql.podDisruptionBudget.enabled=false if you would rather drains never
+block.
+*/}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "postgresql.fullname" . }}
+  labels:
+    {{- include "postgresql.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "postgresql.selectorLabels" . | nindent 6 }}
+{{- end }}

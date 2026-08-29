@@ -73,8 +73,10 @@
           "type": "boolean"
         },
         "replicaCount": {
+          "description": "Empty string means \"follow the top-level replicaCount\". An integer scales the web tier independently.",
           "type": [
             "integer",
+            "string",
             "null"
           ]
         },
@@ -267,6 +269,28 @@
         },
         "resources": {
           "type": "object"
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxUnavailable": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          }
+        },
+        "priorityClassName": {
+          "type": "string"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -326,6 +350,12 @@
               "type": "boolean"
             }
           }
+        },
+        "maxmemory": {
+          "type": "string"
+        },
+        "maxmemoryPolicy": {
+          "type": "string"
         }
       }
     },
@@ -358,6 +388,29 @@
           "type": "boolean"
         }
       }
+    },
+    "imagePullSecrets": {
+      "description": "Rendered verbatim into every pod spec. Open: the valid keys are Kubernetes', not this chart's.",
+      "type": "array"
+    },
+    "priorityClassName": {
+      "type": "string"
+    },
+    "nodeSelector": {
+      "description": "Rendered verbatim with toYaml. Open: the valid keys are Kubernetes', not this chart's.",
+      "type": "object"
+    },
+    "tolerations": {
+      "description": "Rendered verbatim with toYaml. Open: the valid keys are Kubernetes', not this chart's.",
+      "type": "array"
+    },
+    "affinity": {
+      "description": "Rendered verbatim with toYaml. Open: the valid keys are Kubernetes', not this chart's.",
+      "type": "object"
+    },
+    "topologySpreadConstraints": {
+      "description": "Rendered per tier; labelSelector is filled in by the chart when omitted. Open: the valid keys are Kubernetes'.",
+      "type": "array"
     },
     "podSecurityContext": {
       "description": "Rendered wholesale with toYaml into every pod spec. Open: the valid keys are Kubernetes', not this chart's.",
@@ -406,6 +459,69 @@
         }
       }
     },
+    "lifecycle": {
+      "description": "Per-tier graceful-shutdown settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "api": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "terminationGracePeriodSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preStopSleepSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "terminationGracePeriodSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preStopSleepSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "beat": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "terminationGracePeriodSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preStopSleepSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "terminationGracePeriodSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "preStopSleepSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
     "probes": {
       "type": "object",
       "additionalProperties": false,
@@ -439,6 +555,20 @@
             "hostHeader": {
               "description": "Host header kubelet sends on the api probes. Empty resolves to the first ingress host. Must be present in ALLOWED_HOSTS or the probe 400s (#3183).",
               "type": "string"
+            },
+            "startupEnabled": {
+              "type": "boolean"
+            },
+            "startupPath": {
+              "type": "string"
+            },
+            "startupPeriodSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "startupFailureThreshold": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         },
@@ -487,6 +617,18 @@
           }
         },
         "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxUnavailable": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          }
+        },
+        "web": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
