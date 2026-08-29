@@ -111,9 +111,15 @@ drop, recreate, or data step.
 
 ```bash
 git pull origin main
-docker compose pull
+docker compose build
 docker compose up -d
 ```
+
+`build`, not `pull` (#3189). The dev stack's `api` and `web` services are
+`build:`-based, and `celery` references `image: trueppm-api:local` with no
+`build:` of its own — so `docker compose pull` has nothing to fetch for the
+services that changed, and reports success. Building is what actually picks up
+the new code.
 
 Migrations run automatically when the `api` container starts.
 

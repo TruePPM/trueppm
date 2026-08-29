@@ -91,7 +91,16 @@ web:
   # Set >= the largest application upload cap, same rule as the ingress
   # annotation. The demo overlay deliberately ignores this and pins 1M: a
   # read-only demo has no legitimate large upload.
-  maxBodySize: 50M
+  #
+  # 110M, raised from 50M in #3189. The largest application cap is the
+  # ATTACHMENT one — serializers.py's MAX_ATTACHMENT_SIZE_BYTES and
+  # settings/base.py's DATA_UPLOAD_MAX_MEMORY_SIZE are both 100 MB, and that
+  # setting's own comment instructs operators to set nginx to 100m. At 50M every
+  # attachment between 50 and 100 MB got a bare 413 at the edge, on every
+  # deployment path. The extra 10M covers multipart framing: at exactly 100M a
+  # legal 100 MB upload still 413s. Keep the ingress annotation in step
+  # (values-prod.yaml carries a commented example).
+  maxBodySize: 110M
   # Security response headers on everything the web tier serves (#2849).
   #
   # These are NOT redundant with Django's XFrameOptionsMiddleware,

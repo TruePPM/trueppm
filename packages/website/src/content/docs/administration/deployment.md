@@ -28,8 +28,8 @@ docker compose up -d
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| `db` | 5432 | PostgreSQL 16 |
-| `valkey` | 6379 | Celery broker + Django Channels layer ([Valkey](https://valkey.io) — BSD-licensed Redis fork, wire-compatible) |
+| `db` | 127.0.0.1:5432 | PostgreSQL 16. Bound to loopback, so only clients on this machine can reach it. |
+| `valkey` | — | Celery broker + Django Channels layer ([Valkey](https://valkey.io) — BSD-licensed Redis fork, wire-compatible). Reachable only on the Compose network — the dev stack publishes **no** host port for it. |
 | `api` | 8000 | Django ASGI (uvicorn) |
 | `celery` | — | CPM auto-scheduling worker |
 | `celery-beat` | — | Periodic task runner (Beat) |
@@ -41,7 +41,16 @@ Migrations and the `create_admin` bootstrap run automatically when the `api` con
 docker compose exec api cat /tmp/trueppm_admin_password
 ```
 
-**Good for:** local development, evaluation, small teams, demos.
+**Good for:** local development, evaluation, demos.
+
+**Not for shared or production use, even a small team.** This stack hardcodes
+`POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
+the tracked compose file, and it publishes PostgreSQL on the host. That port
+binds to `127.0.0.1` from 0.4 onward; on the current release it publishes on
+`0.0.0.0`, reachable from the network with that password — and Docker's
+published ports bypass most host firewalls, because the `DOCKER` chain is
+consulted before `INPUT`. For anything more than one developer's machine, use the
+single-server production stack below or the Helm chart.
 
 ### Public read-only demo (`docker-compose.demo.yml`)
 
@@ -505,6 +514,19 @@ pre-1.0 roadmap.
 :::
 
 ## Single server with systemd
+
+:::danger[`docker compose down -v` deletes your database]
+`-v` removes the named volumes, which on this stack is PostgreSQL's entire data
+directory, the Valkey AOF, and (from 0.4) the attachments volume. There is no
+confirmation prompt and no undo. Plain `docker compose down` stops the stack and
+keeps every volume — that is the command you want for a restart, an upgrade, or
+a config change.
+
+Use `-v` only when you intend to destroy the instance, and take a backup first
+with `./scripts/backup.sh`. The same applies to `docker volume rm
+trueppm_postgres_data`.
+:::
+
 
 For production on a single Linux server without Kubernetes. Uses the pre-built
 release images with Docker Compose, managed by systemd so the stack restarts

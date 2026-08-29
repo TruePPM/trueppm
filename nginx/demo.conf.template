@@ -122,11 +122,12 @@ server {
         return 404;
     }
 
-    # Django admin — loopback-only even on the demo host. To manage share links,
-    # SSH-tunnel:  ssh -L 8080:127.0.0.1:80 user@demo-host  → http://localhost:8080/admin/
+    # Django admin — DENIED. The `allow 127.0.0.1` that used to sit here could
+    # never match: nginx tests $remote_addr, which for a request through a
+    # published port is the Docker bridge gateway (#3189). It failed closed, so
+    # the demo was never exposed — but the SSH tunnel documented here returned
+    # 403, not the admin login. Reach the API container directly if you need it.
     location /admin/ {
-        allow 127.0.0.1;
-        allow ::1;
         deny all;
 
         limit_req zone=admin_login burst=2 nodelay;
