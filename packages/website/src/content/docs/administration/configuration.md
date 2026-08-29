@@ -119,13 +119,13 @@ is never appropriate in production — list the names instead.
 | `STATIC_ROOT` | `staticfiles/` under the app directory | Filesystem path WhiteNoise collects and serves Django static assets from (`manage.py collectstatic`). Override only if your container image lays out paths differently than the shipped image. |
 | `TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS` | `false` | Operator opt-in confirming `TRUEPPM_DEFAULT_FILE_STORAGE` produces a real time-limited signed URL. The attachment **Get signed download URL** action only recognizes the built-in django-storages S3, GCS, and Azure Blob backends automatically; on `FileSystemStorage` (the default) or any other backend it refuses with `501 Not Implemented` rather than hand back a link labeled "signed" that never actually expires. Set this to `true` only if your configured backend genuinely signs its URLs. |
 | `TRUEPPM_ALLOW_UNENCRYPTED_DB` | `false` | Operator opt-in to run production against a `DATABASE_URL` that has no `sslmode` parameter (e.g. when TLS to the database is enforced at the network layer). `prod` refuses to boot on such a URL unless this is `true`; when set, the boot logs a warning instead. |
-| `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) trusted for cross-origin POST/CSRF. Required only for split-origin deploys where the web app and API are served from different hostnames, e.g. `https://app.example.com,https://api.example.com`. |
-| `TRUEPPM_FRONTEND_BASE_URL` | _(empty)_ | Public origin the web app is served from, e.g. `https://trueppm.example.com`. Used to build absolute task deep-links in notification emails (e.g. `task.blocked`). Leave empty to omit the link — emails still carry the blocker type, age, and actor. No trailing slash, no path. The legacy bare `FRONTEND_BASE_URL` is still accepted as a fallback. |
+| `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) Django trusts for CSRF validation, e.g. `https://trueppm.example.com`. A single-origin deploy needs no value. Set it when a proxy rewrites the `Origin` / `Referer` header so Django sees an origin it did not serve. It does **not** enable a [split-origin deploy](#split-origin-deploys), which is unsupported. |
+| `TRUEPPM_FRONTEND_BASE_URL` | _(empty)_ | Public origin the web app is served from, e.g. `https://trueppm.example.com`. Used to build absolute task deep-links in notification emails (e.g. `task.blocked`). Leave empty to omit the link — emails still carry the blocker type, age, and actor. No trailing slash, no path. Must match `ALLOWED_HOSTS` and `TRUEPPM_PUBLIC_API_BASE_URL` — see [One origin, four variables](/administration/networking/#one-origin-four-variables). The legacy bare `FRONTEND_BASE_URL` is still accepted as a fallback. |
 | `TRUEPPM_AUTH_REFRESH_COOKIE_SECURE` | `true` | Sets the `Secure` flag on the refresh-token cookie. The browser drops a `Secure` cookie over plain HTTP, so set `false` only on a non-HTTPS dev/preview host. The dev settings already default this to `false` for localhost. Legacy bare `AUTH_REFRESH_COOKIE_SECURE` still accepted. |
-| `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE` | `Strict` | `SameSite` policy for the refresh cookie. `Strict` blocks the cookie on any cross-site request. **Split-origin deploys must relax this** to `Lax` or `None` so the refresh request carries the cookie; `None` additionally requires `Secure` (HTTPS). See [split-origin notes](#split-origin-deploys). Legacy bare `AUTH_REFRESH_COOKIE_SAMESITE` still accepted. |
+| `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE` | `Strict` | `SameSite` policy for the refresh cookie. `Strict` blocks the cookie on any cross-site request, which is correct for the supported [single-origin deploy](#split-origin-deploys). Relax it to `Lax` or `None` only when TruePPM is framed by another site; `None` additionally requires `Secure` (HTTPS). Legacy bare `AUTH_REFRESH_COOKIE_SAMESITE` still accepted. |
 | `TRUEPPM_AUTH_REFRESH_COOKIE_NAME` | `trueppm_refresh` | Name of the refresh-token cookie. Override only to avoid a collision with another app on the same domain. Legacy bare `AUTH_REFRESH_COOKIE_NAME` still accepted. |
 | `TRUEPPM_AUTH_REFRESH_COOKIE_PATH` | `/api/v1/auth/` | Path the refresh cookie is scoped to. Must cover **both** `/api/v1/auth/token/refresh/` and `/api/v1/auth/logout/` — a narrower value means the browser never sends the cookie to logout, so logging out clears it locally without revoking the token server-side. Override only if you reverse-proxy the API under a non-default base path. Legacy bare `AUTH_REFRESH_COOKIE_PATH` still accepted. |
-| `CSP_CONNECT_SRC` | `'self' wss:` | Space-separated `connect-src` sources for the Content-Security-Policy header — the origins the browser may open XHR / fetch / WebSocket connections to. **Split-origin deploys must add the API origin** (and its `wss://` origin) here, e.g. `'self' https://api.example.com wss://api.example.com`. See [split-origin notes](#split-origin-deploys). |
+| `CSP_CONNECT_SRC` | `'self' wss:` | Space-separated `connect-src` sources for the Content-Security-Policy header — the origins the browser may open XHR / fetch / WebSocket connections to. The default covers the SPA's own API and WebSocket calls on the [single origin TruePPM requires](#split-origin-deploys). Add an origin here only for a genuinely external destination, such as an analytics endpoint or an object store you serve attachment downloads from directly. |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | Days of webhook delivery records to keep before the nightly purge. See [Retention](/administration/retention/). |
 | `TRUEPPM_EXPORT_RETENTION_DAYS` | `7` | Days of generated export artifacts to keep before purge. See [Retention](/administration/retention/). |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | Hours of processed offline-sync upload batches to keep before purge. See [Retention](/administration/retention/). |
@@ -646,21 +646,49 @@ module never enforces an HTTPS redirect.
 
 ## Split-origin deploys
 
-A standard deploy serves the web app from the **same origin** as the API
-(e.g. nginx routes `/` to the SPA and `/api` to Django on one hostname). The
-secure defaults assume this and need no extra configuration.
+:::danger[Not supported — TruePPM requires a single origin]
+Serving the SPA at `https://app.example.com` and the API at
+`https://api.example.com` **cannot be made to work**, and no combination of the
+settings below will make it work.
 
-A **split-origin** deploy serves the SPA from a different origin than the API —
-for example `https://app.example.com` (SPA) and `https://api.example.com` (API).
-Two security defaults are origin-aware and must be relaxed for the browser to
-talk to the API:
+TruePPM ships **no CORS support**: `django-cors-headers` is not a dependency and
+there is no `CORS_*` setting anywhere in the settings tree, so Django never emits
+an `Access-Control-Allow-Origin` header. Without that header the browser blocks
+every cross-origin XHR and every cross-origin WebSocket upgrade the SPA attempts,
+before any of TruePPM's own configuration is consulted.
 
-| Setting | Why it must change | Set to |
-|---------|--------------------|--------|
-| `AUTH_REFRESH_COOKIE_SAMESITE` | The refresh cookie is `SameSite=Strict`, so the browser will not send it on the cross-origin refresh request, and sessions silently fail to renew. | `Lax` (or `None` if the SPA and API are on unrelated sites — `None` requires HTTPS, which the `Secure` flag already enforces). |
-| `CSP_CONNECT_SRC` | The Content-Security-Policy `connect-src` defaults to `'self' wss:`. With the SPA on a different origin, the browser blocks XHR / WebSocket connections to the API origin. | `'self' https://api.example.com wss://api.example.com` — add the API origin and its `wss://` origin. |
+`CSRF_TRUSTED_ORIGINS`, `AUTH_REFRESH_COOKIE_SAMESITE`, and `CSP_CONNECT_SRC`
+govern CSRF token validation, cookie scope, and Content-Security-Policy — three
+different layers, none of them CORS. Relaxing them weakens the install and
+changes nothing about the block.
 
-Also set `CSRF_TRUSTED_ORIGINS` (above) for any split-origin deploy.
+Earlier revisions of this page gave a split-origin recipe built on those three
+settings. It never worked, and it has been removed.
+:::
+
+**Serve the SPA, the API, and the WebSocket endpoint from one hostname**, routed
+by path — `/` to the SPA, `/api/` and `/ws/` to Django. Every shipped topology
+(the Docker Compose nginx templates, the published `web` image, and the Helm
+chart's default `ingress.hosts`) already does this, so a standard deploy needs no
+origin configuration at all: the secure defaults assume a single origin and are
+correct as shipped.
+
+Four variables must all describe that one origin —
+`DOMAIN`, `ALLOWED_HOSTS`, `TRUEPPM_FRONTEND_BASE_URL`, and (with OIDC)
+`TRUEPPM_PUBLIC_API_BASE_URL`. See
+[One origin, four variables](/administration/networking/#one-origin-four-variables)
+for the full table and what each mismatch looks like.
+
+### When the settings above still matter
+
+Same-origin is the requirement for the SPA reaching its own API. The three
+settings remain useful for narrower cases on a single-origin deploy:
+
+| Setting | Still needed when |
+|---------|-------------------|
+| `CSRF_TRUSTED_ORIGINS` | A proxy in front of TruePPM rewrites the `Origin` or `Referer` header, so Django's CSRF check sees an origin that is not the one it served. Add the origin the browser actually sends. |
+| `CSP_CONNECT_SRC` | The page must open connections to something other than TruePPM — an analytics endpoint, or an object store you serve attachment downloads from directly. Add that origin; do not remove `'self'`. |
+| `AUTH_REFRESH_COOKIE_SAMESITE` | You embed TruePPM in an iframe on another site, where `SameSite=Strict` suppresses the refresh cookie. `None` requires `Secure`, which is already enforced. Note the default CSP sets `frame-ancestors 'none'`, so framing needs that changed too. |
 
 ## In-product feedback ("Report a bug")
 

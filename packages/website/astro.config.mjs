@@ -312,6 +312,7 @@ export default defineConfig({
           label: "Administration",
           items: [
             { slug: "administration/deployment" },
+            { slug: "administration/networking" },
             { slug: "administration/sizing" },
             { slug: "administration/helm-values" },
             { slug: "administration/configuration" },

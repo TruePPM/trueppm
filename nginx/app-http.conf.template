@@ -11,6 +11,29 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# Preserve an upstream load balancer's X-Forwarded-Proto instead of overwriting
+# it (#3191).
+#
+# This config is the TLS-terminated-upstream shape, so $scheme here is always
+# "http" — the LB already stripped TLS before reaching us. Sending
+# `X-Forwarded-Proto $scheme` therefore told Django "this request arrived over
+# plain HTTP" on a connection the user made over HTTPS.
+#
+# Django's SECURE_PROXY_SSL_HEADER is ("HTTP_X_FORWARDED_PROTO", "https"), so
+# request.is_secure() returned False for every request: secure-only cookies were
+# withheld, HSTS was never emitted, and TRUEPPM_SECURE_SSL_REDIRECT=true became
+# an infinite redirect loop (the app redirects to https, the LB terminates it and
+# forwards http again, forever).
+#
+# Trust an incoming value only when one is present; fall back to $scheme when it
+# is absent, so a direct-to-nginx deployment is unchanged. Only set this in front
+# of a proxy you control — X-Forwarded-Proto is client-spoofable otherwise, and
+# TRUEPPM_NUM_PROXIES governs how far up the X-Forwarded-For chain the app trusts.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $scheme;
+    ~.      $http_x_forwarded_proto;
+}
+
 limit_req_zone $binary_remote_addr zone=admin_login:1m rate=5r/m;
 
 server {
@@ -42,7 +65,7 @@ server {
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         proxy_read_timeout 90s;
     }
 
@@ -54,7 +77,7 @@ server {
         proxy_set_header       Host              $host;
         proxy_set_header       X-Real-IP         $remote_addr;
         proxy_set_header       X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header       X-Forwarded-Proto $scheme;
+        proxy_set_header       X-Forwarded-Proto $forwarded_proto;
         proxy_read_timeout     86400s;
     }
 
@@ -73,7 +96,7 @@ server {
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
     location /static/ {

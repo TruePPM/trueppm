@@ -8,6 +8,14 @@ documentedFor: "0.4"
 TruePPM 0.3 has shipped (as the `0.3.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. 0.4 arrives as a beta directly — the next tag on the line is `0.4.0-beta.1`, with no alpha step in between ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
+:::tip[Before a production install, read Networking]
+[Networking](/administration/networking/) covers the prerequisites this page
+assumes: the DNS records to create, the four variables that must all name the
+same origin, where TLS terminates in each topology, what a proxy has to forward
+for WebSockets, which health-check path an external load balancer should use, and
+the full ports/firewall matrix.
+:::
+
 ## Docker Compose (recommended for evaluation)
 
 The fastest way to get TruePPM running. A single command starts all six services.
@@ -344,7 +352,12 @@ values file than to enumerate paths on the command line.
 
 With cert-manager, add the issuer under `ingress.annotations`
 (`cert-manager.io/cluster-issuer: <issuer>`) and cert-manager provisions the
-named TLS Secret automatically. Leaving `ingress.tls` empty renders an HTTP-only
+named TLS Secret automatically — [Networking](/administration/networking/#cert-manager)
+has a complete `ClusterIssuer` for both HTTP-01 and DNS-01, the paired
+annotations, and a `kubectl create secret tls` path for a certificate you already
+hold. Add the WebSocket timeout annotations from
+[WebSockets behind a proxy](/administration/networking/#idle-timeouts) at the same
+time. Leaving `ingress.tls` empty renders an HTTP-only
 Ingress — acceptable only for a dev/demo cluster, never production. `settings.prod`
 already trusts `X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER`), so the app sets
 secure cookies and HSTS correctly behind edge TLS; the `/api/v1/health/` and
@@ -469,7 +482,10 @@ helm test trueppm
 This runs a bundled connection probe (a short-lived Pod, created only by
 `helm test` and never during a normal install) that reaches the API's
 `/api/v1/health/` and migration-aware `/api/v1/readyz` endpoints and fails if
-either is unreachable within the rollout window. A green `helm test` is the
+either is unreachable within the rollout window. (For an *external* load
+balancer's own health check, point it at `/api/v1/readyz` — note the missing
+trailing slash — and set the `Host` header; see
+[Health checks](/administration/networking/#health-checks-for-an-external-load-balancer).) A green `helm test` is the
 single strongest signal that the whole boot chain succeeded. Retrieve the
 generated admin password with `kubectl exec` against the shared password volume
 as described in [Admin password setup](/administration/admin-password/).
@@ -498,8 +514,11 @@ with the machine.
 
 - A Linux server (Ubuntu 22.04+ or Debian 12+)
 - Docker 24+ and Docker Compose plugin
-- A domain name pointing to the server's public IP
-- Ports 80 and 443 open
+- A domain name with an `A` (and optionally `AAAA`) record pointing at the
+  server's public IP, resolving **before** you run `init-prod.sh` — ACME HTTP-01
+  validation needs it. See [DNS](/administration/networking/#dns).
+- Inbound ports 80 and 443 open, plus the outbound rules in
+  [Ports and firewall](/administration/networking/#ports-and-firewall)
 
 **Steps:**
 
