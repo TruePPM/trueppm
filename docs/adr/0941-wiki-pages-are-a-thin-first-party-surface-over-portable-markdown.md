@@ -48,9 +48,17 @@ implementation.
 
 P3M layer: **Programs and Projects**. Project-scoped documentation is something a PM
 and their team need to run their program, so it passes the adoption-lens test
-unambiguously. Cross-portfolio knowledge governance — retention policy, org-wide
-classification, legal hold over documentation — is the Enterprise counterpart and is
-not in this ADR's scope.
+unambiguously — `enterprise-check`'s classification question is not close.
+
+The Enterprise counterpart is **knowledge *governance*, not knowledge**, and it follows
+the same mechanism-vs-governance line as SSO and as the agent pillars in ADR-0112: a
+team writing and reading its own documentation is OSS; org-wide retention policy,
+document classification and labeling, legal hold, cross-program documentation search,
+and an externally-notarized record of who read what belong in `trueppm-enterprise`. That
+work must be **filed there from the start** — CLAUDE.md's boundary rule makes the
+`enterprise` and `portfolio` labels invalid on an open OSS issue, and `boundary:check`
+reds `main` on one regardless of the issue's text. It is named here so the classification
+is on record; filing it is a follow-up this ADR does not perform.
 
 ## Decision
 
@@ -185,6 +193,24 @@ Two of those carry conditions:
   one opted into. This is the same non-egress posture ADR-0913 takes for "seed from a
   brief", applied to the read path.
 
+**The two `[[…]]` extensions are rendered by our own component functions, so
+`allowedElements` never sees them** — the allow-list is not their control. The `href`/`src`
+each emits passes through the same protocol allow-list as an authored link, and **an
+unresolvable reference renders as inert text, never passing the raw token through to an
+attribute.** This is the injection point a reviewer reading only the allow-list would miss.
+
+**Resolution is a server fact, not a client derivation.** The page endpoint returns the
+raw body *and* a resolved-references map — one entry per `[[…]]` token, carrying its
+type, target id, display title, URL, and a state of `resolved` / `missing` / `deleted`.
+Resolution requires a database lookup (`WikiPageSlug` scoped to the owning project; an
+attachment row and its soft-delete state), and it carries a security decision about what
+a token points at. Leaving it to the client means every client re-implements it — the web
+app, the PWA, a future mobile app, any integrator — and the second implementation is the
+one that gets the inert-on-failure rule wrong. Rendering stays client-side, as it must;
+*resolving* does not. This is API-first (ADR-0599) applied to a surface that has no
+computed values of its own, and it is also what carries the reference semantics across a
+backend rewrite rather than stranding them in a React component.
+
 ### 7. Attachments ship in v1, via an extracted abstract base — not a copied model.
 
 The Taiga-importer argument does not hold if a migrated wiki arrives without its files,
@@ -199,6 +225,17 @@ concrete table, so this is a no-op for existing data. **This is the one place th
 not purely additive**, it touches shipped code, and it is therefore the one part of the
 implementation that must land with `regression-check` run against the task-attachment
 suite specifically.
+
+**Extracting the fields is not the point — extracting the policy is.** A
+`WikiPageAttachment` that inherits the field set but uploads through its own serializer
+silently loses `apps/projects/attachment_policy.py`: the workspace → program → project
+`allowed_attachment_types` resolution *and* `SYSTEM_ATTACHMENT_DENYLIST`, the
+non-overridable floor that rejects `text/html`, `application/xhtml+xml`, and
+`image/svg+xml` because they are active stored-XSS vectors when served same-origin
+(ADR-0153). Wiki uploads **must** go through `is_attachment_mime_allowed()` and the same
+resolver, and the size ceiling (`MAX_ATTACHMENT_SIZE_BYTES`, ADR-0075 #4) applies
+unchanged. A wiki that re-admits SVG defeats §6 entirely — the Markdown allow-list is
+irrelevant if a reader can be served attacker-authored markup from the app's own origin.
 
 ### 8. Search joins the existing endpoint. RBAC is the existing project permission class.
 
@@ -232,7 +269,58 @@ engine fact — and that is an amendment to this ADR and to ADR-0077, not an imp
 detail. This is the same reasoning the roadmap already applies to the collaborative
 canvas: a whiteboard never becomes a second place the plan lives.
 
-### 10. Explicitly out of scope for v1
+**The same answer applies to the MCP *write* surface at 0.6, and more strongly.** An
+agent authoring a wiki page launders model output into the instance's own record: it
+arrives as prose indistinguishable from something a person wrote, and the next reader —
+human or agent — has no way to tell. Wiki pages are therefore not agent-writable, and
+because there is no agent path at all in v1, the refusal taxonomy and agent-action audit
+(ADR-0112) have nothing to record here. That is the correct state, not a gap to fill.
+
+**A wiki page is also not the decision store.** The structured decision & forecast memory
+(#1059) ships in the same release, and it is where a rebaseline reason, a scope-change
+decision, or a retro action becomes queryable. A page may *reference* a decision record;
+a decision is **never inferred from page text**, by an agent or by us. Extracting
+decisions from prose is guessing wearing a schema, and building it would require amending
+this ADR.
+
+### 10. Revision history is redactable, and the importer never fetches a URL
+
+Two obligations that are cheap now and expensive once content exists.
+
+**Revisions must be purgeable.** Every save snapshots the full body, and every project
+Member can read the history. The first time someone pastes a credential, a customer
+name, or a salary figure into a page and deletes it, the delete is cosmetic — the value
+is still in `WikiPageRevision` and still readable. Owner and Admin therefore get a
+**hard-delete on a single revision**, distinct from the page's soft-delete, writing an
+actor + timestamp row to the existing history surface so the redaction itself is not
+silent. A GDPR erasure request against page content has no other answer, and retrofitting
+one over a populated revision table is a content migration nobody can validate.
+
+**The Taiga importer accepts an upload; it does not fetch.** Taiga wiki pages reference
+attachments by URL. An importer that resolves those URLs server-side turns a
+project-import form into an SSRF primitive pointed at the cluster's internal network. The
+importer takes an offline export archive — the same shape as the Jira `Export → XML`
+upload (#1664) and the same non-egress posture as ADR-0913 — and imported page bodies are
+untrusted input subject to §6's render path in full, with no "it came from an import"
+bypass.
+
+### 11. Every growth path is bounded at design time
+
+A wiki is the first surface where an ordinary Member can write unbounded content on an
+unbounded schedule, so the ceilings are decisions, not tuning:
+
+- `body` is capped (10 000 chars is the ADR-0075 comment cap; a page needs more — settle
+  the number in implementation, but it is a number, and it is enforced at the serializer).
+- **Revisions per page are capped, with a coalescing window** — successive saves by the
+  same author inside a short window amend the current revision rather than minting a new
+  one. Without this, a loop against `PATCH` is a write amplifier that grows the table
+  without limit and is fully within a Member's legitimate permissions.
+- **Slug aliases are capped per page.** A rename loop otherwise mints unbounded rows in a
+  table with a uniqueness constraint the whole project shares.
+- Pages per project are capped, and the write path is throttled by the existing per-user
+  throttle rather than a new one.
+
+### 12. Explicitly out of scope for v1
 
 Each of these is a deliberate refusal, not an oversight. Adding one is an amendment.
 
@@ -253,6 +341,57 @@ Each of these is a deliberate refusal, not an oversight. Adding one is an amendm
 - **Offline authoring.** See §5.
 - **Content i18n.** #728 decides the framework at 0.5; page *content* translation is not
   in that scope.
+
+## Threat model (STRIDE)
+
+Run at design stage, pre-implementation. The findings are folded into the Decision
+sections above rather than kept as a separate list — ADR-0075's convention — so an
+implementer meets them where they act. This section is the map.
+
+**Assets**: page body and title (*internal* — project-scoped, but routinely holds
+customer names, vendor terms, and incident detail); revision history (*internal*, and
+uniquely un-erasable); attachments (*internal*, and an active code-execution surface);
+search snippets (*internal*, and the one path that crosses a project boundary).
+
+**Boundaries crossed**: 1 (Internet ↔ API — new project-scoped resource), 2 (API ↔ DB —
+page + revision + slug must be one transaction), 6 (TruePPM ↔ external — the Taiga
+importer). Not crossed: 3 (no Celery work of its own), 4 (no broadcast in v1 — §5), 5
+(no new extension point).
+
+| Asset | Threat | Mitigation |
+|---|---|---|
+| Page body | **T**ampering | Optimistic lock via `X-Base-Version` → 409 with current body (§5). Not last-writer-wins |
+| Page body | **I**nfo disclosure | Rendered only to project members via the existing project permission class (§8); no broadcast path exists to leak through (§5) |
+| Page body → reader | **E**levation *(stored XSS → session theft)* | `skipHtml`, no `rehype-raw`, explicit element and **link-protocol** allow-lists; `[[…]]` resolvers validated server-side and inert on failure (§6) |
+| Attachment | **E**levation *(same-origin markup)* | `SYSTEM_ATTACHMENT_DENYLIST` (`text/html`, `application/xhtml+xml`, `image/svg+xml`) reached through `is_attachment_mime_allowed()`, non-overridable in any edition (§7) |
+| Reader's IP | **I**nfo disclosure | External `img` never renders as `<img>` — no per-reader outbound request (§6) |
+| Revision history | **I**nfo disclosure | Admin/Owner hard-delete of a single revision, audit-logged (§10). Without it, a delete is cosmetic and erasure requests have no answer |
+| Revision, attribution | **R**epudiation | `author` FK + `created_at` per revision; `SET_NULL` on user deletion renders "deleted user", never another user's name |
+| Revision table | **D**oS | Per-page revision cap + same-author coalescing window; body-size cap; page cap; existing per-user throttle (§11) |
+| Slug alias table | **D**oS | Per-page alias cap — a rename loop otherwise writes unbounded rows into a project-wide unique index (§11) |
+| Internal network | **E**levation *(SSRF)* | The Taiga importer accepts an uploaded export archive and **never fetches a referenced URL** (§10) |
+| Search snippet | **I**nfo disclosure | Membership filtering on the **queryset**, not the serializer (§8) — a body snippet from an unreadable project is the leak, and snippet endpoints are where it hides |
+| Page | **S**poofing | No new identity path; the existing session/JWT authentication is unchanged |
+| Page, cross-role write | **E**levation | *Accepted risk*: any Member may edit any page in a project they belong to, including one an Owner authored. Page-level ACLs are refused in §12 — a documentation surface with per-page permissions is a governance feature, and the project boundary is the unit of trust this product already uses |
+
+**Top 3 risks, ranked.**
+
+1. **Attachment upload that bypasses the shipped MIME policy** (§7). Highest impact —
+   an SVG or HTML file served same-origin is full-origin script execution, which defeats
+   every Markdown protection in §6 at once. Highest likelihood too, because the natural
+   implementation (a new serializer for a new model) simply does not call the existing
+   resolver, and nothing fails when it doesn't.
+2. **Un-redactable revision history** (§10). Certain to occur given enough content, and
+   unfixable afterwards without a content migration.
+3. **`[[…]]` resolver as an unguarded attribute sink** (§6). The allow-list looks like
+   the whole XSS story and is not; a custom renderer emitting an unvalidated `href` is
+   the gap a reviewer reading `allowedElements` will not see.
+
+**SOC 2 mapping.** §7 and §8 → CC6.1 (logical access — resource-level authorization and
+non-overridable upload restrictions). §10 revision purge → CC6.5 / P4.2 (disposal of
+confidential information). §10 audit row and §3 per-revision attribution → CC7.2
+(monitoring; actor + timestamp on state change). §11 caps and the existing throttle →
+A1.1 (capacity). §6 → CC6.7 (protecting information in transmission to the client).
 
 ## Alternatives Considered
 
@@ -283,7 +422,7 @@ regression risk in an otherwise additive change.
 
 **Risks.**
 
-- *Scope creep toward WYSIWYG.* The mitigation is §2 and §10 being decisions of record
+- *Scope creep toward WYSIWYG.* The mitigation is §2 and §12 being decisions of record
   rather than preferences: moving to WYSIWYG requires amending an accepted ADR.
 - *Attention, not blast radius.* Correctly identified on #2222. This ADR does not
   resolve it — it is a milestone-scheduling judgment for 0.5, and the deliberately
@@ -292,11 +431,26 @@ regression risk in an otherwise additive change.
   there is no product mechanism that stops a human pasting dates into prose, and none is
   proposed.
 
-**Gates this ADR does not discharge.** `threat-model` and `security-review` are required
-on the implementation on the merits, not as ceremony — §6's allow-list widening, §7's
-file upload, and §8's cross-project snippet filter are each a finding class. `ux-design`
-is required before the editor and diff view are built. `ai-review` is discharged in part
-by §9, which is its central question here.
+**Gate status.** Two design-stage gates ran against this ADR and both changed it before
+any code exists — which is the only reason to run them here rather than at MR time.
+
+`threat-model` produced the section above; four findings landed: §6's `[[…]]` resolver as
+an unguarded attribute sink, §7's attachment-*policy* (not merely attachment-*field*)
+reuse, §10's revision purge and importer non-fetch, and §11's growth caps.
+
+`ai-review` produced three, each a design change rather than a follow-up: the
+resolved-references map in §6 (reference resolution was a client derivation, which
+strands the security decision in one renderer and forces every other client to
+re-implement it); §9's extension to the **write** surface (the read exclusion was stated
+and the write case was silently open, in the release that ships agent writes); and §9's
+statement that a wiki page is not the decision store and decisions are never inferred
+from prose. `enterprise-check` ran paired with it — the OSS classification is not close,
+and the Enterprise counterpart is named in Context.
+
+Still outstanding and **not** discharged by this ADR: `security-review` against the
+implementation diff — a design that names the right controls is not evidence the code
+calls them, and threat-model finding #1 is precisely a control that is easy to design
+and easy to omit. `ux-design` is required before the editor and diff view are built.
 
 ## Implementation Notes
 
