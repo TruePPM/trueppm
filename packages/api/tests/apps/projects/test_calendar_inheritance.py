@@ -568,7 +568,12 @@ def test_editing_a_calendar_broadcasts_to_every_affected_project(
     broadcast_to = {args[0] for args in calendar_events}
     assert str(inheriting.pk) in broadcast_to
     assert str(overriding.pk) not in broadcast_to
-    assert all(args[2] == {"id": args[0]} for args in calendar_events)
+    # Payload is the project id plus the actor label (#3174). Asserted exactly rather
+    # than by key-subset: this is a published WS contract (api/websockets.md), and an
+    # accidental extra key is exactly what an exact assertion is here to catch.
+    assert all(
+        args[2] == {"id": args[0], "actor": admin.get_username()} for args in calendar_events
+    )
 
 
 @pytest.mark.django_db(transaction=True)

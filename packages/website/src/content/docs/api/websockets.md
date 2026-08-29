@@ -188,7 +188,10 @@ The set is open-ended and grows as features land; current event types include:
 - **Working-time calendar**: `project_calendar_changed` — the project's *effective*
   calendar changed. Fired on the affected projects for a Calendar edit, a
   calendar-exception edit, or a program/workspace calendar reassignment; Calendar
-  itself is a shared org-level resource with no channel of its own
+  itself is a shared org-level resource with no channel of its own. The payload
+  carries `actor`, the display name of whoever made the edit (empty for a system or
+  unauthenticated write) — a calendar edit can move finish dates on a project whose
+  own members did nothing, so the event names who did it
 - **Presence**: `presence_join`, `presence_leave`
 
 > **Event-name convention.** WebSocket `event_type` values are **`snake_case`**

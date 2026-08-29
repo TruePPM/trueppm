@@ -872,10 +872,16 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         instance = serializer.save()
 
         if instance.working_days != old_working_days or instance.hours_per_day != old_hours_per_day:
-            _recalc_projects_for_calendar(instance.pk)
+            _recalc_projects_for_calendar(instance.pk, actor=self.request.user)
 
 
-def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
+def _enqueue_calendar_recalc(
+    project_ids: Sequence[uuid.UUID | str],
+    *,
+    actor: Any = None,
+    calendar_label: str = "",
+    calendar_id: Any = None,
+) -> None:
     """Defer a CALENDAR_CHANGE recompute for each project to ``transaction.on_commit``.
 
     Routed through the scheduling outbox (ADR-0027) so a broker outage cannot drop the
@@ -899,12 +905,52 @@ def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
     — its effective working-time calendar — because that is invariant across all
     three triggers (a Calendar row edit, an exception edit, or an upstream FK
     reassignment), and it is the one thing the client needs in order to re-read.
+
+    **Attribution (#3174).** This is also the single place that can name *who* moved
+    those dates. Calendars are gated on ``IsOrgAdmin``, which passes anyone holding
+    ADMIN on at least one project — so a PM on one small project can shift finish
+    dates across every project bound to a shared calendar, including projects they
+    are not a member of. Whether that permission is right is a separate, open
+    question; what is not defensible either way is the movement being anonymous. One
+    ``CALENDAR_CHANGED`` audit row records the actor and the affected set, and the
+    broadcast carries the actor label so an owner watching a project sees a name
+    rather than dates moving by themselves.
+
+    The audit row is written here, synchronously, rather than in the callback: it
+    must roll back with a failed edit (``record_audit_event``'s contract), and the
+    ``on_commit`` callback runs after the point where that is still possible.
     """
     if not project_ids:
         return
 
     # Snapshot to plain strings before the closure (broadcast-check H-1).
     project_id_strs = [str(pid) for pid in project_ids]
+
+    actor_label = ""
+    if actor is not None and getattr(actor, "is_authenticated", False):
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        # Same label the audit row denormalizes, so the live toast and the log entry
+        # a reader finds afterwards name the person identically.
+        actor_label = _actor_label(actor)
+
+        record_audit_event(
+            event_type=AuditEventType.CALENDAR_CHANGED,
+            actor=actor,
+            target_type="calendar",
+            target_id=calendar_id,
+            target_label=calendar_label,
+            metadata={
+                # The count is the number that matters for blast radius and is safe to
+                # read at a glance; the ids are capped so one workspace-calendar edit
+                # touching every project cannot write an unbounded JSON blob into the
+                # audit row.
+                "affected_project_count": len(project_id_strs),
+                "affected_project_ids": project_id_strs[:50],
+                "affected_project_ids_truncated": len(project_id_strs) > 50,
+            },
+        )
 
     def _dispatch() -> None:
         # Imported inside the callback, as every other broadcast site in this module
@@ -913,12 +959,16 @@ def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
 
         for pid in project_id_strs:
             _enqueue_recalculate(pid, reason=ScheduleRequestReason.CALENDAR_CHANGE)
-            broadcast_board_event(pid, "project_calendar_changed", {"id": pid})
+            broadcast_board_event(
+                pid,
+                "project_calendar_changed",
+                {"id": pid, "actor": actor_label},
+            )
 
     transaction.on_commit(_dispatch)
 
 
-def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
+def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str, *, actor: Any = None) -> None:
     """Enqueue a CPM recompute for every live project this calendar's edit affects.
 
     Calendar (and calendar-exception) edits are org-admin writes that may touch
@@ -956,10 +1006,18 @@ def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
     project_ids = list(
         Project.objects.filter(selector, is_deleted=False).distinct().values_list("id", flat=True)
     )
-    _enqueue_calendar_recalc(project_ids)
+    calendar = Calendar.objects.filter(pk=calendar_id).first()
+    _enqueue_calendar_recalc(
+        project_ids,
+        actor=actor,
+        calendar_label=calendar.name if calendar else "",
+        calendar_id=calendar_id,
+    )
 
 
-def _recalc_projects_for_program_calendar(program_id: uuid.UUID | str) -> None:
+def _recalc_projects_for_program_calendar(
+    program_id: uuid.UUID | str, *, actor: Any = None
+) -> None:
     """Recompute a program's projects that inherit its calendar (ADR-0441).
 
     Called when a program's ``calendar`` FK is reassigned (a different default, or
@@ -972,10 +1030,15 @@ def _recalc_projects_for_program_calendar(program_id: uuid.UUID | str) -> None:
             program_id=program_id, calendar__isnull=True, is_deleted=False
         ).values_list("id", flat=True)
     )
-    _enqueue_calendar_recalc(project_ids)
+    _enqueue_calendar_recalc(
+        project_ids,
+        actor=actor,
+        calendar_label="Program default calendar",
+        calendar_id=program_id,
+    )
 
 
-def _recalc_projects_for_workspace_calendar() -> None:
+def _recalc_projects_for_workspace_calendar(*, actor: Any = None) -> None:
     """Recompute every project that inherits the workspace calendar (ADR-0441).
 
     Called when the workspace ``calendar`` FK (or its override policy) is reassigned —
@@ -996,7 +1059,11 @@ def _recalc_projects_for_workspace_calendar() -> None:
     project_ids = list(
         Project.objects.filter(selector, is_deleted=False).distinct().values_list("id", flat=True)
     )
-    _enqueue_calendar_recalc(project_ids)
+    _enqueue_calendar_recalc(
+        project_ids,
+        actor=actor,
+        calendar_label="Workspace default calendar",
+    )
 
 
 class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarException]):
@@ -1031,9 +1098,11 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
 
     def _touch(self, calendar: Calendar) -> None:
         # Bump the aggregate root so the mutation propagates through the calendar
-        # sync delta, then recompute dependent projects.
+        # sync delta, then recompute dependent projects. The actor rides along so the
+        # fan-out can attribute itself (#3174) — one holiday here moves finish dates on
+        # every project bound to this calendar, including ones the caller cannot see.
         calendar.save()
-        _recalc_projects_for_calendar(calendar.pk)
+        _recalc_projects_for_calendar(calendar.pk, actor=self.request.user)
 
     def perform_create(self, serializer: BaseSerializer[CalendarException]) -> None:
         calendar = self._calendar()
