@@ -768,6 +768,14 @@ class AuditEventType(models.TextChoices):
     INVITE_SENT = "invite_sent", "Invite sent"
     INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
     INVITE_REVOKED = "invite_revoked", "Invite revoked"
+    # #3174. Calendars are shared org-level resources gated on IsOrgAdmin, which
+    # passes anyone holding ADMIN on *at least one* project. Editing working_days,
+    # hours_per_day, or a single holiday exception fans a CPM recompute across every
+    # project bound to that calendar — including projects the actor is not a member
+    # of, whose owners saw their finish dates move with nothing naming who did it or
+    # why. The permission question is deliberately left open (see the issue); this
+    # verb is the attribution half, so the movement is at least traceable.
+    CALENDAR_CHANGED = "calendar_changed", "Calendar changed"
 
 
 class AuditEvent(models.Model):

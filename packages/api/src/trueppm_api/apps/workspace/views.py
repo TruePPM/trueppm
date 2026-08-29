@@ -290,7 +290,7 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
         ):
             from trueppm_api.apps.projects.views import _recalc_projects_for_workspace_calendar
 
-            _recalc_projects_for_workspace_calendar()
+            _recalc_projects_for_workspace_calendar(actor=request.user)
         # Audit the change (ADR-0157). Record which settings keys were touched —
         # not their values, which may be large or sensitive (e.g. branding blobs).
         services.record_audit_event(
