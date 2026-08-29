@@ -127,13 +127,17 @@ enterprise-edition feature. For why that line falls where it does, and how it
 compares to the open-core competition, see
 [SSO Is Not an Enterprise Feature](/overview/sso-is-not-enterprise/).
 
-### Split-origin deploys
+### One origin only
 
-`SameSite=Strict` means the browser will not send the refresh cookie on a
-cross-origin request. If you serve the web app from a different origin than the
-API, relax `AUTH_REFRESH_COOKIE_SAMESITE` (to `Lax` or `None`) and add the API
-origin to `CSP_CONNECT_SRC` so the browser can reach it. See
-[Split-origin deploys](/administration/configuration/#split-origin-deploys).
+TruePPM must be served from a **single hostname** — the SPA, the API, and the
+WebSocket endpoint routed by path on one origin. There is no CORS support in the
+codebase (no `django-cors-headers`, no `CORS_*` setting), so a browser blocks
+every cross-origin request from a SPA served elsewhere, and no combination of
+`CSRF_TRUSTED_ORIGINS`, `AUTH_REFRESH_COOKIE_SAMESITE`, or `CSP_CONNECT_SRC`
+changes that. The secure defaults — `SameSite=Strict` on the refresh cookie and
+`connect-src 'self' wss:` — are correct as shipped for that topology and need no
+relaxing. See [Split-origin deploys](/administration/configuration/#split-origin-deploys)
+and [One origin, four variables](/administration/networking/#one-origin-four-variables).
 
 ## Content-Security-Policy
 
@@ -143,10 +147,11 @@ protection) and `default-src 'self'`. The `connect-src` directive defaults to
 `'self' wss:` so the SPA can open same-origin XHR and the WebSocket
 collaboration channel.
 
-Operators serving the SPA from a different origin than the API, or behind a
-proxy that rewrites origins, must add that origin (and its `wss://` origin) to
-`CSP_CONNECT_SRC` — otherwise the browser blocks the connection. See
-[Configuration](/administration/configuration/#split-origin-deploys).
+That default is complete for the supported single-origin topology. Widen
+`CSP_CONNECT_SRC` only for a genuinely external destination — an analytics
+endpoint, or an object store you serve attachment downloads from directly.
+Serving the SPA from a different origin than the API is not supported and cannot
+be fixed here; see [Configuration](/administration/configuration/#split-origin-deploys).
 
 ### The SPA document is a separate control
 
@@ -171,13 +176,24 @@ shipped configs never drift apart on this baseline.
 
 ## HTTPS
 
-TruePPM does not terminate TLS itself. In production, place a reverse proxy in front of the API and web services:
+TruePPM does not terminate TLS itself — the API container speaks plain HTTP on
+`:8000`, always. In production, place a reverse proxy in front of the API and web
+services:
 
-- **nginx** — configure with `proxy_pass` to the API container
+- **nginx** — `proxy_pass` to the API container; the shipped Compose templates
+  are a working reference
 - **Caddy** — automatic TLS with Let's Encrypt
 - **Cloud load balancer** — AWS ALB, GCP HTTPS LB, etc.
+- **Kubernetes** — the chart's `Ingress`, with cert-manager or your own TLS Secret
 
-Ensure WebSocket upgrade headers are forwarded correctly.
+Two things must be right whichever you pick, and both have their own failure
+mode: the proxy has to forward the WebSocket `Upgrade` / `Connection` headers and
+raise its idle timeout, and it has to set `X-Forwarded-Proto` correctly —
+`settings.prod` trusts that header unconditionally, so the API Service must not
+be reachable directly. [Networking](/administration/networking/#tls) has the
+topology table, a complete cert-manager `ClusterIssuer` for HTTP-01 and DNS-01,
+bring-your-own-certificate recipes, and the WebSocket timeout knob for each
+proxy.
 
 ## Database security
 
@@ -490,6 +506,26 @@ Two CI gates cover the policy, and they cover different things:
 nightly. It is the gate that makes the `TRUEPPM_ALLOW_UNENCRYPTED_DB`
 auto-injection defensible; before it existed, the isolation the chart relies on was
 never actually tested.
+
+#### What the policy does NOT cover
+
+The chart restricts the **bundled datastore** pods only. It deliberately does not
+restrict ingress to, or egress from, the API and Celery worker pods: their
+outbound endpoints (your identity provider, SMTP relay, object store, OTLP
+collector) are deployment-specific, so a chart-imposed allow-list would break real
+installs.
+
+Two gaps are therefore yours to close at the platform layer:
+
+- **API pod ingress.** `settings.prod` trusts `X-Forwarded-Proto` unconditionally,
+  so anything that can open a socket to the API pod on `:8000` can claim its
+  request arrived over HTTPS. Restrict that port to the ingress controller / edge.
+- **API and worker egress.** Restrict it to the destinations you actually use.
+
+[Ports and firewall](/administration/networking/#ports-and-firewall) is the full
+source → destination → port matrix to build both allow-lists from, including every
+optional egress need (SMTP, OIDC, S3/MinIO, OTLP, image registry, ACME, outbound
+webhooks).
 
 #### Adding a component that talks to a datastore
 

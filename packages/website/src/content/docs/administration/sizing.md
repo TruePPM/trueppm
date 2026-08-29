@@ -199,4 +199,4 @@ These defaults are tuned for evaluation, not scale. At every tier above:
 
 Load-test against your own workload before committing budget or hardware. The dominant cost is workload-specific — how many schedules are active and how often reforecasts and Monte Carlo runs fire matters far more than raw user count. Until real benchmarks exist, **every figure on this page is a best-guess.**
 
-See [Deployment](/administration/deployment/) for the underlying Helm chart and Docker Compose topology.
+See [Deployment](/administration/deployment/) for the underlying Helm chart and Docker Compose topology, and [Networking](/administration/networking/#scaling-out) for where the load balancer sits and the checklist to work through before raising `replicaCount` past one.

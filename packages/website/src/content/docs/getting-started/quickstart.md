@@ -86,8 +86,10 @@ The dev settings work out of the box on `http://localhost` — the refresh-token
 cookie's `Secure` flag is turned off automatically (a browser drops a `Secure`
 cookie over plain HTTP), and the Content-Security-Policy `connect-src` already
 allows same-origin XHR and the local WebSocket. You only configure
-`AUTH_REFRESH_COOKIE_*` / `CSP_CONNECT_SRC` for production or split-origin
-deploys — see [Configuration](/administration/configuration/#split-origin-deploys).
+`AUTH_REFRESH_COOKIE_*` / `CSP_CONNECT_SRC` for production — see
+[Configuration](/administration/configuration/). Note that TruePPM must be served
+from a [single origin](/administration/networking/#one-origin-four-variables);
+splitting the SPA and API across hostnames is not supported.
 :::
 
 ### 3. Create a calendar

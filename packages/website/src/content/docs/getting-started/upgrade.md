@@ -192,10 +192,10 @@ upgrading **from a pre-hardening release**:
   fails the render if either is missing. Add them (ideally via an external Secret)
   before upgrading.
 - **App-side auth/CSP defaults.** The refresh token now rides an httpOnly Secure
-  cookie and a strict CSP header is sent on every response. A standard same-origin
-  deploy needs no changes. Split-origin deploys must set
-  `AUTH_REFRESH_COOKIE_SAMESITE` and `CSP_CONNECT_SRC` — see
-  [Configuration](/administration/configuration/#split-origin-deploys).
+  cookie and a strict CSP header is sent on every response. A standard deploy needs
+  no changes: TruePPM is served from a single origin, which is what these
+  defaults assume. Splitting the SPA and API across hostnames is not supported —
+  see [Split-origin deploys](/administration/configuration/#split-origin-deploys).
 
 ## Rollback
 
