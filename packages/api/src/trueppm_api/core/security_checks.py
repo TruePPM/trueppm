@@ -18,6 +18,7 @@ Two enforcement paths share the same validator:
 
 from __future__ import annotations
 
+import urllib.parse
 from collections.abc import Mapping, Sequence
 
 from django.core.checks import Error, register
@@ -87,6 +88,104 @@ def validate_secret_key(secret_key: str | None, *, debug: bool) -> list[CheckMes
         )
 
     return errors
+
+
+# Placeholder credentials that ship in .env.example / docs and must never survive
+# into a real deploy. Compared case-insensitively against the password component of
+# DATABASE_URL / REDIS_URL. Kept deliberately short: this is a guard against the
+# documented placeholder being left in place, not a password-strength oracle — a
+# denylist that tries to be clever produces false failures on legitimate secrets.
+PLACEHOLDER_SERVICE_PASSWORDS = frozenset(
+    {
+        "change-me",
+        "changeme",
+        "password",
+        "postgres",
+        "trueppm",
+        "secret",
+    }
+)
+
+MIN_SERVICE_PASSWORD_LENGTH = 12
+
+
+def validate_service_credentials(
+    db_password: str | None,
+    redis_password: str | None,
+    *,
+    debug: bool,
+) -> list[CheckMessage]:
+    """Return errors for placeholder or absent DB / Valkey passwords in prod (#3176).
+
+    The gap this closes: ``SECRET_KEY``, the attachment backend, the integration
+    encryption key, and ``sslmode`` all refuse to boot when misconfigured, but the
+    database and cache credentials were checked only for *presence* — by compose's
+    ``${DB_PASSWORD:?...}``, which ``change-me`` satisfies. ``.env.example`` shipped
+    exactly that string, so the documented copy-paste path produced a deploy whose
+    every other credential was validated and whose datastore ones were not.
+
+    Bounded on the bundled compose stack (neither service publishes a host port), so
+    this is an ``Error`` about the credential itself rather than a claim of
+    exploitability — and it stops being bounded the moment an operator repoints at an
+    external database, which ``.env.example`` documents how to do.
+
+    A URL with no password component at all is left alone: trust authentication
+    (Unix socket, IAM, cert) is a legitimate posture and has no password to weaken.
+    Returns an empty list when ``debug`` is True, like every sibling validator.
+    """
+    if debug:
+        return []
+
+    errors: list[CheckMessage] = []
+    for label, password, err_id in (
+        ("DATABASE_URL", db_password, "trueppm.E010"),
+        ("REDIS_URL", redis_password, "trueppm.E011"),
+    ):
+        if not password:
+            # No password component — trust auth (Unix socket, IAM, cert), or an
+            # unauthenticated local service. Neither is this check's business.
+            continue
+        if password.lower() in PLACEHOLDER_SERVICE_PASSWORDS:
+            errors.append(
+                Error(
+                    f"{label} uses the placeholder password {password!r} in a "
+                    "non-DEBUG environment.",
+                    hint=(
+                        "This is the value shipped in .env.example as a fill-me-in. "
+                        "Replace it with: " + _TOKEN_URLSAFE_CMD
+                    ),
+                    id=err_id,
+                )
+            )
+        elif len(password) < MIN_SERVICE_PASSWORD_LENGTH:
+            errors.append(
+                Error(
+                    f"{label} password is {len(password)} characters; minimum is "
+                    f"{MIN_SERVICE_PASSWORD_LENGTH}.",
+                    hint="Generate a strong one with: " + _TOKEN_URLSAFE_CMD,
+                    id=err_id,
+                )
+            )
+    return errors
+
+
+@register(Tags.security, deploy=True)
+def check_service_credentials(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads live settings."""
+    from django.conf import settings
+
+    databases = getattr(settings, "DATABASES", {}) or {}
+    db_password = (databases.get("default") or {}).get("PASSWORD")
+    redis_password = urllib.parse.urlparse(getattr(settings, "REDIS_URL", "") or "").password
+
+    return validate_service_credentials(
+        db_password,
+        redis_password,
+        debug=bool(getattr(settings, "DEBUG", False)),
+    )
 
 
 @register(Tags.security, deploy=True)

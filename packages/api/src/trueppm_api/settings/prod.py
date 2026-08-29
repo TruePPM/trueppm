@@ -12,6 +12,7 @@ from trueppm_api.core.security_checks import (
     validate_attachment_storage,
     validate_integration_encryption_key,
     validate_secret_key,
+    validate_service_credentials,
     validate_signing_key,
 )
 
@@ -22,6 +23,7 @@ from .base import (
     DATABASES,
     DJANGO_LOG_LEVEL,
     INTEGRATION_ENCRYPTION_KEY,
+    REDIS_URL,
     SIMPLE_JWT,
     STORAGES,
 )
@@ -130,3 +132,17 @@ if _db_url_raw:
                 "TRUEPPM_ALLOW_UNENCRYPTED_DB=true if TLS is enforced at the network "
                 "layer."
             )
+
+# Refuse to boot on a placeholder datastore credential (#3176). Compose's
+# ``${DB_PASSWORD:?...}`` only asserts the variable is non-empty, and .env.example
+# shipped ``change-me`` — so the documented copy-paste path produced a deploy in which
+# SECRET_KEY, the attachment backend, the integration key and sslmode were all validated
+# and the database/cache passwords were not. Same import-time enforcement as the guards
+# above, for the same reason: gunicorn/asgi workers never run ``manage.py check``.
+_service_cred_errors = validate_service_credentials(
+    DATABASES["default"].get("PASSWORD"),
+    urllib.parse.urlparse(REDIS_URL or "").password,
+    debug=DEBUG,
+)
+if _service_cred_errors:
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _service_cred_errors))
