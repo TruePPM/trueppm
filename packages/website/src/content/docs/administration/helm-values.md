@@ -281,7 +281,7 @@ knobs operators reach for first:
 | `env.TRUEPPM_THROTTLE_ANON_RATE` / `_USER_RATE` | `60/min` / `1000/min` | API rate limits; probe endpoints are always exempt. |
 | `env.TRUEPPM_NUM_PROXIES` | `"1"` | Trusted reverse-proxy depth for real-client-IP extraction. A wrong value lets clients spoof `X-Forwarded-For`. |
 | `env.TRUEPPM_RATE_LIMIT_ENABLED` | `"true"` | Global API rate-limiting kill switch. Leave `"true"` in production. Disabling also requires `TRUEPPM_RATE_LIMIT_DISABLE_ACK`; for load testing only ([details](/administration/configuration/#disabling-rate-limiting-entirely)). |
-| `env.TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `"30"` | Trashed-project hard-delete window. |
+| `env.TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `"30"` | Trashed-project hard-delete window, in days. **Do not set `0`** — it is not "use the default", it puts the purge cutoff at the present moment and deletes every trashed project, with all child data, via CASCADE. From 0.4 the app will refuse to boot on `0` rather than losing the data silently. An empty string is invalid, not "disabled". To turn auto-purge off, leave this unset and disable the policy in Settings → System Health. See [Retention](/administration/retention/). |
 | `envFrom` | `[]` | Bulk-inject env vars from existing Secrets/ConfigMaps (e.g. `- secretRef: {name: trueppm-env}`) into the API, Celery worker, **and** the bootstrap/migrate init containers. This is the supported way to supply `SECRET_KEY`, `ALLOWED_HOSTS`, and `INTEGRATION_ENCRYPTION_KEY` — the values `prod` refuses to boot without — without rendering them in plaintext into `env`. An explicit `env:` key of the same name always takes precedence over an `envFrom` entry. |
 
 ### Managed (external) datastores

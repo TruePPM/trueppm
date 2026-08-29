@@ -474,10 +474,28 @@ env:
   TRUEPPM_FRONTEND_BASE_URL: ""
   # Retention window (days) for soft-deleted ("trashed") projects. Once a project
   # has been in the trash longer than this, the consolidated retention purge
-  # (retention.run_purge, ADR-0173) HARD-deletes it and all its child data via DB
-  # CASCADE. Default 30. Set to "0" or omit to keep the default; operators tune the
-  # live value from Workspace → Settings → System Health. Set to an empty string to
-  # disable auto-purge (trashed projects retained unbounded).
+  # (retention.run_purge, ADR-0173) HARD-deletes it and all its child data —
+  # tasks, dependencies, sprints, baselines — via DB CASCADE. Irreversible: there
+  # is no tombstone and no undo.
+  #
+  # Default 30. OMIT the key to keep that default.
+  #
+  # DO NOT set "0". It does not mean "use the default" — env.int parses it as the
+  # number zero, which puts the purge cutoff at the present moment and deletes
+  # every trashed project on the next tick. The API has always refused 0
+  # (min_value=1) and since #3186 the app refuses to boot on it, so this is now a
+  # crash rather than silent data loss — but do not set it.
+  #
+  # An empty string is invalid, not "disabled": env.int raises ValueError on ""
+  # and the container crash-loops at settings import.
+  #
+  # To DISABLE auto-purge entirely, leave this variable unset and turn the policy
+  # off in Workspace → Settings → System Health, which stores a RetentionPolicy
+  # override with enabled=false. That is also where operators tune the live value
+  # without a redeploy — the value here is only the fallback used when no
+  # override row exists.
+  #
+  # https://docs.trueppm.com/administration/retention/
   TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS: "30"
   # General API rate limits (#1080). The default throttle applies to every
   # endpoint that does NOT declare its own scoped throttle; the /api/v1/health/

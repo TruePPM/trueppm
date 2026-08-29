@@ -616,3 +616,61 @@ def check_mcp_program_export_policy(
     return validate_mcp_program_export_policy(
         getattr(settings, "TRUEPPM_MCP_PROGRAM_EXPORT_POLICY", "withhold")
     )
+
+
+def validate_project_soft_delete_retention(value: object) -> list[CheckMessage]:
+    """Reject a soft-delete retention window of 0 days.
+
+    ``TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS`` is the one retention window
+    whose purge is irreversible and reaches user data: ``retention.run_purge``
+    computes ``cutoff = now() - timedelta(days=value)``, so 0 makes the cutoff
+    *now* and HARD-deletes every trashed project — with its tasks, dependencies,
+    sprints and baselines, via DB CASCADE — on the next tick. There is no
+    tombstone and no undo.
+
+    The API already refuses it: ``RetentionPolicyWriteSerializer.value`` is
+    ``IntegerField(min_value=1)``, so the Settings → System Health save-bar
+    cannot store 0. The environment variable had no such floor, and the Helm
+    chart's own comment told operators to set exactly this value "to keep the
+    default" (#3186) — ``env.int`` parses ``"0"`` as 0, not as the default.
+
+    Deliberately scoped to this one key. The other five windows cover log-shaped
+    tables (webhooks, exports, imports, task runs, sync batches) where "keep
+    nothing" is a defensible operator choice, and rejecting 0 there would
+    crash-loop a working deployment on upgrade.
+
+    Disabling the purge entirely is a different lever and still available: turn
+    the policy off in Settings → System Health, which stores a
+    ``RetentionPolicy`` row with ``enabled=False`` and resolves to ``None``.
+    """
+    if value != 0:
+        return []
+    return [
+        Error(
+            "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS is 0, which hard-deletes "
+            "every trashed project on the next retention purge.",
+            hint=(
+                "0 sets the purge cutoff to the present moment, so every project "
+                "in the trash — and all of its tasks, dependencies, sprints and "
+                "baselines, via CASCADE — is deleted irreversibly. Set the number "
+                "of days to retain trashed projects (the default is 30), or unset "
+                "the variable to accept that default. To stop auto-purging "
+                "entirely, leave the variable alone and disable the policy in "
+                "Settings → System Health instead."
+            ),
+            id="trueppm.E010",
+        )
+    ]
+
+
+@register(Tags.security, deploy=True)
+def check_project_soft_delete_retention(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads the live setting."""
+    from django.conf import settings
+
+    return validate_project_soft_delete_retention(
+        getattr(settings, "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS", 30)
+    )

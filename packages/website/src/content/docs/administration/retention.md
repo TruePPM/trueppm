@@ -43,6 +43,28 @@ the window — the next scheduled or manual run enforces it.
 
 ## Retention settings
 
+:::danger[`0` is not "use the default" — it deletes everything in the trash]
+Every window on this page is read with `env.int`, so `0` parses as the number
+zero, not as "unset". For `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` that puts
+the purge cutoff at the present moment: the next run hard-deletes **every**
+trashed project, with its tasks, dependencies, sprints and baselines, via
+CASCADE. There is no tombstone and no undo.
+
+The chart's own comment used to say `0` meant "keep the default" and that an
+empty string meant "disabled". Both were wrong — an empty string raises
+`ValueError` at settings import and crash-loops the container. From 0.4 the app
+**will refuse to boot** on `0` rather than losing the data silently; on the
+current release the value is accepted and the data is lost on the next purge.
+
+- **To keep the default:** leave the variable unset.
+- **To change the window:** set a positive number of days.
+- **To disable auto-purge entirely:** leave the variable unset and turn the
+  policy off in **Settings → System Health**, which stores an override with
+  `enabled: false`. That is also where you tune the live value without a
+  redeploy — the environment variable is only the fallback used when no override
+  row exists.
+:::
+
 | Setting | Default | Unit | What it bounds |
 |---|---|---|---|
 | `TRUEPPM_HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
