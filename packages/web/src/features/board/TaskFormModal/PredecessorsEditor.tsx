@@ -30,6 +30,19 @@ export interface PredecessorsEditorProps {
   currentTaskId: string | null;
   /** Caller is authoritative on disabled state (read-only mode). */
   disabled?: boolean;
+  /**
+   * May this reader author dependency edges at all? (#3143)
+   *
+   * Distinct from `disabled`, which is the form's transient read-only state.
+   * This one is a role refusal, and a refusal renders the controls **absent**
+   * rather than dimmed: a disabled button announces "[label], dimmed" and is a
+   * dead affordance, and for a Member — who may edit task content but not edges
+   * — it would be the one greyed control in an otherwise-live form, with
+   * nothing saying why. The chip list stays either way, so the reader loses the
+   * controls and none of the information. Matches the drawer's
+   * `DependenciesTab`, which edits the same edges.
+   */
+  canWrite?: boolean;
   onAdd: (task: { id: string; name: string; wbs: string }) => void;
   onRemove: (rowIndex: number) => void;
 }
@@ -44,6 +57,7 @@ export function PredecessorsEditor({
   allTasks,
   currentTaskId,
   disabled = false,
+  canWrite = true,
   onAdd,
   onRemove,
 }: PredecessorsEditorProps) {
@@ -79,21 +93,23 @@ export function PredecessorsEditor({
               <span className="text-[13px] text-neutral-text-primary flex-1 min-w-0 truncate">
                 {row.predecessorName}
               </span>
-              <button
-                type="button"
-                onClick={() => onRemove(index)}
-                disabled={disabled}
-                aria-label={`Remove predecessor ${row.predecessorName}`}
-                className="w-6 h-6 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-40 shrink-0"
-              >
-                <span aria-hidden="true">×</span>
-              </button>
+              {canWrite && (
+                <button
+                  type="button"
+                  onClick={() => onRemove(index)}
+                  disabled={disabled}
+                  aria-label={`Remove predecessor ${row.predecessorName}`}
+                  className="w-6 h-6 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-40 shrink-0"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {!pickerOpen ? (
+      {!canWrite ? null : !pickerOpen ? (
         <button
           type="button"
           disabled={disabled}

@@ -16,6 +16,7 @@ import {
   LAG_FIELD_HINT,
   LAG_UNIT_SUFFIX,
   clampLagDays,
+  LINK_TYPE_PROSE_NAME,
 } from './deps/linkTypes';
 
 /** The drawer's `<select>` options. Sourced from `deps/linkTypes` so the drawer
@@ -29,6 +30,25 @@ interface DependenciesTabProps {
   projectId: string;
   /** Program this project belongs to, or null for a standalone project (ADR-0120). */
   programId?: string | null;
+  /**
+   * May this reader author dependency edges? (#3143)
+   *
+   * Required, not optional-with-a-default: this component had no gate at all,
+   * so every write control — including the only **delete** among the five
+   * dependency surfaces — rendered for a Viewer. A default would let the next
+   * call site reintroduce that silently, which is exactly how it got here.
+   *
+   * Resolve it with `canAuthorDependencies`, never `canEdit`/`canEditTask`.
+   * Edges are `IsProjectScheduler` and task content is `IsProjectPlanAuthor`;
+   * neither band contains the other (ADR-0773 §7), so borrowing the task-content
+   * verdict strands a Scheduler on the one route that is their keyboard path to
+   * the capability (`Alt+Enter` → Dependencies) while offering a Member a 403.
+   *
+   * When false the controls are **absent**, not disabled: a disabled control
+   * still advertises a capability the reader does not have, and the edges
+   * themselves stay readable as text.
+   */
+  canWrite: boolean;
 }
 
 export function DependenciesTab({
@@ -37,6 +57,7 @@ export function DependenciesTab({
   links,
   projectId,
   programId,
+  canWrite,
 }: DependenciesTabProps) {
   const createDep = useCreateDependency(projectId);
   const updateDep = useUpdateDependency(projectId);
@@ -135,23 +156,28 @@ export function DependenciesTab({
               relatedTask={srcTask}
               onUpdate={(patch, opts) => updateDep.mutate({ id: link.id, ...patch }, opts)}
               onDelete={() => deleteDep.mutate(link.id)}
+              canWrite={canWrite}
             />
           );
         })}
-        <AddDepRow
-          availableTasks={availableAsPred}
-          selectedTaskId={addPredId}
-          selectedType={addPredType}
-          isPending={createDep.isPending}
-          onTaskChange={setAddPredId}
-          onTypeChange={setAddPredType}
-          lagText={addPredLag}
-          onLagChange={setAddPredLag}
-          onAdd={handleAddPred}
-          addLabel="Add predecessor"
-          relation="predecessor"
-        />
-        {programId && <CrossProjectSearchLink onClick={() => setCrossPickerMode('predecessor')} />}
+        {canWrite && (
+          <AddDepRow
+            availableTasks={availableAsPred}
+            selectedTaskId={addPredId}
+            selectedType={addPredType}
+            isPending={createDep.isPending}
+            onTaskChange={setAddPredId}
+            onTypeChange={setAddPredType}
+            lagText={addPredLag}
+            onLagChange={setAddPredLag}
+            onAdd={handleAddPred}
+            addLabel="Add predecessor"
+            relation="predecessor"
+          />
+        )}
+        {canWrite && programId && (
+          <CrossProjectSearchLink onClick={() => setCrossPickerMode('predecessor')} />
+        )}
       </section>
 
       <section aria-label="Successors">
@@ -171,23 +197,28 @@ export function DependenciesTab({
               relatedTask={tgtTask}
               onUpdate={(patch, opts) => updateDep.mutate({ id: link.id, ...patch }, opts)}
               onDelete={() => deleteDep.mutate(link.id)}
+              canWrite={canWrite}
             />
           );
         })}
-        <AddDepRow
-          availableTasks={availableAsSucc}
-          selectedTaskId={addSuccId}
-          selectedType={addSuccType}
-          isPending={createDep.isPending}
-          onTaskChange={setAddSuccId}
-          onTypeChange={setAddSuccType}
-          lagText={addSuccLag}
-          onLagChange={setAddSuccLag}
-          onAdd={handleAddSucc}
-          addLabel="Add successor"
-          relation="successor"
-        />
-        {programId && <CrossProjectSearchLink onClick={() => setCrossPickerMode('successor')} />}
+        {canWrite && (
+          <AddDepRow
+            availableTasks={availableAsSucc}
+            selectedTaskId={addSuccId}
+            selectedType={addSuccType}
+            isPending={createDep.isPending}
+            onTaskChange={setAddSuccId}
+            onTypeChange={setAddSuccType}
+            lagText={addSuccLag}
+            onLagChange={setAddSuccLag}
+            onAdd={handleAddSucc}
+            addLabel="Add successor"
+            relation="successor"
+          />
+        )}
+        {canWrite && programId && (
+          <CrossProjectSearchLink onClick={() => setCrossPickerMode('successor')} />
+        )}
       </section>
 
       {crossPickerMode && (
@@ -231,9 +262,11 @@ interface DepRowProps {
     opts?: { onError?: (err: unknown) => void },
   ) => void;
   onDelete: () => void;
+  /** See `DependenciesTabProps.canWrite`. False renders the row as text. */
+  canWrite: boolean;
 }
 
-function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
+function DepRow({ link, relatedTask, onUpdate, onDelete, canWrite }: DepRowProps) {
   const [rowError, setRowError] = useState<string | null>(null);
   const label = relatedTask.wbs ? `${relatedTask.wbs} — ${relatedTask.name}` : relatedTask.name;
 
@@ -243,63 +276,77 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
         <span className="flex-1 text-sm text-neutral-text-primary truncate" title={label}>
           {label}
         </span>
-        <select
-          value={link.type}
-          onChange={(e) => {
-            setRowError(null);
-            onUpdate(
-              { dep_type: e.target.value as LinkType },
-              {
-                onError: (err) => {
-                  const cycle = parseCyclicDependencyError(err);
-                  setRowError(
-                    cycle ? formatCycleMessage(cycle) : 'Couldn’t update dependency. Try again.',
-                  );
-                },
-              },
-            );
-          }}
-          aria-label={linkTypeFieldLabel(label)}
-          className="text-xs border border-neutral-border rounded-control px-1.5 py-1
-            bg-neutral-surface text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-        >
-          {DEP_TYPES.map((dt) => (
-            <option key={dt.value} value={dt.value}>
-              {dt.label}
-            </option>
-          ))}
-        </select>
-        <input
-          key={`${link.id}-lag-${link.lag}`}
-          type="number"
-          defaultValue={link.lag}
-          min={LAG_MIN_DAYS}
-          max={LAG_MAX_DAYS}
-          aria-label={lagFieldLabelFor(label)}
-          title={LAG_FIELD_HINT}
-          onBlur={(e) => {
-            const newLag = Number.parseInt(e.target.value, 10);
-            if (!Number.isNaN(newLag) && newLag !== link.lag) {
-              setRowError(null);
-              onUpdate({ lag: newLag });
-            }
-          }}
-          className="w-14 text-xs border border-neutral-border rounded-control px-1.5 py-1 text-center
-            bg-neutral-surface text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-        />
-        <span className="text-xs text-neutral-text-secondary shrink-0">{LAG_UNIT_SUFFIX}</span>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label={`Remove dependency on ${relatedTask.name}`}
-          className="w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-disabled
-            hover:text-semantic-critical
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-        >
-          ×
-        </button>
+        {!canWrite ? (
+          /* Read-only: the edge stays legible, but type, lag and delete are
+             absent rather than disabled (#3143). `link.lag` is suppressed at 0
+             so the common case reads as a bare relation type. */
+          <span className="text-xs text-neutral-text-secondary shrink-0">
+            {LINK_TYPE_PROSE_NAME[link.type] ?? link.type}
+            {link.lag !== 0 && ` · ${link.lag}${LAG_UNIT_SUFFIX}`}
+          </span>
+        ) : (
+          <>
+            <select
+              value={link.type}
+              onChange={(e) => {
+                setRowError(null);
+                onUpdate(
+                  { dep_type: e.target.value as LinkType },
+                  {
+                    onError: (err) => {
+                      const cycle = parseCyclicDependencyError(err);
+                      setRowError(
+                        cycle
+                          ? formatCycleMessage(cycle)
+                          : 'Couldn’t update dependency. Try again.',
+                      );
+                    },
+                  },
+                );
+              }}
+              aria-label={linkTypeFieldLabel(label)}
+              className="text-xs border border-neutral-border rounded-control px-1.5 py-1
+              bg-neutral-surface text-neutral-text-primary
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              {DEP_TYPES.map((dt) => (
+                <option key={dt.value} value={dt.value}>
+                  {dt.label}
+                </option>
+              ))}
+            </select>
+            <input
+              key={`${link.id}-lag-${link.lag}`}
+              type="number"
+              defaultValue={link.lag}
+              min={LAG_MIN_DAYS}
+              max={LAG_MAX_DAYS}
+              aria-label={lagFieldLabelFor(label)}
+              title={LAG_FIELD_HINT}
+              onBlur={(e) => {
+                const newLag = Number.parseInt(e.target.value, 10);
+                if (!Number.isNaN(newLag) && newLag !== link.lag) {
+                  setRowError(null);
+                  onUpdate({ lag: newLag });
+                }
+              }}
+              className="w-14 text-xs border border-neutral-border rounded-control px-1.5 py-1 text-center
+              bg-neutral-surface text-neutral-text-primary
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            />
+            <span className="text-xs text-neutral-text-secondary shrink-0">{LAG_UNIT_SUFFIX}</span>
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={`Remove dependency on ${relatedTask.name}`}
+              className="w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-disabled
+              hover:text-semantic-critical
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              ×
+            </button>
+          </>
+        )}
       </div>
       {rowError && (
         <span role="alert" className="block text-xs text-semantic-critical pb-1.5">
