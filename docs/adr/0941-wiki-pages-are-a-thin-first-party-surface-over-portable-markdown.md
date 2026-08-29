@@ -54,11 +54,16 @@ The Enterprise counterpart is **knowledge *governance*, not knowledge**, and it 
 the same mechanism-vs-governance line as SSO and as the agent pillars in ADR-0112: a
 team writing and reading its own documentation is OSS; org-wide retention policy,
 document classification and labeling, legal hold, cross-program documentation search,
-and an externally-notarized record of who read what belong in `trueppm-enterprise`. That
-work must be **filed there from the start** — CLAUDE.md's boundary rule makes the
-`enterprise` and `portfolio` labels invalid on an open OSS issue, and `boundary:check`
-reds `main` on one regardless of the issue's text. It is named here so the classification
-is on record; filing it is a follow-up this ADR does not perform.
+and an externally-notarized record of who read what belong in `trueppm-enterprise`, where
+it is filed as **EE#194**. Filing it there from the start is the boundary rule, not a
+preference — CLAUDE.md makes the `enterprise` and `portfolio` labels invalid on an open
+OSS issue, and `boundary:check` reds `main` on one regardless of the issue's text.
+
+One line of that counterpart points back at this ADR and must not be quietly reversed
+there: §9's exclusion of wiki pages from the MCP surface is an OSS **product** decision,
+not an artifact of the content being ungoverned. An org-governance overlay that exposes
+documentation to agents *because* it is now classified would defeat *computed, not
+guessed* at exactly the point this ADR protects it.
 
 ## Decision
 
