@@ -37,8 +37,24 @@ CHECKED_FILES=(
   ".env.example"
 )
 
+# Derive every anchor a page defines, one per line, on stdout.
+#
+# Deliberately a command substitution feeding a pure-bash match rather than a
+# `... | grep -qx` pipeline: `grep -q` exits the moment it matches, which SIGPIPEs
+# the upstream `sed` mid-write, and under `set -o pipefail` that 141 became the
+# pipeline's status — reporting a *present* anchor as missing. It only fired when
+# the match came early enough that sed still had output left to write, so it hit
+# anchors near the top of a long page and not the ones near the bottom, and the
+# outcome depended on pipe-buffer timing rather than on the input (#3190).
+page_anchors() {
+  sed -n 's/^#\{1,6\} \(.*\)$/\1/p' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/`//g; s/[^a-z0-9 -]//g; s/ /-/g'
+}
+
 run_check() {
   local root="$1" violations=0 links=0 file url path anchor md
+  local cached_md="" cached_anchors=""
 
   for file in "${CHECKED_FILES[@]}"; do
     [ -f "$root/$file" ] || { echo "ERROR: $file not found" >&2; return 2; }
@@ -58,14 +74,22 @@ run_check() {
         continue
       fi
       [ -n "$anchor" ] || continue
-      # Derive an anchor from every ATX heading and look for a match.
-      if ! sed -n 's/^#\{1,6\} \(.*\)$/\1/p' "$md" \
-        | tr '[:upper:]' '[:lower:]' \
-        | sed 's/`//g; s/[^a-z0-9 -]//g; s/ /-/g' \
-        | grep -qx -- "$anchor"; then
-        echo "VIOLATION: $file links to $url — the page exists, the anchor '#$anchor' does not"
-        violations=$((violations + 1))
+      # Anchors are derived per page and cached: the same page is linked many
+      # times, and re-deriving per link is what made the pipeline above hot
+      # enough for the SIGPIPE race to show.
+      if [ "$md" != "$cached_md" ]; then
+        cached_anchors="$(page_anchors "$md")"
+        cached_md="$md"
       fi
+      # Pure-bash membership test — no pipeline, so nothing can exit early and
+      # turn a found anchor into a signal.
+      case $'\n'"$cached_anchors"$'\n' in
+        *$'\n'"$anchor"$'\n'*) ;;
+        *)
+          echo "VIOLATION: $file links to $url — the page exists, the anchor '#$anchor' does not"
+          violations=$((violations + 1))
+          ;;
+      esac
     done < <(grep -oh "${SITE}[A-Za-z0-9/#_-]*" "$root/$file" || true)
   done
 
@@ -86,8 +110,16 @@ self_test() {
   trap "rm -rf '$tmp'" EXIT
   mkdir -p "$tmp/$DOCS_ROOT/administration" "$tmp/packages/helm"
 
-  printf '# Configuration\n\n## Object storage (S3 / MinIO)\n' \
-    > "$tmp/$DOCS_ROOT/administration/configuration.md"
+  # The FIRST heading is the one that matters: the anchor a link resolves to
+  # early in a long page is the case the old `grep -q` pipeline got wrong, so the
+  # fixture needs enough trailing headings that an early match leaves the
+  # upstream `sed` still writing. A three-line page cannot reproduce it — which
+  # is why the self-test passed while the real gate failed on real pages (#3190).
+  {
+    printf '# Configuration\n\n## Required in production\n'
+    for i in $(seq 1 200); do printf '\n## Filler section %s\n' "$i"; done
+    printf '\n## Object storage (S3 / MinIO)\n'
+  } > "$tmp/$DOCS_ROOT/administration/configuration.md"
 
   # Case 1: a good page + anchor must pass.
   printf '# %s/administration/configuration/#object-storage-s3--minio\n' "$SITE" \
@@ -95,6 +127,19 @@ self_test() {
   : > "$tmp/.env.example"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   [ "$status" -eq 0 ] || { echo "SELF-TEST FAIL: a valid link was rejected (exit $status)" >&2; return 1; }
+
+  # Case 1b: the same, but for an anchor at the TOP of the page. This is the
+  # regression: a present anchor reported missing because the match came early.
+  # Run it repeatedly — the old failure was a pipe-timing race, not a constant.
+  printf '# %s/administration/configuration/#required-in-production\n' "$SITE" \
+    > "$tmp/packages/helm/values.yaml"
+  for _ in 1 2 3 4 5; do
+    status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
+    [ "$status" -eq 0 ] || {
+      echo "SELF-TEST FAIL: a valid link to the page's FIRST heading was rejected (exit $status) — the SIGPIPE race is back (#3190)" >&2
+      return 1
+    }
+  done
 
   # Case 2: a missing anchor must fail.
   printf '# %s/administration/configuration/#no-such-section\n' "$SITE" \
@@ -112,7 +157,7 @@ self_test() {
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   [ "$status" -eq 2 ] || { echo "SELF-TEST FAIL: a missing config file exited $status, expected 2" >&2; return 1; }
 
-  echo "SELF-TEST OK: valid link accepted; missing anchor, missing page, and missing file all caught."
+  echo "SELF-TEST OK: valid link accepted (including a first-heading anchor, 5x); missing anchor, missing page, and missing file all caught."
 }
 
 case "${1:-}" in
