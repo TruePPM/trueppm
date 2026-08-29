@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import urllib.parse
+import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -290,6 +291,13 @@ def _media_root_write_failure(media_root: str | os.PathLike[str] | None) -> str 
     read-only mount, so it returns True on exactly the path that then raises
     EROFS. Missing parents are created — the chart mounts an empty PVC and Django
     would otherwise only create the tree on the first upload.
+
+    The probe file is per-process and its removal tolerates being already gone.
+    Six containers import these settings against ONE ReadWriteMany volume, and
+    they boot together: with a shared probe name, two of them interleaving
+    write/unlink leaves the loser's ``unlink`` raising ``FileNotFoundError`` —
+    an ``OSError``, which this function would report as "not writable" and the
+    boot guard would turn into a crash-loop on a perfectly good volume.
     """
     if media_root is None or str(media_root) == "":
         return "MEDIA_ROOT is empty, so uploads resolve against the process working directory"
@@ -301,9 +309,9 @@ def _media_root_write_failure(media_root: str | os.PathLike[str] | None) -> str 
         )
     try:
         path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".trueppm-write-probe"
+        probe = path / f".trueppm-write-probe-{os.getpid()}-{uuid.uuid4().hex}"
         probe.write_bytes(b"")
-        probe.unlink()
+        probe.unlink(missing_ok=True)
     except OSError as exc:
         return f"MEDIA_ROOT {str(path)!r} is not writable: {exc.strerror or exc}"
     return None

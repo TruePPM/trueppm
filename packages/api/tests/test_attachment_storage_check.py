@@ -8,10 +8,12 @@ system-check registry and an import-time guard in ``settings/prod.py``.
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 import pytest
 from django.core.checks import Error, registry
+from django.core.checks.messages import CheckMessage
 
 from trueppm_api.core.security_checks import (
     check_attachment_storage,
@@ -110,6 +112,42 @@ def test_opt_in_creates_a_missing_media_root(tmp_path: Path) -> None:
         validate_attachment_storage(_LOCAL, debug=False, allow_local=True, media_root=target) == []
     )
     assert target.is_dir()
+
+
+def test_concurrent_probes_do_not_report_a_good_volume_as_unwritable(
+    tmp_path: Path,
+) -> None:
+    """Six containers boot together against ONE ReadWriteMany volume.
+
+    With a shared probe filename, two interleaved write/unlink pairs leave the
+    loser's unlink raising FileNotFoundError — an OSError, which the guard would
+    report as "not writable" and crash-loop a perfectly good volume.
+    """
+    results: list[list[CheckMessage]] = []
+    barrier = threading.Barrier(8)
+
+    def probe() -> None:
+        barrier.wait()
+        for _ in range(25):
+            results.append(
+                validate_attachment_storage(
+                    _LOCAL, debug=False, allow_local=True, media_root=tmp_path
+                )
+            )
+
+    threads = [threading.Thread(target=probe) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert results, "no probes ran"
+    assert all(r == [] for r in results), (
+        f"{sum(1 for r in results if r)} of {len(results)} concurrent probes "
+        "reported a writable volume as unwritable"
+    )
+    # And nothing is left behind on the volume.
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_opt_in_with_empty_media_root_is_rejected() -> None:
