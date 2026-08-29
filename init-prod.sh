@@ -26,32 +26,8 @@ source .env
 set +a
 
 : "${DOMAIN:?Set DOMAIN=yourdomain.com in .env}"
-: "${SECRET_KEY:?Set SECRET_KEY to a long random string in .env}"
 : "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
 : "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}"
-
-# The :? checks above only assert non-empty, which the ".env.example" placeholder
-# satisfied — so catch the copy-paste here rather than letting the stack come up on a
-# documented credential. The API container enforces the same rule at import time
-# (validate_service_credentials, #3176); failing in the script gives the operator the
-# error at the point they can still fix it, instead of in a crash-looping container.
-for _cred in DB_PASSWORD REDIS_PASSWORD; do
-  _val="${!_cred}"
-  case "$(printf '%s' "${_val}" | tr '[:upper:]' '[:lower:]')" in
-    change-me|changeme|password|postgres|trueppm|secret)
-      echo "ERROR: ${_cred} is still the placeholder '${_val}'. Generate a real one:" >&2
-      echo "  python3 -c \"import secrets; print(secrets.token_urlsafe(32))\"" >&2
-      exit 1
-      ;;
-  esac
-  if (( ${#_val} < 12 )); then
-    echo "ERROR: ${_cred} is ${#_val} characters; minimum is 12." >&2
-    exit 1
-  fi
-done
-unset _cred _val
-
-TLS_MODE="${TLS_MODE:-letsencrypt}"
 
 # ---------------------------------------------------------------------------
 # .env helpers
@@ -83,6 +59,71 @@ remove_env_var_if() {
   rm -f "${tmp}"
   unset "${key}"
 }
+
+# ---------------------------------------------------------------------------
+# Reject documented placeholders, in every secret (#3176, #3187)
+# ---------------------------------------------------------------------------
+# The :? checks only assert non-empty, which a shipped placeholder satisfies — so
+# catch the copy-paste here rather than letting the stack come up on a credential
+# published in this repository. SECRET_KEY is the case that mattered most: the
+# placeholder .env.example used to ship was 56 characters and did not start with
+# "django-insecure-", so it cleared validate_secret_key AND validate_signing_key,
+# and JWT_SIGNING_KEY defaults to SECRET_KEY — a verbatim `cp .env.example .env`
+# produced a production install whose token-signing key was public.
+#
+# The API enforces the same rules at import time; failing here gives the operator
+# the error at the point they can still fix it, rather than in a crash-looping
+# container.
+reject_placeholder() {
+  local name="$1" value="$2" gen="$3" minlen="$4"
+  local lower
+  lower="$(printf '%s' "${value}" | tr '[:upper:]' '[:lower:]')"
+  case "${lower}" in
+    replace-with*|change-me*|changeme|password|postgres|trueppm|secret|django-insecure-*)
+      echo "ERROR: ${name} is still a placeholder ('${value}'). Generate a real one:" >&2
+      echo "  ${gen}" >&2
+      exit 1
+      ;;
+  esac
+  if (( ${#value} < minlen )); then
+    echo "ERROR: ${name} is ${#value} characters; minimum is ${minlen}." >&2
+    echo "  ${gen}" >&2
+    exit 1
+  fi
+}
+
+_TOKEN_GEN='python3 -c "import secrets; print(secrets.token_urlsafe(50))"'
+
+# SECRET_KEY is GENERATED when absent or empty, and only then. It is the one
+# secret here with no external coupling: rotating it invalidates sessions and
+# issued JWTs but nothing persisted, so minting one on first run is safe.
+# DB_PASSWORD and REDIS_PASSWORD are NOT generated for exactly that reason
+# inverted — by the time this script runs a second time the datastore volumes may
+# already hold the old credential, and silently minting a new one would lock the
+# stack out of its own database.
+if [[ -z "${SECRET_KEY:-}" ]]; then
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: SECRET_KEY is empty and python3 is not available to generate one." >&2
+    echo "  Set SECRET_KEY in .env to a long random string (at least 32 characters)." >&2
+    exit 1
+  fi
+  SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
+  upsert_env_var SECRET_KEY "${SECRET_KEY}"
+  echo "Generated SECRET_KEY and wrote it to .env (it was empty)."
+fi
+
+reject_placeholder SECRET_KEY "${SECRET_KEY}" "${_TOKEN_GEN}" 32
+# JWT_SIGNING_KEY is optional and defaults to SECRET_KEY; only check an explicit one.
+if [[ -n "${JWT_SIGNING_KEY:-}" ]]; then
+  reject_placeholder JWT_SIGNING_KEY "${JWT_SIGNING_KEY}" "${_TOKEN_GEN}" 32
+fi
+for _cred in DB_PASSWORD REDIS_PASSWORD; do
+  reject_placeholder "${_cred}" "${!_cred}" \
+    'python3 -c "import secrets; print(secrets.token_urlsafe(32))"' 12
+done
+unset _cred
+
+TLS_MODE="${TLS_MODE:-letsencrypt}"
 
 # ---------------------------------------------------------------------------
 # Validate TLS_MODE

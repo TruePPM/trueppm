@@ -535,7 +535,10 @@ Edit `.env` and fill in all required values:
 DOMAIN=trueppm.example.com
 TLS_MODE=letsencrypt
 CERTBOT_EMAIL=ops@example.com
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+# SECRET_KEY is left EMPTY here on purpose — init-prod.sh generates one and
+# writes it back to .env. Set it yourself only if you want to control the value;
+# it refuses any documented placeholder either way.
+SECRET_KEY=
 DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
 REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
 
