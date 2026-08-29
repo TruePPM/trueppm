@@ -207,11 +207,12 @@ log "admin password present (${#admin_pw} chars) — bootstrap wrote the shared 
 # in reach — no connection strings needed here. It must exit non-zero rather than
 # start with an insecure default.
 log "negative probe: api image without SECRET_KEY must refuse to start"
+# ALLOWED_HOSTS='*' is deliberate here, and only here: this throwaway pod must
+# fail on SECRET_KEY alone, so host validation is taken out of the picture. It
+# never serves a request (#3183).
 kubectl run secret-guard-probe \
   --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
   --env=DJANGO_SETTINGS_MODULE=trueppm_api.settings.prod \
-  `# '*' is deliberate here: this throwaway pod must fail on SECRET_KEY alone,`
-  `# so host validation is taken out of the picture (#3183).` \
   --env=ALLOWED_HOSTS='*' \
   --env=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
   --env=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true \
