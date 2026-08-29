@@ -61,14 +61,14 @@ test.describe('Calendar week view (#3167)', () => {
     page,
   }) => {
     await page.goto(url('week'));
-    // Gate on the grid having rendered its data, not just on the chrome (the
-    // calendar reads several endpoints; a bare control check races them).
-    await expect(page.getByRole('region', { name: /Calendar, week view/ })).toBeVisible({
+    // Gate on the window heading — it states the week, and it only resolves once
+    // the calendar's reads have landed. The grid landmark is deliberately named
+    // just "Calendar" (a stable identity, not a state readout), so it mounts
+    // before the data and cannot serve as the gate.
+    await expect(page.getByRole('heading', { level: 2, name: 'Mar 9 – 15, 2026' })).toBeVisible({
       timeout: 10_000,
     });
-
-    // The heading states the week, not the month.
-    await expect(page.getByRole('heading', { level: 2, name: 'Mar 9 – 15, 2026' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Calendar' })).toBeVisible();
 
     // All eight overlapping tasks are present — the lane cap is gone.
     for (let i = 0; i < 8; i++) {
@@ -85,11 +85,9 @@ test.describe('Calendar week view (#3167)', () => {
 
   test('Month still caps at four lanes — the cap is lifted for week only', async ({ page }) => {
     await page.goto(url('month'));
-    await expect(page.getByRole('region', { name: /Calendar, month view/ })).toBeVisible({
+    await expect(page.getByRole('heading', { level: 2, name: 'March 2026' })).toBeVisible({
       timeout: 10_000,
     });
-
-    await expect(page.getByRole('heading', { level: 2, name: 'March 2026' })).toBeVisible();
     // 8 overlapping tasks, 4 lanes → 4 hidden.
     await expect(page.getByText('+4 more')).toBeVisible();
     // The out-of-week task IS visible in month mode.
@@ -108,7 +106,6 @@ test.describe('Calendar week view (#3167)', () => {
       .click();
 
     await expect(page.getByRole('heading', { level: 2, name: 'Mar 9 – 15, 2026' })).toBeVisible();
-    await expect(page.getByRole('region', { name: /Calendar, week view/ })).toBeVisible();
     await expect(page.getByText('+4 more')).toHaveCount(0);
   });
 
@@ -118,7 +115,7 @@ test.describe('Calendar week view (#3167)', () => {
     // Anchor a week that no fixture task touches, while the project still has
     // tasks — so this is the empty-window path, not the empty-project path.
     await page.goto(`/projects/${PROJECT_ID}/calendar?calAnchor=2026-06-10&calView=week`);
-    await expect(page.getByRole('region', { name: /Calendar, week view/ })).toBeVisible({
+    await expect(page.getByRole('heading', { level: 2, name: 'Jun 8 – 14, 2026' })).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByText('No tasks in the week of Jun 8 – 14, 2026.')).toBeVisible();

@@ -241,6 +241,28 @@ describe('CalendarView week mode (#3167)', () => {
     });
     calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
     rerender(<CalendarView />);
+    // sampleTask spans May 5-8, which is outside the Apr 27 - May 3 week, so
+    // the emptiness of the window is folded into the same announcement rather
+    // than left to a second live region (web rule 354).
+    expect(
+      await screen.findByText('Week view, Apr 27 \u2013 May 3, 2026, no tasks'),
+    ).toBeInTheDocument();
+  });
+
+  it('announces without the no-tasks suffix when the window has work in it', async () => {
+    // A task inside the Apr 27 - May 3 week.
+    const inWeek: Task = {
+      ...sampleTask,
+      id: 'in-week',
+      start: '2026-04-29',
+      finish: '2026-04-30',
+    };
+    calendarTasksMock.mockReturnValue({ tasks: [inWeek], isLoading: false, error: null, refetch });
+    const { rerender } = renderWithProvidersAndRouter(<CalendarView />, {
+      initialEntries: ['/projects/proj-1?view=calendar'],
+    });
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    rerender(<CalendarView />);
     expect(await screen.findByText('Week view, Apr 27 \u2013 May 3, 2026')).toBeInTheDocument();
   });
 
@@ -257,5 +279,33 @@ describe('CalendarView week mode (#3167)', () => {
     expect(week).toHaveAttribute('aria-pressed', 'true');
     expect(week.className).toContain('bg-brand-primary');
     expect(week.className).not.toContain('bg-brand-primary/10');
+  });
+
+  it('announces the empty window on DESKTOP too, not only in the mobile list (rule 354)', async () => {
+    // The paired half of web rule 354: "this window holds no tasks" is one state
+    // rendered by two breakpoint-selected components. CalendarMobileList wraps
+    // its copy in role="status"; the desktop grid's hint is an absolutely
+    // positioned, pointer-events-none <p> that is decoration to a screen reader.
+    // The contract therefore lives on this surface's single permanent announcer.
+    // CalendarMobileList.test.tsx holds the mobile half.
+    const outsideWeek: Task = {
+      ...sampleTask,
+      id: 'outside',
+      start: '2026-05-20',
+      finish: '2026-05-22',
+    };
+    calendarTasksMock.mockReturnValue({
+      tasks: [outsideWeek],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    const { rerender } = renderWithProvidersAndRouter(<CalendarView />, {
+      initialEntries: ['/projects/proj-1?view=calendar'],
+    });
+    // Step to a week that holds none of the project's tasks.
+    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    rerender(<CalendarView />);
+    expect(await screen.findByText(/, no tasks$/)).toBeInTheDocument();
   });
 });

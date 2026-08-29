@@ -173,18 +173,46 @@ describe('CalendarGrid', () => {
   // Week view (#3167)
   // -------------------------------------------------------------------------
 
-  it('month mode renders byte-identically whether calView is omitted or explicit', () => {
-    // The load-bearing assertion of #3167: `calView` is an additive prop, so the
-    // default must collapse to exactly what this component rendered before it
-    // existed. If this drifts, month mode changed for every existing caller.
-    const tasks = [baseTask(), milestoneTask()];
-    const a = render(<CalendarGrid anchorIso={ANCHOR} tasks={tasks} onTaskClick={vi.fn()} />);
-    const omitted = a.container.innerHTML;
-    a.unmount();
-    const b = render(
+  it('the calView default is month — omitting the prop takes the month path', () => {
+    // NOTE ON WHAT THIS DOES AND DOES NOT PROVE. Comparing "omitted" against
+    // an explicit "month" would be a tautology: both resolve to the same
+    // default and take the same branch, so such a test cannot fail. What is
+    // worth pinning is that the default is *month and not week* — that IS
+    // falsifiable, and it is the property every pre-existing caller relies on.
+    // Month-mode rendering itself is pinned by the behavioral assertions below
+    // and by the suite that predates this change.
+    const { container } = render(
+      <CalendarGrid anchorIso={ANCHOR} tasks={[baseTask()]} onTaskClick={vi.fn()} />,
+    );
+    const rows = container.querySelectorAll('.divide-y > div');
+    expect(rows.length).toBeGreaterThan(1); // a week render would be exactly 1
+  });
+
+  it('month mode keeps its grid shape: multiple rows, dimmed out-of-month days, 4-lane cap', () => {
+    // The month-mode contract, asserted directly rather than by self-comparison.
+    // Each clause fails if month rendering regresses.
+    const tasks = Array.from({ length: 6 }, (_, i) =>
+      baseTask({
+        id: `t${i}`,
+        wbs: `1.${i}`,
+        name: `Task ${i}`,
+        start: '2026-05-04',
+        finish: '2026-05-08',
+      }),
+    );
+    const { container } = render(
       <CalendarGrid anchorIso={ANCHOR} calView="month" tasks={tasks} onTaskClick={vi.fn()} />,
     );
-    expect(b.container.innerHTML).toBe(omitted);
+    const rows = container.querySelector('.divide-y') as HTMLElement;
+
+    // 4-6 week rows for the anchored month.
+    expect(rows.querySelectorAll(':scope > div').length).toBeGreaterThanOrEqual(4);
+    // Neighbouring-month days are dimmed.
+    expect(rows.querySelectorAll('.bg-neutral-surface-sunken').length).toBeGreaterThan(0);
+    // The cap still applies: 6 overlapping tasks, 4 lanes, 2 hidden.
+    expect(screen.getByText('+2 more')).toBeInTheDocument();
+    // Fixed 4-lane row height, independent of task count.
+    expect((rows.querySelector(':scope > div') as HTMLElement).style.minHeight).toBe('120px');
   });
 
   it('week mode renders a single week row, month mode renders several', () => {
@@ -312,17 +340,21 @@ describe('CalendarGrid', () => {
     expect(monthRows.querySelectorAll('.bg-neutral-surface-sunken').length).toBeGreaterThan(0);
   });
 
-  it('names the rendered window for assistive tech', () => {
+  it('exposes the grid as a landmark whose name is stable across navigation', () => {
+    // A landmark name is an identity a screen-reader user navigates by, not a
+    // state readout — renaming it on every Prev/Next would churn the rotor
+    // entry. The volatile window lives in the toolbar heading and in
+    // CalendarView's live region instead.
     const { rerender } = render(
       <CalendarGrid anchorIso={ANCHOR} calView="month" tasks={[]} onTaskClick={vi.fn()} />,
     );
-    expect(
-      screen.getByRole('region', { name: 'Calendar, month view, May 2026' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Calendar' })).toBeInTheDocument();
     rerender(<CalendarGrid anchorIso={ANCHOR} calView="week" tasks={[]} onTaskClick={vi.fn()} />);
-    expect(
-      screen.getByRole('region', { name: 'Calendar, week view, Apr 27 \u2013 May 3, 2026' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Calendar' })).toBeInTheDocument();
+    rerender(
+      <CalendarGrid anchorIso="2026-09-14" calView="week" tasks={[]} onTaskClick={vi.fn()} />,
+    );
+    expect(screen.getByRole('region', { name: 'Calendar' })).toBeInTheDocument();
   });
 
   it('paints capped-row chips at their own lanes, not at a filtered index (#3167)', () => {

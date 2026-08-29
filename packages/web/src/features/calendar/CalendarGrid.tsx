@@ -27,7 +27,6 @@ import {
   isSameDay,
   buildChips,
   buildMilestoneMarks,
-  formatViewLabel,
   formatWindowNoun,
   type CalendarChipData,
   type CalViewMode,
@@ -212,9 +211,11 @@ export function CalendarGrid({
   // Below the `md` breakpoint the 7-column grid collapses to unusable ~60px
   // columns; render the documented date-grouped agenda list instead (#2161).
   const breakpoint = useBreakpoint();
-  // Names the window for AT: month and week are otherwise indistinguishable to a
-  // screen reader, since the only visual difference is row count (#3167).
-  const regionLabel = `Calendar, ${calView} view, ${formatViewLabel(parseUTCDate(anchorIso), calView)}`;
+  // A landmark's accessible name is an IDENTITY, not a state readout — renaming
+  // it on every Prev/Next would churn the rotor entry a user navigates by. The
+  // volatile window lives in the toolbar heading and in CalendarView's live
+  // region instead (#3167).
+  const regionLabel = 'Calendar';
 
   if (breakpoint === 'sm') {
     return (
@@ -316,6 +317,15 @@ export function CalendarGrid({
           // never below the month row's height so a quiet week doesn't collapse
           // into a strip. Month mode keeps the fixed 4-lane height.
           const laneCount = visibleChips.reduce((max, { lane }) => Math.max(max, lane + 1), 0);
+
+          // Count THIS row's milestones, not the whole window's. Identical today
+          // because week mode renders exactly one row — but only by coincidence
+          // of the loop having one iteration, which a future multi-week mode
+          // would silently break.
+          const weekMarkCount = days.reduce(
+            (n, _d, i) => n + (marksByWeekDay.get(`${wsIso}:${i}`)?.length ?? 0),
+            0,
+          );
           const rowMinHeight = isWeek
             ? Math.max(CELL_MIN_HEIGHT_PX, DATE_NUMBER_HEIGHT_PX + laneCount * LANE_HEIGHT_PX + 8)
             : CELL_MIN_HEIGHT_PX;
@@ -399,7 +409,7 @@ export function CalendarGrid({
                   stretched row reads as a failed render rather than as "nothing
                   scheduled" — so name it. Month mode needs no equivalent: 30
                   dated empty cells already say it. */}
-              {isWeek && visibleChips.length === 0 && allMarks.length === 0 && (
+              {isWeek && visibleChips.length === 0 && weekMarkCount === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <p className="text-sm text-neutral-text-secondary">
                     No tasks in {formatWindowNoun(anchor, calView)}.

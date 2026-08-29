@@ -23,7 +23,13 @@ import { Link } from 'react-router';
 import type { Task, TaskStatus } from '@/types';
 import { useCalendarFilter } from './useCalendarFilter';
 import { CalendarGrid } from './CalendarGrid';
-import { parseUTCDate, formatViewLabel, formatDayLabel } from './calendarUtils';
+import {
+  parseUTCDate,
+  formatViewLabel,
+  formatDayLabel,
+  buildChips,
+  buildMilestoneMarks,
+} from './calendarUtils';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -171,6 +177,18 @@ export function CalendarView() {
   // permanently and empty on first paint: a live region inserted together with
   // its own text is announced inconsistently across AT, and announcing on load
   // would narrate a view the user never changed.
+  //
+  // "This window holds no tasks" is one state rendered by two breakpoint-selected
+  // components — CalendarMobileList's role="status" below md, CalendarGrid's
+  // centered hint above it — and only the mobile one was announced. The contract
+  // belongs to the state, not to either renderer, so the emptiness is decided
+  // here and folded into this one announcer rather than given a second live
+  // region of its own (web rule 354).
+  const windowIsEmpty =
+    tasks.length > 0 &&
+    buildChips(tasks, anchor, calView).length === 0 &&
+    buildMilestoneMarks(tasks, anchor, calView).length === 0;
+
   const [announcement, setAnnouncement] = useState('');
   const firstRender = useRef(true);
   useEffect(() => {
@@ -179,8 +197,9 @@ export function CalendarView() {
       return;
     }
     const mode = calView === 'week' ? 'Week' : 'Month';
-    setAnnouncement(`${mode} view, ${formatViewLabel(parseUTCDate(anchorIso), calView)}`);
-  }, [calView, anchorIso]);
+    const window = formatViewLabel(parseUTCDate(anchorIso), calView);
+    setAnnouncement(`${mode} view, ${window}${windowIsEmpty ? ', no tasks' : ''}`);
+  }, [calView, anchorIso, windowIsEmpty]);
 
   // The clicked task is already loaded for chip rendering — resolve it by id
   // rather than re-fetching. Falls back to null if it scrolled out of the window.
@@ -263,7 +282,8 @@ export function CalendarView() {
               onClick={() => setCalView(mode)}
               className={`
                 border rounded h-7 px-3 text-xs font-medium capitalize
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface-raised
                 ${
                   calView === mode
                     ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
@@ -327,7 +347,7 @@ export function CalendarView() {
             className="h-full bg-neutral-surface"
             icon={CalendarIcon}
             title="No tasks yet"
-            description="Tasks with dates appear here across the month. Add your first task to get started."
+            description={`Tasks with dates appear here across the ${calView}. Add your first task to get started.`}
             action={
               canCreate && projectId ? (
                 <Button variant="primary" onClick={() => setShowAddForm(true)}>
