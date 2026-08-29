@@ -950,7 +950,12 @@ admin:
   # Path inside the container where the one-time password is written.
   # Must match the emptyDir mountPath in the deployment template.
   passwordFile: /run/trueppm/admin_password
-  # Admin email address (defaults to admin@trueppm.com if not set).
+  # Admin email address. SET THIS. Left empty the bootstrap falls back to
+  # admin@example.com — an RFC 2606 reserved domain that cannot receive mail, so
+  # password reset for the root account will not work and you will be recovering
+  # it through `manage.py changepassword` instead. The old fallback was
+  # admin@trueppm.com, a domain the vendor owns rather than you (#3175).
+  # NOTES.txt prints a warning when this is unset.
   email: ""
 
 # Public read-only demo mode (#2440, ADR-0658).

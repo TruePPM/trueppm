@@ -1,7 +1,19 @@
 ---
 title: Admin password setup
 description: Create, retrieve, and rotate the TruePPM admin password.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+Two details on this page are 0.4 behavior. On **0.3 and earlier** the bootstrap
+account defaults to `admin@trueppm.com` rather than `admin@example.com`, and
+`create_admin` prints no warning when it promotes an existing account. Everything
+else here — the password file, its permissions, retrieval, and rotation — is
+current on 0.3.
+
+If you are running 0.3 or earlier, set `DJANGO_SUPERUSER_EMAIL` explicitly before
+your first deploy; the default there is a domain you do not control.
+:::
 
 TruePPM ships a `create_admin` Django management command that bootstraps a superuser on first run. The default writes a securely-generated password to a file with `0o600` permissions so the credential never appears in container logs or log aggregators (CloudWatch, Datadog, etc.).
 
@@ -11,7 +23,9 @@ The api container runs `create_admin` automatically on startup (both in `docker 
 
 1. Checks whether any superuser already exists. If yes, it exits silently — re-deploys never overwrite a production password.
 2. Generates a URL-safe random password (16 bytes of entropy, about 22 characters), or honors `DJANGO_SUPERUSER_PASSWORD` if set.
-3. Creates the superuser with email `admin@trueppm.com` (or `DJANGO_SUPERUSER_EMAIL` if set), username `admin` (or the local part of the email).
+3. Creates the superuser with email `admin@example.com` (or `DJANGO_SUPERUSER_EMAIL` if set), username `admin` (or the local part of the email). The default is an RFC 2606 reserved domain and cannot receive mail, so set `DJANGO_SUPERUSER_EMAIL` before the first deploy or password reset for this account will not work.
+
+   If a **non-superuser** account already holds that address, it is promoted to superuser and its password is reset. The command prints a warning when it does this. Point `DJANGO_SUPERUSER_EMAIL` at an unused address if that is not what you want.
 4. Writes the password to `/tmp/trueppm_admin_password` with mode `0o600`.
 
 ## Retrieve the first-run password

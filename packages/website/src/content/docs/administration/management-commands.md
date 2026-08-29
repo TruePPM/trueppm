@@ -30,7 +30,7 @@ Configured entirely through environment variables:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DJANGO_SUPERUSER_EMAIL` | `admin@trueppm.com` | Admin email |
+| `DJANGO_SUPERUSER_EMAIL` | `admin@example.com` | Admin email. The default is a reserved domain and cannot receive mail — set it to an address you control. |
 | `DJANGO_SUPERUSER_USERNAME` | local part of the email | Admin username |
 | `DJANGO_SUPERUSER_PASSWORD` | secure random | Explicit password; if unset, a random one is generated |
 | `TRUEPPM_ADMIN_PASSWORD_FILE` | `/tmp/trueppm_admin_password` | Where the generated password is written (mode `0600`) |
