@@ -102,6 +102,20 @@ export interface UseScheduleCommitOptions {
 export interface UseScheduleCommitApi {
   state: ScheduleCommitState | null;
   isPending: boolean;
+  /**
+   * Commit a KEYBOARD reschedule (#3141) — `r`, arrows, Enter.
+   *
+   * The pointer path answers `drag-task-end` by opening the ADR-0067 popover,
+   * and Enter has already served as that confirmation, so the keyboard path
+   * must not open a second one. What it must NOT do is what it used to: set the
+   * drag store to `'committing'`, announce "Reschedule confirmed." and issue no
+   * PATCH at all. Same floor guard, same payload, same `onCommitSuccess` as the
+   * popover's confirm — only the confirmation gesture differs.
+   *
+   * Announces its own outcome, because the caller cannot know one: the mutation
+   * is async and the old code's unconditional announcement is the defect.
+   */
+  commitKeyboardReschedule: (taskId: string, newStartIso: string) => void;
   handleConfirm: () => void;
   handleCancel: () => void;
   handleDismissByOutsideClick: () => void;
@@ -433,6 +447,85 @@ export function useScheduleCommit({
     }
   }, [state, revertEngine, setScheduleActionToast, ariaAssertiveRef]);
 
+  /**
+   * See `UseScheduleCommitApi.commitKeyboardReschedule` (#3141).
+   *
+   * Deliberately reuses the popover's floor guard and payload rather than
+   * re-deriving them: the two paths reschedule the same task through the same
+   * endpoint, and the bug this fixes is precisely what happens when one of them
+   * grows its own half-implementation.
+   */
+  const commitKeyboardReschedule = useCallback(
+    (taskId: string, newStartIso: string) => {
+      if (!projectId) return;
+      const task = allTasksRef.current.find((t) => t.id === taskId);
+      if (!task) return;
+      if (newStartIso === task.start) return; // No net move — nothing to persist.
+
+      const proposed = computeRescheduleResize(newStartIso, task.duration);
+
+      // Project-start floor (#868) — same rule as the pointer path. A keyboard
+      // nudge below the floor opens the snap/move/cancel prompt instead of
+      // PATCHing, so the two paths cannot disagree about what is legal.
+      const floor = effectiveFloorDate ?? projectStartDate;
+      if (floor && proposed.newStart < floor) {
+        setBeforeStartPrompt({
+          taskId,
+          attemptedStart: proposed.newStart,
+          duration: task.duration,
+          projectStartDate: projectStartDate ?? floor,
+          effectiveFloorDate: floor,
+          revert: { start: task.start, finish: task.finish, duration: task.duration },
+          error: null,
+        });
+        if (ariaAssertiveRef.current) {
+          ariaAssertiveRef.current.textContent =
+            'This task would start before the project start date. Choose how to resolve it.';
+        }
+        return;
+      }
+
+      rescheduleTask.mutate(
+        {
+          id: taskId,
+          projectId,
+          planned_start: proposed.newStart,
+          optimistic: { start: proposed.newStart, finish: proposed.newFinish },
+        },
+        {
+          onSuccess: () => {
+            // Bumps `mcMutationVersion`, which the forecast-staleness signal
+            // rides — it was blind to keyboard reschedules for the same reason
+            // the PATCH was missing (#3140).
+            onCommitSuccess?.();
+            if (ariaAssertiveRef.current) {
+              ariaAssertiveRef.current.textContent = 'Reschedule confirmed.';
+            }
+          },
+          onError: (err) => {
+            // There is no popover to hold the error, so it goes to the schedule
+            // error surface and is ANNOUNCED — a keyboard user has no bar to
+            // look at, and silence here is how the original defect read.
+            const message = extractErrorMessage(err, "Couldn't save the change. Try again.");
+            setScheduleError(message);
+            if (ariaAssertiveRef.current) {
+              ariaAssertiveRef.current.textContent = `Reschedule failed. ${message}`;
+            }
+          },
+        },
+      );
+    },
+    [
+      projectId,
+      projectStartDate,
+      effectiveFloorDate,
+      rescheduleTask,
+      onCommitSuccess,
+      ariaAssertiveRef,
+      setScheduleError,
+    ],
+  );
+
   const handleConfirm = useCallback(() => {
     if (!state || !projectId) return;
     // Offline guard (rule 29): skip PATCH, revert preview, surface the toast.
@@ -648,6 +741,7 @@ export function useScheduleCommit({
   return {
     state,
     isPending: rescheduleTask.isPending,
+    commitKeyboardReschedule,
     handleConfirm,
     handleCancel,
     handleDismissByOutsideClick,

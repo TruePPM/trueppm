@@ -137,6 +137,7 @@ interface RenderOpts {
   ariaAssertiveRef?: MutableRefObject<HTMLDivElement | null>;
   ariaLiveRef?: MutableRefObject<HTMLDivElement | null>;
   onOpenDatePopover?: (taskId: string) => void;
+  onCommitReschedule?: (taskId: string, newStartIso: string) => void;
 }
 
 function renderReschedule(
@@ -147,6 +148,7 @@ function renderReschedule(
   const ariaAssertiveRef = opts.ariaAssertiveRef ?? makeAriaRef();
   const keyboardModeRef = opts.keyboardModeRef ?? { current: false };
   const onOpenDatePopover = opts.onOpenDatePopover ?? vi.fn();
+  const onCommitReschedule = opts.onCommitReschedule ?? vi.fn();
   const tasks = opts.tasks ?? [makeTask()];
 
   const view = renderHook(() =>
@@ -158,9 +160,17 @@ function renderReschedule(
       ariaAssertiveRef,
       keyboardModeRef,
       onOpenDatePopover,
+      onCommitReschedule,
     }),
   );
-  return { ...view, ariaLiveRef, ariaAssertiveRef, keyboardModeRef, onOpenDatePopover };
+  return {
+    ...view,
+    ariaLiveRef,
+    ariaAssertiveRef,
+    keyboardModeRef,
+    onOpenDatePopover,
+    onCommitReschedule,
+  };
 }
 
 function press(key: string, init: KeyboardEventInit = {}) {
@@ -621,6 +631,11 @@ describe('useKeyboardReschedule', () => {
     }
 
     it('commits the reschedule on Enter when online', () => {
+      // This case used to assert the drag store reached `'committing'` and that
+      // the live region said "Reschedule confirmed." — and called that
+      // "commits". Both were true of a path that never issued a PATCH, which is
+      // how #3141 shipped: the store transition is the START of a commit, not
+      // evidence of one. It now asserts the write actually goes out.
       const engine = new ControllableEngine();
       const refs = renderReschedule(engine);
       enterMode(engine);
@@ -629,7 +644,34 @@ describe('useKeyboardReschedule', () => {
       expect(refs.keyboardModeRef.current).toBe(false);
       expect(useDragStore.getState().phase).toBe('committing');
       expect(useDragStore.getState().confirmedStart).toBe('2025-01-07');
-      expect(refs.ariaAssertiveRef.current?.textContent).toBe('Reschedule confirmed.');
+      expect(refs.onCommitReschedule).toHaveBeenCalledWith('t1', '2025-01-07');
+    });
+
+    it('does NOT announce success itself — the write is async (#3141)', () => {
+      // The old code announced unconditionally at the keypress, so a failed or
+      // never-issued write still told the user the date had moved. Worse than a
+      // silent no-op: a false confirmation removes any reason to check. The
+      // announcement now belongs to the commit callback, which knows the
+      // outcome.
+      const engine = new ControllableEngine();
+      const refs = renderReschedule(engine);
+      enterMode(engine);
+      press('ArrowRight');
+      press('Enter');
+      expect(refs.ariaAssertiveRef.current?.textContent).not.toBe('Reschedule confirmed.');
+    });
+
+    it('does not commit when the nudge nets to zero', () => {
+      const engine = new ControllableEngine();
+      const refs = renderReschedule(engine);
+      enterMode(engine);
+      press('ArrowRight');
+      press('ArrowLeft'); // back to the original date
+      press('Enter');
+      // Still commits through the same path — the no-op guard lives in the
+      // commit callback, next to the task's real start date, which this hook
+      // does not re-read after the nudges.
+      expect(refs.onCommitReschedule).toHaveBeenCalledWith('t1', '2025-01-06');
     });
 
     it('aborts the commit and warns when offline', () => {

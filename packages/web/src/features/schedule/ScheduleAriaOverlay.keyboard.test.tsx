@@ -136,6 +136,7 @@ function Harness({
     ariaLiveRef,
     ariaAssertiveRef,
     keyboardModeRef,
+    onCommitReschedule: vi.fn(),
     // Mirrors ScheduleView: the surface-level answer, not the per-row one.
     authoringActive: authoring !== null,
     onOpenDatePopover: () => {},
