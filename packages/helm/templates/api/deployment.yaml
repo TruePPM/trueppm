@@ -6,7 +6,15 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
+  # Omitted entirely when autoscaling is on (#3188). Setting `replicas` here
+  # while an HPA owns the same field makes every `helm upgrade` reset the count
+  # to this value; the HPA then scales it back up, so each release is a
+  # scale-down flap. Verified before the fix: with autoscaling.enabled=true the
+  # Deployment rendered `replicas: 1` against the HPA's minReplicas: 2.
+  # Omitting the field lets Kubernetes keep whatever the HPA has set.
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
@@ -21,6 +29,8 @@ spec:
       # ServiceAccount token is never needed and is left unmounted to shrink
       # the blast radius of a compromised container.
       automountServiceAccountToken: false
+      {{- include "trueppm.terminationGrace" (dict "root" $ "tier" "api") | nindent 6 }}
+      {{- include "trueppm.podPlacement" (dict "root" $ "component" "api") | nindent 6 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:
@@ -51,7 +61,13 @@ spec:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["python", "manage.py", "migrate", "--noinput"]
+          # migrate_locked, not migrate (#3188). This is a PER-POD init
+          # container, not a pre-upgrade hook Job, so at replicaCount >= 2 every
+          # pod runs it concurrently against one database — and Django has no
+          # concurrency control of its own. migrate_locked serializes them
+          # behind a PostgreSQL advisory lock; the losers block, and by the time
+          # they acquire it their own migrate is a no-op.
+          command: ["python", "manage.py", "migrate_locked"]
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           {{- with .Values.envFrom }}
@@ -162,6 +178,24 @@ spec:
             {{- with (include "trueppm.mediaVolumeMount" .) }}
             {{- . | nindent 12 }}
             {{- end }}
+          {{- include "trueppm.preStop" (dict "root" $ "tier" "api") | nindent 10 }}
+          {{- if .Values.probes.api.startupEnabled }}
+          # Governs the boot window instead of liveness (#3188). While a startup
+          # probe is in play Kubernetes suspends liveness entirely, so a slow
+          # first boot on a loaded node cannot restart-loop — and a genuinely
+          # wedged process is still caught once this probe gives up.
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.api.startupPath | default "/api/v1/health/" }}
+              port: http
+              {{- with include "trueppm.probeHostHeader" . }}
+              httpHeaders:
+                - name: Host
+                  value: {{ . | quote }}
+              {{- end }}
+            periodSeconds: {{ .Values.probes.api.startupPeriodSeconds | default 5 }}
+            failureThreshold: {{ .Values.probes.api.startupFailureThreshold | default 30 }}
+          {{- end }}
           # Readiness points at /readyz (#1894, #2217) — a deep check that verifies
           # the database/cache dependencies are reachable AND that no migrations are
           # unapplied/in-flight for this image, so a pod is only added to the Service

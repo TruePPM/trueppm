@@ -7,7 +7,11 @@ metadata:
     app.kubernetes.io/component: celery-worker
 spec:
   # Celery workers are stateless; replica count is independent of the API tier.
+  # Same HPA interaction as the api tier — see #3188. The worker HPA is gated
+  # separately (autoscaling.worker.enabled), so both flags are consulted.
+  {{- if not (and .Values.autoscaling.enabled .Values.autoscaling.worker.enabled) }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
@@ -19,6 +23,8 @@ spec:
         app.kubernetes.io/component: celery-worker
     spec:
       automountServiceAccountToken: false
+      {{- include "trueppm.terminationGrace" (dict "root" $ "tier" "worker") | nindent 6 }}
+      {{- include "trueppm.podPlacement" (dict "root" $ "component" "celery-worker") | nindent 6 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:

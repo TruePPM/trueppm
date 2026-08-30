@@ -776,6 +776,96 @@ done
 echo "$BACKUP_CMD" | grep -q 'tar -czf "$STAGE/media.tar.gz".*|| true' \
   && fail "the CronJob's media tar swallows failure with '|| true' — it would ship an artifact whose MANIFEST claims media it does not carry (#3185)"
 
+# N+4. Placement knobs exist and reach every workload (#3188).
+#      values.schema.json closes the root with additionalProperties:false, so a
+#      missing knob is REJECTED rather than ignored — `--set
+#      imagePullSecrets[0].name=regcred` failed schema validation, which meant a
+#      private-registry / air-gapped install was impossible without forking the
+#      chart. Assert the four that were verified broken, then assert the render
+#      actually carries them: schema acceptance alone would pass with the
+#      templates never reading the values.
+place_checked=0
+for kv in "nodeSelector.disktype=ssd" "tolerations[0].key=x" "imagePullSecrets[0].name=regcred" "priorityClassName=high"; do
+  helm template trueppm "$CHART" --set image.tag=latest --set "$kv" >/dev/null 2>&1 \
+    || fail "--set $kv is rejected — the chart has no air-gapped/placement path (#3188)"
+  place_checked=$((place_checked + 1))
+done
+
+PLACE_RENDER="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set 'imagePullSecrets[0].name=regcred' \
+  --set priorityClassName=high \
+  --set nodeSelector.disktype=ssd \
+  --set 'topologySpreadConstraints[0].maxSkew=1' \
+  --set 'topologySpreadConstraints[0].topologyKey=kubernetes.io/hostname' \
+  --set 'topologySpreadConstraints[0].whenUnsatisfiable=ScheduleAnyway')"
+
+# Every Deployment must carry all four, AND its spread constraint's labelSelector
+# must name ITS OWN component. A global list applied verbatim would spread one
+# tier and silently no-op on the other three, which looks identical in a diff.
+place_workloads=0
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  name="${line%% *}"
+  comp="${line##* }"
+  [ "$comp" = "$(echo "$name" | sed 's/^trueppm-//')" ] \
+    || fail "$name's topologySpreadConstraints labelSelector names component '$comp', not its own tier — the constraint would spread the wrong pods (#3188)"
+  place_workloads=$((place_workloads + 1))
+done <<EOF
+$(echo "$PLACE_RENDER" | yq eval '
+  select(.kind == "Deployment")
+  | .metadata.name + " "
+    + (.spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels["app.kubernetes.io/component"] // "MISSING")
+' - | grep -v '^---$' | grep ' ')
+EOF
+[ "$place_workloads" -ge 4 ] \
+  || fail "only $place_workloads workloads carry topologySpreadConstraints, expected at least 4 (#3188)"
+
+# Captured into variables first: `grep -q` exits on its first match, which sends
+# SIGPIPE to yq, and under `set -o pipefail` that failure becomes the pipeline's
+# — a false FAIL on a render that is actually correct.
+place_pull="$(echo "$PLACE_RENDER" | yq eval 'select(.kind == "Deployment") | .spec.template.spec.imagePullSecrets[0].name' -)"
+case "$place_pull" in
+  *regcred*) ;;
+  *) fail "imagePullSecrets does not reach the rendered pod specs (#3188)" ;;
+esac
+place_prio="$(echo "$PLACE_RENDER" | yq eval 'select(.kind == "Deployment") | .spec.template.spec.priorityClassName' -)"
+case "$place_prio" in
+  *high*) ;;
+  *) fail "priorityClassName does not reach the rendered pod specs (#3188)" ;;
+esac
+
+# An HPA and a static `replicas` must never both own the same tier: every helm
+# upgrade would reset the count and the HPA would scale it back, a scale-down
+# flap per release.
+hpa_replicas="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set autoscaling.enabled=true --set autoscaling.worker.enabled=true \
+  | yq eval 'select(.kind == "Deployment") | .metadata.name + "=" + (.spec.replicas // "unset" | tostring)' - \
+  | grep -E 'api|celery-worker')"
+echo "$hpa_replicas" | grep -qv 'unset' && {
+  case "$hpa_replicas" in
+    *api=unset*) ;;
+    *) fail "the api Deployment still sets .spec.replicas while an HPA owns the tier (#3188): $hpa_replicas" ;;
+  esac
+  case "$hpa_replicas" in
+    *celery-worker=unset*) ;;
+    *) fail "the celery-worker Deployment still sets .spec.replicas while its HPA owns the tier (#3188): $hpa_replicas" ;;
+  esac
+}
+
+# The web tier must follow replicaCount, and must have a PDB. It shipped as a
+# truthy `1`, so its documented fallback could never fire and a values-prod
+# render was api=2 worker=2 web=1 with zero PodDisruptionBudgets.
+web_replicas="$(helm template trueppm "$CHART" --set image.tag=latest --set replicaCount=3 \
+  | yq eval 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.replicas' - | grep -v '^---$' | grep -v '^$')"
+[ "$web_replicas" = "3" ] \
+  || fail "web rendered $web_replicas replicas at replicaCount=3 — the documented fallback does not fire (#3188)"
+pdb_names="$(helm template trueppm "$CHART" --set image.tag=latest --set podDisruptionBudget.enabled=true \
+  | yq eval 'select(.kind == "PodDisruptionBudget") | .metadata.name' -)"
+case "$pdb_names" in
+  *trueppm-web*) ;;
+  *) fail "no PodDisruptionBudget for the web tier — the only tier a browser loads is the unprotected one (#3188)" ;;
+esac
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -796,3 +886,4 @@ echo "  - both api probes send Host: $ing_host (kubelet would otherwise send the
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"
+echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"

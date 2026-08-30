@@ -20,6 +20,32 @@ persistence:
   # Empty string uses the cluster default StorageClass.
   storageClass: ""
 
+# Eviction posture for the bundled database (#3188). A StatefulSet of one with no
+# PDB and no priority is the first thing a node drain evicts and the last thing
+# rescheduling brings back — and every other tier's readiness gates on it, so the
+# whole release goes down behind it.
+#
+# The PDB is maxUnavailable: 0, unlike the app tiers' maxUnavailable: 1. On a
+# single-replica stateful workload that is the point: it does not make the
+# database highly available (nothing here can), it makes a drain BLOCK and
+# surface as a stuck drain the operator can see and act on, rather than a
+# silent outage. `kubectl drain --disable-eviction` or deleting the PDB is the
+# deliberate override. Turn it off if you would rather drains never block.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 0
+
+# Set to a PriorityClass you have created (the subchart creates none — a chart
+# that mints a cluster-scoped PriorityClass steps on the cluster's own priority
+# budget). system-cluster-critical exists on every cluster but is generally
+# reserved for control-plane components; prefer your own class.
+priorityClassName: ""
+
+# Seconds Postgres gets to finish a checkpoint and shut down cleanly. The image's
+# default stop signal produces a FAST shutdown; the 30s Kubernetes default can
+# still cut a large checkpoint short and force crash recovery on next start.
+terminationGracePeriodSeconds: 120
+
 # Default resource requests/limits for the bundled dev/demo database. Tune for
 # your data volume; production should run a managed database (postgresql.enabled:
 # false) instead.

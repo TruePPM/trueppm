@@ -13,9 +13,15 @@ This page is written against **TruePPM 0.4**, the first beta, and parts of it ar
 - **The chart values it names** — `web.replicaCount`, `autoscaling.*`,
   `podDisruptionBudget.*`, `celeryWorker.concurrency` — ship in 0.4. On 0.3 the
   chart has none of them, and `replicaCount` is the only scaling knob.
+- **The web tier follows the top-level `replicaCount`** from 0.4. On 0.3 it is
+  pinned to a single pod and the documented fallback cannot fire, so plan for
+  one web pod.
+- **`topologySpreadConstraints`** is not accepted at all on 0.3 —
+  `values.schema.json` closes the root, so setting it fails schema validation.
+  Replicas may co-schedule onto one node.
 
 The bottleneck analysis, the concurrency arithmetic, and the PgBouncer guidance
-apply to 0.3 as well.
+apply to 0.3 as well. The hardware figures are unaffected.
 :::
 
 :::caution[Hardware sizing below is still a best-guess]
@@ -119,11 +125,27 @@ The Helm chart (`packages/helm/values.yaml`) ships these defaults:
 
 The key constraint to understand: uvicorn runs a **single worker per pod** — `packages/api/Dockerfile` sets `CMD ["uvicorn", …]` with no `--workers` flag and the chart does not override it — so on Kubernetes request throughput scales by **replica count and nothing else**. Celery concurrency is pinned by the chart at `celeryWorker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
 
+The **web** row was absent from this table until 0.4, and so was its redundancy:
+`web.replicaCount` shipped as a truthy `1`, which meant the fallback to the
+top-level `replicaCount` that `values.yaml` documented could never fire. A
+`values-prod.yaml` deploy rendered api=2, worker=2, **web=1**, with no
+PodDisruptionBudget on any tier — the only tier a browser actually loads was the
+unprotected singleton. It now follows `replicaCount` like the rest.
+
+:::caution[Replica counts alone are not redundancy]
+Two replicas can both be scheduled onto the same node, where a node failure
+takes 100% of the tier and a PodDisruptionBudget is never consulted. Set
+`topologySpreadConstraints` (0.4; `values-prod.yaml` ships one) so replicas
+spread across `kubernetes.io/hostname`, and give the cluster at least as many
+nodes as your largest replica count. Every "2 nodes" figure below assumes that.
+:::
+
 ## Sizing tiers
 
 | | 50 concurrent | 100 concurrent | 200 concurrent |
 |---|---|---|---|
 | API (uvicorn) replicas | 2 | 3 | 4–6 |
+| Web (nginx SPA) replicas | 2 | 2 | 2–3 |
 | Celery worker replicas | 1 (concurrency 2–4) | 2 (concurrency 4) | 3–4 (concurrency 4) |
 | API total CPU / RAM | ~1 vCPU / 2Gi | ~1.5 vCPU / 3Gi | ~3 vCPU / 6Gi |
 | Celery total CPU / RAM | ~1 vCPU / 2Gi | ~2 vCPU / 4Gi | ~4 vCPU / 8Gi |

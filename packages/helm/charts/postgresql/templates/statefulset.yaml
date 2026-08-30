@@ -19,6 +19,12 @@ spec:
       # ServiceAccount token is never needed and is left unmounted to shrink the
       # blast radius of a compromised container (matches the api/web deployments).
       automountServiceAccountToken: false
+      {{- with .Values.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ . }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
       # postgres image's `postgres` user is uid/gid 999; fsGroup makes the PVC
       # group-writable so the non-root process can initialise PGDATA.
       securityContext:

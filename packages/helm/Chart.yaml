@@ -4,6 +4,17 @@ description: TruePPM project scheduling platform
 type: application
 version: 0.4.0
 appVersion: "0.4.0"
+# Declared so `helm install` refuses a too-old cluster with a version message,
+# rather than applying and failing with an opaque "no matches for kind" (#3188).
+# 1.23 is the REAL floor, derived from the highest GA API this chart renders —
+# autoscaling/v2 (GA 1.23); batch/v1 CronJob and policy/v1 PodDisruptionBudget
+# are both 1.21. It is deliberately lower than the 1.27 the documentation
+# RECOMMENDS: this field's job is to reject what cannot work, not to enforce a
+# support policy. The `-0` suffix makes pre-release-tagged distributions
+# (1.23.0-gke.100, 1.23.0+k3s1) satisfy the constraint; without it semver
+# ordering puts every such version below 1.23.0 and the chart rejects the
+# clusters most self-hosters actually run.
+kubeVersion: ">= 1.23.0-0"
 # Dev/demo PostgreSQL + Valkey are vendored as first-party subcharts under
 # charts/ (official postgres / valkey-io images), replacing the deprecated
 # Bitnami subcharts (#827). file:// deps resolve from the committed charts/

@@ -19,6 +19,24 @@ persistence:
   size: 2Gi
   storageClass: ""
 
+# Memory ceiling and eviction policy (#3188). Neither was set, so Valkey grew
+# until the container hit its 1Gi limit and was OOMKilled — and because /readyz
+# gates on cache reachability, that is a full API outage, not a cache miss.
+#
+# `noeviction` is REQUIRED, not a preference (see /administration/observability/):
+# this instance is the Celery BROKER and the Channels layer, not only a cache.
+# Under `allkeys-lru` a memory-pressure event silently discards queued tasks and
+# in-flight WebSocket group state — data loss that looks like nothing at all.
+# With `noeviction` the write fails loudly instead, which is recoverable.
+#
+# maxmemory is set BELOW the container limit on purpose: Valkey accounts for its
+# own dataset, not for copy-on-write during AOF rewrite or for allocator
+# overhead, so a maxmemory equal to the limit still OOMKills. ~75% of
+# resources.limits.memory is the usual headroom. Keep the two in step if you
+# raise either.
+maxmemory: 768mb
+maxmemoryPolicy: noeviction
+
 resources:
   requests:
     cpu: 100m

@@ -1,14 +1,185 @@
-# Overrides for production deployment.
-# postgresql and valkey are managed externally (RDS, ElastiCache, MemoryDB, or a
-# managed Valkey service) and their connection details are injected via
-# Kubernetes Secrets / external-secrets.
+# ─────────────────────────────────────────────────────────────────────────────
+# PRODUCTION OVERLAY — a template, not a working configuration.
+#
+#   helm install trueppm packages/helm -n trueppm \
+#     -f packages/helm/values-prod.yaml \
+#     -f my-values.yaml            # your real hosts, secrets and sizing
+#
+# Every key marked REQUIRED below is present-but-empty. Fill them in a second
+# values file (or --set) rather than editing this one, so an upgrade of the
+# chart does not clobber your configuration.
+#
+# WHY THIS FILE IS LONG NOW (#3188): it used to be fourteen lines that set
+# replicaCount, disabled the two subcharts, and turned the Ingress on. That
+# inherited ingress.hosts[0].host = trueppm.example.com, ingress.tls = [] and
+# ingress.className = "", so it rendered an Ingress on a literal placeholder
+# host with NO tls block and NO ingressClassName — it neither routed nor
+# encrypted. values.yaml's own comment states the rule that broke: "LEAVE EMPTY
+# only for a dev/demo cluster — an empty list renders an HTTP-only Ingress,
+# which must never front production." A production operator also had to supply
+# eight more things with no hint here that they existed. values-demo.yaml was a
+# better operator document than the production one.
+#
+# YOU MUST SET, or the release does not work:
+#   env.DATABASE_URL / env.REDIS_URL   render FAILS without them (see below)
+#   envFrom                            SECRET_KEY, ALLOWED_HOSTS,
+#                                      INTEGRATION_ENCRYPTION_KEY, and the
+#                                      attachment-storage choice — all four
+#                                      crash-loop the migrate init container
+#   ingress.hosts[0].host / .tls / .className
+#   env.TRUEPPM_FRONTEND_BASE_URL      email deep-links are omitted without it
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Two API + two Celery worker pods. The web tier follows this automatically
+# (web.replicaCount is empty, which means "follow replicaCount"); beat stays a
+# pinned singleton by design — a second beat double-fires every periodic task.
 replicaCount: 2
 
+# ── Datastores ───────────────────────────────────────────────────────────────
+# The bundled subcharts are dev/demo only: single replica, small PVCs, and a
+# Valkey with no maxmemory policy. Production points at managed services.
 postgresql:
   enabled: false
-
 valkey:
   enabled: false
 
+env:
+  # REQUIRED. The render FAILS with a named error if either is missing.
+  #
+  # PREFERRED — a Secret you already manage. Nothing about the credential passes
+  # through Helm, so it is absent from your values file, your shell history, and
+  # your GitOps repo:
+  #   DATABASE_URL:
+  #     secretKeyRef: { name: trueppm-db, key: url }
+  #   REDIS_URL:
+  #     secretKeyRef: { name: trueppm-cache, key: url }
+  #
+  # Or a plain URL string, which the chart moves into its own Secret and injects
+  # by reference — it still never reaches a Deployment manifest, but it does
+  # pass through Helm.
+  #
+  # An external DATABASE_URL MUST carry sslmode=require; settings.prod refuses to
+  # boot on a plaintext external database.
+  #
+  # These two are deliberately ABSENT rather than present-but-empty, unlike the
+  # scalars elsewhere in this file. Each accepts EITHER a string OR a
+  # secretKeyRef map, and a declared `DATABASE_URL: ""` fixes the type: Helm then
+  # rejects `--set env.DATABASE_URL.secretKeyRef.name=…` with "interface
+  # conversion: interface {} is string, not map[string]interface {}" — blocking
+  # the very form recommended above. Absent, both forms work. The render fails
+  # with a named error if you set neither, so nothing is lost by leaving them out.
+
+  # Public origin of the web app. Without it, notification emails omit the task
+  # deep-links entirely — they still send, so this fails quietly.
+  #   TRUEPPM_FRONTEND_BASE_URL: "https://trueppm.example.com"
+  TRUEPPM_FRONTEND_BASE_URL: ""
+
+# REQUIRED. The four values settings.prod refuses to start without live here, in
+# a Secret you create — never in plaintext above. See packages/helm/README.md
+# → "Required secrets".
+#   kubectl create secret generic trueppm-env \
+#     --from-literal=SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')" \
+#     --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api \
+#     --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" \
+#     --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage \
+#     --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
+#
+# ALLOWED_HOSTS must cover every name a request arrives under, not just the
+# public one — the in-cluster Service name and the probe Host header included.
+# A miss is a 400 DisallowedHost that reads like a routing fault.
+#
+# envFrom is a LIST, so setting it in your own values file REPLACES this entry
+# rather than appending to it. Carry every source you need in the one place.
+envFrom: []
+#   - secretRef:
+#       name: trueppm-env
+
+# ── Ingress ──────────────────────────────────────────────────────────────────
 ingress:
   enabled: true
+  # REQUIRED. An empty className renders an Ingress no controller claims.
+  className: ""
+  # REQUIRED. Leaving the placeholder here routes nothing.
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+  # REQUIRED. An empty list renders an HTTP-only Ingress. Never front production
+  # with one.
+  tls: []
+  #   - secretName: trueppm-tls
+  #     hosts:
+  #       - trueppm.example.com
+  annotations: {}
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+  #   nginx.ingress.kubernetes.io/proxy-body-size: "110m"   # match the API's 100 MB cap
+
+# ── Availability ─────────────────────────────────────────────────────────────
+# A PDB bounds voluntary disruption (node drains, upgrades). It does NOT make
+# the tier redundant on its own — see topologySpreadConstraints below.
+podDisruptionBudget:
+  enabled: true
+
+# Without this, replicaCount: 2 plus a PDB protects nothing: both API pods can
+# land on the same node, a node failure takes 100% of the tier, and the budget
+# is never consulted. labelSelector is filled in per tier by the chart, so this
+# one constraint applies correctly to api, worker, beat, and web.
+#
+# ScheduleAnyway rather than DoNotSchedule: on a cluster with fewer nodes than
+# replicas, DoNotSchedule leaves the second replica Pending forever, which is a
+# worse outcome than an imperfect spread. Tighten it once you have the nodes.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+
+# Pull secret for a private or mirrored registry. REQUIRED for an air-gapped
+# install; leave empty when pulling from the public registry.
+imagePullSecrets: []
+#   - name: regcred
+
+# ── Autoscaling ──────────────────────────────────────────────────────────────
+# Off here on purpose. It needs metrics-server, and the worker HPA scales on CPU
+# — the wrong signal for a queue consumer blocked on BRPOP, which will not scale
+# out under backlog and can scale IN while tasks are queued (#3188). Enable the
+# API tier once metrics-server is installed; leave the worker on fixed replicas
+# with a pinned concurrency until queue-depth scaling exists.
+autoscaling:
+  enabled: false
+  worker:
+    enabled: false
+
+# ── Backups ──────────────────────────────────────────────────────────────────
+# Off by default and REQUIRES a destination once enabled — the chart refuses to
+# render an enabled backup with nowhere durable to write. Alerting on it needs
+# alerts.enabled and the Prometheus Operator CRDs.
+backup:
+  enabled: false
+  # persistence:
+  #   enabled: true
+  #   size: 20Gi
+  # s3:
+  #   enabled: true
+  #   bucket: trueppm-backups
+  #   existingSecret: trueppm-backup-s3
+
+# ── Attachments ──────────────────────────────────────────────────────────────
+# Object storage is the production answer above one node: put
+# TRUEPPM_DEFAULT_FILE_STORAGE and TRUEPPM_S3_BUCKET_NAME in the envFrom Secret
+# above. Local disk across a multi-replica API tier means an upload accepted by
+# one pod is a 404 from the next.
+
+# ── Observability ────────────────────────────────────────────────────────────
+# Both opt-in. alerts.enabled needs the Prometheus Operator CRDs installed;
+# observability.otlp.endpoint needs a Collector you run yourself.
+alerts:
+  enabled: false
+observability:
+  otlp:
+    endpoint: ""
+
+# ── Resources ────────────────────────────────────────────────────────────────
+# The chart defaults are conservative single-team values. Size against
+# /administration/sizing/ for your user count; they are a starting point, not a
+# recommendation for 100+ concurrent users.
