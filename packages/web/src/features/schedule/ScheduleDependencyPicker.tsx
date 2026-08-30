@@ -1,3 +1,4 @@
+import { ScopeTab, useDebouncedValue } from './pickerScope';
 import {
   DEFAULT_DEPENDENCY_DIRECTION,
   DEFAULT_LINK_TYPE,
@@ -347,11 +348,7 @@ export function ScheduleDependencyPicker({
 
   // Debounce the term feeding the program search so we don't fire a request per
   // keystroke; local (project-scope) filtering stays instant off `search`.
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 200);
-    return () => clearTimeout(t);
-  }, [search]);
+  const debouncedSearch = useDebouncedValue(search);
 
   const programSearch = useProgramTaskSearch(
     scope === 'program' ? programId : null,
@@ -942,35 +939,6 @@ export function ScheduleDependencyPicker({
   );
 }
 
-/** A single tab in the scope segmented control. tabIndex -1 keeps focus on the
- *  search input; the toggle is driven by click or the ←/→ window bindings. */
-function ScopeTab({
-  label,
-  selected,
-  onSelect,
-}: {
-  label: string;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      tabIndex={-1}
-      onClick={onSelect}
-      className={[
-        'h-7 rounded-control px-2 font-medium transition-colors',
-        selected
-          ? 'bg-brand-primary text-neutral-text-inverse'
-          : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  );
-}
 
 /** Program-scope result body: grouped rows, plus loading / empty / error states. */
 function ProgramResults({
