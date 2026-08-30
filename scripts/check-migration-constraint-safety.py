@@ -109,19 +109,26 @@ def _migration_class(tree: ast.Module) -> ast.ClassDef | None:
     return None
 
 
+def _names_attr(target: ast.expr, attr: str) -> bool:
+    """Does this assignment target bind the bare name ``attr``?"""
+    return isinstance(target, ast.Name) and target.id == attr
+
+
 def _assigned_list(cls: ast.ClassDef, attr: str) -> ast.List | None:
     for node in cls.body:
         if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == attr:
-                    return node.value if isinstance(node.value, ast.List) else None
-        elif isinstance(node, ast.AnnAssign):
-            target = node.target
-            if (
-                isinstance(target, ast.Name)
-                and target.id == attr
-                and isinstance(node.value, ast.List)
-            ):
+            if any(_names_attr(t, attr) for t in node.targets):
+                # A plain assignment settles it: a non-list value means there is
+                # no list to scan, and we stop rather than look for a later
+                # rebinding of the same name.
+                return node.value if isinstance(node.value, ast.List) else None
+        elif isinstance(node, ast.AnnAssign) and _names_attr(node.target, attr):
+            # An ANNOTATED assignment whose value is not a list falls through to
+            # the next statement instead of stopping. That asymmetry with the
+            # branch above is pre-existing and preserved deliberately — this
+            # refactor is shape-preserving, and `make pre-push` runs this gate on
+            # every push, so changing its answers is not in scope here.
+            if isinstance(node.value, ast.List):
                 return node.value
     return None
 
