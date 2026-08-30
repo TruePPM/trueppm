@@ -155,7 +155,6 @@ function renderCommit(
      *  in the currently rendered rows. */
     visibleTasks?: Task[];
     sprints?: ApiSprint[];
-    onCommitSuccess?: () => void;
     projectStartDate?: string | null;
     effectiveFloorDate?: string | null;
     /** Force a container ref whose `.current` is null (computeAnchor bails). */
@@ -197,7 +196,6 @@ function renderCommit(
         sprints,
         canvasContainerRef,
         ariaAssertiveRef,
-        onCommitSuccess: opts.onCommitSuccess,
       }),
     { wrapper: Wrapper },
   );
@@ -426,14 +424,18 @@ describe('useScheduleCommit', () => {
     expect(result.current.state?.activeSprintName).toBeNull();
   });
 
-  it('Confirm fires PATCH with planned_start and calls onCommitSuccess', async () => {
+  it('Confirm fires PATCH with planned_start and closes the popover', async () => {
+    // The success path used to also fire an `onCommitSuccess` callback whose only
+    // consumer was the forecast bar's session mutation counter. #3140 replaced that
+    // counter with a server-declared discriminant, so the callback had no caller left
+    // and was removed rather than left as a shipped option nothing reads.
     const engine = new ControllableEngine();
-    const onCommitSuccess = vi.fn();
-    const { result } = renderCommit(engine, { onCommitSuccess });
+    const { result } = renderCommit(engine);
     act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
     act(() => result.current.handleConfirm());
-    await waitFor(() => expect(onCommitSuccess).toHaveBeenCalled());
-    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' });
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' }),
+    );
     expect(result.current.state).toBeNull();
   });
 
@@ -444,15 +446,15 @@ describe('useScheduleCommit', () => {
   // which the pointer path alone emits.
   // -------------------------------------------------------------------------
 
-  it('commitKeyboardReschedule fires PATCH and calls onCommitSuccess (#3141)', async () => {
+  it('commitKeyboardReschedule fires PATCH (#3141)', async () => {
     const engine = new ControllableEngine();
-    const onCommitSuccess = vi.fn();
-    const { result } = renderCommit(engine, { onCommitSuccess });
+    const { result } = renderCommit(engine);
     act(() => result.current.commitKeyboardReschedule('t1', '2026-01-31'));
-    await waitFor(() => expect(onCommitSuccess).toHaveBeenCalled());
     // Same endpoint and same payload shape as the pointer path above — that is
     // the point of routing both through one function.
-    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' });
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' }),
+    );
   });
 
   it('commitKeyboardReschedule opens no popover — Enter already confirmed', () => {
@@ -485,14 +487,14 @@ describe('useScheduleCommit', () => {
 
   it('Confirm on resize PATCHes planned_finish, not duration (#951)', async () => {
     const engine = new ControllableEngine();
-    const onCommitSuccess = vi.fn();
-    const { result } = renderCommit(engine, { tasks: [TASK_WEEKEND], onCommitSuccess });
+    const { result } = renderCommit(engine, { tasks: [TASK_WEEKEND] });
     act(() => engine.emit('resize-task-end', { id: 'tw', right: 15, cancelled: false }));
     act(() => result.current.handleConfirm());
-    await waitFor(() => expect(onCommitSuccess).toHaveBeenCalled());
     // Server-authoritative: the client sends the dropped finish DATE; the API
     // derives the working-day duration from the project calendar (#951).
-    expect(patchMock).toHaveBeenCalledWith('/tasks/tw/', { planned_finish: '2026-01-15' });
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/tw/', { planned_finish: '2026-01-15' }),
+    );
   });
 
   it('Cancel reverts the engine and clears state without firing PATCH', () => {
@@ -1019,12 +1021,12 @@ describe('useScheduleCommit — missing aria-live region', () => {
 
   it('drag → confirm still PATCHes with no live region mounted', async () => {
     const engine = new ControllableEngine();
-    const onCommitSuccess = vi.fn();
-    const { result } = renderCommit(engine, { nullAria: true, onCommitSuccess });
+    const { result } = renderCommit(engine, { nullAria: true });
     act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
     act(() => result.current.handleConfirm());
-    await waitFor(() => expect(onCommitSuccess).toHaveBeenCalled());
-    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' });
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' }),
+    );
   });
 
   it('before-start prompt → snap → cancel all work with no live region mounted', async () => {

@@ -3010,14 +3010,16 @@ describe('useProjectWebSocket — Overview rollup invalidation (#2912)', () => {
   const originalWebSocket = globalThis.WebSocket;
   let qc: QueryClient;
 
-  // The four server-computed keys the Overview page reads. `monte-carlo-latest` is
-  // deliberately absent: it serves the cached result of the last simulation, which no
-  // broadcast event reports, so there is nothing to hook it to.
+  // The five server-computed keys the Overview page reads. `monte-carlo-latest` was
+  // deliberately absent until #3140, on the grounds that a task edit would re-fetch an
+  // identical row; the payload now carries a per-response staleness discriminant, so
+  // the row differs and the forecast bar's Rerun action depends on it being refreshed.
   const OVERVIEW_KEYS = [
     'project-overview',
     'project-attention',
     'project-my-tasks',
     'cp-tasks',
+    'monte-carlo-latest',
   ] as const;
 
   beforeEach(() => {
@@ -3136,16 +3138,35 @@ describe('useProjectWebSocket — Overview rollup invalidation (#2912)', () => {
     expect(overviewCalls).toHaveLength(1);
   });
 
-  it('does not invalidate monte-carlo-latest, which no event reports', () => {
-    // Pinning the deliberate omission so it reads as a decision rather than an
-    // oversight: the endpoint serves the cached result of the last simulation, and
-    // invalidating it on a task edit would re-fetch the identical row.
+  it('invalidates monte-carlo-latest, whose staleness verdict every event moves (#3140)', () => {
+    // The inverse of the pin this replaces. Until #3140 the forecast payload was a
+    // function of the last simulation alone, so refetching it on a task edit returned
+    // an identical row. It is now also a function of the project's live sync version
+    // and last recalc, and the forecast bar gates its Rerun *action* on that field —
+    // so NOT invalidating here is the difference between the user having the recompute
+    // affordance after an edit and not having it.
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
     dispatch('task_created');
     flushDebounce();
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
+  });
+
+  it('invalidates monte-carlo-latest on the EDITOR\'s own edit too, not just a collaborator\'s', () => {
+    // Web rule 331(a): self-echo suppression exists because the editing client already
+    // applied its own row change optimistically. Nobody optimistically recomputes a
+    // server-side classification, so suppressing it here would leave the editor's own
+    // Rerun button missing after their own edit — the defect surviving its fix and
+    // moving one user over.
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_updated', { id: 'task-1', actor_id: 'me', version: 5 });
+    flushDebounce();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
   });
 });

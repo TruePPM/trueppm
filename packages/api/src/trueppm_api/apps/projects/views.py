@@ -11136,6 +11136,12 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
     otherwise read as carrying no schedule risk.  See
     ``scheduling.risk_premium.build_risk_premium``.
 
+    ``forecast_staleness`` / ``plan_version`` / ``plan_version_current`` answer the
+    adjacent question the premium does not: whether that run still describes the current
+    plan at all (#3140).  Carried here as well as on the Monte Carlo payload so a health
+    read and a forecast read cannot report opposite trustworthiness for one run.  See
+    ``scheduling.forecast_staleness``.
+
     Performance target: ≤ 200 ms at p95 for 500 tasks.  Implemented using
     a single annotated queryset per metric; no N+1 queries.
 
@@ -11169,6 +11175,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                             "risk_premium_as_of": "2026-07-27T09:12:00Z",
                             "risk_premium_reason": None,
                             "risk_premium_state": "premium",
+                            "forecast_staleness": "project_changed",
+                            "plan_version": 412,
+                            "plan_version_current": 419,
                             "tasks_late_count": 2,
                             "critical_task_count": 7,
                             "total_tasks": 48,
@@ -11302,22 +11311,37 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         # health reads, rollups — can reach it without running a simulation
         # (#2483). One indexed row; `.only()` because the persisted distribution
         # on the same table can be hundreds of KB and nothing here reads it.
+        from trueppm_api.apps.scheduling.forecast_staleness import forecast_staleness_from_run
         from trueppm_api.apps.scheduling.models import MonteCarloRun
         from trueppm_api.apps.scheduling.risk_premium import build_risk_premium
 
         latest_run = (
             MonteCarloRun.objects.filter(project=project)
-            .only("p80", "cpm_finish", "taken_at", "diagnostic")
+            .only("p80", "cpm_finish", "taken_at", "diagnostic", "plan_version")
             .order_by("-taken_at")
             .first()
         )
         risk_premium = build_risk_premium(latest_run, today=today)
+        # Promoted here for the same reason the premium is (#3140): this endpoint is
+        # what cards, MCP health reads and rollups consult instead of running a
+        # simulation, so if the discriminant lived only on `/monte-carlo/latest/`,
+        # `get_project` would report a forecast as trustworthy at the same moment
+        # `get_monte_carlo_forecast` reported the same run as stale. Two tools, one run,
+        # opposite answers is worse than either answer alone. Same row, same already
+        # loaded project — no extra query.
+        staleness = forecast_staleness_from_run(
+            latest_run,
+            plan_version_current=project.last_sync_version,
+            recalculated_at=project.recalculated_at,
+            today=today,
+        )
 
         return Response(
             {
                 "schedule_health": health,
                 "spi": spi,
                 **risk_premium,
+                **staleness,
                 "tasks_late_count": tasks_late,
                 "critical_task_count": critical_count,
                 "total_tasks": total,

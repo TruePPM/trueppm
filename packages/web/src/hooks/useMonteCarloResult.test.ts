@@ -88,6 +88,9 @@ describe('useMonteCarloResult', () => {
         { taskId: 't3', index: 0.91 },
         { taskId: 't5', index: 0.74 },
       ],
+      forecastStaleness: 'unknown',
+      planVersion: null,
+      planVersionCurrent: null,
     });
     expect(result.current.error).toBeNull();
   });
@@ -331,6 +334,9 @@ describe('useMonteCarloResult', () => {
       deltaVsCpm: { p50: null, p80: null, p95: null },
       confidenceCurve: [],
       sensitivity: [],
+      forecastStaleness: 'unknown',
+      planVersion: null,
+      planVersionCurrent: null,
     });
     expect(result.current.error).toBeNull();
   });
@@ -466,5 +472,62 @@ describe('useMonteCarloResult risk premium', () => {
     await waitFor(() => expect(result.current.data).toBeDefined());
 
     expect(result.current.data?.riskPremium).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Forecast staleness (#3140) — the server-declared "does this still describe
+  // the current plan?" discriminant that replaced a session-local counter.
+  // -------------------------------------------------------------------------
+
+  it.each([
+    ['current', 'current'],
+    ['project_changed', 'projectChanged'],
+    ['aged', 'aged'],
+    ['unknown', 'unknown'],
+  ])('maps forecast_staleness %s to %s', async (wire, mapped) => {
+    getMock.mockResolvedValueOnce({
+      data: { ...WIRE, forecast_staleness: wire, plan_version: 412, plan_version_current: 419 },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.forecastStaleness).toBe(mapped);
+    expect(result.current.data?.planVersion).toBe(412);
+    expect(result.current.data?.planVersionCurrent).toBe(419);
+  });
+
+  it('maps an ABSENT forecast_staleness to `unknown`, never `current`', async () => {
+    // The direction of this default is the whole fix. The forecast bar gates the
+    // Rerun ACTION on this value, so defaulting to `current` would hide the button
+    // exactly when the client is least able to justify hiding it — the session-counter
+    // defect wearing different clothes. Flip the default and this fails.
+    getMock.mockResolvedValueOnce({ data: WIRE });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.forecastStaleness).toBe('unknown');
+    expect(result.current.data?.planVersion).toBeNull();
+    expect(result.current.data?.planVersionCurrent).toBeNull();
+  });
+
+  it('maps an unrecognized forecast_staleness to `unknown` rather than passing it through', async () => {
+    // A server newer than this client must not be able to inject a value the bar's
+    // switch does not handle; falling through to `unknown` keeps the action reachable.
+    getMock.mockResolvedValueOnce({
+      data: { ...WIRE, forecast_staleness: 'something_new' },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.forecastStaleness).toBe('unknown');
   });
 });

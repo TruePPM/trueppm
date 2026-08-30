@@ -418,6 +418,16 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
         // keeps the shell's added-time row on the same code path it takes in
         // production instead of the absent-key fallback.
         risk_premium_state: 'not_run',
+        // Likewise for forecast freshness (#3140): the server states it on every
+        // branch and never omits the key. `current` is the value that withholds the
+        // forecast bar's Rerun button, so stating it keeps every spec that merely
+        // *passes through* the Schedule view on the same rendering path production
+        // takes. Omitting it would map to `unknown` — correctly, since a client that
+        // cannot tell must not claim the forecast is fine — and quietly add a Rerun
+        // button to ~90 specs that never mention forecasting.
+        forecast_staleness: 'current',
+        plan_version: 1,
+        plan_version_current: 1,
         risk_premium_days: null,
         risk_premium_ratio: null,
         risk_premium_band: null,

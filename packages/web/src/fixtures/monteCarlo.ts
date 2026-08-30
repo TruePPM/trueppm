@@ -11,6 +11,12 @@ import type { MonteCarloResult } from '@/types';
 export const FIXTURE_MC_RESULT: MonteCarloResult = {
   projectId: 'proj-1',
   runs: 1000,
+  // The server states freshness explicitly on every branch (#3140); `current` matches
+  // this fixture's "a run that just happened" framing and keeps consumers on the same
+  // code path production takes rather than the absent-key fallback.
+  forecastStaleness: 'current',
+  planVersion: 412,
+  planVersionCurrent: 412,
   p50: '2026-10-05',
   p80: '2026-11-03',
   p95: '2026-11-30',

@@ -1,7 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { apiClient } from '@/api/client';
-import type { AddedTimeFacts, ForecastReason, MonteCarloResult } from '@/types';
+import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import type {
+  AddedTimeFacts,
+  ForecastReason,
+  ForecastStaleness,
+  MonteCarloResult,
+} from '@/types';
 import { mapForecastDiagnostic, type ForecastDiagnosticWire } from '@/lib/forecastFlatMessage';
 
 export interface UseMonteCarloResultReturn {
@@ -61,6 +67,35 @@ interface MonteCarloLatestResponse {
   risk_premium_reason?: ForecastReason | null;
   risk_premium_cpm_finish?: string | null;
   risk_premium_p80?: string | null;
+  // Whether this run still describes the current plan (#3140). The server states it on
+  // every branch and never sends null, so `undefined` here means only one thing: a
+  // payload from before this shipped. Optional for that reason alone — it is NOT a
+  // signal the client is allowed to interpret as "fine".
+  forecast_staleness?: 'current' | 'project_changed' | 'aged' | 'unknown';
+  plan_version?: number | null;
+  plan_version_current?: number | null;
+}
+
+/**
+ * Map the wire discriminant, defaulting an absent key to `'unknown'` — never `'current'`.
+ *
+ * The direction of this default is the whole fix (#3140). The bar gates the *Rerun
+ * action* on this value, so a default of `'current'` would hide the recompute button
+ * exactly when the client is least able to justify hiding it, which is the session-counter
+ * defect wearing different clothes. `'unknown'` keeps the action reachable and, because
+ * the bar renders it without a staleness claim, costs nothing but a button.
+ */
+function mapStaleness(wire: MonteCarloLatestResponse['forecast_staleness']): ForecastStaleness {
+  switch (wire) {
+    case 'current':
+      return 'current';
+    case 'project_changed':
+      return 'projectChanged';
+    case 'aged':
+      return 'aged';
+    default:
+      return 'unknown';
+  }
 }
 
 /**
@@ -131,6 +166,9 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     sensitivity: (api.sensitivity ?? []).map((s) => ({ taskId: s.task_id, index: s.index })),
     forecastDiagnostic: mapForecastDiagnostic(api.forecast_diagnostic),
     riskPremium: pickRiskPremium(api),
+    forecastStaleness: mapStaleness(api.forecast_staleness),
+    planVersion: api.plan_version ?? null,
+    planVersionCurrent: api.plan_version_current ?? null,
   };
 }
 
@@ -144,6 +182,18 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
  * "not run yet" placeholder without an error toast.
  */
 export function useMonteCarloResult(projectId?: string): UseMonteCarloResultReturn {
+  // Fallback polling for the staleness verdict (#3140), gated exactly the way
+  // `useScheduleTasks` gates its own: while the socket is `live`,
+  // `useProjectWebSocket` invalidates `monte-carlo-latest` on every task and
+  // dependency event, so a poll would be pure waste. While it is down, nothing
+  // else tells this query the plan moved — and since the forecast bar gates its
+  // Rerun *action* on the verdict, a dead socket would otherwise leave the user
+  // without the recompute affordance until they navigated or reloaded. That is the
+  // defect #3140 exists to remove, so it must not survive as a transport-dependent
+  // special case.
+  const wsState = useWsConnectionStore((s) => s.state);
+  const fallbackInterval = wsState === 'live' ? (false as const) : 30_000;
+
   const query = useQuery({
     queryKey: ['monte-carlo-latest', projectId],
     queryFn: async () => {
@@ -163,6 +213,7 @@ export function useMonteCarloResult(projectId?: string): UseMonteCarloResultRetu
       }
     },
     enabled: !!projectId,
+    refetchInterval: fallbackInterval,
   });
 
   return {

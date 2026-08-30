@@ -615,6 +615,113 @@ async def test_monte_carlo_forecast_attaches_compact_why(settings: Settings) -> 
     assert why["see_also"].startswith("get_schedule_derivation")
 
 
+async def test_monte_carlo_why_leads_with_staleness_when_the_plan_moved(
+    settings: Settings,
+) -> None:
+    """A superseded run says so INSIDE the explanation, not only in a sibling key.
+
+    The `why` is the sentence a model actually reads (ADR-0368), so a caveat parked
+    beside it can be skipped. It is prepended rather than appended for the same reason.
+    """
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json(
+            {
+                "p50": "2026-09-01",
+                "p80": "2026-09-15",
+                "cpm_finish": "2026-08-20",
+                "delta_vs_cpm": {"p80": 18},
+                "forecast_staleness": "project_changed",
+                "plan_version": 412,
+                "plan_version_current": 419,
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    why = result["why"]
+    assert why["forecast_staleness"] == "project_changed"
+    assert why["explanation"].startswith("This forecast: this forecast was computed against")
+    assert "412" in why["explanation"] and "419" in why["explanation"]
+    # The counter advances on any write, so the sentence must not claim a date moved.
+    assert "plan changed" not in why["explanation"]
+
+
+async def test_monte_carlo_why_says_nothing_about_staleness_when_current(
+    settings: Settings,
+) -> None:
+    """The pair for the test above — without it, a build that always prepends passes."""
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json(
+            {
+                "p50": "2026-09-01",
+                "p80": "2026-09-15",
+                "cpm_finish": "2026-08-20",
+                "delta_vs_cpm": {"p80": 18},
+                "forecast_staleness": "current",
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    assert "forecast_staleness" not in result["why"]
+    assert "rerun" not in result["why"]["explanation"]
+
+
+async def test_monte_carlo_why_explains_an_unplaceable_run_rather_than_dropping_it(
+    settings: Settings,
+) -> None:
+    """`unknown` must be self-describing.
+
+    `_compact_mapping` drops null values, so a null `plan_version` vanishes from the
+    payload and a bare "unknown" would be indistinguishable from a server too old to
+    send the field. The sentence is what carries it.
+    """
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json(
+            {
+                "p50": "2026-09-01",
+                "p80": "2026-09-15",
+                "cpm_finish": "2026-08-20",
+                "delta_vs_cpm": {"p80": 18},
+                "forecast_staleness": "unknown",
+                "plan_version": None,
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    assert "plan_version" not in result
+    assert "predates plan-version recording" in result["why"]["explanation"]
+
+
+async def test_monte_carlo_why_does_not_interpolate_an_unrecognized_verdict(
+    settings: Settings,
+) -> None:
+    """A server newer than this client still gets the caveat — with no interpolation.
+
+    `explanation` sits outside `_TEXT_FIELDS`, so it is neither truncated nor wrapped in
+    the untrusted-content markers; echoing an unvalidated server string into it would put
+    unbounded server-controlled text into LLM-facing framing.
+    """
+    hostile = "x" * 500
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json(
+            {
+                "p50": "2026-09-01",
+                "p80": "2026-09-15",
+                "cpm_finish": "2026-08-20",
+                "delta_vs_cpm": {"p80": 18},
+                "forecast_staleness": hostile,
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    why = result["why"]
+    assert hostile not in why["explanation"]
+    assert "not reported as current" in why["explanation"]
+
+
 async def test_monte_carlo_forecast_omits_why_without_derivation_inputs(settings: Settings) -> None:
     """A legacy/bare run (no cpm_finish, delta, or sensitivity) gets no ``why``.
 

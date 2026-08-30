@@ -107,4 +107,34 @@ describe('MonteCarloSheet', () => {
     // would point at the screen this sheet was opened from.
     expect(within(card).getByRole('link', { name: /add estimates/i })).toBeInTheDocument();
   });
+
+  it('offers the rerun remedy when the SERVER says the plan moved, not only on age (#3140)', () => {
+    // The sheet is the only rerun path a phone user has. `risk_premium_state`'s
+    // `stale` is age-only, so before #3140 a plan edited five minutes ago left the
+    // desktop bar offering Rerun while this sheet dead-ended. Drop
+    // `forecastStaleness` from the condition and this fails.
+    const onClose = vi.fn();
+    renderWithRouter(
+      <MonteCarloSheet
+        result={{ ...FIXTURE_MC_RESULT, forecastStaleness: 'projectChanged' }}
+        onClose={onClose}
+      />,
+    );
+    const card = screen.getByRole('region', { name: /added time vs computed finish/i });
+    expect(within(card).getByRole('link', { name: /re-run forecast/i })).toBeInTheDocument();
+  });
+
+  it('withholds the rerun remedy while the server reports the forecast current', () => {
+    // The other half of the pair — without this the test above passes on a build
+    // that simply always shows the link.
+    const onClose = vi.fn();
+    renderWithRouter(
+      <MonteCarloSheet
+        result={{ ...FIXTURE_MC_RESULT, forecastStaleness: 'current' }}
+        onClose={onClose}
+      />,
+    );
+    const card = screen.getByRole('region', { name: /added time vs computed finish/i });
+    expect(within(card).queryByRole('link', { name: /re-run forecast/i })).not.toBeInTheDocument();
+  });
 });

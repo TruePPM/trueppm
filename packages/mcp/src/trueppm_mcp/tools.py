@@ -197,6 +197,56 @@ def _list_result(
 _DERIVATION_TOOL = "get_schedule_derivation"
 
 
+def _staleness_segment(staleness: str, payload: Mapping[str, Any]) -> str:
+    """One sentence fragment saying how far this run has drifted from the plan (#3140).
+
+    Every branch states what the server actually knows and stops there. In particular
+    ``project_changed`` says *the project* was written to, never *the plan changed*: the
+    counter behind it advances on any synced write, so a description edit raises it
+    without moving a date. Handing a model the stronger sentence is how an unfalsifiable
+    claim gets narrated to a PM as fact.
+
+    An unrecognized value (a server newer than this client) falls through to the neutral
+    fragment rather than being dropped — losing the caveat is worse than phrasing it
+    loosely.
+    """
+    if staleness == "project_changed":
+        version = payload.get("plan_version")
+        current = payload.get("plan_version_current")
+        if isinstance(version, int) and isinstance(current, int):
+            return (
+                f"this forecast was computed against project version {version} and the "
+                f"project is now at {current}, so its inputs may have changed since "
+                "(the version advances on any edit, not only a schedule edit) — rerun "
+                "before relying on the dates"
+            )
+        return (
+            "the project has been edited since this forecast was computed, so its "
+            "inputs may have changed — rerun before relying on the dates"
+        )
+    if staleness == "aged":
+        return (
+            "this forecast is more than a week old, so the data date has advanced "
+            "underneath it and the percentiles describe different remaining work — "
+            "rerun before relying on the dates"
+        )
+    if staleness == "unknown":
+        return (
+            "this forecast predates plan-version recording, so whether it still "
+            "describes the current plan cannot be determined — treat the dates as "
+            "unverified and rerun to get a current answer"
+        )
+    # Fixed sentence, deliberately not interpolating `staleness`. This branch exists for
+    # a server newer than this client, so the value is unvalidated and of unbounded
+    # length — and `explanation` sits outside `_TEXT_FIELDS`, so `_compact_mapping`
+    # neither truncates it nor wraps it in the untrusted-content markers (#2763). The
+    # caveat is what matters here; the exact value is already on the payload.
+    return (
+        "this forecast is not reported as current, so it may no longer describe the "
+        "current plan — rerun before relying on the dates"
+    )
+
+
 def _mc_forecast_why(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Compact "why" for a Monte Carlo forecast — the P80 risk premium + top driver.
 
@@ -228,6 +278,16 @@ def _mc_forecast_why(payload: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(top, Mapping) and top.get("task_id"):
         why["top_driver"] = {"task_id": top["task_id"], "index": top.get("index")}
         segments.append(f"the largest single driver of that spread is task {top['task_id']}")
+
+    # Whether the run still describes the current plan (#3140). Prepended so the caveat
+    # travels inside the sentence a model actually reads, rather than sitting in a
+    # sibling key it may not. It is also the only self-describing home for `unknown`:
+    # `_compact_mapping` drops null values, so a null `plan_version` vanishes and a bare
+    # "unknown" would be indistinguishable from a server too old to send the field.
+    staleness = payload.get("forecast_staleness")
+    if isinstance(staleness, str) and staleness != "current":
+        why["forecast_staleness"] = staleness
+        segments.insert(0, _staleness_segment(staleness, payload))
 
     if not segments and not why:
         return {}
@@ -732,6 +792,12 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         finish and the single largest duration-sensitivity driver — so the percentile
         is explained by default. Call ``get_schedule_derivation`` (quantity=p50/p80/p95)
         for the full per-driver breakdown.
+
+        ``forecast_staleness`` states whether the run still describes the current plan
+        (``current``/``project_changed``/``aged``/``unknown``); anything but ``current``
+        is also spelled out in ``why.explanation``. Note that ``project_changed`` means
+        the project was written to since the run — the counter behind it moves on any
+        edit, so it is grounds for rerunning, NOT evidence that a schedule date changed.
 
         Args:
             project_id: The project's UUID.

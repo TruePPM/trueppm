@@ -901,6 +901,16 @@ export interface ForecastDiagnostic {
  * Monte Carlo simulation result. Fixture data uses pre-bucketed distribution
  * to keep file size small; real API returns the same shape.
  */
+/**
+ * The server's answer to "does this forecast still describe the current plan?" (#3140).
+ *
+ * Camel-cased at the mapping layer from the wire's `forecast_staleness`. Kept as a closed
+ * union rather than a boolean because the three non-current values are presented
+ * differently: `projectChanged` and `aged` support a stale *claim*, `unknown` supports
+ * only the *action* — we know the answer is unavailable, not that it is bad.
+ */
+export type ForecastStaleness = 'current' | 'projectChanged' | 'aged' | 'unknown';
+
 export interface MonteCarloResult {
   projectId: string;
   runs: number;
@@ -941,6 +951,23 @@ export interface MonteCarloResult {
    * field existed — consumers treat `undefined` as "no explanation available".
    */
   forecastDiagnostic?: ForecastDiagnostic;
+  /**
+   * Whether this run still describes the current plan — server-declared (#3140).
+   *
+   * Non-optional on purpose. The wire key is normalized in `mapResponse`, and an absent
+   * key maps to `'unknown'`, never `'current'`: a client that cannot tell must not say
+   * the forecast is fine. Only `'current'` means the run matches the plan the project is
+   * on now; the other three all mean "offer the recompute".
+   *
+   * `'projectChanged'` is NOT evidence a date moved. The server-side counter advances on
+   * any write in the project, so a description edit raises it. Render it as a reason to
+   * rerun, never as a claim about the schedule.
+   */
+  forecastStaleness: ForecastStaleness;
+  /** The project sync version this run was computed against; null for pre-#3140 runs. */
+  planVersion: number | null;
+  /** That version as of the response this result was mapped from. */
+  planVersionCurrent: number | null;
   /**
    * The server-owned "added time" slice, carried verbatim off the wire (ADR-0698).
    *

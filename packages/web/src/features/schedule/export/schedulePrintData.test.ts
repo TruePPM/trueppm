@@ -341,6 +341,9 @@ describe('buildSchedulePrintData — KPIs', () => {
       deltaVsCpm: { p50: null, p80: 5, p95: null },
       confidenceCurve: [],
       sensitivity: [],
+      forecastStaleness: 'current',
+      planVersion: 1,
+      planVersionCurrent: 1,
     };
     const data = build({ forecast, tasks: [task('a')] });
     expect(data.kpis.forecastP80.value).not.toBe('—');
@@ -366,6 +369,9 @@ describe('buildSchedulePrintData — KPIs', () => {
         deltaVsCpm: hasDelta ? { p50: null, p80: deltaP80, p95: null } : null,
         confidenceCurve: [],
         sensitivity: [],
+        forecastStaleness: 'current',
+        planVersion: 1,
+        planVersionCurrent: 1,
       }) as unknown as MonteCarloResult;
 
     it('renders a negative slip as an unsigned ahead-of-CPM delta', () => {

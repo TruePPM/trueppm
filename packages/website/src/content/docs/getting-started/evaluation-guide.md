@@ -151,10 +151,13 @@ before you start clicking:
 - **The forecast is a docked bar, not a modal.** On the Schedule view, the
   **Forecast** strip sits along the bottom with the P50/P80/P95 chips and
   **Details ›** for the full distribution. It also states when the forecast was
-  last run; move a task and the stamp is replaced by *Stale — rerun for updated
-  forecast* with a **Rerun** button beside it. That is the only state offering
-  the button — to force a run at any other time, use **Rerun forecast** on the
-  project Overview.
+  last run. **Rerun** appears beside that stamp whenever the server reports the
+  forecast no longer describes the current plan — after any edit to the project,
+  after a schedule recompute, or once the run is more than a week old. Because
+  that judgment is made on the server rather than tracked in your browser
+  session, it survives a page reload and picks up a teammate's edits as readily
+  as your own. To force a run when the forecast *is* current, use **Rerun
+  forecast** on the project Overview.
 
 ## Capability checklist
 

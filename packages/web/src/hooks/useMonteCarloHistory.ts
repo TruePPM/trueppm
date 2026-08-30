@@ -163,6 +163,14 @@ export function buildResultFromRun(
     lastRunAt: run.takenAt,
     cpmFinish: run.cpmFinish,
     deltaVsCpm: { p50: null, p80: null, p95: null },
+    // A history row is an explicitly PAST run being re-viewed, so freshness is not a
+    // question this shape is being asked (#3140) — and the drift list does not carry
+    // the plan version. `unknown` says that, where `current` would assert a run from
+    // three weeks ago still matches the plan. Nothing gates an action on this value
+    // here; the histogram is the only consumer.
+    forecastStaleness: 'unknown',
+    planVersion: null,
+    planVersionCurrent: null,
     confidenceCurve: dist.confidence_curve ?? [],
     sensitivity: (dist.sensitivity ?? []).map((s) => ({ taskId: s.task_id, index: s.index })),
   };

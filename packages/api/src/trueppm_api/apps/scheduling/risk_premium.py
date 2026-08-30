@@ -24,10 +24,21 @@ from collections.abc import Mapping
 from typing import Any, Literal, TypedDict
 
 # A run older than this reads as stale: its premium is reported, but marked, because
-# the schedule it was computed against has had a week to move underneath it. The
-# stronger trigger — "the schedule actually mutated since the run" — needs a cheap
-# per-project mutation counter that does not exist yet (#2483 open question 2), so
-# the age rule ships first. Both resolve to the same client-visible state.
+# the schedule it was computed against has had a week to move underneath it.
+#
+# This comment used to say the stronger trigger — "the schedule actually mutated since
+# the run" — "needs a cheap per-project mutation counter that does not exist yet
+# (#2483 open question 2)". Both halves were wrong by the time anyone read them: the
+# counter arrived with ADR-0686 / #2491 as ``Project.last_sync_version``, and the
+# pointer was misnumbered (#2483's open question 2 is band vocabulary). The mutation
+# trigger now ships in :mod:`.forecast_staleness` (#3140).
+#
+# The two are deliberately NOT merged. This threshold keeps its own job — whether the
+# added-time *number* is still worth reporting — and its ``stale`` occupies the same
+# enum slot as ``premium``/``zero``/``negative``, so folding plan drift in here would
+# cost the Overview card its premium classification. ``forecast_staleness`` imports this
+# constant instead, so the two can never disagree about the age term while answering
+# different questions.
 STALE_AFTER_DAYS = 7
 
 # The one reason code whose flat forecast is a genuine measured result rather than a
