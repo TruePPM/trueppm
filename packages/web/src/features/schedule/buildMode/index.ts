@@ -10,6 +10,11 @@ export { EditableCell, parseDurationInput, parsePercentInput } from './EditableC
 export type { EditableCellInputType, EditableCellProps } from './EditableCell';
 export { BuildModeRowMenu, type RowMenuItem } from './BuildModeRowMenu';
 export { BuildModeHintStrip } from './BuildModeHintStrip';
+export {
+  shouldRenderCoachBar,
+  shouldRenderHintStrip,
+  type CanvasTeachingInput,
+} from './teachingSurfaces';
 export { BuildModeCheatsheet } from './BuildModeCheatsheet';
 export { BlankProjectCanvas } from './BlankProjectCanvas';
 export { BlankOutlineDraftRow } from './BlankOutlineDraftRow';

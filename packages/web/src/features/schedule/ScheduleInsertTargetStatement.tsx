@@ -51,6 +51,17 @@ export interface ScheduleInsertTargetStatementProps {
  *   rather than to a `lg:` breakpoint. The old form branched on the viewport,
  *   which could not see the things that actually consume the bar — the rail
  *   being collapsed, the user's pins, whether this reader may author at all.
+ *
+ *   Since #3134 (`T5`) the description and the drawing are **separate nodes at
+ *   every density**: a permanent `sr-only` full sentence, plus an `aria-hidden`
+ *   rendering of whatever the ladder left room to draw. The invariant that buys
+ *   is that `+ Item`'s accessible description is byte-identical at 1024 and at
+ *   1920, structurally rather than by the current rungs happening to agree.
+ * - **It is a READOUT, not a teaching surface** (web rule 363 clause 1). Its
+ *   text is a pure function of the insert target, so it is exempt from the
+ *   canvas column's one-teacher-at-a-time arbitration and renders alongside
+ *   whichever teacher is up. Retiring it was never the answer to #3134: it is
+ *   the one surface there that states an outcome rather than a lesson.
  * - **No `aria-live`.** The sentence changes on every arrow-key row move, so a
  *   live region would speak over the row announcement a planner is navigating
  *   by — the same reasoning that keeps `BuildModeHintStrip` silent (web rule
@@ -104,22 +115,29 @@ export function ScheduleInsertTargetStatement({
         'text-xs text-neutral-text-secondary',
       ].join(' ')}
     >
-      {/* The full sentence is always real TEXT, never only an `aria-label`.
-          `+ Item` points `aria-describedby` at this element, and a description
-          is computed from the referenced node's text — an `aria-label` on a
-          bare `<span>` produces no accessible name at all, because a generic
-          element is name-prohibited. So the drawn short form is `aria-hidden`
-          and the complete claim rides in an `sr-only` sibling: one sentence to
-          AT at every density (rule 171 — never both forms of one claim), and
-          the ladder rations only the ink. */}
-      {density === 'short' ? (
-        <>
-          <span aria-hidden="true">{visible}</span>
-          <span className="sr-only">{full}</span>
-        </>
-      ) : (
-        visible
-      )}
+      {/* Two nodes at EVERY density, not only at `short` (#3134 `T5`).
+          `+ Item` points `aria-describedby` here, and a description is computed
+          from the referenced node's text — so the description is whatever this
+          subtree contributes to the accessibility tree.
+
+          Before this the split existed only in the `short` branch and the other
+          two densities let one node serve both jobs. That happened to compute
+          the same sentence, but only because `full` and the drawn form were the
+          same string there; nothing structural said so, and the next rung the
+          ladder grows would have made the description a function of viewport
+          width again by simply adding a third drawn form. Splitting the roles
+          unconditionally makes "the description does not change with width" a
+          property of the markup rather than a coincidence of the current rungs.
+
+          The full sentence is always real TEXT, never only an `aria-label`: an
+          `aria-label` on a bare `<span>` produces no accessible name at all,
+          because a generic element is name-prohibited. `aria-hidden` on the
+          drawn copy is what keeps AT hearing one sentence rather than two
+          (rule 171 — never both forms of one claim). */}
+      <span className="sr-only">{full}</span>
+      <span aria-hidden="true" className="truncate">
+        {visible}
+      </span>
     </span>
   );
 }
