@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { ScheduleAuthorMode } from './useScheduleAuthorMode';
 import type { ScheduleViewMode } from '@/stores/scheduleStore';
 
@@ -72,17 +72,10 @@ export function useAuthorModeLayoutCoupling({
     if (prevMode === null) return;
 
     if (prevMode !== authorMode) {
-      if (isMobile) return;
-      if (authorMode === 'author') {
-        rememberedRef.current = viewMode;
-        if (viewMode !== 'grid') {
-          forcingRef.current = true;
-          setViewMode('grid');
-        }
-      } else {
-        const restore = rememberedRef.current;
-        rememberedRef.current = null;
-        if (restore && restore !== viewMode) setViewMode(restore);
+      // Nothing on mobile: the layout is forced to Timeline for display only,
+      // and writing Grid here would corrupt the stored desktop layout.
+      if (!isMobile) {
+        applyModeTransition(authorMode, viewMode, setViewMode, rememberedRef, forcingRef);
       }
       return;
     }
@@ -90,11 +83,55 @@ export function useAuthorModeLayoutCoupling({
     // No mode transition. A layout change while authoring is the person's own,
     // unless it is the write we just issued landing.
     if (authorMode === 'author' && prevView !== viewMode) {
-      if (forcingRef.current) {
-        forcingRef.current = false;
-      } else {
-        rememberedRef.current = null;
-      }
+      noteLayoutChangeWhileAuthoring(rememberedRef, forcingRef);
     }
   }, [authorMode, isLoading, isMobile, viewMode, setViewMode]);
+}
+
+/**
+ * Rule 1 and rule 2: entering Author switches to Grid and remembers where we
+ * were; returning to Read restores it.
+ *
+ * `forcing` is set BEFORE `setViewMode` and only when a write actually happens,
+ * so the layout-change branch can tell our own write from the user's. Setting it
+ * unconditionally would swallow the next genuine manual choice.
+ */
+function applyModeTransition(
+  authorMode: ScheduleAuthorMode,
+  viewMode: ScheduleViewMode,
+  setViewMode: (next: ScheduleViewMode) => void,
+  remembered: MutableRefObject<ScheduleViewMode | null>,
+  forcing: MutableRefObject<boolean>,
+): void {
+  if (authorMode === 'author') {
+    remembered.current = viewMode;
+    if (viewMode !== 'grid') {
+      forcing.current = true;
+      setViewMode('grid');
+    }
+    return;
+  }
+
+  const restore = remembered.current;
+  remembered.current = null;
+  if (restore && restore !== viewMode) setViewMode(restore);
+}
+
+/**
+ * Rule 3, the one that keeps this a default rather than a trap: a manual layout
+ * choice while authoring drops the remembered value, so returning to Read leaves
+ * that choice alone.
+ *
+ * The one exception is the write this hook itself issued landing — that is not
+ * the person choosing, so it clears the marker and keeps the memory.
+ */
+function noteLayoutChangeWhileAuthoring(
+  remembered: MutableRefObject<ScheduleViewMode | null>,
+  forcing: MutableRefObject<boolean>,
+): void {
+  if (forcing.current) {
+    forcing.current = false;
+    return;
+  }
+  remembered.current = null;
 }
