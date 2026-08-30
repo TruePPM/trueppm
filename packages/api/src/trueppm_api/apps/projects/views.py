@@ -11124,6 +11124,16 @@ class ProjectCommitView(IdempotencyMixin, APIView):
             commit_project,
         )
 
+        # `IsAuthenticated` has already run, so this is a real user. Narrow once,
+        # here, rather than at each use: `request.user` is typed
+        # `User | AnonymousUser`, and both the membership lookup below and
+        # `commit_project()` need the narrowed type — the service must never be
+        # handed an AnonymousUser, and `memberships__user` will not accept one.
+        # Mirrors `ProjectScopedViewSet.get_queryset`'s guard shape.
+        user = request.user if request.user.is_authenticated else None
+        if user is None:  # pragma: no cover — IsAuthenticated makes this unreachable
+            raise NotAuthenticated
+
         # Membership-scoped, so a non-member gets 404 for a real id and 404 for a
         # fake one (#3129). The unscoped lookup this replaces answered 403 for a
         # project that exists and 404 for one that does not, which makes the
@@ -11135,16 +11145,12 @@ class ProjectCommitView(IdempotencyMixin, APIView):
             Project.objects.filter(
                 pk=pk,
                 is_deleted=False,
-                memberships__user=request.user,
+                memberships__user=user,
                 memberships__is_deleted=False,
             )
         )
         self.check_object_permissions(request, project)
         try:
-            # IsAuthenticated has already run, so this is a real user — narrow
-            # for the type checker rather than widening the service signature to
-            # accept AnonymousUser, which it must never be handed.
-            user = request.user if request.user.is_authenticated else None
             result = commit_project(project, user=user)
         except AlreadyCommitted:
             return Response(
