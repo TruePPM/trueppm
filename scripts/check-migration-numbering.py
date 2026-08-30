@@ -36,13 +36,18 @@ stands in for ``0001_initial``). That is not a two-leaf conflict — Django's
 Usage:
     python scripts/check-migration-numbering.py [base-ref]
     # base-ref defaults to origin/main
+    python scripts/check-migration-numbering.py --self-test
+    # prove the detection still works, then exit
 """
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -144,7 +149,214 @@ def _report_collisions(
     )
 
 
+# ---------------------------------------------------------------------------
+# Self-test (#3195)
+#
+# A gate that cannot fail is indistinguishable from a gate that works. This one's
+# detection was verified once, by hand, during the #3194 audit — a snapshot, not a
+# guarantee. `--self-test` repeats that check in the gate's own CI job, on the same
+# image, every run.
+#
+# Every case runs the REAL script end to end via subprocess — same argv parsing,
+# same `git ls-tree` base read, same filesystem scan — against a throwaway fixture
+# repo. There is no second copy of the numbering rule here to drift from the one
+# above; the fixtures only decide what the real code is pointed at.
+#
+# Both directions are asserted. A clean sequential migration must be ACCEPTED and a
+# duplicate number REJECTED: a happy-path-only self-test satisfies the parity gate
+# while proving nothing, which is the exact failure this work removes. The two
+# documented false-positive exemptions (a squash that re-occupies a replaced number,
+# and a duplicate that already exists on the base) are asserted too — a gate noisy
+# enough to get disabled loses the protection just as completely.
+# ---------------------------------------------------------------------------
+
+_ST_MIG_REL = "packages/api/src/trueppm_api/apps/projects/migrations"
+
+
+def _st_migration(dep: str, *, replaces: bool = False) -> str:
+    """A minimal but structurally real Django migration file body."""
+    replaces_line = (
+        '    replaces = [("projects", "0001_initial"), ("projects", "0002_add_owner")]\n'
+        if replaces
+        else ""
+    )
+    return (
+        "from django.db import migrations\n"
+        "\n"
+        "\n"
+        "class Migration(migrations.Migration):\n"
+        f'    dependencies = [("projects", "{dep}")]\n'
+        f"{replaces_line}"
+        "    operations = []\n"
+    )
+
+
+def _st_env() -> dict[str, str]:
+    """Environment for the fixture repo: no inherited git state.
+
+    `make pre-push` runs this from a git hook, where GIT_DIR / GIT_WORK_TREE are
+    exported and would point the fixture's `git init` at the real repository. The
+    global/system config is dropped for the same reason — an operator's
+    `commit.gpgsign` or `init.templateDir` must not decide whether the gate proves
+    itself.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
+    return env
+
+
+def _st_write(root: Path, name: str, body: str) -> None:
+    path = root / _ST_MIG_REL / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+
+
+def _st_base_repo(root: Path, base_files: dict[str, str], env: dict[str, str]) -> str:
+    """Create a throwaway repo whose HEAD holds ``base_files``; return its sha.
+
+    The sha is handed to the gate as its base ref, so the self-test depends on no
+    remote, no network and no branch name existing.
+    """
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        proc = subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, env=env
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
+        return proc
+
+    root.mkdir(parents=True)
+    run("init", "-q")
+    for name, body in base_files.items():
+        _st_write(root, name, body)
+    run("add", "-A")
+    run(
+        "-c",
+        "user.email=self-test@trueppm.invalid",
+        "-c",
+        "user.name=migration-numbering self-test",
+        "commit",
+        "-q",
+        "--no-gpg-sign",
+        "-m",
+        "base",
+    )
+    return run("rev-parse", "HEAD").stdout.strip()
+
+
+def _self_test() -> int:
+    """Run the real gate against planted fixtures. 0 if every case behaves."""
+    # (name, expect_pass, base-commit files, files added in the working tree,
+    #  substring the output must contain)
+    cases: list[tuple[str, bool, dict[str, str], dict[str, str], str]] = [
+        (
+            "sequential migration",
+            True,
+            {
+                "0001_initial.py": _st_migration("0001_initial"),
+                "0002_add_owner.py": _st_migration("0001_initial"),
+            },
+            {"0003_add_baseline.py": _st_migration("0002_add_owner")},
+            "No migration-numbering collisions",
+        ),
+        (
+            "duplicate migration number",
+            False,
+            {
+                "0001_initial.py": _st_migration("0001_initial"),
+                "0002_add_owner.py": _st_migration("0001_initial"),
+            },
+            {"0002_add_baseline.py": _st_migration("0001_initial")},
+            "reuses number 0002",
+        ),
+        (
+            "squash re-occupying a replaced number",
+            True,
+            {
+                "0001_initial.py": _st_migration("0001_initial"),
+                "0002_add_owner.py": _st_migration("0001_initial"),
+            },
+            {
+                "0001_squashed_0002_add_owner.py": _st_migration(
+                    "0001_initial", replaces=True
+                )
+            },
+            "No migration-numbering collisions",
+        ),
+        (
+            "duplicate already resolved on the base",
+            True,
+            {
+                "0001_initial.py": _st_migration("0001_initial"),
+                "0041_a_thing.py": _st_migration("0001_initial"),
+                "0041_b_thing.py": _st_migration("0001_initial"),
+                "0042_merge_0041_a_0041_b.py": _st_migration("0041_a_thing"),
+            },
+            {},
+            "No migration-numbering collisions",
+        ),
+    ]
+
+    gate = str(Path(__file__).resolve())
+    env = _st_env()
+    tmp = Path(tempfile.mkdtemp(prefix="migration-numbering-selftest-"))
+    failures = 0
+    try:
+        for index, (
+            name,
+            expect_pass,
+            base_files,
+            tree_files,
+            expect_text,
+        ) in enumerate(cases):
+            root = tmp / f"case{index}"
+            base = _st_base_repo(root, base_files, env)
+            for fname, body in tree_files.items():
+                _st_write(root, fname, body)
+
+            proc = subprocess.run(
+                [sys.executable, gate, base],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            passed = proc.returncode == 0
+            output = proc.stdout + proc.stderr
+
+            if passed != expect_pass:
+                verb = "accepted" if passed else "rejected"
+                print(f"SELF-TEST FAILED: {name} was {verb} and must not be.")
+                print(f"    exit {proc.returncode}; output:\n{output.rstrip()}")
+                failures += 1
+            elif expect_text not in output:
+                # A crash also exits non-zero, so "it failed" is not evidence it
+                # detected anything. The report has to name the collision.
+                print(
+                    f"SELF-TEST FAILED: {name} gave the right exit code for the "
+                    f"wrong reason — {expect_text!r} missing from the output."
+                )
+                print(f"    output:\n{output.rstrip()}")
+                failures += 1
+            else:
+                verb = "accepted" if expect_pass else "correctly rejected"
+                print(f"SELF-TEST OK: {name} {verb}.")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    if failures:
+        print(f"\n✖ migration-numbering self-test: {failures} case(s) failed.")
+        return 1
+    print(f"\n✓ migration-numbering self-test: all {len(cases)} cases passed.")
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
+        return _self_test()
+
     base = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
 
     if _git("rev-parse", "--verify", "--quiet", base).returncode != 0:
