@@ -45,12 +45,17 @@ export interface ClipFinding {
  */
 export async function findClippedContent(page: Page): Promise<ClipFinding[]> {
   return page.evaluate((tolerance) => {
+    // Every helper below is declared INSIDE this callback on purpose: the
+    // function is serialized and evaluated in the page, where module-scope
+    // bindings from this file do not exist.
     function describe(el: Element): string {
+      const data = (el as HTMLElement).dataset;
       const id = el.id ? `#${el.id}` : '';
       const cls = typeof el.className === 'string' && el.className
         ? `.${el.className.trim().split(/\s+/).slice(0, 8).join('.')}`
         : '';
-      const testid = el.getAttribute('data-testid');
+      const testid = data.testid;
+      // `aria-label` is not a data attribute and has no `.dataset` form.
       const label = el.getAttribute('aria-label');
       return [
         el.tagName.toLowerCase(),
@@ -59,6 +64,61 @@ export async function findClippedContent(page: Page): Promise<ClipFinding[]> {
         label ? `[aria-label="${label}"]` : '',
         cls,
       ].join('');
+    }
+
+    /**
+     * Whether this element is one the gate judges at all.
+     *
+     * Every branch is an exemption carrying its own reason. They are grouped
+     * into one predicate so the measurement loop below reads as the single
+     * invariant it enforces rather than as a wall of guards.
+     */
+    function isJudged(el: Element, style: CSSStyleDeclaration): boolean {
+      // Only containers that CLIP. `auto`/`scroll` are the fix, not the bug;
+      // `visible` overflows into the parent and is somebody else's problem.
+      if (style.overflowY !== 'hidden' && style.overflowY !== 'clip') return false;
+
+      // A `line-clamp` element clips on purpose — that is the whole feature, and
+      // web rule 255 already requires the full value be recoverable via `title`.
+      if (style.webkitLineClamp && style.webkitLineClamp !== 'none') return false;
+
+      // Nothing rendered (`display:none`, a closed drawer, a zero-size shell) has
+      // no geometry to judge.
+      if (el.clientHeight === 0) return false;
+
+      // Reviewed exception. `data-clip-ok="<reason>"` is the one escape hatch and
+      // it lives on the element, not in a list here — a selector list in this
+      // file rots the moment a class string changes, and the marker has to move
+      // with the code it excuses (the rule-351 lesson, where line-number
+      // exemptions reddened against code their author had not touched). The
+      // reason may not be empty, and it is greppable in source.
+      const reason = (el as HTMLElement).dataset.clipOk;
+      if (reason && reason.trim() !== '') return false;
+
+      // `.sr-only` is a 1px box with `clip: rect(0,0,0,0)` holding a full line of
+      // text — clipped by design, and read by exactly the users this gate is
+      // otherwise protecting. It is the single largest source of noise here
+      // (30 nodes on the settings route alone) and never a finding: the content
+      // is not "unreachable", it is deliberately not visual.
+      if (el.clientHeight <= 1) return false;
+
+      return true;
+    }
+
+    /**
+     * Names the first thing a user cannot reach, so a failure says what was lost
+     * rather than only where.
+     */
+    function firstUnreachable(el: Element): string {
+      const bottom = el.getBoundingClientRect().bottom;
+      for (const d of Array.from(el.querySelectorAll('*'))) {
+        const r = d.getBoundingClientRect();
+        if (r.height > 0 && r.top >= bottom) {
+          const text = (d.textContent ?? '').trim().slice(0, 80);
+          if (text) return text;
+        }
+      }
+      return '';
     }
 
     const findings: {
@@ -70,35 +130,7 @@ export async function findClippedContent(page: Page): Promise<ClipFinding[]> {
     }[] = [];
 
     for (const el of Array.from(document.querySelectorAll('*'))) {
-      const style = getComputedStyle(el);
-
-      // Only containers that CLIP. `auto`/`scroll` are the fix, not the bug;
-      // `visible` overflows into the parent and is somebody else's problem.
-      if (style.overflowY !== 'hidden' && style.overflowY !== 'clip') continue;
-
-      // A `line-clamp` element clips on purpose — that is the whole feature, and
-      // web rule 255 already requires the full value be recoverable via `title`.
-      if (style.webkitLineClamp && style.webkitLineClamp !== 'none') continue;
-
-      // Nothing rendered (`display:none`, a closed drawer, a zero-size shell) has
-      // no geometry to judge.
-      if (el.clientHeight === 0) continue;
-
-      // Reviewed exception. `data-clip-ok="<reason>"` is the one escape hatch and
-      // it lives on the element, not in a list here — a selector list in this
-      // file rots the moment a class string changes, and the marker has to move
-      // with the code it excuses (the rule-351 lesson, where line-number
-      // exemptions reddened against code their author had not touched). The
-      // reason may not be empty, and it is greppable in source.
-      const reason = el.getAttribute('data-clip-ok');
-      if (reason !== null && reason.trim() !== '') continue;
-
-      // `.sr-only` is a 1px box with `clip: rect(0,0,0,0)` holding a full line of
-      // text — clipped by design, and read by exactly the users this gate is
-      // otherwise protecting. It is the single largest source of noise here
-      // (30 nodes on the settings route alone) and never a finding: the content
-      // is not "unreachable", it is deliberately not visual.
-      if (el.clientHeight <= 1) continue;
+      if (!isJudged(el, getComputedStyle(el))) continue;
 
       const hidden = el.scrollHeight - el.clientHeight;
       if (hidden <= tolerance) continue;
@@ -117,24 +149,12 @@ export async function findClippedContent(page: Page): Promise<ClipFinding[]> {
       // #3166 reproduction reported clean against the unfixed tree. A gate you
       // have not watched fail is not a gate (web rule 300(a)).
 
-      // Name the first thing a user cannot reach, so a failure says what was
-      // lost rather than only where.
-      const bottom = el.getBoundingClientRect().bottom;
-      let firstUnreachableText = '';
-      for (const d of Array.from(el.querySelectorAll('*'))) {
-        const r = d.getBoundingClientRect();
-        if (r.height > 0 && r.top >= bottom) {
-          firstUnreachableText = (d.textContent ?? '').trim().slice(0, 80);
-          if (firstUnreachableText) break;
-        }
-      }
-
       findings.push({
         selector: describe(el),
         hiddenPx: Math.round(hidden),
         clientHeight: el.clientHeight,
         scrollHeight: el.scrollHeight,
-        firstUnreachableText,
+        firstUnreachableText: firstUnreachable(el),
       });
     }
 
