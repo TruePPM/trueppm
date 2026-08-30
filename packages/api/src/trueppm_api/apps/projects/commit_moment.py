@@ -4,18 +4,31 @@ Nothing in the product marked *"this is the plan we agreed to."* A steering
 committee could be shown today's plan but never *committed vs. actual*, because
 there was no anchor to subtract from.
 
-Committing is one transaction that does four things, and the design is explicit
+Committing is one transaction that does two things, and the design is explicit
 that it is **not a lock**:
 
 1. flips ``lifecycle`` draft → active, so the project joins the aggregates it was
    excluded from (#2962);
 2. captures **baseline v1 automatically**, freezing the working calendar it was
-   computed against (ADR-0845);
-3. commits the sprints in range;
-4. tells the people who have work in it.
+   computed against (ADR-0845), superseding any baseline the draft already
+   carried.
 
 Authoring continues afterwards. What changes is that the plan starts having a
-past — a structural edit to committed work carries a reason from here on (#2964).
+past — a structural edit to committed work carries a reason from here on
+(``amend.py``, #2964), which is live: :func:`amend.is_amendable` keys on
+``lifecycle == ACTIVE`` and ``TaskViewSet.perform_update`` records the reason and
+notifies the people whose work moved.
+
+**Two acts this module does not perform, and did claim to.** This docstring
+previously listed four, adding "commits the sprints in range" and "tells the
+people who have work in it". Neither has ever had a code path here: no sprint is
+read or written, and no notification row is created (contrast ``amend.notify_amend``,
+which does exactly that on the *edit* side using the same ``TaskResource``
+audience). They are removed rather than softened — a module docstring that
+inventories a transaction's effects is read as the contract, and #3129 found the
+permission rationale on ``ProjectCommitView`` had already been written on top of
+the notification half of this fiction. Committing plans to tell the assigned team
+is a real gap and belongs to a notifications issue, not to a docstring.
 """
 
 from __future__ import annotations
@@ -56,7 +69,10 @@ class AlreadyCommitted(Exception):
 class CommitResult:
     baseline: Baseline
     task_count: int
-    notified_resource_ids: list[str]
+    #: Everyone with a resource assignment in the plan. Named for what it is —
+    #: the audience a commit *concerns* — not for a delivery that does not
+    #: happen (#3129). See :func:`_assigned_resource_ids`.
+    assigned_resource_ids: list[str]
 
 
 def _calendar_snapshot(project: Project) -> dict[str, object]:
@@ -108,6 +124,22 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
     )
     has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
 
+    # Stand down any incumbent active baseline before laying down v1 (#3129).
+    #
+    # A draft is fully writable, and `BaselineViewSet` is not lifecycle-gated, so
+    # a project can already carry an active baseline by the time anyone commits
+    # it. `Baseline` has a partial unique constraint on (project) WHERE is_active,
+    # so creating a second active row raised IntegrityError — a 500 on the only
+    # transition that can take a project out of draft at all (#3127 made
+    # `lifecycle` read-only), which is unrecoverable from the client.
+    #
+    # Deactivated, never deleted: the incumbent is somebody's captured snapshot
+    # and baseline history is kept forever. This is the same "deactivate the rest,
+    # then activate mine" sequence `BaselineActivateView` runs, and it is inside
+    # this function's `@transaction.atomic` so the two writes cannot interleave
+    # with a concurrent activate — the row lock taken above is on the project.
+    Baseline.objects.filter(project=locked, is_active=True).update(is_active=False)
+
     baseline = Baseline.objects.create(
         project=locked,
         name="Baseline v1",
@@ -139,7 +171,7 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
     return CommitResult(
         baseline=baseline,
         task_count=len(live_tasks),
-        notified_resource_ids=_assigned_resource_ids(locked),
+        assigned_resource_ids=_assigned_resource_ids(locked),
     )
 
 
@@ -148,8 +180,11 @@ def _assigned_resource_ids(project: Project) -> list[str]:
 
     Deliberately ``TaskResource``, not ``Task.assignee``: capacity, utilization
     and every sprint-capacity number sums ``TaskResource.units``, and a bare
-    assignee is zero load that may never reach the person at all. Notifying off
-    ``assignee`` would tell the wrong set of people about their own commitment.
+    assignee is zero load that may never reach the person at all. Addressing
+    ``assignee`` would name the wrong set of people as having work in the plan.
+
+    This is the audience a commit *concerns*, and the caller may say so — it is
+    not a record of anyone having been told. Nothing here notifies (#3129).
     """
     from trueppm_api.apps.resources.models import TaskResource
 

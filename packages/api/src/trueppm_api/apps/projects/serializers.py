@@ -142,11 +142,13 @@ class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
     baseline_id = serializers.CharField(help_text="The baseline captured by this commit.")
     baseline_name = serializers.CharField(help_text="Always `Baseline v1` for the first commit.")
     task_count = serializers.IntegerField(help_text="Rows captured into the baseline.")
-    notified_resource_count = serializers.IntegerField(
+    assigned_resource_count = serializers.IntegerField(
         help_text=(
-            "People with a resource assignment in the plan, who are told what was "
-            "committed. Counted from TaskResource, never Task.assignee — a bare "
-            "assignee carries no load and may not reach the person at all."
+            "How many people have a resource assignment in the plan being committed. "
+            "Counted from TaskResource, never Task.assignee — a bare assignee carries "
+            "no load and may not reach the person at all. This is the audience the "
+            "commit concerns, so a client can say who it affects; it is NOT a count of "
+            "notifications sent. Committing sends none."
         )
     )
 

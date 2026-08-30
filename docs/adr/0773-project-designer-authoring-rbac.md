@@ -314,10 +314,46 @@ Scheduler bug on the client, where nothing will catch it. Consume the server fie
 > never edit or delete the row it created, and resource assignment runs through the
 > `TaskResource` endpoints.
 
+> **Amended 2026-08-30 (#3129) — the commit row is enforced; it was not.**
+>
+> The matrix row **"Publish / commit the plan (0.5 draft lifecycle)"** reads
+> ❌ ❌ ❌ ✅ ✅ — Admin and Owner only. `ProjectCommitView` shipped at
+> `IsProjectScheduler`, one band below, so the endpoint admitted a role this ADR
+> excludes. It is now `IsProjectAdmin`.
+>
+> This is the same failure shape as the §(d) amendment above — a decided matrix row
+> and a lower floor in the code — but it arrived by a different route, and the
+> difference is worth recording. §(d) was a *client* re-derivation of a server fact.
+> This one was server-side and carried its own justification: a comment claiming
+> commit sits at the schedule-write floor because it has "a notification fan-out".
+> No fan-out exists. `commit_project()` writes no notification row and registers no
+> `on_commit` hook, and `commit_moment.py`'s module docstring separately claimed two
+> acts of four ("commits the sprints in range", "tells the people who have work in
+> it") that have no code path either. **A permission floor was argued down from a
+> capability the module had only ever described.** Both claims are removed, and the
+> response field `notified_resource_count` — which asserted a delivery in the
+> published OpenAPI `help_text` — is renamed `assigned_resource_count` and documented
+> as the audience the commit concerns rather than a record of anyone being told.
+>
+> Nothing about commit argues for the lower of the two floors. Since #3127 made
+> `lifecycle` read-only it is the only legal `draft -> active` transition, and it is
+> one-way: `commit_project()` refuses a project that is already active, so the anchor
+> can neither be re-laid nor withdrawn. It also performs, in one transaction, exactly
+> the two acts `BaselineViewSet.create` and `BaselineActivateView` already gate at
+> `IsProjectAdmin` individually — so the Scheduler floor was a lower-privileged route
+> to writes the Admin floor is supposed to hold.
+>
+> Why nothing caught it: no test exercised `Role.SCHEDULER` on `/commit/`. The suite
+> covered Owner (200) and Member (403), which brackets the disputed boundary without
+> touching it, so the floor could have been moved in either direction and stayed
+> green. `TestTheRoleFloor` in `tests/apps/projects/test_commit_moment.py` now
+> parametrizes all five roles.
+
 ### Endpoint → class map
 
 | Endpoint | Issue | `permission_classes` | Per-row gate in body |
 |---|---|---|---|
+| `POST /projects/{pk}/commit/` | #3129 | `IsAuthenticated, IsProjectAdmin, IsProjectNotArchived` | none — the lookup is membership-scoped so a non-member 404s uniformly, matching `/archive/` |
 | `POST /projects/{pk}/tasks/` | #3034 | `IsAuthenticated, IsProjectMemberWrite, IsProjectPlanAuthor, IsProjectNotArchived` | `can_user_edit_task` on update/destroy via `IsProjectMemberWriteOrOwn` (unchanged) |
 | `POST /projects/{pk}/tasks/bulk/` | #2723 | `IsAuthenticated, IsProjectMemberWrite, IsProjectPlanAuthor, IsProjectNotArchived` | `can_user_edit_task` on every update; `_require_wbs_restructure_permission` on any op that moves a row |
 | subtree classification cascade | #2735 | `IsAuthenticated, IsProjectAdmin, IsProjectNotArchived` | none — Admin edits any row |

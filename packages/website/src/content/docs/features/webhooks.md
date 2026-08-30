@@ -137,7 +137,7 @@ OSS fires **19 event types** (a deliberate hard cap):
 | `risk.opened` | A risk is created (new risks default to status OPEN) |
 | `risk.escalated` | A risk's computed severity (probability × impact) increases |
 | `risk.closed` | A risk transitions into status CLOSED |
-| `baseline.captured` | A baseline snapshot is captured |
+| `baseline.captured` | A baseline snapshot is captured — manually, or automatically by [committing the plan](/features/baselines/#committing-the-plan). Its `source` field distinguishes the two: `"commit"` for the automatic `Baseline v1`, `"api"` for a later manual capture |
 | `comment.created` | A comment is added to a task (every comment; no body in the payload) |
 
 All 19 are selectable from the **Integrations** settings page as well as the API. A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
