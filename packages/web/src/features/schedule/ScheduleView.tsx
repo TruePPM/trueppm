@@ -1,4 +1,4 @@
-import { ROW_VOCABULARY, outlineWidthValueText } from './rowVocabulary';
+import { ROW_VOCABULARY, countRows, outlineWidthValueText } from './rowVocabulary';
 import {
   useRef,
   useCallback,
@@ -90,6 +90,7 @@ import {
   canAuthorDependencies,
   canAuthorPlan,
   canEditTaskRow,
+  progressCompleteAutoStatus,
 } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
@@ -4076,6 +4077,8 @@ export function ScheduleView() {
     <div className="flex flex-col h-full overflow-hidden">
       <h1 className="sr-only">Schedule</h1>
       <ScheduleToolbar
+        bulkEditSelectionCount={bulkEdit.selectedTasks.length}
+        onBulkEdit={hasEditRights && !readOnly ? bulkEdit.open : undefined}
         onUndoStructuralAct={undoStructuralAct}
         undoPending={undoStructuralMut.isPending}
         hasEditRights={hasEditRights}
@@ -4310,6 +4313,10 @@ export function ScheduleView() {
         <BuildModeHintStrip
           mode={focus.state.mode}
           selectionCount={focus.state.selectedIds?.size ?? 0}
+          // `S23` — the entry-point CONTROL, beside the selection readout. A
+          // control is exempt from #3134's teaching-surface arbitration, so the
+          // sheet's front door does not wait on that issue's outcome.
+          onBulkEdit={hasEditRights && !readOnly ? bulkEdit.open : undefined}
           onShowCheatsheet={() => setCheatsheetOpen(true)}
         />
       )}
@@ -4418,12 +4425,19 @@ export function ScheduleView() {
         <BulkEditSheet
           tasks={bulkEdit.selectedTasks}
           resourcePool={resourcePool ?? []}
+          sprints={sprints}
+          // #2639 — the batch cannot run a per-row confirmation dialog, so the
+          // auto-promotion is DISCLOSED in the review instead of being bypassed.
+          // The target status is resolved here, where the role lives, rather
+          // than re-derived inside the sheet.
+          autoPromoteTarget={progressCompleteAutoStatus(currentRole)}
           isPending={bulkEdit.isPending}
           error={bulkEdit.error}
           result={bulkEdit.result}
-          skippedLocallyCount={bulkEdit.skippedLocallyCount}
+          skippedLocallyIds={bulkEdit.skippedLocallyIds}
           onApply={bulkEdit.apply}
           onReviewFailed={bulkEdit.reviewFailed}
+          onDone={bulkEdit.done}
           onClose={bulkEdit.close}
         />
       )}
@@ -4911,6 +4925,9 @@ type NamePlacement = ChartPrefsHook['prefs']['taskNamePlacementByView']['grid'];
 function buildOverflowSections(ctx: {
   crowdedOut: ToolbarOverflowItem[];
   unpinned: ToolbarOverflowItem[];
+  /** `S23` — how many items ⌘⇧K would act on right now, and how to open it. */
+  selectionCount: number;
+  onBulkEdit?: () => void;
   projectId: string | null;
   canImport: boolean;
   canShare: boolean;
@@ -4927,6 +4944,33 @@ function buildOverflowSections(ctx: {
 }): ToolbarOverflowSection[] {
   const { projectId, isExporting, exportProject } = ctx;
   return [
+    {
+      // `S23`'s second door. The strip's control is the discoverable one; this
+      // is the one a pointer-only user finds where they already look for acts,
+      // and it carries the chord so the two doors teach the same thing.
+      // Present only with a live selection — a row that says "Edit 0 items" is
+      // the empty sheet `open()` already refuses, one surface earlier.
+      id: 'selection',
+      label: 'Selection',
+      items:
+        ctx.onBulkEdit && ctx.selectionCount > 0
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'bulk-edit-selection',
+                // The count, not a generic label: the row only renders with a
+                // live selection, so it can say what it will act on — and it
+                // matches the strip's door word for word.
+                label: `Edit ${countRows(ctx.selectionCount)}…`,
+                // The chord goes in the item's own slot rather than into the
+                // label, so it does not become part of the accessible name.
+                shortcut: formatChord('mod+shift+k'),
+                ariaKeyShortcuts: 'Meta+Shift+K',
+                onSelect: ctx.onBulkEdit,
+              },
+            ]
+          : [],
+    },
     {
       id: 'from-the-toolbar',
       label: 'From the toolbar',
@@ -5247,6 +5291,9 @@ interface ScheduleToolbarProps {
   restructurePending: boolean;
   createPending: boolean;
   buildModeActive: boolean;
+  /** `S23` — selection size and the bulk-edit opener, for the `···` row. */
+  bulkEditSelectionCount: number;
+  onBulkEdit?: () => void;
   authorMode: ScheduleAuthorMode;
   onToggleAuthorMode: () => void;
   setCheatsheetOpen: Dispatch<SetStateAction<boolean>>;
@@ -5292,6 +5339,8 @@ interface ScheduleToolbarProps {
 
 function ScheduleToolbar(props: ScheduleToolbarProps) {
   const {
+    bulkEditSelectionCount,
+    onBulkEdit,
     isMobile,
     projectId,
     readOnly,
@@ -5813,6 +5862,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
               scheduleExport,
               pins,
             }),
+            selectionCount: bulkEditSelectionCount,
+            onBulkEdit,
             projectId,
             canImport,
             canShare,

@@ -110,7 +110,7 @@ const SECTIONS: ShortcutSection[] = [
       },
       {
         keys: [MOD, SHIFT, 'K'],
-        label: 'Edit every selected row — owner, classification, dates',
+        label: 'Edit every selected item — dates, duration, progress, sprint, owner',
       },
     ],
   },
