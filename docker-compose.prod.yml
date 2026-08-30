@@ -11,7 +11,11 @@
 # Subsequent starts: docker compose -f docker-compose.prod.yml up -d
 #
 # Required .env variables:
-#   APP_VERSION=v1.0.0            (image tag; defaults to "latest")
+#   APP_VERSION=0.4.0             (image tag; defaults to "latest". NO leading
+#                "v" — the release pipeline strips it before pushing to GHCR
+#                (`VERSION="${CI_COMMIT_TAG#v}"`), so `v0.4.0` does not exist
+#                there. The v-prefixed form is the GitLab registry's
+#                convention, which this file does not pull from.)
 #   DOMAIN=trueppm.example.com
 #   SECRET_KEY=<random string, at least 32 chars — the api container will
 #                refuse to start otherwise (#566). Generate with:
@@ -482,7 +486,15 @@ services:
   # /.well-known/acme-challenge/ needs no port and no downtime.
   certbot:
     <<: *logging
-    image: certbot/certbot
+    # PINNED, and pinned to the SAME tag init-prod.sh issues the first
+    # certificate with (#3228). Every other image in this file carries a
+    # version floor; certbot was the sole exception, which put the one
+    # component that owns TLS issuance and renewal on a floating `latest`.
+    # The two call sites must agree: init-prod.sh writes the renewal lineage
+    # in `certbot/conf`, and this container reads it back twice a day. A skew
+    # between the writer and the reader surfaces at ~60 days as a renewal
+    # failure against a certificate that was issued fine.
+    image: certbot/certbot:v5.7.0
     restart: unless-stopped
     profiles: ["letsencrypt"]
     volumes:

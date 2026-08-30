@@ -207,7 +207,9 @@ if [[ "${TLS_MODE}" == "letsencrypt" ]]; then
     -p 80:80 \
     -v "$(pwd)/certbot/conf:/etc/letsencrypt" \
     -v "$(pwd)/certbot/www:/var/www/certbot" \
-    certbot/certbot certonly \
+    # Pinned to match the certbot service in docker-compose.prod.yml (#3228):
+    # this run writes the renewal lineage that container reads back.
+    certbot/certbot:v5.7.0 certonly \
       --standalone \
       --email "${CERTBOT_EMAIL}" \
       --agree-tos --no-eff-email \
