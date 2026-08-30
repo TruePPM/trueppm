@@ -484,9 +484,12 @@ trust the MR's `head_pipeline` (it goes stale right after a force-push):
 ```bash
 # poll: the pipeline whose sha == $SHA on this MR's ref must reach `success`.
 # Run this under Monitor / run_in_background — foreground `sleep` is blocked.
+# NB: match on sha ALONE here. Pipelines on an MR ref carry
+# source == 'merge_request_event', so the source=='push' filter used by the
+# ref=main gate below would match NOTHING here and time out after an hour.
 for i in $(seq 1 120); do                                   # bounded: 120 × 30s = 60 min
   ST=$(glab api "projects/:id/pipelines?ref=refs/merge-requests/<iid>/head&per_page=20" \
-        | python3 -c "import sys,json;m=[p for p in json.load(sys.stdin) if p['sha']=='$SHA' and p.get('source')=='push'];print(m[0]['status'] if m else 'none')")
+        | python3 -c "import sys,json;m=[p for p in json.load(sys.stdin) if p['sha']=='$SHA'];print(m[0]['status'] if m else 'none')")
   case "$ST" in
     success)                 echo "MR(<iid>) SUCCESS"; exit 0 ;;   # green → merge
     failed|canceled)         echo "PIPELINE $ST → STOP"; exit 1 ;;
@@ -522,9 +525,10 @@ keep merging, every subsequent MR lands on an already-red main and you discover 
 seven merges too late. **The invariant: at most ONE merge may land on a newly-red
 main — the first red `ref: main` pipeline halts the entire run.**
 
-**Match `source == 'push'`, not the sha alone.** The API returns *every*
-pipeline on the ref, and a nightly/cron pipeline can be running on the identical
-merge sha — during `/mass_merge 1724-1728` sha `a3e395aaa` had two, a **success**
+**On `ref=main`, match `source == 'push'`, not the sha alone.** (This filter is
+specific to the main gate — the MR-ref poll above must *not* use it, since its
+pipelines are `merge_request_event`.) The API returns *every* pipeline on the ref,
+and a nightly/cron pipeline can be running on the identical merge sha — during `/mass_merge 1724-1728` sha `a3e395aaa` had two, a **success**
 push pipeline and a **running** scheduled one. A poller that takes `m[0]`
 (newest first) picks the scheduled one and either waits on a nightly that has
 nothing to do with the merge or reports the batch red when one of its jobs (fuzz,
@@ -802,10 +806,12 @@ before merging rather than after.
   self-describing line. Prefer one combined poller for the overlapped gates —
   long-lived pollers get killed mid-flight, and on recovery you re-query the API
   live rather than trusting a dead poller's last line.
-- **Match `source == 'push'` in both polls, not the sha alone.** A scheduled
-  nightly can be running on the identical sha; `m[0]` then picks the nightly and
-  either waits on it or reds the batch over a fuzz/k6 job that has nothing to do
-  with the merge.
+- **Match `source == 'push'` in the `ref=main` poll, not the sha alone.** A
+  scheduled nightly can be running on the identical merge sha; `m[0]` then picks
+  the nightly and either waits on it or reds the batch over a fuzz/k6 job that has
+  nothing to do with the merge. **Do not carry that filter to the MR-ref poll** —
+  pipelines there are `source: merge_request_event`, so it would match nothing and
+  hang the full 60 minutes.
 - **Run `vitest`/`pytest` on the stacked tree in Phase A** when the batch touches
   `packages/web/src` / `packages/api/src`. The gate scripts never do, so a
   registry-vs-coverage-test conflict passes simulation and detonates mid-batch.
