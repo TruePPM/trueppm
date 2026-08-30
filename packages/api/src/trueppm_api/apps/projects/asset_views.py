@@ -170,6 +170,14 @@ class ProgramAssetsView(APIView):
         # Readable member projects only (ADR-0120 D5 / task_search): a single
         # ProjectMembership query resolves the whole program's readable set; a
         # member project the caller cannot read is simply not aggregated.
+        #
+        # Draft projects are deliberately KEPT (#3144; reasoning recorded in
+        # projects.lifecycle). These rows are the member's own browse list, which
+        # the exclusion list exempts: the feed emits no count, health band or
+        # ranking, and nothing downstream of an asset row moves a schedule. The
+        # workspace tier below answers the same, because it is this feed at a wider
+        # scope. Note this view is NOT MCP-readable — the MCP carve-out justifies
+        # only the workspace tier; the browse-list argument is what carries this one.
         readable_ids = list(
             ProjectMembership.objects.filter(
                 project__program=program,
@@ -273,6 +281,16 @@ class WorkspaceAssetsView(McpReadableViewMixin, APIView):
         # with the ``project__program=`` clause dropped). ``program`` re-applies a
         # single-program narrowing on top when present. IsAuthenticated guarantees a
         # concrete user; filter on ``user.pk`` so mypy sees a concrete id.
+        #
+        # Draft projects are deliberately KEPT (#3144), the same answer as the
+        # program tier because this is that feed with the program clause dropped.
+        # Excluding would create a visibility discontinuity at the commit moment: a
+        # file you attached to your own draft vanishes from the surface built to
+        # find it and returns when somebody else commits the plan.
+        # ``McpScope.AGGREGATE`` is an ADR-0678 token-scope declaration, not a claim
+        # that this is a statistical aggregate; the MCP read surface is exempt from
+        # the draft exclusion list outright (projects.lifecycle), and an operator
+        # who wants a project out of an agent's index uses the opt-out below.
         user_pk = request.user.pk or -1
         memberships = ProjectMembership.objects.filter(
             user_id=user_pk,

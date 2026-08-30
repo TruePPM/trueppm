@@ -565,6 +565,178 @@ class TestEveryExcludedSurface:
 
 
 @pytest.mark.django_db
+class TestSurfacesDeliberatelyKept:
+    """The two surfaces #3144 weighed against the list and left unfiltered.
+
+    These pin a **product decision**, not a filter. Both were found leaking by the
+    #3128 audit and both were kept, so the next sweep that applies the exclusion
+    "everywhere" has to fail here and read the reasoning in ``lifecycle.py``
+    rather than change behavior silently. Each asserts the draft row is PRESENT —
+    the inverse of ``TestEveryExcludedSurface``, and the whole point.
+    """
+
+    def test_program_stakeholders_still_reaches_a_draft_only_viewer(
+        self, committed: Project, draft: Project
+    ) -> None:
+        """The literal row #3144 describes: one membership, and it is on the draft.
+
+        Every notification surface the exclusion list does cover narrows what a
+        notification is *about*; this one narrows who receives it.
+        """
+        from trueppm_api.apps.access.groups import resolve_group_members
+
+        viewer = get_user_model().objects.create_user(username="draft-viewer", password="pw")
+        # Their ONLY membership in the program is on the uncommitted plan.
+        ProjectMembership.objects.create(project=draft, user=viewer, role=Role.VIEWER)
+
+        # The mention itself is written on a committed project in the program.
+        reached = resolve_group_members(committed.pk, "program-stakeholders")
+        assert viewer.pk in reached
+
+        # Committing changes nothing — the person was always reachable.
+        _commit(draft)
+        assert resolve_group_members(committed.pk, "program-stakeholders") == reached
+
+    def test_program_pms_and_schedulers_still_reach_the_draft_authors(
+        self, committed: Project, draft: Project
+    ) -> None:
+        """Why the exclusion has no legal placement, stated as a test.
+
+        ``_program_membership_base_qs`` is the one base all four ``@program-*`` keys
+        narrow and it forbids per-key filters, so an exclusion added there — the
+        only place the module's own rule allows — cuts the draft's own Admin and
+        Scheduler out of program-wide coordination. This fails on a base-qs filter
+        AND on a per-key one, which the stakeholder test alone does not.
+        """
+        from trueppm_api.apps.access.groups import resolve_group_members
+
+        users = get_user_model().objects
+        admin = users.create_user(username="draft-admin", password="pw")
+        scheduler = users.create_user(username="draft-scheduler", password="pw")
+        ProjectMembership.objects.create(project=draft, user=admin, role=Role.ADMIN)
+        ProjectMembership.objects.create(project=draft, user=scheduler, role=Role.SCHEDULER)
+
+        assert admin.pk in resolve_group_members(committed.pk, "program-pms")
+        assert scheduler.pk in resolve_group_members(committed.pk, "program-schedulers")
+        assert {admin.pk, scheduler.pk} <= set(resolve_group_members(committed.pk, "program-all"))
+
+    def test_mention_reach_count_equals_what_the_resolver_delivers(
+        self, program: Program, committed: Project, draft: Project
+    ) -> None:
+        """The ADR-0697 lockstep, asserted as an EQUALITY rather than two literals.
+
+        Two ``== 1`` literals can both be re-baselined to ``== 0`` in the sweep that
+        breaks them. The equality fails whenever either side moves alone, in either
+        direction, which is the only form that survives a deliberate reversal.
+        """
+        from trueppm_api.apps.access.groups import (
+            count_program_stakeholder_reach,
+            resolve_group_members,
+        )
+
+        users = get_user_model().objects
+        ProjectMembership.objects.create(
+            project=draft,
+            user=users.create_user(username="v-draft", password="pw"),
+            role=Role.VIEWER,
+        )
+        ProjectMembership.objects.create(
+            project=committed,
+            user=users.create_user(username="v-live", password="pw"),
+            role=Role.VIEWER,
+        )
+
+        reached = resolve_group_members(committed.pk, "program-stakeholders")
+        assert count_program_stakeholder_reach(program.pk).viewer_member_count == len(reached)
+
+    def test_a_mention_written_in_a_draft_still_fans_out_to_the_program(
+        self, committed: Project, draft: Project
+    ) -> None:
+        """The other leak direction: the ORIGIN project's lifecycle is not consulted.
+
+        A PM typing ``@program-stakeholders`` into a draft is deliberately asking
+        for the review a draft exists to get — unlike #3128's three notification
+        sites, which are unattended machine sweeps over a project population.
+        """
+        from trueppm_api.apps.access.groups import resolve_group_members
+
+        viewer = get_user_model().objects.create_user(username="live-viewer", password="pw")
+        ProjectMembership.objects.create(project=committed, user=viewer, role=Role.VIEWER)
+
+        assert viewer.pk in resolve_group_members(draft.pk, "program-stakeholders")
+
+    def test_program_all_cap_counts_draft_memberships(
+        self, committed: Project, draft: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The named cost of keeping, pinned so a later change to it is deliberate.
+
+        Draft memberships consume ``ALL_GROUP_HARD_CAP`` slots, so enough drafts can
+        trip ``GroupTooLargeError`` on the strength of plans nobody committed to.
+        Accepted (#3144): the cap guards blast radius over people who are genuinely
+        reached. If a ``GroupTooLargeError`` report ever traces here, this is why.
+        """
+        from trueppm_api.apps.access import groups
+
+        # The cap is set so the DRAFT membership is the one that trips it: the
+        # program otherwise resolves to exactly ``cap``. A draft exclusion anywhere
+        # in the base would leave this under the cap and raise nothing.
+        for name, project in (("cap-a", committed), ("cap-b", draft)):
+            ProjectMembership.objects.create(
+                project=project,
+                user=get_user_model().objects.create_user(username=name, password="pw"),
+                role=Role.MEMBER,
+            )
+        monkeypatch.setattr(groups, "ALL_GROUP_HARD_CAP", 2)
+
+        with pytest.raises(groups.GroupTooLargeError):
+            groups.resolve_group_members(committed.pk, "program-all")
+
+    def test_asset_feeds_still_show_a_draft_projects_own_files(
+        self,
+        client: APIClient,
+        user: Any,
+        program: Program,
+        committed: Project,
+        draft: Project,
+    ) -> None:
+        """Your own attachment must stay findable while you are still planning.
+
+        Both tiers answer the same because the workspace feed is the program feed
+        with the ``project__program=`` clause dropped. Covers a file AND a link on
+        the draft: the feed is a two-source merge, so a filter added to
+        ``_file_queryset`` alone would pass a file-only assertion.
+        """
+        from trueppm_api.apps.integrations.models import TaskLink
+        from trueppm_api.apps.projects.models import TaskAttachment
+
+        ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+        for project, file_name in ((draft, "wip-scope.pdf"), (committed, "signed-scope.pdf")):
+            task = Task.objects.create(project=project, name=f"Spec {file_name}", duration=1)
+            TaskAttachment.objects.create(
+                task=task,
+                file=f"attachments/{task.pk}/{file_name}",
+                file_name=file_name,
+                uploaded_by=user,
+            )
+        draft_task = Task.objects.create(project=draft, name="Linked", duration=1)
+        TaskLink.objects.create(
+            task=draft_task,
+            url="https://example.test/wip-scope-mr",
+            provider="gitlab",
+            custom_title="wip-scope draft MR",
+        )
+
+        expected = {"wip-scope.pdf", "signed-scope.pdf", "wip-scope draft MR"}
+        for url in (f"/api/v1/programs/{program.pk}/assets/", "/api/v1/assets/"):
+            titles = {row["title"] for row in client.get(url).data["results"]}
+            assert titles == expected, url
+            # ``q`` is a filter on this browse list, not the omni-search palette —
+            # it is the param most likely to be swept, so pin it on both sources.
+            filtered = {row["title"] for row in client.get(url, {"q": "wip-scope"}).data["results"]}
+            assert filtered == {"wip-scope.pdf", "wip-scope draft MR"}, url
+
+
+@pytest.mark.django_db
 class TestLifecycleIsNotAClientWritableField:
     """The draft transition is server-owned (#3127).
 
