@@ -3,7 +3,8 @@
  *
  * Anatomy (188px wide, two rows + optional cost row):
  *   ▌  Phase name                          [+]
- *   ▌  ━━━━━━━━━━━ 55%   8 tasks
+ *   ▌  ━━━━━━━━━━━━━━━━━━   8 items      (committed)
+ *   ▌  —                    4 ideas      (nothing committed)
  *
  * Workshop variant (`workshop={true}`): background tinted with phase color,
  * phase name becomes contentEditable, drag handle rendered (ADR-0046).
@@ -15,8 +16,20 @@
  * render as 16px ticks instead of card-shaped slots). #1965 thickened the bar
  * to h-1.5 (glanceable color mass) and moved the fill to the neutral sage
  * brand-primary, so progress amount is no longer painted with health colors.
+ *
+ * #3148 removed the numeral that used to sit beside the bar. The header carried
+ * one proportion through two channels — a track drawn at `55%` and the string
+ * "55%" — and a lane header is a glance surface answering *which phase is
+ * behind*, not *by how much*. The bar survived the cut on three grounds the
+ * numeral did not meet: it is already the accessible surface, it is the only
+ * channel that reads as a column when six lanes stack, and it costs no
+ * horizontal room in a 188px cell that also holds a name, a count and a `+`.
+ * The percentage moved to the accessible name and to a hover/focus tooltip.
  */
 import { type ReactNode, type KeyboardEvent, useRef, useCallback } from 'react';
+
+import { Tooltip } from '@/components/Tooltip';
+import { ROW_VOCABULARY, countRows } from '@/features/schedule/rowVocabulary';
 
 export interface LaneMetaProps {
   phaseId: string;
@@ -25,13 +38,23 @@ export interface LaneMetaProps {
   avgProgress: number;
   taskCount: number;
   /**
-   * Count of *committed* tasks (plannedStart set or sprint-assigned). Drives
-   * the em-dash empty state on the percent display: a phase whose only cards
-   * are uncommitted ideas has no delivery to roll up. Falls back to taskCount
-   * when omitted (backwards compat for callers that don't separate the two).
+   * Count of *committed* tasks (plannedStart set or sprint-assigned). This is
+   * the sole gate on the progress slot: above zero the slot draws a bar, at
+   * zero it draws an em-dash and no `progressbar` element at all, because a
+   * phase whose only cards are uncommitted ideas has no delivery to roll up.
+   *
+   * Omitting it means **zero**, not `taskCount`. The old fallback answered
+   * "does this lane hold cards?" when the question the slot asks is "does this
+   * lane hold committed work?" — two different facts that only coincide on a
+   * fully-scheduled phase, so a caller that does not distinguish them cannot
+   * be assumed to have committed work (#3148).
    */
   committedTaskCount?: number;
-  /** Hex color for the 3px left rail; use phaseColor() helper to derive. */
+  /**
+   * Hex color for the 3px left rail; use phaseColor() helper to derive. An
+   * uncommitted lane overrides it with a neutral (see the rail below): "nothing
+   * measurable here" is carried by the rail as well as by the slot.
+   */
   railColor: string;
   /** Workshop mode: tinted bg, editable name, drag handle. */
   workshop?: boolean;
@@ -68,6 +91,27 @@ export interface LaneMetaProps {
   phaseBudgetAtCompletion?: number | null;
   /** Sum of task.actualCost for tasks that have actual cost data. */
   phaseActualCost?: number | null;
+}
+
+/**
+ * The uncommitted slot's accessible name. Named once because it is asserted in
+ * three test layers and drifting it silently would leave the tab stop unnamed.
+ */
+const NO_PROGRESS_LABEL =
+  'Phase progress: not applicable — no committed work in this phase';
+
+/**
+ * `n` uncommitted cards — `1 idea`, `4 ideas`.
+ *
+ * Deliberately local rather than a `rowVocabulary` token. That module governs
+ * the noun for a row whose **`structure_role` is undeclared**, and its answer
+ * is always "item". "Idea" is not a competing answer to that question — it is a
+ * claim about *commitment*, orthogonal to what kind of row this is, and a lane
+ * of ideas is still a lane of items. Adding it to the governed vocabulary would
+ * put a second axis inside a module whose whole value is having exactly one.
+ */
+function countIdeas(n: number): string {
+  return `${n} ${n === 1 ? 'idea' : 'ideas'}`;
 }
 
 function fmtCurrencyLane(value: number): string {
@@ -124,29 +168,59 @@ export function LaneMeta({
     [phaseName],
   );
 
-  // No committed tasks → bar empty, percent reads as em-dash (ADR-0057).
-  // Progress magnitude uses the neutral brand-primary (sage) fill — NOT the
-  // semantic health palette. Green/amber/red are the health vocabulary
-  // (web-rule 7); keying the fill off "how far along" (the pre-#385/#1965
-  // amber-below-50 → green-above-50 flip) conflated progress magnitude with
-  // health state, so an early-but-healthy lane read as amber "at risk". Sage
-  // carries amount; semantic colors are reserved for a real health signal.
-  // committedTaskCount distinguishes "has cards but none committed" (idea
-  // inbox) from "has committed delivery"; legacy callers that pass only
-  // taskCount fall through to the prior behavior.
-  const hasCommitted = (committedTaskCount ?? taskCount) > 0;
-  const fillClass = hasCommitted ? 'bg-brand-primary' : 'bg-transparent';
+  // The one gate on the progress slot. `committedTaskCount` distinguishes "has
+  // cards but none committed" (an idea inbox) from "has committed delivery";
+  // omitting it means zero, never taskCount — see the prop docblock (#3148).
+  const committed = committedTaskCount ?? 0;
+  const measurable = committed > 0;
+
+  // The count word switches with the state, because it is the one place the
+  // header names what kind of work it holds: a lane of committed delivery holds
+  // `items`, a lane nobody has committed to holds `ideas`. `items` comes from
+  // `countRows` rather than a local literal so this header and the outline
+  // cannot come to disagree about the neutral noun — the module exports it for
+  // exactly this, so a count-bearing sentence reaches the same word the
+  // outline's buttons do instead of agreeing with them by luck.
+  const countLabel = measurable ? countRows(taskCount) : countIdeas(taskCount);
+
+  // The percentage the visible row no longer carries. Three carriers, so no
+  // fact lives only in a tooltip: hover for a sighted pointer user, focus for a
+  // sighted keyboard user, and the slot's accessible name for a screen reader.
+  //
+  // Touch is deliberately NOT one of them. The slot is a 6px-tall readout, not
+  // a control, and it is nowhere near rule 5's 44px floor — expanding it to
+  // reach that floor would drive its hit box into the `+` button's own
+  // expander 8px above and break a working affordance to serve a redundant
+  // one. `Tooltip` does tap-toggle, so a touch user who lands on it gets the
+  // string, but the guaranteed coarse-pointer path is the one the design
+  // specifies: tapping the lane name opens the phase, which states progress in
+  // full. Do not add a touch expander here without moving the `+` first.
+  const progressTip = `${pct}% complete · ${committed} of ${countRows(taskCount)} committed`;
+  const noProgressTip =
+    taskCount === 0
+      ? // The governed string, imported rather than re-worded: an empty phase
+        // makes the same claim here as it does on the outline's ghost row, and
+        // two spellings of one claim is the drift `rowVocabulary` exists to stop.
+        ROW_VOCABULARY.create.phaseHasNoRows
+      : `No committed work yet — ${countIdeas(taskCount)}`;
 
   return (
     <div
       className="relative"
       style={workshop ? { background: `color-mix(in srgb, ${railColor} 5%, var(--neutral-surface, white))` } : undefined}
     >
-      {/* 3px color rail */}
+      {/* 3px color rail. An uncommitted lane drops the phase accent for a
+          neutral so the "nothing measurable here" state is legible from the
+          rail alone, at the scale where a stack of lanes is scanned rather
+          than read (#3148). The token is the inert-affordance neutral, which
+          is what this rail now is — it is decorative (aria-hidden) and the
+          slot beside it carries the claim in words. */}
       <div
         aria-hidden="true"
-        className="absolute left-0 top-0 bottom-0 w-[3px]"
-        style={{ background: railColor }}
+        className={`absolute left-0 top-0 bottom-0 w-[3px] ${
+          measurable ? '' : 'bg-neutral-text-disabled'
+        }`}
+        style={measurable ? { background: railColor } : undefined}
       />
 
       {/* Content — inset from rail */}
@@ -225,44 +299,121 @@ export function LaneMeta({
           {focusToggle}
         </div>
 
-        {/* Progress row — 6px inline bar + mono percent + task count.
-            Em-dash empty state when no committed tasks (ADR-0057). After
-            BACKLOG was lifted into the band above the grid, a phase whose
-            only cards are backlog ideas has zero committed delivery.
-            "0%" would imply "0% done"; "—" reads as "not applicable yet".
+        {/* Progress row — one slot + the task count.
+            The slot renders a proportion as a bar, or the absence of one as an
+            em-dash. Never both, never neither, and nothing else in this header
+            draws a bar (#3148 D1/D4). The count beside it is a different fact
+            (how much work is here, not how far along it is) and stays.
+
             Height is h-1.5 (matches TaskRow) so the sage fill carries enough
-            color mass to read across a rail of lanes at a glance (#1965). */}
+            color mass to read across a rail of lanes at a glance (#1965), and
+            progress magnitude uses the neutral brand-primary (sage) fill, NOT
+            the semantic health palette — green/amber/red are the health
+            vocabulary (web-rule 7), and the pre-#385/#1965 amber-below-50 →
+            green-above-50 flip made an early-but-healthy lane read "at risk". */}
         <div className="flex items-center gap-2 min-w-0">
-          <div
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={hasCommitted ? pct : undefined}
-            aria-label={
-              hasCommitted ? `Phase progress ${pct} percent` : 'No committed tasks'
-            }
-            className="flex-1 h-1.5 rounded-full bg-neutral-surface-sunken overflow-hidden"
-          >
-            <div
-              aria-hidden="true"
-              className={`h-full ${fillClass} transition-[width] duration-150`}
-              style={{ width: hasCommitted ? `${pct}%` : 0 }}
-            />
-          </div>
-          <span
-            className="tppm-mono text-xs font-semibold text-neutral-text-primary leading-none flex-shrink-0"
-          >
-            {hasCommitted ? `${pct}%` : '—'}
-          </span>
+          {measurable ? (
+            <Tooltip content={progressTip}>
+              {/* tabIndex is load-bearing, not decoration: with the numeral gone
+                  the tooltip is the only sighted carrier of the percentage, and
+                  a coarse pointer has no hover. The tab stop is what gives a
+                  keyboard user the same route a mouse user gets. */}
+              <div
+                role="progressbar"
+                tabIndex={0}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={pct}
+                aria-label={`Phase progress: ${pct}% complete`}
+                className={[
+                  'flex-1 h-1.5 rounded-full bg-neutral-surface-sunken overflow-hidden',
+                  // Standalone tooltip trigger → `focus:`, not `focus-visible:`
+                  // (web-rule 4 carve-out / rule 214).
+                  'focus:outline-none focus:ring-2 focus:ring-brand-primary',
+                  'focus:ring-offset-1 focus:ring-offset-neutral-surface',
+                  // 100% is told by FORM, not by a numeral: a full track and a
+                  // 97% track are four pixels apart, which is not a difference
+                  // anyone reads at a glance. The detached hairline makes
+                  // "finished" a different shape rather than a slightly longer
+                  // one (D3).
+                  //
+                  // It is an `outline`, not a `ring`, for two reasons the design
+                  // handoff's `ring-1` spelling did not account for. (1) `ring-*`
+                  // is a box-shadow, so `focus:ring-2` REPLACES it — a focused
+                  // 100% bar and a focused 97% bar would render identically, and
+                  // the state would vanish at exactly the moment a keyboard user
+                  // inspected it. `outline` is a separate channel and composes.
+                  // (2) A resting `ring-brand-primary` already means "selected"
+                  // everywhere else in this tree (label swatches, drop targets,
+                  // the cell in edit), so a finished lane would wear what reads
+                  // as a selection mark permanently.
+                  pct === 100
+                    ? 'outline outline-1 outline-offset-[1.5px] outline-brand-primary'
+                    : '',
+                ].join(' ')}
+              >
+                <div
+                  aria-hidden="true"
+                  className="h-full bg-brand-primary transition-[width] duration-150"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </Tooltip>
+          ) : (
+            <Tooltip content={noProgressTip}>
+              {/* No `progressbar` element at all — "indeterminate" is a claim
+                  that work is underway with the extent unknown, and these
+                  phases are not underway. An empty track and a 0% track are the
+                  same picture, and both assert "measured, none done"; the
+                  em-dash asserts "not applicable yet" (ADR-0057). The glyph is
+                  aria-hidden because a lone dash names nothing — the sibling
+                  sr-only line is what a screen reader gets, and it is also the
+                  slot's accessible name for the keyboard path. */}
+              {/* `role="img"` + `aria-label`, NOT a bare span wrapping sr-only
+                  text: a `<span tabIndex={0}>` computes to role `generic`, which
+                  does not support name-from-content, so descendant text is not
+                  an accessible name and the tab stop would announce as blank.
+                  axe cannot catch that — `focus-order-semantics` is tagged
+                  best-practice and our scan runs wcag2a/2aa/21a/21aa only — so
+                  the green a11y spec is evidence about the tag set, not the
+                  markup. `img` makes the glyph presentational, which is why
+                  there is no sr-only sibling to double-read.
+
+                  The tab stop itself is required: rule 287's first invariant is
+                  that an explanation is reachable by more than one input path,
+                  and without it the sighted keyboard user is the one person who
+                  cannot find out why this lane has no bar. */}
+              <span
+                role="img"
+                aria-label={NO_PROGRESS_LABEL}
+                tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- see the comment above: a Tooltip trigger needs a keyboard path
+                className="flex-1 flex items-center leading-none rounded-control
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary
+                  focus:ring-offset-1 focus:ring-offset-neutral-surface"
+              >
+                <span
+                  aria-hidden="true"
+                  className="tppm-mono text-xs font-semibold text-neutral-text-secondary"
+                >
+                  —
+                </span>
+              </span>
+            </Tooltip>
+          )}
           <span className="text-xs text-neutral-text-secondary leading-none flex-shrink-0">
-            {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+            {countLabel}
           </span>
         </div>
 
-        {/* Cost row — shown when showCost toggle is on and phase has budget data (issue #189). */}
+        {/* Cost row — shown when showCost toggle is on and phase has budget data (issue #189).
+            Numerals only, and deliberately so: spend is a second proportion, and
+            drawing it as a second bar would put two tracks in one header and
+            re-create at the lane level exactly the double statement #3148
+            removed at the slot level. The dashed hairline separates the two
+            facts without adding a channel that competes with the bar (D4). */}
         {showCost && phaseBudgetAtCompletion != null && (
           <div
-            className="flex items-center gap-1 flex-wrap text-xs"
+            className="flex items-center gap-1 flex-wrap text-xs border-t border-dashed border-neutral-border pt-2"
             aria-label={`Phase budget: ${phaseActualCost != null ? fmtCurrencyLane(phaseActualCost) : 'no actuals'} of ${fmtCurrencyLane(phaseBudgetAtCompletion)}`}
           >
             <span
