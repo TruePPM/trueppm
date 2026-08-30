@@ -91,7 +91,7 @@ Prometheus.
 For metrics-based alerting, scrape the Prometheus-text endpoint. It requires a
 **staff (admin)** account — it exposes operational state, so it is gated with
 `IsAdminUser` and is bearer-scrapeable, mirroring `/api/v1/health/beat/` (see
-[Beat Liveness & Durability](/administration/durability/)).
+[Beat Liveness](/administration/beat-liveness/)).
 
 It emits a single gauge, `trueppm_task_dead_letter_parked`, labeled by task name:
 
@@ -266,7 +266,7 @@ the project-admin-facing half of the same signal.
 
 - [Webhooks](/features/webhooks/) — outbound delivery, its retry classification,
   and the automatic-deactivation guard.
-- [Beat Liveness & Durability](/administration/durability/) — the sibling
+- [Beat Liveness](/administration/beat-liveness/) — the sibling
   `/api/v1/health/beat/` detector for a dead Celery Beat process.
 - [Outbox & Record Retention](/administration/retention/) — `FailedTask` retention
   is governed by the retention purge; parked dead-letters are reaped along with

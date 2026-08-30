@@ -942,6 +942,30 @@
             },
             "emailQueueAgingFor": {
               "type": "string"
+            },
+            "backup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "jobFailedFor": {
+                  "type": "string"
+                },
+                "staleAfterSeconds": {
+                  "type": "integer"
+                },
+                "staleFor": {
+                  "type": "string"
+                },
+                "neverSucceededFor": {
+                  "type": "string"
+                }
+              }
+            },
+            "volumeAvailablePercent": {
+              "type": "number"
+            },
+            "volumeAvailableFor": {
+              "type": "string"
             }
           }
         }

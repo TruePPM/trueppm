@@ -7,13 +7,17 @@ documentedFor: "0.4"
 ## Before you upgrade
 
 1. **Read the changelog** for the target version — check `CHANGELOG.md` or the [release notes](https://gitlab.com/trueppm/trueppm/-/releases) for breaking changes and migration notes.
-2. **Back up PostgreSQL.** Valkey state is ephemeral (broker + cache); PostgreSQL is the only stateful service.
+2. **Back up PostgreSQL** with `scripts/backup.sh`. Valkey state is ephemeral (broker + cache); PostgreSQL is the only stateful service.
    ```bash
-   pg_dump -U trueppm trueppm > trueppm-backup-$(date +%F).sql
-   # Or via Docker:
-   docker exec trueppm-db-1 pg_dump -U trueppm trueppm \
-     > trueppm-backup-$(date +%F).sql
+   ./scripts/backup.sh --output-dir ./backups
    ```
+   Use this rather than a hand-rolled `pg_dump > file.sql`. The runbook's restore
+   tooling reads `--format=custom` archives, so a plain-SQL dump is an artifact
+   `scripts/restore.sh` cannot consume — you would discover that during a
+   rollback, which is the worst moment to discover it. The custom format also
+   preserves `CREATE EXTENSION` ordering, which the `ltree` / `pg_trgm` /
+   `btree_gist` objects depend on; see
+   [Backup & restore](/administration/backup-restore/#why-the-ltree--pg_trgm--btree_gist-extension-ordering-matters).
 3. **Note your current version** before starting.
    ```bash
    docker inspect registry.gitlab.com/trueppm/trueppm/api:latest --format '{{.Config.Labels}}'
@@ -107,9 +111,15 @@ drop, recreate, or data step.
 
 ```bash
 git pull origin main
-docker compose pull
+docker compose build
 docker compose up -d
 ```
+
+`build`, not `pull` (#3189). The dev stack's `api` and `web` services are
+`build:`-based, and `celery` references `image: trueppm-api:local` with no
+`build:` of its own — so `docker compose pull` has nothing to fetch for the
+services that changed, and reports success. Building is what actually picks up
+the new code.
 
 Migrations run automatically when the `api` container starts.
 
@@ -299,11 +309,19 @@ If the migration applied schema changes, restore from the pre-upgrade backup:
 
 ```bash
 docker compose -f docker-compose.prod.yml down
-docker volume rm trueppm_postgres_data
 docker compose -f docker-compose.prod.yml up db -d
-docker exec -i trueppm-db-1 psql -U trueppm trueppm < trueppm-backup-<date>.sql
+./scripts/restore.sh --artifact ./backups/trueppm-backup-<timestamp>.tar.gz --yes
 # Then bring up the full stack at the previous version.
 ```
+
+:::danger[Do not `docker volume rm` to make room for the restore]
+`restore.sh` drops and recreates the *database*, which is all a restore needs.
+Deleting the volume destroys PostgreSQL's entire data directory — every
+database on that instance, not just TruePPM's — and it is unrecoverable if the
+artifact you are about to restore turns out to be incomplete. Verify the
+artifact first (`tar -tzf <artifact>` should list `db.dump` and a `MANIFEST`),
+and keep the volume until the restore has succeeded.
+:::
 
 ### Concurrent migrations at `replicaCount >= 2`
 

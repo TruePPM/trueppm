@@ -632,6 +632,49 @@ class TestDependencyAuthoringBand:
         _add_member(user, project, Role.VIEWER)
         assert self._post_edge(user, project).status_code == 403
 
+    # -----------------------------------------------------------------------
+    # DELETE, which had no coverage at all until #3143.
+    #
+    # The drawer's Dependencies section offered per-edge Remove to every reader,
+    # Viewer included — the only DELETE among the five dependency-write
+    # surfaces. Whether that was a false affordance or a real hole turns
+    # entirely on whether the server refuses it, and nothing asserted either
+    # way: the band tests above cover POST only.
+    #
+    # It matters more here than for POST. `POST /dependencies/` is a FLAT route,
+    # so `IsProjectScheduler.has_permission` fails open (#2745) and the floor is
+    # actually enforced one layer down by `DependencySerializer.validate`.
+    # DELETE has no serializer in its path — it is a detail route, so the ONLY
+    # thing standing between a Viewer and a deleted edge is
+    # `has_object_permission` firing from `get_object()`. That is a single point
+    # of failure with, until now, no test on it.
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _delete_edge(actor: object, project: Project) -> Any:
+        t1 = Task.objects.create(project=project, name="A", duration=1)
+        t2 = Task.objects.create(project=project, name="B", duration=1)
+        edge = Dependency.objects.create(predecessor=t1, successor=t2, dep_type="FS")
+        c = APIClient()
+        c.force_authenticate(user=actor)
+        return c.delete(f"/api/v1/dependencies/{edge.pk}/")
+
+    def test_viewer_cannot_delete_dependency(self, user: object, project: Project) -> None:
+        """The surface #3143 is named for: Remove was rendered for this band."""
+        _add_member(user, project, Role.VIEWER)
+        assert self._delete_edge(user, project).status_code == 403
+
+    def test_member_cannot_delete_dependency(self, user: object, project: Project) -> None:
+        """Symmetric with `test_member_cannot_create_dependency` — content is not edges."""
+        _add_member(user, project, Role.MEMBER)
+        assert self._delete_edge(user, project).status_code == 403
+
+    def test_scheduler_can_delete_dependency(self, user: object, project: Project) -> None:
+        """Asserted as the PAIR to the refusals: a gate that refused everyone
+        would pass both tests above while breaking the role that owns edges."""
+        _add_member(user, project, Role.SCHEDULER)
+        assert self._delete_edge(user, project).status_code == 204
+
     # The other half of the pair, asserted as a PAIR so the two cannot drift.
     #
     # A Scheduler being allowed edges and refused rows is precisely why one client

@@ -28,8 +28,8 @@ docker compose up -d
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| `db` | 5432 | PostgreSQL 16 |
-| `valkey` | 6379 | Celery broker + Django Channels layer ([Valkey](https://valkey.io) — BSD-licensed Redis fork, wire-compatible) |
+| `db` | 127.0.0.1:5432 | PostgreSQL 16. Bound to loopback, so only clients on this machine can reach it. |
+| `valkey` | — | Celery broker + Django Channels layer ([Valkey](https://valkey.io) — BSD-licensed Redis fork, wire-compatible). Reachable only on the Compose network — the dev stack publishes **no** host port for it. |
 | `api` | 8000 | Django ASGI (uvicorn) |
 | `celery` | — | CPM auto-scheduling worker |
 | `celery-beat` | — | Periodic task runner (Beat) |
@@ -41,7 +41,16 @@ Migrations and the `create_admin` bootstrap run automatically when the `api` con
 docker compose exec api cat /tmp/trueppm_admin_password
 ```
 
-**Good for:** local development, evaluation, small teams, demos.
+**Good for:** local development, evaluation, demos.
+
+**Not for shared or production use, even a small team.** This stack hardcodes
+`POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
+the tracked compose file, and it publishes PostgreSQL on the host. That port
+binds to `127.0.0.1` from 0.4 onward; on the current release it publishes on
+`0.0.0.0`, reachable from the network with that password — and Docker's
+published ports bypass most host firewalls, because the `DOCKER` chain is
+consulted before `INPUT`. For anything more than one developer's machine, use the
+single-server production stack below or the Helm chart.
 
 ### Public read-only demo (`docker-compose.demo.yml`)
 
@@ -518,6 +527,19 @@ pre-1.0 roadmap.
 
 ## Single server with systemd
 
+:::danger[`docker compose down -v` deletes your database]
+`-v` removes the named volumes, which on this stack is PostgreSQL's entire data
+directory, the Valkey AOF, and (from 0.4) the attachments volume. There is no
+confirmation prompt and no undo. Plain `docker compose down` stops the stack and
+keeps every volume — that is the command you want for a restart, an upgrade, or
+a config change.
+
+Use `-v` only when you intend to destroy the instance, and take a backup first
+with `./scripts/backup.sh`. The same applies to `docker volume rm
+trueppm_postgres_data`.
+:::
+
+
 For production on a single Linux server without Kubernetes. Uses the pre-built
 release images with Docker Compose, managed by systemd so the stack restarts
 with the machine.
@@ -547,7 +569,10 @@ Edit `.env` and fill in all required values:
 DOMAIN=trueppm.example.com
 TLS_MODE=letsencrypt
 CERTBOT_EMAIL=ops@example.com
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+# SECRET_KEY is left EMPTY here on purpose — init-prod.sh generates one and
+# writes it back to .env. Set it yourself only if you want to control the value;
+# it refuses any documented placeholder either way.
+SECRET_KEY=
 DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
 REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
 
@@ -701,7 +726,7 @@ All services share the same Valkey instance. Celery-originated broadcasts (e.g.,
 
 PostgreSQL is the only stateful service. Back up the `trueppm` database on your preferred schedule.
 
-Valkey is a broker and cache — it does not store persistent data. Losing Valkey state means in-flight Celery tasks are lost (they'll be re-triggered by the next write) and WebSocket connections will drop and reconnect.
+Valkey holds no authoritative data, so it is never restored from a backup — but whether it *persists* differs by artifact, and it is worth knowing which you run: the Helm sub-chart runs `valkey-server --appendonly yes` against a 2Gi PVC (~1 s broker RPO at the default `appendfsync everysec`), while `docker-compose.prod.yml` mounts `/data` as a `tmpfs` with no AOF and loses the queue on every container restart. Either way the work itself survives — fourteen outbox drains re-dispatch pending rows every 30 seconds and every task carries `acks_late` — and WebSocket connections simply drop and reconnect. See [Durability & Redundancy](/administration/durability/#broker-persistence-per-artifact).
 
 TruePPM ships tested backup and restore scripts (`scripts/backup.sh` / `scripts/restore.sh`) and an opt-in Helm backup CronJob. See [Backup & Restore](/administration/backup-restore/) for the full runbook: manual backups on Compose and Helm, restoring onto a fresh stack, what is and isn't captured, and the restore-drill cadence.
 
@@ -786,7 +811,7 @@ Monitor the Celery worker logs for scheduling errors. If Valkey becomes unavaila
 In a single-pod deployment there is exactly one Celery Beat process driving every
 periodic drain. If it dies silently, async work stops accumulating signal. TruePPM
 exposes a heartbeat endpoint (`GET /api/v1/health/beat/`) so monitoring can detect a
-dead Beat. See [Beat Liveness & Durability](/administration/durability/) for how to wire
+dead Beat. See [Beat Liveness](/administration/beat-liveness/) for how to wire
 it into Prometheus or Kubernetes.
 
 ### Outbox & record retention

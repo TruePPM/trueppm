@@ -31,7 +31,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
-import { ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
+import { ROLE_MEMBER, ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 
 const mocks = vi.hoisted(() => ({
   updateMutate: vi.fn(),
@@ -595,6 +595,18 @@ describe('TaskListRow — SprintAssignmentRegion outcomes', () => {
 // Build-mode context menu — Add dependency wiring (#477, one item since #3113).
 // ───────────────────────────────────────────────────────────────────────────
 describe('TaskListRow — dependency menu items', () => {
+  // Scheduler, not the file's default Member (#3142). These cases previously ran
+  // at role 100 and so asserted that a **Member** reaches the dependency item —
+  // which the server answers 403, because edges are `IsProjectScheduler` and task
+  // content is `IsProjectPlanAuthor` (ADR-0773 §7). Each case's intent is about
+  // menu WIRING (call shape, handler-absent state), not about which role gets
+  // there, so it is preserved by running at the band that actually holds the
+  // capability. The role gating itself is pinned in
+  // `TaskListRow.noEditRights.test.tsx`.
+  beforeEach(() => {
+    mocks.currentRole = ROLE_SCHEDULER;
+  });
+
   it('Add dependency calls onAddDependencyRequest with NO direction, letting the dialog default', () => {
     // The menu deliberately does not pick a side. Direction is a field inside
     // the dialog now, so seeding it from the menu would re-create the thing

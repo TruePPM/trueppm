@@ -68,6 +68,10 @@ test-results/
 packages/web/test-results/
 packages/web/playwright-report/
 
+# Rendered by init-prod.sh from one of the nginx/*.conf.template files at first
+# run (#3189). A generated artifact, never committed.
+nginx/active.conf.template
+
 # Local dev attachment + media blobs (Closes #817)
 packages/api/attachments/
 packages/api/media/
