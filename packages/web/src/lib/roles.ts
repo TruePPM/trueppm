@@ -204,3 +204,25 @@ export function canManageLabels(role: number | null | undefined): boolean {
 export function progressCompleteAutoStatus(role: number | null | undefined): 'REVIEW' | 'COMPLETE' {
   return role != null && role >= ROLE_ADMIN ? 'COMPLETE' : 'REVIEW';
 }
+
+/**
+ * Whether this role may take a plan out of draft (`POST /projects/{id}/commit/`).
+ *
+ * Admin+ (Project Manager, Project Admin). This is the row ADR-0773's matrix already
+ * decided — "Publish / commit the plan (0.5 draft lifecycle)" is ❌ for Viewer, Member
+ * **and Scheduler** — and the endpoint enforced one band lower than that until #3129.
+ * The floor is `IsProjectAdmin` on the server; this predicate exists so the button and
+ * the endpoint state the same rule rather than drifting.
+ *
+ * A threshold (`>=`), not equality, so an Enterprise custom role registered in the
+ * 301–399 project-lead band inherits it — the ADR-0072 band contract.
+ *
+ * `null`/`undefined` (role still loading, or no membership) is `false`: pessimistic
+ * until settled, so a Commit button never flashes and then vanishes. Deliberately NOT
+ * the optimistic `roleUnsettled` treatment `canEditTaskRow` uses — that one keeps a
+ * row editable during a flicker, which is recoverable; offering a one-way,
+ * non-undoable action to someone who may turn out to lack it is not.
+ */
+export function canCommitPlan(role: number | null | undefined): boolean {
+  return role != null && role >= ROLE_ADMIN;
+}

@@ -9,7 +9,11 @@ import type {
   ProjectVisibility,
 } from '@/api/types';
 import type { BoardCadence, Methodology } from '@/types';
-import type { DurationChangePercentPolicy, EstimationScale, PrioritizationModel } from '@/api/types';
+import type {
+  DurationChangePercentPolicy,
+  EstimationScale,
+  PrioritizationModel,
+} from '@/api/types';
 import { safeHoursPerDay } from '@/features/schedule/duration/durationUnit';
 
 /**
@@ -263,6 +267,29 @@ export interface ApiProjectDetail {
    * methodology-default map. Drives the settings "Inherit (On/Off)" affordance.
    */
   inherited_surface_visibility: SurfaceVisibility;
+  /**
+   * Whether anyone has agreed to this plan yet (#2962). `draft` until the plan is
+   * committed, `active` afterwards.
+   *
+   * **Not the same axis as `is_archived` below, and the two must never be collapsed.**
+   * `is_archived` means "this is history, do not touch it" and makes the project hard
+   * read-only. `lifecycle` means "nobody has agreed to this yet" — a draft is fully
+   * writable. What a draft is *not* is visible: the server holds it out of program
+   * rollup, portfolio health, search, My Work and the notification fan-out, so a
+   * half-built plan cannot turn an aggregate into a guess with a chart around it.
+   *
+   * Read-only here and on the server (#3127). The only legal `draft -> active`
+   * transition is `POST /projects/{id}/commit/` — a PATCH naming this field gets 200
+   * with the write silently dropped, because DRF strips read-only fields before
+   * `validate()` runs. Do not build an edit control on it; use `useCommitProject`.
+   *
+   * Optional because responses cached before #3129 do not carry it. Treat absent as
+   * "unknown", never as `draft` — defaulting to draft would offer a Commit button on
+   * an already-committed plan.
+   */
+  lifecycle?: 'draft' | 'active';
+  /** When the project entered draft (#2962); null for a project that never was one. */
+  draft_started_at?: string | null;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;

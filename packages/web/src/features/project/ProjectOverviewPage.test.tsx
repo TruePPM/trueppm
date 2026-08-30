@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, MemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { ProjectOverviewPage, CriticalPathPanel } from './ProjectOverviewPage';
+import { DRAFT_EXCLUSION_SENTENCE } from './draftExclusion';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -1153,12 +1154,8 @@ describe('zero-task Overview — no empty card (#2733)', () => {
     renderPage();
 
     await screen.findByRole('heading', { name: /overview/i });
-    expect(
-      screen.queryByRole('heading', { name: /add your first task/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: /add your first task/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /add your first task/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add your first task/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /invite teammates/i })).not.toBeInTheDocument();
   });
 
@@ -1729,5 +1726,183 @@ describe('Overview with no resolved project id', () => {
     // …and none of the project-scoped panels mount.
     expect(screen.queryByRole('region', { name: /attention items/i })).toBeNull();
     expect(screen.queryByRole('region', { name: /burn-up chart/i })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The commit moment (#3129) — Draft pill, Commit plan button, confirm sheet
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the header with an explicit lifecycle + role, which the default fixture
+ * deliberately omits: `PROJECT_DETAIL` carries no `lifecycle` and the self-membership
+ * row is a Member (100), so every pre-existing test in this file renders neither the
+ * pill nor the button. That is the point — absent lifecycle must never read as draft.
+ */
+function mockHeaderState(opts: { lifecycle?: 'draft' | 'active'; role: number }) {
+  mockedGet.mockImplementation((url: string) => {
+    if (url === '/projects/proj-1/') {
+      return Promise.resolve({
+        data: { ...PROJECT_DETAIL, ...(opts.lifecycle ? { lifecycle: opts.lifecycle } : {}) },
+      });
+    }
+    if (url.endsWith('/members/'))
+      return Promise.resolve({ data: [{ id: 'me', role: opts.role }] });
+    if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+    if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+    if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+    if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+    if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+    return Promise.reject(new Error(`Unexpected URL: ${url}`));
+  });
+}
+
+// A string `name` is already an exact accessible-name match in Testing Library, so
+// this cannot also bind the dialog's confirm button while the sheet is closed — and
+// the sheet-open tests scope through `within(dialog)` rather than this helper.
+const commitButton = () => screen.queryByRole('button', { name: 'Commit plan' });
+
+describe('ProjectOverviewPage — the commit moment (#3129)', () => {
+  it('shows the Draft pill and the Commit plan button to an Admin on a draft', async () => {
+    mockHeaderState({ lifecycle: 'draft', role: 300 });
+    renderPage();
+    expect(await screen.findByLabelText('Project lifecycle: Draft')).toBeInTheDocument();
+    await waitFor(() => expect(commitButton()).toBeInTheDocument());
+  });
+
+  it('shows the Draft pill but NOT the button to a Scheduler', async () => {
+    // The boundary #3129 moved. A Scheduler must still be able to see that the plan
+    // has not been agreed to — the pill is state disclosure, the button is capability.
+    mockHeaderState({ lifecycle: 'draft', role: 200 });
+    renderPage();
+    const pill = await screen.findByLabelText('Project lifecycle: Draft');
+    // Rendered text, not the attribute — the consequence must survive a fast visual
+    // scan, and a bare `title` is unreachable on touch (rules 287/328b). The whole
+    // list is asserted, including My Work, which used to live only in that `title`.
+    expect(pill).toHaveTextContent('Draft');
+    expect(pill).not.toHaveAttribute('title');
+    await waitFor(() => expect(screen.getByText(DRAFT_EXCLUSION_SENTENCE)).toBeInTheDocument());
+    expect(DRAFT_EXCLUSION_SENTENCE).toMatch(/My Work/);
+    expect(commitButton()).not.toBeInTheDocument();
+  });
+
+  it('shows neither once the plan is active', async () => {
+    mockHeaderState({ lifecycle: 'active', role: 300 });
+    renderPage();
+    await screen.findByRole('button', { name: /update status/i });
+    expect(screen.queryByLabelText('Project lifecycle: Draft')).not.toBeInTheDocument();
+    expect(commitButton()).not.toBeInTheDocument();
+  });
+
+  it('treats an ABSENT lifecycle as unknown, never as draft', async () => {
+    // A response cached before #3129 carries no `lifecycle`. Defaulting it to draft
+    // would offer a one-way Commit on an already-committed plan.
+    mockHeaderState({ role: 300 });
+    renderPage();
+    await screen.findByRole('button', { name: /update status/i });
+    expect(screen.queryByLabelText('Project lifecycle: Draft')).not.toBeInTheDocument();
+    expect(commitButton()).not.toBeInTheDocument();
+  });
+
+  it('opens a confirm sheet that states BOTH what commit does and the Amend change', async () => {
+    // UX-REVIEW §4 requires both halves. The Amend sentence is the one that explains
+    // why this is a one-way door rather than a save, so it is asserted explicitly
+    // rather than left to a generic "dialog is visible" check.
+    mockHeaderState({ lifecycle: 'draft', role: 300 });
+    renderPage();
+    await waitFor(() => expect(commitButton()).toBeInTheDocument());
+    fireEvent.click(commitButton()!);
+
+    const dialog = await screen.findByRole('dialog', { name: /commit this plan/i });
+    expect(within(dialog).getByText(/Baseline v1/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/working calendar/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/amending/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/cannot un-commit/i)).toBeInTheDocument();
+    // The honest half of the Amend sentence is present...
+    expect(within(dialog).getByText(/recorded in plan history/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/tells the people whose work moved/i)).toBeInTheDocument();
+    // ...and the claim the client cannot yet deliver is absent, across phrasings
+    // rather than against the one retired wording (rule 308d). `amend_reason` is a
+    // real write-only serializer field with zero senders in packages/web — #3150 owns
+    // the prompt that collects it — so until then no copy may say a reason is
+    // captured. Nor may anything claim committing notifies: `commit_project()` writes
+    // no notification row, which is why #3129 renamed `notified_resource_count`.
+    expect(
+      within(dialog).queryByText(/carries a reason|reason for the change|asks you why/i),
+    ).toBeNull();
+    expect(within(dialog).queryByText(/notif|the team is told|we'll let/i)).toBeNull();
+  });
+
+  it('does not offer a re-baseline or "keep v1" exit — #3150 owns the second exit', async () => {
+    // A sheet offering only re-baseline teaches people to launder slip (UX-REVIEW §4).
+    mockHeaderState({ lifecycle: 'draft', role: 300 });
+    renderPage();
+    await waitFor(() => expect(commitButton()).toBeInTheDocument());
+    fireEvent.click(commitButton()!);
+
+    const dialog = await screen.findByRole('dialog', { name: /commit this plan/i });
+    expect(
+      within(dialog).queryByText(/re-baseline|rebaseline|keep v1|let variance stand/i),
+    ).toBeNull();
+    // Exactly two controls: Cancel and Commit plan.
+    expect(within(dialog).getAllByRole('button')).toHaveLength(2);
+  });
+
+  it('POSTs to /commit/ on confirm and closes the sheet', async () => {
+    mockHeaderState({ lifecycle: 'draft', role: 300 });
+    mockedPost.mockResolvedValue({
+      data: {
+        baseline_id: 'b-1',
+        baseline_name: 'Baseline v1',
+        task_count: 12,
+        assigned_resource_count: 4,
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(commitButton()).toBeInTheDocument());
+    fireEvent.click(commitButton()!);
+
+    const dialog = await screen.findByRole('dialog', { name: /commit this plan/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Commit plan' }));
+
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledWith('/projects/proj-1/commit/'));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /commit this plan/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps the sheet open and does not re-POST while a commit is in flight', async () => {
+    // One-way act: a double-click must not fire two POSTs, and the sheet must not
+    // vanish mid-write leaving no signal about an irreversible operation.
+    mockHeaderState({ lifecycle: 'draft', role: 300 });
+    let resolvePost: (v: unknown) => void = () => {};
+    mockedPost.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolvePost = r;
+        }),
+    );
+    renderPage();
+    await waitFor(() => expect(commitButton()).toBeInTheDocument());
+    fireEvent.click(commitButton()!);
+
+    const dialog = await screen.findByRole('dialog', { name: /commit this plan/i });
+    const confirm = within(dialog).getByRole('button', { name: 'Commit plan' });
+    fireEvent.click(confirm);
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('button', { name: /committing…/i })).toBeDisabled(),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: /committing…/i }));
+    expect(mockedPost).toHaveBeenCalledTimes(1);
+
+    resolvePost({
+      data: {
+        baseline_id: 'b-1',
+        baseline_name: 'Baseline v1',
+        task_count: 1,
+        assigned_resource_count: 0,
+      },
+    });
   });
 });

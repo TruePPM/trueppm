@@ -305,8 +305,22 @@ def test_compensating_object_checks_are_pinned() -> None:
 # Everything else that used to be in this set now declares the kwarg and is
 # enforced in `has_permission`, with the in-body call retained as defense in depth
 # and pinned by `test_declared_kwarg_routes_keep_their_in_body_check` below.
+#
+# `commit/` is the third, and it is here for a different reason than the other two —
+# not "the kwarg cannot be declared" but "declaring it would undo a fix" (#3129).
+# `ProjectCommitView` is a class and could carry `project_url_kwarg = "pk"`. It must
+# not. Doing so resolves the project at `has_permission` time, which answers **403**
+# for a real project the caller is not a member of while an unknown id falls through
+# `_project_exists` to a **404** — the membership-scoped existence oracle #3129 closed.
+# Its gate is instead a membership-filtered queryset plus an in-body
+# `check_object_permissions`, which answers 404 uniformly and matches the sibling
+# lifecycle endpoint `/archive/`. Renaming the URL kwarg to `project_pk` would also
+# work and would 403 uniformly, but that is a different published contract from
+# `/archive/`'s, and two sibling lifecycle endpoints disagreeing about whether a
+# project's existence is a secret is the thing being fixed.
 COMPENSATING_ROUTES: frozenset[str] = frozenset(
     {
+        "api/v1/projects/<pk>/commit/",
         "api/v1/projects/<str:pk>/monte-carlo/",
         "api/v1/projects/<str:pk>/schedule/",
     }
