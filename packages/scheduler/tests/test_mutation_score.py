@@ -86,6 +86,37 @@ class TestMainGate:
     def test_missing_file_returns_error_code(self, tmp_path: Path) -> None:
         assert cms.main([str(tmp_path / "nope.json"), "--min", "0.5"]) == 2
 
-    def test_empty_run_is_not_gated(self, tmp_path: Path) -> None:
+    def test_unparseable_file_returns_not_measured(self, tmp_path: Path) -> None:
+        """Exit 2 with a message, not exit 1 through an uncaught JSONDecodeError."""
+        p = tmp_path / "stats.json"
+        p.write_text("{ not json", "utf-8")
+        assert cms.main([str(p), "--min", "0.5"]) == 2
+
+    def test_non_object_json_returns_not_measured(self, tmp_path: Path) -> None:
+        """A JSON array parses fine and would blow up on `.get` two frames away."""
+        p = tmp_path / "stats.json"
+        p.write_text("[1, 2, 3]", "utf-8")
+        assert cms.main([str(p), "--min", "0.5"]) == 2
+
+    def test_empty_run_at_a_real_floor_fails_closed(self, tmp_path: Path) -> None:
+        """A floor was requested and could not be evaluated (#3216).
+
+        This exited 0 until #3216, which made the nightly's thirteen-day blind
+        spell (mutmut's stats pass died, every verdict came back 0) report as a
+        healthy pass. Exit 2 rather than 1 keeps "could not measure" distinct from
+        "measured and under the floor".
+        """
         stats_path = self._write(tmp_path, {"no_tests": 5, "skipped": 1})
-        assert cms.main([str(stats_path), "--min", "0.9"]) == 0
+        assert cms.main([str(stats_path), "--min", "0.9"]) == 2
+
+    def test_the_shape_the_blind_nightlies_wrote_fails_closed(self, tmp_path: Path) -> None:
+        """The literal artifact body from 2026-08-18..30, at the shipped floor."""
+        stats_path = self._write(
+            tmp_path, {"killed": 0, "survived": 0, "total": 1120, "no_tests": 0}
+        )
+        assert cms.main([str(stats_path), "--min", "0.92"]) == 2
+
+    def test_empty_run_at_floor_zero_is_not_gated(self, tmp_path: Path) -> None:
+        """No floor was requested, so there is nothing to fail closed on."""
+        stats_path = self._write(tmp_path, {"no_tests": 5, "skipped": 1})
+        assert cms.main([str(stats_path), "--min", "0"]) == 0
