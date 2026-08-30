@@ -1,0 +1,29 @@
+{{- if and .Values.persistence.media.enabled (not .Values.persistence.media.existingClaim) }}
+{{/*
+Attachment/media claim (#3184). Created only when the operator has not supplied
+an existingClaim.
+
+The claim deliberately carries no helm.sh/resource-policy: keep annotation — a
+`helm uninstall` reclaims it along with everything else, which is the behaviour
+an operator gets for the bundled datastores too. Attachments are covered by the
+backup CronJob (set backup.mediaDir to this same mountPath), and pretending a
+volume survives uninstall when nothing tests that it does would be a worse
+promise than making the reclaim explicit here.
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "trueppm.mediaClaimName" . }}
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: media
+spec:
+  accessModes:
+    - {{ .Values.persistence.media.accessMode | quote }}
+  {{- with .Values.persistence.media.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.media.size | quote }}
+{{- end }}

@@ -20,13 +20,23 @@ kubectl create secret generic trueppm-env \
 
 # 2. install, pointing the chart at it
 helm install trueppm packages/helm \
-  --set 'envFrom[0].secretRef.name=trueppm-env'
+  --set 'envFrom[0].secretRef.name=trueppm-env' \
+  --set persistence.media.enabled=true \
+  --set persistence.media.accessMode=ReadWriteOnce
 ```
 
-`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` is the no-object-store default: task
-attachments land on the pod's ephemeral disk and are **lost on restart**. For
-anything you intend to keep, replace that one key with the S3 pair
-(`TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME`) — see
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` is the no-object-store choice, and
+it needs somewhere to write: the pods run with `readOnlyRootFilesystem`, so
+without `persistence.media.enabled=true` there is no writable attachment path and
+the API **refuses to start** rather than accept uploads it would lose (#3184).
+
+`ReadWriteOnce` is correct for a single-node evaluation cluster and nothing more.
+An RWO claim binds to one node, and the api, celery-worker, and celery-beat pods
+are three separate Deployments that all mount it — so above one node, or above
+one API replica, use `ReadWriteMany` (the chart default, and what the render
+refuses to skip past when `replicaCount > 1`) or move attachments to object
+storage with the S3 pair (`TRUEPPM_DEFAULT_FILE_STORAGE` +
+`TRUEPPM_S3_BUCKET_NAME`) — see
 [Required secrets](#required-secrets-prod-refuses-to-boot-without-them).
 
 The bundled PostgreSQL and Valkey subcharts are for **dev / demo / CI only**. For
@@ -399,7 +409,7 @@ API, Celery worker, **and** the init containers all consume it):
 | `SECRET_KEY` | ≥ 32 chars; Django signing | #566 |
 | `ALLOWED_HOSTS` | comma-separated hostnames | Must cover every name a request arrives under, not just your public one: the `helm test` probe curls the api Service by DNS name (`<release>-trueppm-api`, collapsed to `trueppm-api` when the release name already contains "trueppm"), and the kubelet probes send the `probes.api.hostHeader` value. A miss is a 400 DisallowedHost, which reads like a routing fault. |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key; encrypts integration PATs at rest | #1002 |
-| `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` *or* `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` | attachment storage choice | #775, #2559 |
+| `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` *or* `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` **with `persistence.media.enabled=true`** | attachment storage choice. The local opt-in is verified at boot from 0.4: the pods have a read-only root filesystem, so without the claim there is no writable path and the API refuses to start rather than fail on the first upload. | #775, #2559, #3184 |
 
 ```bash
 kubectl create secret generic trueppm-env \
@@ -410,10 +420,14 @@ kubectl create secret generic trueppm-env \
   --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 ```
 
-That is the durable-storage form. The [Quickstart](#quickstart) substitutes
-`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` for the last two keys, which needs
-no bucket but keeps attachments on ephemeral disk — the right trade only while you
-are evaluating.
+That is the durable-storage form, and the only one that is correct above one
+node. The [Quickstart](#quickstart) substitutes
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` for the last two keys and pairs it
+with `persistence.media.enabled=true`, which needs no bucket but puts the files
+on a claim that api, celery-worker, and celery-beat all mount. `ReadWriteOnce`
+therefore only works while all three land on the same node; see
+[attachment storage](https://docs.trueppm.com/administration/helm-values/#attachment-storage-persistencemedia)
+for why, and for the `ReadWriteMany` alternative.
 
 The API image bundles the S3 backend, so those two keys are all an AWS S3 deploy
 needs — credentials resolve from IRSA or the instance profile. For MinIO or

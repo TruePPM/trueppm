@@ -26,6 +26,12 @@ spec:
         # MS Project parsing and workspace export run in the worker too).
         - name: tmp
           emptyDir: {}
+        # The api tier writes a seed-import payload through default_storage and a
+        # task in this worker opens it back, so the worker reads the SAME media
+        # volume — it is not per-pod scratch (#3184).
+        {{- with (include "trueppm.mediaVolume" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
       containers:
         - name: celery-worker
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
@@ -74,6 +80,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- with (include "trueppm.mediaVolumeMount" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
           {{- if .Values.probes.worker.enabled }}
           # `inspect ping` against this pod's own worker node — a wedged event loop
           # stops answering the control-plane ping even while the process lingers.

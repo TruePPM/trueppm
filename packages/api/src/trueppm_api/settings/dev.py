@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import environ
@@ -57,7 +58,7 @@ _assert_dev_environment_safe()
 
 
 from .base import *  # noqa: F403, E402
-from .base import DATABASES, REST_FRAMEWORK  # noqa: E402
+from .base import BASE_DIR, DATABASES, REST_FRAMEWORK  # noqa: E402
 
 env = environ.Env()
 
@@ -96,6 +97,13 @@ REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
 # The refresh cookie must work over plain HTTP on localhost — a Secure cookie is
 # dropped by the browser on http://. Production keeps the base default (True).
 AUTH_REFRESH_COOKIE_SECURE = False
+
+# base.py defaults MEDIA_ROOT to /var/lib/trueppm/media — the path the chart and
+# compose mount a writable volume at (#3184). Nothing creates that path on a
+# developer workstation, and pytest runs under this module, so keep uploads
+# inside the checkout. BASE_DIR is packages/api/src, so `.parent` lands on
+# packages/api/media/, which .gitignore has already carried since #817.
+MEDIA_ROOT = Path(env("TRUEPPM_MEDIA_ROOT", default=str(BASE_DIR.parent / "media")))
 
 # WhiteNoise (base.py MIDDLEWARE) serves static from STATIC_ROOT, which requires a
 # `collectstatic` run. In dev and under pytest we want /static/ to work without
