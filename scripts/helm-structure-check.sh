@@ -9,7 +9,239 @@
 # the lint stage instead of at deploy time.
 #
 # Requires: helm, yq (mikefarah v4) on PATH.
+#
+# Modes:
+#   bash scripts/helm-structure-check.sh [chart]   # assert the contract
+#   bash scripts/helm-structure-check.sh --self-test
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Self-test (#3195)
+# ---------------------------------------------------------------------------
+# This gate's failure mode is a GREEN pipeline over a chart that no longer holds
+# the contract, so "it passed" is not evidence that it can still fail. That is
+# not hypothetical: `boundary:imports` passed a real Apache-2.0 violation for its
+# entire existence (#3172) while carrying a test suite that ran in a different
+# image. scripts/check-gate-selftest-parity.sh requires the proof to run in the
+# gate's OWN job, because the job is the only way to name the image.
+#
+# SCOPE — stated plainly, because a self-test that looks comprehensive and is not
+# is worse than none. The fixtures below exercise SECTION 5 ONLY: the
+# NetworkPolicy datastore-client contract, i.e. np_components / np_allows and the
+# workload loop that consumes them. Nothing else in this file is fixture-driven.
+# The list of what is NOT covered is at the end of this block; read it before
+# citing this self-test as evidence about any other assertion.
+#
+# Section 5 is the one that earns a fixture. It has a live failure history in
+# BOTH directions: it missed the `backup` CronJob and the `demo-seed` Job
+# entirely on an enforcing CNI (#2560), and once written its parse produced a
+# confident, specific, WRONG failure under any yq older than 4.44 (#3147).
+if [ "${1:-}" = "--self-test" ]; then
+  st_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  st_src="$st_root/packages/helm"
+  command -v helm >/dev/null 2>&1 || { echo "SELF-TEST ERROR: helm is not on PATH." >&2; exit 2; }
+  command -v yq   >/dev/null 2>&1 || { echo "SELF-TEST ERROR: yq is not on PATH." >&2; exit 2; }
+  [ -d "$st_src" ] || { echo "SELF-TEST ERROR: no chart at $st_src." >&2; exit 2; }
+  st_real_yq="$(command -v yq)"
+
+  st_tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064  # expand $st_tmp now, not at trap time
+  trap "rm -rf '$st_tmp'" EXIT
+  st_rc=0
+  st_path_prefix=""
+
+  # A fixture chart is a COPY of the shipped chart with one line changed, never a
+  # hand-written minimal one: the other ~18 assertions here read the init
+  # containers, NOTES.txt, values.schema.json, the backup CronJob, the media
+  # claim and the placement knobs, so anything smaller than the real chart is
+  # rejected for reasons that have nothing to do with the planted violation.
+  ST_CHART=""
+  st_make_chart() { # <name> [file-relative-to-chart] [sed-expression]
+    ST_CHART="$st_tmp/$1"
+    # `cp -R "$st_src" "$ST_CHART"` would COPY THE SYMLINK if packages/helm is one
+    # (BSD and GNU cp -R both preserve a symlinked source operand), and every
+    # mutation below would then be written straight through it into the real
+    # chart. Copying the directory's CONTENTS forces the traversal.
+    mkdir -p "$ST_CHART"
+    cp -R "$st_src"/. "$ST_CHART"/
+    [ -n "${2:-}" ] || return 0
+    sed "$3" "$ST_CHART/$2" > "$ST_CHART/$2.st" && mv "$ST_CHART/$2.st" "$ST_CHART/$2"
+    # A mutation that silently no-ops reads exactly like a gate that stopped
+    # detecting — the probe below would report "accepted and must not be" while
+    # the truth is that the chart moved and the fixture planted nothing. Say so.
+    if cmp -s "$ST_CHART/$2" "$st_src/$2"; then
+      echo "SELF-TEST ERROR: fixture '$1' planted nothing — '$3' no longer matches $2." >&2
+      st_rc=1
+    fi
+  }
+
+  st_probe() { # <desc> <expect-pass|expect-fail> <chart-dir> [required-message-fragment]
+    local desc="$1" expect="$2" chart="$3" want="${4:-}" out rc=0 got
+    if [ -n "$st_path_prefix" ]; then
+      out="$(PATH="$st_path_prefix:$PATH" TRUEPPM_SELFTEST_REAL_YQ="$st_real_yq" \
+             bash "$0" "$chart" 2>&1)" || rc=$?
+    else
+      out="$(bash "$0" "$chart" 2>&1)" || rc=$?
+    fi
+
+    if [ "$rc" -eq 0 ]; then
+      if [ "$expect" = "expect-pass" ]; then
+        echo "SELF-TEST OK: $desc accepted."
+      else
+        echo "SELF-TEST FAILED: $desc was accepted and must not be." >&2
+        st_rc=1
+      fi
+      return 0
+    fi
+
+    if [ "$expect" != "expect-fail" ]; then
+      echo "SELF-TEST FAILED: $desc was rejected and must not be:" >&2
+      printf '%s\n' "$out" | sed -n '1,3p' >&2
+      st_rc=1
+      return 0
+    fi
+
+    # Rejected as expected — but by the RIGHT assertion? This file makes ~19
+    # independent assertions, and a fixture that broke the chart in some
+    # unrelated way would also exit non-zero and would read exactly like
+    # detection. Pin the message, or the probe proves only that helm ran.
+    if [ -n "$want" ] && ! printf '%s\n' "$out" | grep -qF "$want"; then
+      got="$(printf '%s\n' "$out" | grep '^FAIL:' | sed -n '1p' || true)"
+      echo "SELF-TEST FAILED: $desc was rejected, but not by the assertion under test." >&2
+      echo "  expected a message containing: $want" >&2
+      echo "  got: ${got:-<no FAIL: line>}" >&2
+      st_rc=1
+      return 0
+    fi
+    echo "SELF-TEST OK: $desc correctly rejected."
+  }
+
+  # ── Family 1: a real chart-level violation ────────────────────────────────
+  # The defect the gate exists to catch, in each of its three shapes. All three
+  # render, all three pass `helm lint`, kubeconform and the helm:install drill
+  # (kind's default CNI does not enforce NetworkPolicy), and all three drop the
+  # workload's datastore traffic on a cluster that does enforce.
+  st_make_chart clean
+  st_probe "the shipped chart, unmodified" expect-pass "$ST_CHART"
+
+  st_make_chart missing_pg templates/networkpolicy.yaml 's/"backup" "demo-seed"/"backup"/'
+  st_probe "a DATABASE_URL client dropped from the postgresql allow-list" \
+    expect-fail "$ST_CHART" "is NOT in the postgresql NetworkPolicy ingress allow-list"
+
+  st_make_chart missing_vk templates/networkpolicy.yaml 's/"celery-beat" "demo-seed"/"celery-beat"/'
+  st_probe "a REDIS_URL client dropped from the valkey allow-list" \
+    expect-fail "$ST_CHART" "is NOT in the valkey NetworkPolicy ingress allow-list"
+
+  # The label is what every ingress rule matches ON, so a workload without one is
+  # unreachable by any policy — a hole the allow-list check cannot see, because
+  # there is nothing to look up.
+  st_make_chart no_component templates/demo-seed-job.yaml '/app.kubernetes.io\/component: demo-seed/d'
+  st_probe "a datastore client carrying no app.kubernetes.io/component label" \
+    expect-fail "$ST_CHART" "carries no app.kubernetes.io/component label"
+
+  # ── Family 2: the #3147 yq-separator regression ───────────────────────────
+  # np_components reads a MULTI-DOCUMENT stream on stdin. The pinned v4.44.3
+  # emits a blank line for each document `select()` skips; v4.35.2 (what alpine
+  # packages) emits a `---` DOCUMENT SEPARATOR instead. The old parse joined the
+  # result into a comma string and substring-matched it, so the separator landed
+  # inside the list — `,---api,celery-worker,celery-beat,demo-seed---,` — and
+  # every membership test failed, naming a chart file to go edit for a
+  # NetworkPolicy regression that was not there.
+  #
+  # The shim INJECTS the separators rather than rewriting whatever the local yq
+  # emits: yq >= 4.53 emits neither a blank line nor a separator here, so a
+  # rewrite-based shim would be a silent no-op on a developer laptop and this
+  # case would prove nothing there while appearing to pass.
+  #
+  # Two scopings, both load-bearing:
+  #   * stdin only — any argument that is an existing file passes straight
+  #     through. assert_url_env_bindings queries single-document doc_N.yml FILES,
+  #     where BOTH yq versions emit a blank line; rewriting those invents a
+  #     failure in a check that has nothing to do with #3147.
+  #   * NetworkPolicy queries only — the call site #3147 was about. This is NOT a
+  #     claim that the whole script is yq-version-independent, and it must not be
+  #     read as one: section 9c compares a single-value stdin `select()` against
+  #     `[ "$x" = "op-db/url" ]` and would genuinely break under a real v4.35.2.
+  st_shim="$st_tmp/oldyq"
+  mkdir -p "$st_shim"
+  cat > "$st_shim/yq" <<'ST_SHIM'
+#!/usr/bin/env bash
+# yq shim: emulate v4.35.2's `---`-per-skipped-document output style, for
+# NetworkPolicy queries read from stdin only. Installed by --self-test (#3147).
+set -o pipefail
+real="${TRUEPPM_SELFTEST_REAL_YQ:?}"
+for a in "$@"; do
+  if [ -f "$a" ]; then exec "$real" "$@"; fi
+done
+case "$*" in
+  *NetworkPolicy*) ;;
+  *) exec "$real" "$@" ;;
+esac
+echo '---'
+"$real" "$@" | sed 's/^$/---/'
+rc=$?
+echo '---'
+exit "$rc"
+ST_SHIM
+  chmod +x "$st_shim/yq"
+
+  # The shim has to be shown to be LIVE. If PATH ordering, a rename or a changed
+  # yq invocation ever disarms it, both cases below would pass on the pinned yq
+  # and this family would silently become decoration — the exact shape of failure
+  # the parity gate exists to remove.
+  st_stream='kind: NetworkPolicy
+metadata:
+  name: probe-postgresql
+---
+kind: ConfigMap
+metadata:
+  name: probe-cm'
+  st_expr='select(.kind == "NetworkPolicy") | .metadata.name'
+  st_shimmed="$(printf '%s\n' "$st_stream" | PATH="$st_shim:$PATH" \
+                TRUEPPM_SELFTEST_REAL_YQ="$st_real_yq" yq "$st_expr")"
+  if printf '%s\n' "$st_shimmed" | grep -qx -- '---' \
+     && printf '%s\n' "$st_shimmed" | grep -qx 'probe-postgresql'; then
+    echo "SELF-TEST OK: the v4.35.2-style yq shim is live (separators present in the stream)."
+  else
+    echo "SELF-TEST FAILED: the yq shim did not emit '---' separators, so the two cases" >&2
+    echo "  below would prove nothing. Shim output was:" >&2
+    printf '%s\n' "$st_shimmed" | sed -n '1,6p' | sed 's/^/    /' >&2
+    st_rc=1
+  fi
+
+  st_path_prefix="$st_shim"
+  st_make_chart clean_oldyq
+  st_probe "the shipped chart under a v4.35.2-style yq" expect-pass "$ST_CHART"
+
+  # ...and the separators must not blind the check either: a version-independent
+  # parse that stopped detecting would be the #3147 fix overshooting.
+  st_make_chart missing_pg_oldyq templates/networkpolicy.yaml 's/"backup" "demo-seed"/"backup"/'
+  st_probe "an allow-list violation under a v4.35.2-style yq" \
+    expect-fail "$ST_CHART" "is NOT in the postgresql NetworkPolicy ingress allow-list"
+  st_path_prefix=""
+
+  # ── SELF-TEST NOT COVERED ─────────────────────────────────────────────────
+  # Everything except section 5. Named rather than summarized, so nobody has to
+  # infer the gap from what the cases happen to be:
+  #   1  init-container order (migrate -> bootstrap)
+  #   2  operator envFrom secret reaching every init container and the api container
+  #   3  the shared admin-password emptyDir
+  #   4  / 4b  web nginx upstream, ConfigMap mount, and the security-header defaults
+  #   6  the production /admin/ block (deny all, limit_req, allow-before-deny, 404)
+  #   7  the celery --concurrency pin and its knobs
+  #   8  the default image tag
+  #   9  connection-URL secretKeyRef bindings, both shapes
+  #   10 / 11  the NOTES.txt boot-guard notice
+  #   12 values.schema.json closing the root
+  #   N  probe Host header · N+1 collectstatic · N+2 media claim
+  #   N+3 backup destinations and MANIFEST parity · N+4 placement knobs
+  # Each of those is asserted against the real chart on the real run only; none
+  # has been shown to still be able to fail. They are candidates for more
+  # fixtures, not gaps this self-test quietly covers.
+
+  if [ "$st_rc" -eq 0 ]; then echo "SELF-TEST: all cases passed."; fi
+  exit "$st_rc"
+fi
 
 CHART="${1:-packages/helm}"
 # A representative operator secret name so we can assert it propagates everywhere

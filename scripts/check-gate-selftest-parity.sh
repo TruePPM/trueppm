@@ -42,21 +42,20 @@ CI_FILE="${CI_FILE_OVERRIDE:-.gitlab-ci.yml}"
 # self-tested and simply is not yet — detection was verified by hand in the #3194
 # audit by planting the violation named, which is a snapshot, not a guarantee.
 # PENDING entries are debt with a number on them (#3195), not exemptions.
+#
+# #3195 is retiring PENDING entirely. The six converted in this batch are deleted
+# below; the remaining six are converted in the sibling batch and their lines go
+# with it. When the last one lands, PENDING should be removed from this comment —
+# a gate is then either self-tested in its own job or EXTERNAL, with no third state.
 OPT_OUT="
 check-issue-boundary.sh	EXTERNAL: input is the GitLab tracker's issue labels, not the repo — a fixture cannot represent a violation
 check-release-images.sh	EXTERNAL: queries the container registry for published release images; covered by scripts/tests/check-release-images.test.sh
-check-prepush-parity.sh	PENDING (#3195): hand-verified — a new CI gate job with no Makefile mirror is detected
 check-extension-signals.sh	PENDING (#3195): hand-verified — a bare Signal().send() is detected
 check-adr-status.sh	PENDING (#3195): hand-verified — an ADR-9999 reference is reported unresolved
 check-design-system-v2.sh	PENDING (#3195): hand-verified — a raw hex literal and an off-token shadow are detected
 check-e2e-catchall.sh	PENDING (#3195): hand-verified — a spec mocking the API without the catch-all is detected
-check-package-licenses.sh	PENDING (#3195): hand-verified — a removed package LICENSE is detected
 check-migration-numbering.py	PENDING (#3195): hand-verified — a duplicate migration number is detected
-check-migration-constraint-safety.py	PENDING (#3195): hand-verified — an AddConstraint with no repair and no opt-out comment is detected
 check-boundary-doc-command.sh	PENDING (#3195): hand-verified — a doc instructing the stale boundary grep is detected
-check_mutation_score.py	PENDING (#3195): reads a mutmut stats JSON; a below-threshold fixture is straightforward but not written yet
-check-dts-camelcase.sh	PENDING (#3195): reads the wasm-pack .d.ts; a snake_case-export fixture is straightforward but not written yet
-helm-structure-check.sh	PENDING (#3195): no fixture yet; it red main on 2026-08-28 (#3146), which is proof of the same kind
 "
 
 opt_out_reason() {

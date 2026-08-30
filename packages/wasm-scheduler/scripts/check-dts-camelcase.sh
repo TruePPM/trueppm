@@ -18,7 +18,156 @@
 #   * Everything from `export type InitInput` down — wasm-bindgen's own loader
 #     boilerplate (`InitOutput`'s raw `__wbg_*` / per-export thunks, `initSync`,
 #     `__wbg_init`). Not our surface, and not ours to rename.
+#
+# A third exclusion is narrower: `__wbindgen`-prefixed names reaching the declared
+# region are wasm-bindgen's internals, not ours, and are skipped there too.
+#
+# Usage:  scripts/check-dts-camelcase.sh [path/to/file.d.ts]
+#         scripts/check-dts-camelcase.sh --self-test
+#
+# The path argument defaults to `pkg/trueppm_wasm_scheduler.d.ts`, relative to the
+# working directory — i.e. what `wasm-pack build --target web` writes when run from
+# packages/wasm-scheduler. It exists so --self-test can aim the real script at
+# fixtures; day to day, run it with no arguments.
+#
+# Exit:   0 every declared identifier is camelCase
+#         1 a snake_case identifier, a missing .d.ts, or a .d.ts this script can no
+#           longer parse (all three are "not proven clean", and all three fail)
 set -euo pipefail
+
+if [ "${1:-}" = "--self-test" ]; then
+  # Prove the gate can still fail (#3195). This gate reads a BUILD ARTIFACT — the
+  # .d.ts only exists after `wasm-pack build`, which is why check-prepush-parity.sh
+  # opts it out of pre-push. That makes the #3172 shape especially easy to reach
+  # here: if an absent or unparseable artifact read as "no violations", the gate
+  # would go green in exactly the situation where it inspected nothing. It does
+  # not, and the last two cases below are what keeps it that way.
+  #
+  # Every case runs the REAL script against a fixture .d.ts, so there is no second
+  # copy of the extraction patterns to drift.
+  st_tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064  # expand now, not at trap time
+  trap "rm -rf '$st_tmp'" EXIT
+  st_rc=0
+
+  st_probe() { # <name> <expect-pass|expect-fail> <dts-path>
+    if bash "$0" "$3" >/dev/null 2>&1; then
+      if [ "$2" = "expect-pass" ]; then echo "SELF-TEST OK: $1 accepted."
+      else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; st_rc=1; fi
+    else
+      if [ "$2" = "expect-fail" ]; then echo "SELF-TEST OK: $1 correctly rejected."
+      else echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; st_rc=1; fi
+    fi
+  }
+
+  # Write a fixture .d.ts: the declared surface comes from stdin, and wasm-bindgen's
+  # loader boilerplate is appended verbatim. The tail is snake_case throughout —
+  # every fixture therefore also asserts that the `export type InitInput` cut holds.
+  st_dts() { # <path> ; declared surface on stdin
+    {
+      printf '/* tslint:disable */\n/* eslint-disable */\n'
+      cat
+      cat <<'BOILERPLATE'
+
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export interface InitOutput {
+  readonly memory: WebAssembly.Memory;
+  readonly __wbg_dragresult_free: (a: number, b: number) => void;
+  readonly compute_schedule: (a: number, b: number) => [number, number];
+  readonly schedulersession_set_task_start: (a: number, b: number) => void;
+}
+
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+export default function __wbg_init(module_or_path?: SyncInitInput): Promise<InitOutput>;
+BOILERPLATE
+    } > "$1"
+  }
+
+  # --- accepted: the shape the crate actually generates today -----------------
+  st_dts "$st_tmp/clean.d.ts" <<'EOF'
+/**
+ * Compute a full CPM schedule.
+ */
+export function computeSchedule(projectJson: string): string;
+export class DragResult {
+  private constructor();
+  free(): void;
+  readonly earlyStart: Int32Array;
+  readonly isCritical: Uint8Array;
+}
+export class SchedulerSession {
+  free(): void;
+  constructor(projectJson: string);
+  taskIds(): string[];
+  setTaskStart(taskId: string, newStart: string): void;
+  readonly epoch: string;
+}
+EOF
+  st_probe "camelCase surface (loader boilerplate below InitInput ignored)" expect-pass "$st_tmp/clean.d.ts"
+
+  # A documented exclusion: wasm-bindgen emits Rust argument names verbatim and
+  # offers no js_name for them. Renaming them would trip `non_snake_case` under
+  # the crate's `clippy -D warnings` gate, so parameters must stay legal.
+  st_dts "$st_tmp/param.d.ts" <<'EOF'
+export function computeSchedule(project_json: string): string;
+export class SchedulerSession {
+  setTaskStart(task_id: string, new_start: string): void;
+}
+EOF
+  st_probe "snake_case parameter names" expect-pass "$st_tmp/param.d.ts"
+
+  # The other documented exclusion, in the declared region rather than the tail.
+  st_dts "$st_tmp/wbindgen.d.ts" <<'EOF'
+export function computeSchedule(projectJson: string): string;
+export class SchedulerSession {
+  __wbindgen_object_drop_ref(): void;
+}
+EOF
+  st_probe "__wbindgen-prefixed internal" expect-pass "$st_tmp/wbindgen.d.ts"
+
+  # --- rejected: one case per extraction pattern ------------------------------
+  st_dts "$st_tmp/fn.d.ts" <<'EOF'
+export function compute_schedule(projectJson: string): string;
+EOF
+  st_probe "snake_case exported function" expect-fail "$st_tmp/fn.d.ts"
+
+  st_dts "$st_tmp/class.d.ts" <<'EOF'
+export function computeSchedule(projectJson: string): string;
+export class Scheduler_Session {
+  free(): void;
+}
+EOF
+  st_probe "snake_case exported class" expect-fail "$st_tmp/class.d.ts"
+
+  st_dts "$st_tmp/getter.d.ts" <<'EOF'
+export class DragResult {
+  readonly early_start: Int32Array;
+}
+EOF
+  st_probe "snake_case readonly getter" expect-fail "$st_tmp/getter.d.ts"
+
+  st_dts "$st_tmp/method.d.ts" <<'EOF'
+export class SchedulerSession {
+  set_task_start(taskId: string, newStart: string): void;
+}
+EOF
+  st_probe "snake_case class method" expect-fail "$st_tmp/method.d.ts"
+
+  # --- rejected: the two "inspected nothing" states ---------------------------
+  # The .d.ts is a build artifact. An absent one means the gate read no API surface
+  # at all, which is not the same claim as "the surface is clean" and must not
+  # produce the same exit code (#3172). Pinning the existing fail-closed behavior.
+  st_probe "missing .d.ts (build artifact absent)" expect-fail "$st_tmp/nope.d.ts"
+
+  # Same argument for a .d.ts whose shape moved out from under the patterns:
+  # zero identifiers extracted is a broken gate, not a clean surface.
+  st_dts "$st_tmp/shape.d.ts" </dev/null
+  st_probe "unparseable .d.ts (zero identifiers extracted)" expect-fail "$st_tmp/shape.d.ts"
+
+  [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
+  exit "$st_rc"
+fi
 
 DTS="${1:-pkg/trueppm_wasm_scheduler.d.ts}"
 
