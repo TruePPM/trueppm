@@ -16,7 +16,20 @@ import type { FocusMode } from './useScheduleFocus';
  * conjunction.
  */
 
-const FOCUS_MODES: FocusMode[] = ['NoSelection', 'RowFocused', 'CellEdit'];
+/**
+ * Derived so the exhaustiveness claim cannot quietly shrink.
+ *
+ * `const FOCUS_MODES: FocusMode[] = [...]` accepts a SUBSET silently, and
+ * "holds over every combination" is this file's entire value — a fourth focus
+ * mode added later would leave the proof passing over two thirds of the space
+ * with no failure anywhere. `satisfies Record<FocusMode, unknown>` makes the
+ * omission a compile error instead.
+ */
+const FOCUS_MODES = Object.keys({
+  NoSelection: 1,
+  RowFocused: 1,
+  CellEdit: 1,
+} satisfies Record<FocusMode, unknown>) as FocusMode[];
 const ROW_COUNTS = [0, 3];
 
 function everyInput(): CanvasTeachingInput[] {

@@ -237,6 +237,38 @@ test.describe('empty-plan suppression (T4)', () => {
     await expect(hintStrip(page)).toHaveCount(0);
   });
 
+  test('a filter that hides every row counts as empty — VISIBLE rows, not total', async ({
+    page,
+  }) => {
+    // The distinguishing test for the predicate `teachingSurfaces.ts` and rule
+    // 363 clause (b) both single out. Against `allTasks.length` every other
+    // assertion in this file passes identically, including the empty-plan one
+    // above, where both counts are 0 — so without this the deliberate choice is
+    // documented in three places and tested in none.
+    //
+    // All three fixture rows are non-critical, non-summary leaves, so the
+    // critical-path render filter empties the canvas while the plan still holds
+    // three tasks. Under the wrong predicate the coach bar would draw its three
+    // unperformable lessons over an empty canvas — exactly the T4 defect.
+    await setup(page);
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+    await expect(coachBar(page)).toBeVisible();
+
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
+    await page
+      .getByRole('menu', { name: 'Display options' })
+      .getByRole('menuitemcheckbox', { name: 'Critical path' })
+      .click();
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('[data-row-id]')).toHaveCount(0);
+    await expect(coachBar(page)).toHaveCount(0);
+  });
+
   test('and it returns as soon as the plan has a row to act on', async ({ page }) => {
     // The suppression must be a live predicate rather than a first-load
     // decision — otherwise a planner's first row leaves them with no teacher
