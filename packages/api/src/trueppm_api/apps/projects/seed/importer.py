@@ -919,6 +919,19 @@ class _SeedImporter:
         self._grant_project_memberships(project, data)
         self._create_board_config(project, data)
 
+        self._create_project_labels(project, slug, data)
+        sprint_rows = self._create_project_sprints(project, slug, data)
+        self._create_project_tasks(project, slug, data)
+        self._refresh_active_sprint_burndown(sprint_rows)
+
+    def _create_project_labels(self, project: Project, slug: str, data: dict[str, Any]) -> None:
+        """Create the project's label catalog (Pass A).
+
+        Order within Pass A is load-bearing: labels, then sprints, then tasks.
+        ``_build_task`` reads ``self.sprints`` for a task's sprint assignment,
+        and Pass B's ``_link_task_labels`` reads ``self.labels`` — so both
+        registries must be populated before the task loop runs.
+        """
         # Labels (ADR-0400, #1958): the project's curated label catalog. Created
         # here in Pass A so the Pass B ``_link_task_labels`` step can attach each
         # task's slugged labels once all tasks exist. Slugs are file-local and
@@ -936,6 +949,15 @@ class _SeedImporter:
             self.labels[(slug, label_data["slug"])] = label
         self._bulk_insert(Label, label_rows, project_ids=[project.pk])
 
+    def _create_project_sprints(
+        self, project: Project, slug: str, data: dict[str, Any]
+    ) -> list[Sprint]:
+        """Create the project's sprints and return the rows.
+
+        The rows are returned rather than re-queried because
+        ``_refresh_active_sprint_burndown`` needs the in-memory instances: they
+        came from ``bulk_create`` and the caller has not re-read them.
+        """
         sprint_rows: list[Sprint] = []
         sprint_dates: list[date] = []
         for sprint_data in data.get("sprints", []):
@@ -975,7 +997,10 @@ class _SeedImporter:
             project_ids=[project.pk],
             history_dates=sprint_dates if self.replay else None,
         )
+        return sprint_rows
 
+    def _create_project_tasks(self, project: Project, slug: str, data: dict[str, Any]) -> None:
+        """Create the project's tasks (Pass A). Runs after sprints — see above."""
         task_rows: list[Task] = []
         task_dates: list[date] = []
         for task_data in data.get("tasks", []):
@@ -993,7 +1018,6 @@ class _SeedImporter:
             project_ids=[project.pk],
             history_dates=task_dates if self.replay else None,
         )
-        self._refresh_active_sprint_burndown(sprint_rows)
 
     def _stamp_new_tasks(self, rows: list[Task], project: Project) -> None:
         """Apply everything ``Task.save()`` does on INSERT that ``bulk_create`` skips.

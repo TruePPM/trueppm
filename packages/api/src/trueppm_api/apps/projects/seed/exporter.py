@@ -441,24 +441,10 @@ class _Exporter:
             "methodology": project.methodology,
             "start_date": self._date_str(project.start_date) if project.start_date else None,
         }
-        _put(block, "description", project.description)
-        _put(block, "code", project.code)
-        if project.lead_id is not None:
-            block["lead"] = self._user_slug(project.lead)
-        if project.calendar_id is not None:
-            block["calendar"] = self._calendar_slug(project.calendar)
-        if project.default_view and project.default_view != "SCHEDULE":
-            block["default_view"] = project.default_view
-        if project.estimation_mode and project.estimation_mode != "open":
-            block["estimation_mode"] = project.estimation_mode
-        if project.health and project.health != "AUTO":
-            block["health"] = project.health
+        self._put_project_scalars(block, project)
+
         board_columns = self._board_column_blocks(project)
-        if board_columns:
-            block["board_columns"] = board_columns
         member_blocks = self._member_blocks(project)
-        if member_blocks:
-            block["members"] = member_blocks
 
         # Project-scoped labels (ADR-0400, #1089) folded into the seed (#1958) so a
         # re-seed round-trips board-card labels. Slugs are allocated per project
@@ -472,19 +458,44 @@ class _Exporter:
         dep_blocks = self._dependency_blocks(project, pslug)
         baseline_blocks = self._baseline_blocks(project, pslug)
         risk_blocks = self._risk_blocks(project, pslug)
-        if label_blocks:
-            block["labels"] = label_blocks
-        if task_blocks:
-            block["tasks"] = task_blocks
-        if dep_blocks:
-            block["dependencies"] = dep_blocks
-        if sprint_blocks:
-            block["sprints"] = sprint_blocks
-        if baseline_blocks:
-            block["baselines"] = baseline_blocks
-        if risk_blocks:
-            block["risks"] = risk_blocks
+        # Insertion order IS the emitted key order, and the export contract is a
+        # byte-identical export -> import -> export fixpoint (see
+        # ``_member_blocks``), so this sequence is not cosmetic. Note it differs
+        # from the computation order above: the blocks are built sprints-first
+        # because slug allocation is order-sensitive, but emitted tasks-first.
+        for key, value in (
+            ("board_columns", board_columns),
+            ("members", member_blocks),
+            ("labels", label_blocks),
+            ("tasks", task_blocks),
+            ("dependencies", dep_blocks),
+            ("sprints", sprint_blocks),
+            ("baselines", baseline_blocks),
+            ("risks", risk_blocks),
+        ):
+            if value:
+                block[key] = value
         return block
+
+    def _put_project_scalars(self, block: dict[str, Any], project: Project) -> None:
+        """Add the project's optional scalar fields, each omitted at its default.
+
+        A field equal to its default is left out rather than emitted, so a seed
+        stays readable and a later change of default does not silently pin every
+        exported project to the old value.
+        """
+        _put(block, "description", project.description)
+        _put(block, "code", project.code)
+        if project.lead_id is not None:
+            block["lead"] = self._user_slug(project.lead)
+        if project.calendar_id is not None:
+            block["calendar"] = self._calendar_slug(project.calendar)
+        if project.default_view and project.default_view != "SCHEDULE":
+            block["default_view"] = project.default_view
+        if project.estimation_mode and project.estimation_mode != "open":
+            block["estimation_mode"] = project.estimation_mode
+        if project.health and project.health != "AUTO":
+            block["health"] = project.health
 
     def _member_blocks(self, project: Project) -> list[dict[str, Any]]:
         """Emit this project's memberships so project-scoped roles round-trip (#3092).
