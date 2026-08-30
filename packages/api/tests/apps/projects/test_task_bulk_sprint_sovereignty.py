@@ -209,4 +209,3 @@ def test_bulk_percent_and_duration_still_write_on_the_same_batch(
     assert task.duration == 9
     assert task.percent_complete == 40
     assert task.sprint_id == sprint.pk
-
