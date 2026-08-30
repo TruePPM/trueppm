@@ -406,6 +406,139 @@ def _describe_shape_drift(operation: StructuralOperation) -> list[dict[str, Any]
 # ── Undo ────────────────────────────────────────────────────────────────────────
 
 
+def _raise_if_undo_blocked(locked: Any) -> None:
+    """Refuse the undo when the recorded act can no longer be reversed safely.
+
+    Kept together because the three reasons are one decision with three outcomes,
+    and each carries operator-facing copy that has to stay beside its condition.
+    """
+    reason = undo_blocked_reason(locked)
+    if reason == StructuralUndoBlockedReason.TOO_LARGE:
+        raise StructuralUndoRejected(
+            StructuralUndoBlockedReason.TOO_LARGE.value,
+            "This change affected too many rows to be reversed automatically.",
+        )
+    if reason == StructuralUndoBlockedReason.NOT_TOP_OF_STACK:
+        raise StructuralUndoRejected(
+            StructuralUndoBlockedReason.NOT_TOP_OF_STACK.value,
+            "Undo the more recent change first.",
+            extra={"blocking_operation_id": str(_newest_active_id(locked))},
+        )
+    if reason == StructuralUndoBlockedReason.SHAPE_CHANGED:
+        raise StructuralUndoRejected(
+            StructuralUndoBlockedReason.SHAPE_CHANGED.value,
+            "The outline has changed here since — this can no longer be undone.",
+            extra={"changed": _describe_shape_drift(locked)},
+        )
+
+
+def _restore_deleted_rows(locked: Any, task_model: Any) -> int:
+    """Undo step 1 — restore soft-deleted rows: exact ids, project-scoped, no cascade.
+
+    This is what returns an ungrouped wrapper with its original id, name, notes and
+    labels: a soft delete retains them, so nothing needed snapshotting.
+
+    ``on_conflict="repath"`` for the same reason step 2 skips a colliding edge rather
+    than failing: an undo that abandons part-way leaves the caller with neither state
+    (#3071). ``unique_task_wbs_path_per_project_live`` covers live rows only, so a row
+    soft-deleted by this act had its number freed the instant the act ran, and anything
+    created since may be sitting on it. The constraint is DEFERRED, so an unguarded
+    restore would raise at COMMIT with a constraint name and no row attribution. Step 3
+    re-asserts ``shape_before`` immediately after and will move most of these back where
+    they belong; re-pathing here only has to make the row legal enough to reach it.
+
+    Caller holds ``transaction.atomic()`` — ``select_for_update()`` below requires it.
+    """
+    restored = 0
+    for row in task_model.objects.select_for_update().filter(
+        pk__in=locked.deleted_task_ids, project_id=locked.project_id, is_deleted=True
+    ):
+        row.restore(on_conflict="repath")
+        restored += 1
+    return restored
+
+
+def _restore_dependencies(locked: Any, task_model: Any, dependency_model: Any) -> tuple[int, int]:
+    """Undo step 2 — restore edges, returning ``(restored, skipped)``.
+
+    Only where both endpoints are live and the row would not collide on
+    ``unique_dependency``. ``capture_graph_state`` builds its edge list from tasks
+    filtered ``is_deleted=False``, so an edge pointing at a tombstone is not in the graph
+    the feasibility guard validates — it structurally cannot catch what this step writes.
+    Guarding here is the primary control.
+
+    Caller holds ``transaction.atomic()`` — ``select_for_update()`` below requires it.
+    """
+    restored = 0
+    skipped = 0
+    for dep in dependency_model.objects.select_for_update().filter(
+        pk__in=locked.removed_dependency_ids,
+        is_deleted=True,
+        predecessor__project_id=locked.project_id,
+    ):
+        endpoints_live = (
+            task_model.objects.filter(
+                pk__in=[dep.predecessor_id, dep.successor_id],
+                project_id=locked.project_id,
+                is_deleted=False,
+            ).count()
+            == 2
+        )
+        collides = (
+            dependency_model.objects.filter(
+                predecessor_id=dep.predecessor_id,
+                successor_id=dep.successor_id,
+                dep_type=dep.dep_type,
+                is_deleted=False,
+            )
+            .exclude(pk=dep.pk)
+            .exists()
+        )
+        if not endpoints_live or collides:
+            skipped += 1
+            continue
+        dep.restore()
+        restored += 1
+    return restored, skipped
+
+
+def _restore_shape(locked: Any, task_model: Any) -> int:
+    """Undo step 3 — put the outline shape back, returning the number of rows moved.
+
+    Caller holds ``transaction.atomic()`` — ``select_for_update()`` below requires it.
+    """
+    restored = 0
+    rows_by_id = {
+        str(row.pk): row
+        for row in task_model.objects.select_for_update().filter(
+            pk__in=[uuid.UUID(k) for k in (locked.shape_before or {})],
+            project_id=locked.project_id,
+        )
+    }
+    for task_id, path in (locked.shape_before or {}).items():
+        target = rows_by_id.get(task_id)
+        if target is None or str(target.wbs_path) == path:
+            continue
+        target.wbs_path = path
+        target.save(update_fields=["wbs_path"])
+        restored += 1
+    return restored
+
+
+def _unmint_created_rows(locked: Any, task_model: Any) -> int:
+    """Undo step 4 — un-mint what the act minted.
+
+    Caller holds ``transaction.atomic()`` — ``select_for_update()`` below requires it.
+    """
+    removed = 0
+    for row in task_model.objects.select_for_update().filter(
+        pk__in=locked.created_task_ids, project_id=locked.project_id, is_deleted=False
+    ):
+        row.soft_delete()
+        removed += 1
+    return removed
+
+
 def undo_structural_operation(
     operation: StructuralOperation,
     *,
@@ -435,24 +568,7 @@ def undo_structural_operation(
         if locked.status == SyncBatchOperationStatus.UNDONE:
             return dict(locked.result_summary.get("undo", {}))
 
-        reason = undo_blocked_reason(locked)
-        if reason == StructuralUndoBlockedReason.TOO_LARGE:
-            raise StructuralUndoRejected(
-                StructuralUndoBlockedReason.TOO_LARGE.value,
-                "This change affected too many rows to be reversed automatically.",
-            )
-        if reason == StructuralUndoBlockedReason.NOT_TOP_OF_STACK:
-            raise StructuralUndoRejected(
-                StructuralUndoBlockedReason.NOT_TOP_OF_STACK.value,
-                "Undo the more recent change first.",
-                extra={"blocking_operation_id": str(_newest_active_id(locked))},
-            )
-        if reason == StructuralUndoBlockedReason.SHAPE_CHANGED:
-            raise StructuralUndoRejected(
-                StructuralUndoBlockedReason.SHAPE_CHANGED.value,
-                "The outline has changed here since — this can no longer be undone.",
-                extra={"changed": _describe_shape_drift(locked)},
-            )
+        _raise_if_undo_blocked(locked)
 
         # `graph_before` must be read before step 1 writes any edge: undo restores
         # dependencies, so unlike group/ungroup the differential guard below is live on
@@ -483,88 +599,17 @@ def undo_structural_operation(
                 ),
             )
 
-        # 1. Restore soft-deleted rows — exact ids, project-scoped, no cascade. This is
-        #    what returns an ungrouped wrapper with its original id, name, notes and
-        #    labels: a soft delete retains them, so nothing needed snapshotting.
-        #
-        #    `on_conflict="repath"` for the same reason step 2 below skips a colliding
-        #    edge rather than failing: an undo that abandons part-way leaves the caller
-        #    with neither state (#3071). `unique_task_wbs_path_per_project_live` covers
-        #    live rows only, so a row soft-deleted by this act had its number freed the
-        #    instant the act ran, and anything created since may be sitting on it. The
-        #    constraint is DEFERRED, so an unguarded restore would raise at COMMIT with
-        #    a constraint name and no row attribution. Step 3 re-asserts `shape_before`
-        #    immediately after and will move most of these back to where they belong;
-        #    re-pathing here only has to make the row legal enough to reach it.
-        deleted_restored = 0
-        for row in Task.objects.select_for_update().filter(
-            pk__in=locked.deleted_task_ids, project_id=locked.project_id, is_deleted=True
-        ):
-            row.restore(on_conflict="repath")
-            deleted_restored += 1
+        # Steps 1-4 each run inside this transaction; see the helpers for why each
+        # guards the way it does.
+        deleted_restored = _restore_deleted_rows(locked, Task)
 
-        # 2. Restore edges, but only where both endpoints are live and the row would not
-        #    collide on `unique_dependency`. `capture_graph_state` builds its edge list
-        #    from tasks filtered `is_deleted=False`, so an edge pointing at a tombstone is
-        #    not in the graph the guard below validates — it structurally cannot catch
-        #    what this step writes. Guarding here is the primary control.
-        deps_restored = 0
-        deps_skipped = 0
-        for dep in Dependency.objects.select_for_update().filter(
-            pk__in=locked.removed_dependency_ids,
-            is_deleted=True,
-            predecessor__project_id=locked.project_id,
-        ):
-            endpoints_live = (
-                Task.objects.filter(
-                    pk__in=[dep.predecessor_id, dep.successor_id],
-                    project_id=locked.project_id,
-                    is_deleted=False,
-                ).count()
-                == 2
-            )
-            collides = (
-                Dependency.objects.filter(
-                    predecessor_id=dep.predecessor_id,
-                    successor_id=dep.successor_id,
-                    dep_type=dep.dep_type,
-                    is_deleted=False,
-                )
-                .exclude(pk=dep.pk)
-                .exists()
-            )
-            if not endpoints_live or collides:
-                deps_skipped += 1
-                continue
-            dep.restore()
-            deps_restored += 1
+        deps_restored, deps_skipped = _restore_dependencies(locked, Task, Dependency)
 
-        # 3. Put the shape back.
-        restored = 0
-        rows_by_id = {
-            str(row.pk): row
-            for row in Task.objects.select_for_update().filter(
-                pk__in=[uuid.UUID(k) for k in (locked.shape_before or {})],
-                project_id=locked.project_id,
-            )
-        }
-        for task_id, path in (locked.shape_before or {}).items():
-            target = rows_by_id.get(task_id)
-            if target is None or str(target.wbs_path) == path:
-                continue
-            target.wbs_path = path
-            target.save(update_fields=["wbs_path"])
-            restored += 1
+        restored = _restore_shape(locked, Task)
 
-        # 4. Un-mint what the act minted.
-        created_removed = 0
-        for row in Task.objects.select_for_update().filter(
-            pk__in=locked.created_task_ids, project_id=locked.project_id, is_deleted=False
-        ):
-            row.soft_delete()
-            created_removed += 1
+        created_removed = _unmint_created_rows(locked, Task)
 
-        # 5. A row that gained or lost children needs its shadow values re-parked. Every
+        # A row that gained or lost children needs its shadow values re-parked. Every
         #    distinct parent path on either side of the restore is a candidate; reading
         #    from current state (not replaying the act) means this converges even on the
         #    paths where the forward endpoints skip it.
