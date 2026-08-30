@@ -261,7 +261,12 @@ test.describe('Board view', () => {
       page.getByRole('progressbar', { name: 'Phase progress: 55% complete', exact: true }),
     ).toBeVisible();
     await expect(page.getByText('55%')).toHaveCount(0);
-    await expect(page.getByText('4 tasks')).toBeVisible();
+    // The count names what kind of work the lane holds, and the word follows
+    // commitment: this lane's four cards all carry a `planned_start`, so they
+    // are `items` (the outline's governed neutral noun), not `tasks` and not
+    // `ideas`.
+    await expect(page.getByText('4 items')).toBeVisible();
+    await expect(page.getByText('4 tasks')).toHaveCount(0);
   });
 
   test('per-phase + button opens a one-field compose in the lane (#2952)', async ({ page }) => {
@@ -917,6 +922,18 @@ test.describe('Board lane header — the progress slot (#3148)', () => {
         exact: true,
       }),
     ).toBeVisible();
+  });
+
+  test('the count noun switches with commitment across lanes on one board', async ({ page }) => {
+    await setupSlotBoard(page);
+    // Both words on screen at once, which is the only way to see that the noun
+    // tracks commitment rather than tracking the lane. Two committed lanes hold
+    // one card each; the uncommitted lane holds two.
+    await expect(page.getByText('1 item').first()).toBeVisible();
+    await expect(page.getByText('2 ideas')).toBeVisible();
+    // The old noun is gone from every lane header on the board.
+    await expect(page.getByText('1 task')).toHaveCount(0);
+    await expect(page.getByText('2 tasks')).toHaveCount(0);
   });
 
   test('an uncommitted lane explains the em-dash on focus', async ({ page }) => {

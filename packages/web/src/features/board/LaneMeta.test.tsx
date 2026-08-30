@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LaneMeta } from './LaneMeta';
+import { ROW_VOCABULARY, countRows } from '@/features/schedule/rowVocabulary';
 
 // `committedTaskCount` is explicit on purpose: since #3148 omitting it means
 // ZERO, not `taskCount`, so a fixture that leaves it out is describing an
@@ -27,14 +28,14 @@ describe('LaneMeta', () => {
     expect(screen.getByText('Engineering')).toBeInTheDocument();
   });
 
-  it('renders task count — plural', () => {
+  it('renders the count in the committed noun — plural', () => {
     render(<LaneMeta {...BASE_PROPS} taskCount={8} />);
-    expect(screen.getByText('8 tasks')).toBeInTheDocument();
+    expect(screen.getByText('8 items')).toBeInTheDocument();
   });
 
-  it('renders task count — singular', () => {
-    render(<LaneMeta {...BASE_PROPS} taskCount={1} />);
-    expect(screen.getByText('1 task')).toBeInTheDocument();
+  it('renders the count in the committed noun — singular', () => {
+    render(<LaneMeta {...BASE_PROPS} taskCount={1} committedTaskCount={1} />);
+    expect(screen.getByText('1 item')).toBeInTheDocument();
   });
 
   it('clamps progress to 0–100 — upper bound', () => {
@@ -134,14 +135,15 @@ describe('LaneMeta', () => {
 
   it('em-dash empty state triggers when committedTaskCount is 0 even with cards present', () => {
     // Lane has cards (taskCount=4) but none are committed (no plannedStart).
-    // The visible "{N} tasks" counter still reads the total, but the progress
-    // slot collapses to em-dash because there is no committed delivery to roll up.
+    // The counter still reads the total — and names it `ideas`, because the
+    // word follows commitment — while the progress slot collapses to an
+    // em-dash, there being no committed delivery to roll up.
     const { container } = render(
       <LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />,
     );
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/\d+%/);
-    expect(screen.getByText('4 tasks')).toBeInTheDocument();
+    expect(screen.getByText('4 ideas')).toBeInTheDocument();
   });
 
   it('renders no SVG circle (ProgressRing replaced by inline bar in #385)', () => {
@@ -187,7 +189,7 @@ describe('LaneMeta', () => {
       // share. The percentage must arrive through it.
       fireEvent.focus(slot);
       expect(
-        await screen.findByText('55% complete · 4 of 8 tasks committed'),
+        await screen.findByText('55% complete · 4 of 8 items committed'),
       ).toBeInTheDocument();
     });
 
@@ -260,7 +262,7 @@ describe('LaneMeta', () => {
       expect(slot).toHaveAttribute('tabindex', '0');
       fireEvent.focus(slot);
       expect(
-        await screen.findByText('No committed work yet — 4 uncommitted tasks'),
+        await screen.findByText('No committed work yet — 4 ideas'),
       ).toBeInTheDocument();
     });
 
@@ -347,6 +349,45 @@ describe('LaneMeta', () => {
     });
   });
 
+  // ── The count word switches with the state ──────────────────────────────
+  // The header's one chance to name what kind of work it holds. `items` is the
+  // outline's governed neutral noun; `ideas` is a claim about commitment, not
+  // about row type, which is why only the first comes from `rowVocabulary`.
+  describe('the count noun (#3148)', () => {
+    it('a committed lane counts items, never tasks', () => {
+      render(<LaneMeta {...BASE_PROPS} taskCount={8} committedTaskCount={4} />);
+      expect(screen.getByText('8 items')).toBeInTheDocument();
+      expect(screen.queryByText('8 tasks')).not.toBeInTheDocument();
+    });
+
+    it('an uncommitted lane counts ideas, never tasks or items', () => {
+      render(<LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />);
+      expect(screen.getByText('4 ideas')).toBeInTheDocument();
+      expect(screen.queryByText('4 tasks')).not.toBeInTheDocument();
+      expect(screen.queryByText('4 items')).not.toBeInTheDocument();
+    });
+
+    it('the noun follows commitment, not card count — same total, both words', () => {
+      // The pair is the whole point: one fixture differing only in
+      // `committedTaskCount` must produce two different nouns, which no
+      // single-state assertion can show.
+      const { unmount } = render(
+        <LaneMeta {...BASE_PROPS} taskCount={6} committedTaskCount={2} />,
+      );
+      expect(screen.getByText('6 items')).toBeInTheDocument();
+      unmount();
+      render(<LaneMeta {...BASE_PROPS} taskCount={6} committedTaskCount={0} avgProgress={0} />);
+      expect(screen.getByText('6 ideas')).toBeInTheDocument();
+    });
+
+    it('takes the committed noun from rowVocabulary, not a local literal', () => {
+      // If someone re-words `countRows`, this header must move with it rather
+      // than keeping a copy that silently disagrees with the outline.
+      render(<LaneMeta {...BASE_PROPS} taskCount={3} committedTaskCount={1} />);
+      expect(screen.getByText(countRows(3))).toBeInTheDocument();
+    });
+  });
+
   // ── The one proportion, stated through four carriers ────────────────────
   // #3148's whole thesis is that a proportion stated twice can drift. The
   // percentage now travels through four channels at once — fill width,
@@ -368,7 +409,7 @@ describe('LaneMeta', () => {
         ).toBe(`${pct}%`);
         fireEvent.focus(bar);
         expect(
-          await screen.findByText(`${pct}% complete · 4 of 8 tasks committed`),
+          await screen.findByText(`${pct}% complete · 4 of 8 items committed`),
         ).toBeInTheDocument();
         // …and the visible row states it zero times.
         expect(container.textContent).not.toMatch(/\d+%/);
@@ -379,19 +420,19 @@ describe('LaneMeta', () => {
 
   // ── Tooltip copy branches ───────────────────────────────────────────────
   describe('the slot tooltip (#3148)', () => {
-    it('an empty phase says so rather than counting zero uncommitted tasks', async () => {
+    it('an empty phase says so rather than counting zero ideas', async () => {
       // The `taskCount === 0` branch produces its own string; "0 uncommitted
       // tasks" would be a strange way to say "there is nothing here".
       render(<LaneMeta {...BASE_PROPS} taskCount={0} committedTaskCount={0} avgProgress={0} />);
       fireEvent.focus(screen.getByRole('img', { name: NO_PROGRESS }));
-      expect(await screen.findByText('No tasks in this phase yet')).toBeInTheDocument();
+      expect(await screen.findByText(ROW_VOCABULARY.create.phaseHasNoRows)).toBeInTheDocument();
     });
 
     it('uses the singular when one task is uncommitted', async () => {
       render(<LaneMeta {...BASE_PROPS} taskCount={1} committedTaskCount={0} avgProgress={0} />);
       fireEvent.focus(screen.getByRole('img', { name: NO_PROGRESS }));
       expect(
-        await screen.findByText('No committed work yet — 1 uncommitted task'),
+        await screen.findByText('No committed work yet — 1 idea'),
       ).toBeInTheDocument();
     });
 
@@ -399,7 +440,7 @@ describe('LaneMeta', () => {
       render(<LaneMeta {...BASE_PROPS} taskCount={1} committedTaskCount={1} avgProgress={40} />);
       fireEvent.focus(screen.getByRole('progressbar'));
       expect(
-        await screen.findByText('40% complete · 1 of 1 task committed'),
+        await screen.findByText('40% complete · 1 of 1 item committed'),
       ).toBeInTheDocument();
     });
   });

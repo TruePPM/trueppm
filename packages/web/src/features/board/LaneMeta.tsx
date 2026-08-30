@@ -3,7 +3,8 @@
  *
  * Anatomy (188px wide, two rows + optional cost row):
  *   ▌  Phase name                          [+]
- *   ▌  ━━━━━━━━━━━━━━━━━━   8 tasks
+ *   ▌  ━━━━━━━━━━━━━━━━━━   8 items      (committed)
+ *   ▌  —                    4 ideas      (nothing committed)
  *
  * Workshop variant (`workshop={true}`): background tinted with phase color,
  * phase name becomes contentEditable, drag handle rendered (ADR-0046).
@@ -28,6 +29,7 @@
 import { type ReactNode, type KeyboardEvent, useRef, useCallback } from 'react';
 
 import { Tooltip } from '@/components/Tooltip';
+import { ROW_VOCABULARY, countRows } from '@/features/schedule/rowVocabulary';
 
 export interface LaneMetaProps {
   phaseId: string;
@@ -98,6 +100,20 @@ export interface LaneMetaProps {
 const NO_PROGRESS_LABEL =
   'Phase progress: not applicable — no committed work in this phase';
 
+/**
+ * `n` uncommitted cards — `1 idea`, `4 ideas`.
+ *
+ * Deliberately local rather than a `rowVocabulary` token. That module governs
+ * the noun for a row whose **`structure_role` is undeclared**, and its answer
+ * is always "item". "Idea" is not a competing answer to that question — it is a
+ * claim about *commitment*, orthogonal to what kind of row this is, and a lane
+ * of ideas is still a lane of items. Adding it to the governed vocabulary would
+ * put a second axis inside a module whose whole value is having exactly one.
+ */
+function countIdeas(n: number): string {
+  return `${n} ${n === 1 ? 'idea' : 'ideas'}`;
+}
+
 function fmtCurrencyLane(value: number): string {
   if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
   if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000)}K`;
@@ -158,7 +174,14 @@ export function LaneMeta({
   const committed = committedTaskCount ?? 0;
   const measurable = committed > 0;
 
-  const taskWord = taskCount === 1 ? 'task' : 'tasks';
+  // The count word switches with the state, because it is the one place the
+  // header names what kind of work it holds: a lane of committed delivery holds
+  // `items`, a lane nobody has committed to holds `ideas`. `items` comes from
+  // `countRows` rather than a local literal so this header and the outline
+  // cannot come to disagree about the neutral noun — the module exports it for
+  // exactly this, so a count-bearing sentence reaches the same word the
+  // outline's buttons do instead of agreeing with them by luck.
+  const countLabel = measurable ? countRows(taskCount) : countIdeas(taskCount);
 
   // The percentage the visible row no longer carries. Three carriers, so no
   // fact lives only in a tooltip: hover for a sighted pointer user, focus for a
@@ -172,11 +195,14 @@ export function LaneMeta({
   // string, but the guaranteed coarse-pointer path is the one the design
   // specifies: tapping the lane name opens the phase, which states progress in
   // full. Do not add a touch expander here without moving the `+` first.
-  const progressTip = `${pct}% complete · ${committed} of ${taskCount} ${taskWord} committed`;
+  const progressTip = `${pct}% complete · ${committed} of ${countRows(taskCount)} committed`;
   const noProgressTip =
     taskCount === 0
-      ? 'No tasks in this phase yet'
-      : `No committed work yet — ${taskCount} uncommitted ${taskWord}`;
+      ? // The governed string, imported rather than re-worded: an empty phase
+        // makes the same claim here as it does on the outline's ghost row, and
+        // two spellings of one claim is the drift `rowVocabulary` exists to stop.
+        ROW_VOCABULARY.create.phaseHasNoRows
+      : `No committed work yet — ${countIdeas(taskCount)}`;
 
   return (
     <div
@@ -375,7 +401,7 @@ export function LaneMeta({
             </Tooltip>
           )}
           <span className="text-xs text-neutral-text-secondary leading-none flex-shrink-0">
-            {taskCount} {taskWord}
+            {countLabel}
           </span>
         </div>
 
