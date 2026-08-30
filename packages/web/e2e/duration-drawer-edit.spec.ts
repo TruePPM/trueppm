@@ -511,3 +511,244 @@ test.describe('#3211 — the duration unit picker stays inside its cell', () => 
   });
 });
 
+/**
+ * The Duration cell's grid item and the box the picker actually has to fit in.
+ *
+ * The cell wrapper is the grid item (`Float`'s preceding sibling); the picker's
+ * own parent is the `px-3.5 pb-2.5` row inside it, and *that* row's content box
+ * is the real constraint — the wrapper's box includes padding the picker can
+ * never use, so measuring against it would overstate the room by 28px and this
+ * whole assertion would go slack exactly where #3211 went wrong.
+ */
+async function pickerFit(picker: ReturnType<Page['getByRole']>) {
+  return picker.evaluate((el) => {
+    const row = el.parentElement;
+    if (!row) throw new Error('picker has no parent row');
+    const cs = getComputedStyle(row);
+    const content =
+      row.clientWidth -
+      Number.parseFloat(cs.paddingLeft) -
+      Number.parseFloat(cs.paddingRight);
+    return { picker: el.getBoundingClientRect().width, content, slack: content - el.getBoundingClientRect().width };
+  });
+}
+
+/**
+ * #3212 — the `d` / `h` radios under a coarse pointer.
+ *
+ * `hasTouch` + `isMobile` are what make `(pointer: coarse)` actually match; a
+ * bare `setViewportSize` leaves Chromium on a fine pointer and the whole block
+ * would assert the 28px behaviour while claiming to assert the 44px one (the
+ * trap `schedule-coarse-row-height.spec.ts` records for the same reason). The
+ * viewport stays at 1280 so the drawer is still the ≥ md 540px slide-in — the
+ * geometry the acceptance criteria are written against, and the tightest one:
+ * a tablet in landscape is a coarse pointer at a desktop width.
+ *
+ * This lives here rather than in `schedule-coarse-row-height.spec.ts` because
+ * the control lives in the task drawer, and the size assertion and the fit
+ * assertion have to read the SAME layout — a 44px floor proven in one host and a
+ * fit proven in another proves neither. That spec's header points here.
+ *
+ * Every assertion below is a browser measurement. jsdom resolves no lengths at
+ * all, so `DurationUnitPicker.test.tsx` can pin the custom property and the class
+ * shape and nothing else (web rule 330(c)); this is the only instrument that can
+ * read the resulting box.
+ */
+test.describe('#3212 — the unit picker meets the 44px touch floor on a finger', () => {
+  test.use({ viewport: { width: 1280, height: 900 }, hasTouch: true, isMobile: true });
+
+  test('each radio is at least 44x44, and the drawer is the 540px one', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    // Pinned first: the 540px shell is the constraint the fit test below is
+    // about, and a coarse run that had silently fallen through to the mobile
+    // bottom sheet would satisfy the size assertions while measuring a
+    // different layout entirely.
+    const drawerBox = (await drawer.boundingBox())!;
+    expect(drawerBox.width, 'the ≥ md slide-in').toBeCloseTo(540, 0);
+
+    for (const name of ['Days', 'Hours']) {
+      const box = (await drawer.getByRole('radio', { name }).boundingBox())!;
+      // Web rule 5 / WCAG 2.5.5, on the only pointer route to switching a task
+      // between days and hours. `>=` because the floor is the requirement; the
+      // exact value is pinned by the custom property below.
+      expect(box.width, `"${name}" width`).toBeGreaterThanOrEqual(44);
+      expect(box.height, `"${name}" height`).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  test('the size comes from the row-height owner, resolved at runtime', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const picker = drawer.getByRole('radiogroup', { name: 'Duration unit' });
+    // The measured box above could be 44 for any number of reasons — a padding,
+    // a min-height, a literal somebody typed. This is the assertion that says it
+    // is 44 *because the row model resolved 44 for this pointer class*, which is
+    // the acceptance criterion the box size alone cannot express.
+    const resolved = await picker.evaluate((el) =>
+      getComputedStyle(el).getPropertyValue('--unit-segment-size').trim(),
+    );
+    expect(resolved).toBe('44px');
+  });
+
+  test('the picker still fits its cell at 540px — measured, not assumed', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const picker = drawer.getByRole('radiogroup', { name: 'Duration unit' });
+    await expect(picker).toBeVisible();
+
+    // At 44px the group is 2 × 44 + its own 2 × 1px border = 90px against a
+    // ~97px content box. That margin is single digits, which is exactly why it
+    // is measured: #3211 is the issue that exists because this cell's width was
+    // reasoned about rather than read out of a browser.
+    const fit = await pickerFit(picker);
+    expect(
+      fit.slack,
+      `picker ${fit.picker}px in a ${fit.content}px content box`,
+    ).toBeGreaterThanOrEqual(0);
+    // Non-vacuous: a picker that had collapsed (or a content box measured off
+    // the wrong element) would pass the slack check trivially.
+    expect(fit.picker, 'the pair, at the floor, plus the group border').toBeGreaterThanOrEqual(90);
+  });
+
+  test('growing to 44px does not re-break #3211 — no overlap onto Float', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const picker = drawer.getByRole('radiogroup', { name: 'Duration unit' });
+    const floatCell = drawer.getByRole('group', { name: 'Float' });
+    const durationCell = floatCell.locator('xpath=preceding-sibling::div[1]');
+
+    const pickerBox = (await picker.boundingBox())!;
+    const floatBox = (await floatCell.boundingBox())!;
+    const cellBox = (await durationCell.boundingBox())!;
+
+    // The #3211 invariant, re-asserted at the larger size. The picker got 24px
+    // wider on this pointer class, and that is precisely the change that could
+    // put it back over the Float cell's label — where `toBeVisible()` would
+    // still pass on both (web rule 354(e)).
+    expect(pickerBox.x).toBeGreaterThanOrEqual(cellBox.x);
+    expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual(cellBox.x + cellBox.width);
+    expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual(floatBox.x);
+  });
+
+  test('a TAP on the bigger target actually commits the unit', async ({ page }) => {
+    const { patches } = await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    // The floor is not the point on its own — being able to hit the thing is.
+    // `tap()` rather than `click()`: this context has `hasTouch`, and the
+    // gesture under test is the one a tablet user makes.
+    await drawer.getByRole('radio', { name: 'Hours' }).tap();
+
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0]).toEqual({ duration_unit: 'hours' });
+  });
+});
+
+/**
+ * The phone, which is the OTHER coarse pointer and the one the 540px assertions
+ * above cannot see (#3212).
+ *
+ * Below `md` the drawer is the 85vh bottom sheet, not the 540px slide-in, and
+ * the vitals strip is 356px wide there. Four tracks made each cell an 89px box
+ * with a 60px content area — already 6px too narrow for the 66px picker before
+ * this change, and 30px too narrow for the 90px one after it. The strip is
+ * therefore two-up below `md`, and these are the assertions that say the touch
+ * floor was paid for out of the layout rather than out of the Float cell.
+ *
+ * Measured on both axes because the failure is silent: the grid item is
+ * `min-w-0` and the picker is `shrink-0`, so an overflow neither clips nor
+ * scrolls — it paints straight over the neighbouring cell, and every element
+ * involved still passes `toBeVisible()` (web rule 354(e)).
+ */
+test.describe('#3212 — the picker fits the phone bottom sheet too', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test('the radios keep the 44px floor in the sheet', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    for (const name of ['Days', 'Hours']) {
+      const box = (await drawer.getByRole('radio', { name }).boundingBox())!;
+      expect(box.width, `"${name}" width`).toBeGreaterThanOrEqual(44);
+      expect(box.height, `"${name}" height`).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  test('and the cell is wide enough to hold them', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const picker = drawer.getByRole('radiogroup', { name: 'Duration unit' });
+    const fit = await pickerFit(picker);
+    expect(
+      fit.slack,
+      `picker ${fit.picker}px in a ${fit.content}px content box`,
+    ).toBeGreaterThanOrEqual(0);
+  });
+
+  test('the picker does not paint over the Float cell', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const pickerBox = (await drawer
+      .getByRole('radiogroup', { name: 'Duration unit' })
+      .boundingBox())!;
+    const floatBox = (await drawer.getByRole('group', { name: 'Float' }).boundingBox())!;
+
+    // Two-up, Float sits to the RIGHT of Duration on the strip's second row, so
+    // this is the same non-intersection claim the 540px case makes — asserted on
+    // boxes rather than on a column count, so it survives a different answer to
+    // "how should a 356px strip lay out" as long as that answer still fits.
+    const overlapsHorizontally =
+      pickerBox.x < floatBox.x + floatBox.width && floatBox.x < pickerBox.x + pickerBox.width;
+    const overlapsVertically =
+      pickerBox.y < floatBox.y + floatBox.height && floatBox.y < pickerBox.y + pickerBox.height;
+    expect(overlapsHorizontally && overlapsVertically, 'picker/Float boxes intersect').toBe(false);
+  });
+});
+
+/**
+ * The counterweight. A change that made every desktop segment 44px would satisfy
+ * every assertion above and cost the planner a third of the vitals strip — the
+ * same trade `schedule-coarse-row-height.spec.ts` guards for the row itself.
+ */
+test.describe('#3212 — a mouse keeps the compact picker', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test('each radio is the row model\'s fine height, square', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    for (const name of ['Days', 'Hours']) {
+      const box = (await drawer.getByRole('radio', { name }).boundingBox())!;
+      expect(box.width, `"${name}" width`).toBeCloseTo(28, 0);
+      expect(box.height, `"${name}" height`).toBeCloseTo(28, 0);
+    }
+  });
+
+  test('and therefore has MORE room in the cell than the coarse one', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const fit = await pickerFit(drawer.getByRole('radiogroup', { name: 'Duration unit' }));
+    expect(fit.slack, `picker ${fit.picker}px in a ${fit.content}px content box`).toBeGreaterThan(
+      0,
+    );
+  });
+});
+

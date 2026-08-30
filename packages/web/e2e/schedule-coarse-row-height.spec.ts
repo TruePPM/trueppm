@@ -13,6 +13,13 @@
  * bare `setViewportSize` leaves Chromium on a fine pointer, and the whole spec
  * would then assert the 28px behaviour while claiming to assert the 44px one
  * (the trap `programs.spec.ts` records for the same reason).
+ *
+ * This file is the Schedule **outline's** coarse-pointer floors. The task
+ * drawer's `d`/`h` unit picker resolves its size from the same row model
+ * (`resolveUnitSegmentSize`, #3212) but is measured in
+ * `e2e/duration-drawer-edit.spec.ts`, because its 44px floor and its fit inside
+ * the 540px drawer's Duration cell have to be read out of one layout — a floor
+ * proven in this host and a fit proven in that one would prove neither.
  */
 import { test, expect } from './fixtures/coverage';
 import {

@@ -576,6 +576,71 @@ export function resolveInsertLaneGap(coarse: boolean): number {
 }
 
 /**
+ * Edge length of ONE `d` / `h` segment in the Duration cell's unit picker
+ * (#3212).
+ *
+ * ## Why a control in the drawer reads the Schedule's row model
+ *
+ * The picker shipped as `h-7 w-8` — 28x32px, with no coarse branch at all, so it
+ * was 28px tall on a tablet exactly as on a mouse. That is two separate rule
+ * breaches wearing one class string. The obvious one is web rule 5 / WCAG 2.5.5:
+ * 28px is under the 44px touch floor, and this is the *only* pointer route to
+ * switching a task between days and hours. The one that made it survive is rule
+ * 315(a): `h-7` is a **second declaration** of a number the row-height owner
+ * already holds. `ROW_HEIGHT_FINE` is 28 and `ROW_HEIGHT_COARSE` is 44 — the
+ * picker was agreeing with the fine value by luck and could not follow the
+ * coarse one, because a Tailwind class is a static string and cannot vary at
+ * runtime.
+ *
+ * So the sizes are aliases, not fresh literals, on the same route
+ * `NUDGE_SIZE_COARSE` (#3026) and `INSERT_TAP_SIZE_COARSE` (#3029) take: the
+ * touch floor is written down once, here, and every control that meets it says
+ * where it got the number.
+ *
+ * ## Square, where the shipped control was 28x32
+ *
+ * A radio in this group holds one glyph. The 32px width was a `w-8` chosen for
+ * looks, unrelated to anything, and keeping it would have meant a second
+ * resolver for an axis with no rule behind it — the shape rule 315 is about. One
+ * edge length in both axes also means the coarse value satisfies the floor on
+ * *both* axes by construction rather than by two independent checks, and it
+ * narrows the fine-pointer group from 66px to 58px, which is slack the Duration
+ * cell can use (see below).
+ *
+ * ## The fit constraint, which is real and thin
+ *
+ * The picker lives in the drawer's vitals strip, a `grid-cols-4` in a 540px
+ * panel. The Duration cell's track is ~126px and its content box ~97px after the
+ * cell's own `px-3.5` and the grid's `border-r`. At 44px the group is
+ * `2 × 44 + 2 × 1px border = 90px`, so it fits with ~7px to spare — measured in
+ * `e2e/duration-drawer-edit.spec.ts`, not asserted from this arithmetic. #3211 is
+ * the issue that exists because this cell's width was reasoned about rather than
+ * measured, so the margin being thin is exactly why the browser assertion is
+ * mandatory rather than nice to have.
+ *
+ * That measurement found a second layout the arithmetic never mentioned. Below
+ * `md` the drawer is the 85vh bottom sheet, the strip is 356px, and four tracks
+ * left the cell a 60px content box — which the *old* 66px picker already
+ * overflowed by 6px and the new one would have overflowed by 30, putting a
+ * touch-target fix on the tablet and a layout regression on the phone. The strip
+ * is two-up below `md` as part of this change (`TaskScheduleStrip`), giving the
+ * sheet a 149px content box. Nothing at or above `md` moved.
+ *
+ * Keyed on the **pointer class**, not on the resolved `ROW_HEIGHT` — deliberate
+ * parity with `resolveNudgeSize` and `resolveGripWidth`. Comfortable rows (#3019)
+ * raises the row without raising the row's controls, and whether it should is one
+ * decision across the grip, the nudges, the insert `+` and this picker rather
+ * than a divergence introduced here.
+ */
+export const UNIT_SEGMENT_SIZE_FINE = ROW_HEIGHT_FINE;
+export const UNIT_SEGMENT_SIZE_COARSE = ROW_HEIGHT_COARSE;
+
+/** Edge length of ONE unit segment. Square, so this is both width and height. */
+export function resolveUnitSegmentSize(coarse: boolean): number {
+  return coarse ? UNIT_SEGMENT_SIZE_COARSE : UNIT_SEGMENT_SIZE_FINE;
+}
+
+/**
  * Height of the Monte Carlo confidence row below the split pane.
  * 44px — meets touch-target minimums; outside the virtualizer so scroll sync
  * does not apply (not 28px like task rows).
