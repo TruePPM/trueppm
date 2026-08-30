@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { Task } from '@/types';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
@@ -20,11 +20,6 @@ interface Props {
    * P80 chip and gate the detail panel's "Risk delta vs CPM" section.
    */
   cpmFinish?: string | null;
-  /**
-   * Increments whenever any task mutation (drag, resize, etc.) succeeds. Causes
-   * the bar to enter the "stale — rerun for updated forecast" state.
-   */
-  mutationVersion?: number;
 }
 
 const EXPANDED_KEY = 'schedule.insightsExpanded';
@@ -54,35 +49,69 @@ function persistExpanded(next: boolean): void {
 
 type MonteCarloResult = NonNullable<ReturnType<typeof useMonteCarloResult>['data']>;
 
+/** What the bar is allowed to say and offer about this run's freshness. */
+interface ForecastFreshness {
+  /** Offer Rerun. True whenever the run is not confirmed current, or one is in flight. */
+  offerRerun: boolean;
+  /**
+   * The notice to show in place of the `N ago` stamp, or `null` to keep the stamp.
+   *
+   * One string per thing the server can actually prove, which is why this is not a
+   * boolean. `aged` keeps the original wording because the run really is out of date.
+   * `projectChanged` gets a weaker sentence on purpose: the counter behind it moves on
+   * ANY write in the project — a logged time entry, a label, a description — so "your
+   * plan changed" would be an assertion the evidence does not reach. "Edited since this
+   * run" is exactly what it does reach.
+   *
+   * Both strings are also length-constrained, and that is not cosmetic. This row is
+   * over-full at 1280 and the notice sits inside the `shrink-0` control group, so a
+   * longer sentence pushes the group past what `top driver`'s `truncate` can absorb
+   * and shifts the Details button — the layout guarantee `e2e/schedule-monte-carlo`
+   * pins with a boundingBox assertion. A first draft of this string was 51 characters
+   * and moved Details 43px. Keep any new notice at or under the `aged` one.
+   */
+  notice: string | null;
+}
+
 /**
- * Tracks the "stale — rerun for updated forecast" machinery: marks stale when a
- * task mutation fires, and clears it when a fresh simulation result arrives.
- * Extracted from ScheduleForecastBar (#2081) — behavior verbatim.
+ * Read the server's staleness verdict — it does not compute one (#3140, web rule 359).
+ *
+ * This used to be a `useState(0)` counter bumped from `useScheduleCommit`'s drag/resize
+ * commit, which made "is the forecast stale?" a fact about *this component instance's
+ * lifetime* rather than about the data. It missed inline cell edits, add/delete row,
+ * dependency changes, paste-many, bulk edit, three-point estimate edits (the actual Monte
+ * Carlo inputs), and every collaborator write arriving over the WebSocket — and it reset
+ * to zero on every reload and route re-entry. Tolerable while it only drove a *notice*;
+ * a defect once #3132 gated the Rerun *action* on it, because the state a user most needs
+ * the button in — a plan edited before this page was opened — was exactly the state that
+ * read as "nothing to do".
+ *
+ * The verdict now rides the Monte Carlo payload (ADR-0599: the authoritative
+ * classification of a server-computed outcome is itself server-computed), so it survives
+ * a reload, covers every write path including a collaborator's, and needs no enumeration
+ * of mutation sites here. `useProjectWebSocket` re-fetches the payload on the same events
+ * that already invalidate tasks, so an in-session edit refreshes the verdict too.
+ *
+ * The action and the notice are decided separately, and that split is the point.
+ * `unknown` — a run recorded before #3140 — means the answer is *unavailable*, not that
+ * it is bad, so it earns the action but no notice at all. Asserting "Stale" there would
+ * be the same species of unfounded claim this issue removed, pointing the other way.
  */
 function useForecastStaleness(
-  mutationVersion: number,
   result: MonteCarloResult | undefined,
   runMcPending: boolean,
-): boolean {
-  const [isStale, setIsStale] = useState(false);
-  const seenLastRunAt = useRef<string | undefined>(undefined);
-  const seenMutationVersion = useRef(mutationVersion);
-
-  useEffect(() => {
-    if (mutationVersion !== seenMutationVersion.current) {
-      seenMutationVersion.current = mutationVersion;
-      if (result) setIsStale(true);
-    }
-  }, [mutationVersion, result]);
-
-  useEffect(() => {
-    if (result?.lastRunAt && result.lastRunAt !== seenLastRunAt.current) {
-      seenLastRunAt.current = result.lastRunAt;
-      setIsStale(false);
-    }
-  }, [result?.lastRunAt]);
-
-  return runMcPending || isStale;
+): ForecastFreshness {
+  const staleness = result?.forecastStaleness ?? 'unknown';
+  if (runMcPending) return { offerRerun: true, notice: 'Recomputing…' };
+  return {
+    offerRerun: staleness !== 'current',
+    notice:
+      staleness === 'aged'
+        ? 'Stale — rerun for updated forecast'
+        : staleness === 'projectChanged'
+          ? 'Edited since this run'
+          : null,
+  };
 }
 
 interface ForecastEmptyStateProps {
@@ -166,12 +195,12 @@ function ForecastEmptyState({
  * Expanded, it shows the histogram, the sensitivity tornado, and the run-history
  * disclosure. All forecast dates route through `lib/formatUtcDate`.
  */
-export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersion = 0 }: Props) {
+export function ScheduleForecastBar({ projectId, tasks, cpmFinish }: Props) {
   const { data: result, isLoading, error, refetch } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
   const [expanded, setExpanded] = useState(readExpanded);
   const [detailOpen, setDetailOpen] = useState(false);
-  const isRecomputing = useForecastStaleness(mutationVersion, result, runMc.isPending);
+  const { offerRerun, notice } = useForecastStaleness(result, runMc.isPending);
   const forecast = useForecastPresentation(result, cpmFinish);
 
   function toggle() {
@@ -278,13 +307,21 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
               which carries `truncate` for exactly this purpose, so no control
               changes size when the conditional button appears. */}
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {isRecomputing ? (
+            {/* The notice says only what the server can prove (#3140), and there
+                is a branch with no notice at all: a run whose freshness the
+                server CANNOT classify (`unknown` — recorded before #3140) keeps
+                the ordinary `N ago` stamp. That branch is the point. It still
+                offers Rerun below, because the action costs nothing when it turns
+                out to be unnecessary — but it makes no staleness claim, because an
+                unfounded "Stale" is this issue's own defect with the sign
+                flipped. */}
+            {notice !== null ? (
               <span
                 data-testid="mc-recomputing"
                 className="text-xs text-neutral-text-secondary tppm-mono whitespace-nowrap"
                 aria-live="polite"
               >
-                {runMc.isPending ? 'Recomputing…' : 'Stale — rerun for updated forecast'}
+                {notice}
               </span>
             ) : (
               result.lastRunAt && (
@@ -300,18 +337,17 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
                 The stale branch immediately to the left is the sentence that
                 asks for the action — the action belongs with it.
 
-                Gated on `isRecomputing` (= `runMc.isPending || isStale`), not on
-                `isStale` alone, so the button survives its own in-flight run and
-                disappears only when the fresh result lands and clears staleness.
+                Gated on `offerRerun` (= `runMc.isPending || staleness !== 'current'`),
+                which includes the in-flight run, so the button survives its own
+                recompute and disappears only when the server confirms the fresh
+                result is current.
 
-                KNOWN LIMIT — TODO(#3140): `isStale` is driven by `mutationVersion`,
-                a session-local counter that only `useScheduleCommit`'s drag/resize
-                commit bumps. It misses inline edits, estimate edits (the MC inputs),
-                collaborator writes over the WebSocket, and every reload. So an
-                absent Rerun does NOT mean the forecast matches the plan, and this
-                gate must not be read as if it did. The Overview page's persistent
-                `Rerun forecast` is the fallback path until #3140 makes staleness a
-                durable fact.
+                The gate is now safe to read as "there is nothing to rerun for"
+                (#3140). It was not before: `isStale` came from a session-local
+                counter that only the drag/resize commit bumped, so an absent
+                Rerun meant nothing about the plan. The predicate is a server fact
+                that survives a reload, so an absent button is a claim the server
+                made, not one this component inferred from its own lifetime.
 
                 No layout shift either way: the row's height is set by the
                 always-present Details button (both are `h-7`), the group is
@@ -319,7 +355,7 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, mutationVersi
                 keeps the appearing button from stealing width from its
                 siblings. Pinned by a boundingBox assertion in
                 `e2e/schedule-monte-carlo.spec.ts`. */}
-            {isRecomputing && (
+            {offerRerun && (
               <button
                 type="button"
                 onClick={() => runMc.mutate({})}

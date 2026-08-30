@@ -1398,9 +1398,6 @@ export function ScheduleView() {
   // Task shown in the date input popover (null = popover closed)
   const [datePopoverTask, setDatePopoverTask] = useState<Task | null>(null);
 
-  // Increments on any successful task reschedule/resize — signals ScheduleForecastBar to show stale state.
-  const [mcMutationVersion, setMcMutationVersion] = useState(0);
-
   // CPM finish for Monte Carlo delta. The server owns this value and returns it
   // on the MC latest payload (#987 — `cpm_finish` is the deterministic project
   // finish, max early-finish of committed tasks). Prefer it so the panel/row
@@ -1597,7 +1594,6 @@ export function ScheduleView() {
     sprints,
     canvasContainerRef: canvasScrollRef,
     ariaAssertiveRef,
-    onCommitSuccess: () => setMcMutationVersion((v) => v + 1),
   });
 
   const dragPhase = useDragStore((s) => s.phase);
@@ -1831,9 +1827,9 @@ export function ScheduleView() {
     statusDate,
     authoringActive,
     onOpenDatePopover: handleOpenDatePopover,
-    // The keyboard path's PATCH (#3141). Shares the pointer path's floor guard,
-    // payload and `onCommitSuccess` so the two cannot disagree about what a
-    // reschedule is; only the confirmation gesture differs (Enter vs popover).
+    // The keyboard path's PATCH (#3141). Shares the pointer path's floor guard and
+    // payload so the two cannot disagree about what a reschedule is; only the
+    // confirmation gesture differs (Enter vs popover).
     onCommitReschedule: scheduleCommit.commitKeyboardReschedule,
   });
 
@@ -4351,7 +4347,6 @@ export function ScheduleView() {
         <ScheduleForecastBar
           projectId={projectIdUndef}
           cpmFinish={cpmFinish}
-          mutationVersion={mcMutationVersion}
           tasks={allTasks}
         />
       )}

@@ -393,6 +393,27 @@ class MonteCarloRun(models.Model):
     # runs recorded before #2638 have no stored data date and read back as
     # ``status_date: null`` rather than a guessed value.
     status_date = models.DateField(null=True, blank=True)
+    # The plan version this run was computed against — the project's
+    # ``last_sync_version`` (ADR-0686) read *before* the task set was loaded (#3140).
+    #
+    # This is what makes "is the forecast still about the current plan?" a server fact
+    # instead of a client guess. Compared against the project's live value at response
+    # time by :mod:`.forecast_staleness`; a difference means the plan has been written to
+    # since the run. The web forecast bar previously answered the same question with a
+    # session-local mutation counter, which missed every write path but one and reset on
+    # reload — and once #3132 gated the Rerun *action* on it, a stale forecast could
+    # offer no recompute at all.
+    #
+    # Read before the tasks, not after, and the ordering is the correctness property: a
+    # write landing mid-simulation then leaves ``plan_version`` behind the project's
+    # value, so the run reads stale. Capturing it afterwards would claim the run covered
+    # a write it never saw — false-fresh, which is the direction that loses the action.
+    #
+    # Nullable with NO backfill, the same pattern as ``distribution``/``diagnostic``/
+    # ``status_date`` above: runs recorded before #3140 have no plan version and classify
+    # as ``unknown`` rather than a guessed ``current``. No index — this model is only ever
+    # read as "newest row for this project", which ``mcrun_project_recent_idx`` covers.
+    plan_version = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "scheduling_montecarlorun"

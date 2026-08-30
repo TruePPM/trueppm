@@ -553,6 +553,37 @@ re-run the forecast.
 A forecast older than a week is marked stale and its date is shown beside the
 commitment, so an old number cannot be read as a current one.
 
+### Is this forecast still about my current plan?
+
+Age is only half the question. A forecast can be minutes old and already out of
+date, because the plan moved after it ran.
+
+TruePPM answers this on the server and reports it as `forecast_staleness` on
+every forecast payload, so the UI, the API and an MCP client all get the same
+answer:
+
+| Value | Meaning |
+|---|---|
+| `current` | The run matches the plan the project is on now, and it is recent. |
+| `project_changed` | The project has been written to, or its schedule recomputed, since the run. |
+| `aged` | Nothing has changed, but the run is over a week old, so the data date has moved under it. |
+| `unknown` | The run predates this field and cannot be placed against the plan. |
+
+On the Schedule view's forecast bar, anything other than `current` offers the
+**Rerun** button. The bar also says *Edited since this run* for
+`project_changed` — and deliberately does not say *your plan changed*, because
+the signal behind it is "something in this project was written", which includes
+a logged time entry or a renamed label. Treat it as a reason to rerun, not as
+evidence that a date moved.
+
+`unknown` is the one value that offers **Rerun** without any accompanying claim:
+it means TruePPM does not know, and it will not present that as reassurance. It
+resolves itself the next time the forecast is run.
+
+Because the judgment lives on the server rather than in your browser session, it
+survives a page reload and reflects a collaborator's edits as readily as your
+own — the answer is about the data, not about how long the page has been open.
+
 There is deliberately **no severity band** on added time yet — no "low / moderate
 / high" verdict. Threshold cut points chosen without evidence would be a judgment
 dressed as a measurement. The band arrives once TruePPM can calibrate it against

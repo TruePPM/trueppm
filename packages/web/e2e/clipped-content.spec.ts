@@ -93,6 +93,13 @@ const MC_RESULT = {
     { date: '2026-11-23', count: 70 },
     { date: '2026-11-30', count: 45 },
   ],
+  // The server states forecast freshness on every branch (#3140). Stated here so the
+  // one spec that guards this bar's 1280px layout measures the row production actually
+  // renders — an omitted key maps to `unknown`, which adds a Rerun button the server
+  // would never have asked for.
+  forecast_staleness: 'current',
+  plan_version: 1,
+  plan_version_current: 1,
   last_run_at: '2026-05-12T10:00:00Z',
   cpm_finish: '2026-11-30',
   delta_vs_cpm: { p50: -15, p80: 10, p95: 28 },

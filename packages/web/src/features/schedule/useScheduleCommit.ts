@@ -96,7 +96,6 @@ export interface UseScheduleCommitOptions {
   sprints: ApiSprint[];
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   ariaAssertiveRef: RefObject<HTMLDivElement | null>;
-  onCommitSuccess?: () => void;
 }
 
 export interface UseScheduleCommitApi {
@@ -109,8 +108,8 @@ export interface UseScheduleCommitApi {
    * and Enter has already served as that confirmation, so the keyboard path
    * must not open a second one. What it must NOT do is what it used to: set the
    * drag store to `'committing'`, announce "Reschedule confirmed." and issue no
-   * PATCH at all. Same floor guard, same payload, same `onCommitSuccess` as the
-   * popover's confirm — only the confirmation gesture differs.
+   * PATCH at all. Same floor guard and same payload as the popover's confirm —
+   * only the confirmation gesture differs.
    *
    * Announces its own outcome, because the caller cannot know one: the mutation
    * is async and the old code's unconditional announcement is the defect.
@@ -228,7 +227,6 @@ export function useScheduleCommit({
   sprints,
   canvasContainerRef,
   ariaAssertiveRef,
-  onCommitSuccess,
 }: UseScheduleCommitOptions): UseScheduleCommitApi {
   const [state, setState] = useState<ScheduleCommitState | null>(null);
   const [beforeStartPrompt, setBeforeStartPrompt] = useState<BeforeStartPromptState | null>(null);
@@ -494,10 +492,6 @@ export function useScheduleCommit({
         },
         {
           onSuccess: () => {
-            // Bumps `mcMutationVersion`, which the forecast-staleness signal
-            // rides — it was blind to keyboard reschedules for the same reason
-            // the PATCH was missing (#3140).
-            onCommitSuccess?.();
             if (ariaAssertiveRef.current) {
               ariaAssertiveRef.current.textContent = 'Reschedule confirmed.';
             }
@@ -520,7 +514,6 @@ export function useScheduleCommit({
       projectStartDate,
       effectiveFloorDate,
       rescheduleTask,
-      onCommitSuccess,
       ariaAssertiveRef,
       setScheduleError,
     ],
@@ -586,7 +579,6 @@ export function useScheduleCommit({
     rescheduleTask.mutate(payload, {
       onSuccess: () => {
         setState(null);
-        onCommitSuccess?.();
         if (ariaAssertiveRef.current) {
           ariaAssertiveRef.current.textContent =
             action.kind === 'reschedule' ? 'Reschedule confirmed.' : 'Resize confirmed.';
@@ -612,7 +604,6 @@ export function useScheduleCommit({
     rescheduleTask,
     revertEngine,
     setScheduleError,
-    onCommitSuccess,
     ariaAssertiveRef,
   ]);
 
@@ -659,7 +650,6 @@ export function useScheduleCommit({
       {
         onSuccess: () => {
           setBeforeStartPrompt(null);
-          onCommitSuccess?.();
           if (ariaAssertiveRef.current) {
             ariaAssertiveRef.current.textContent = 'Snapped to the project start date.';
           }
@@ -669,7 +659,7 @@ export function useScheduleCommit({
         },
       },
     );
-  }, [beforeStartPrompt, projectId, engine, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
+  }, [beforeStartPrompt, projectId, engine, rescheduleTask, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
 
   const handleMoveProjectStart = useCallback(() => {
     const p = beforeStartPrompt;
@@ -698,7 +688,6 @@ export function useScheduleCommit({
             {
               onSuccess: () => {
                 setBeforeStartPrompt(null);
-                onCommitSuccess?.();
                 if (ariaAssertiveRef.current) {
                   ariaAssertiveRef.current.textContent =
                     'Project start moved; task scheduled.';
@@ -725,7 +714,7 @@ export function useScheduleCommit({
         },
       },
     );
-  }, [beforeStartPrompt, projectId, engine, updateProject, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
+  }, [beforeStartPrompt, projectId, engine, updateProject, rescheduleTask, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
 
   const handleCancelBeforeStart = useCallback(() => {
     const p = beforeStartPrompt;

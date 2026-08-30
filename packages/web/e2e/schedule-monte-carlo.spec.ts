@@ -8,8 +8,10 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * Covers:
  * - P50/P80/P95 markers visible on the Gantt timeline
  * - The consolidated bar shows the P80 chip with its delta vs CPM finish — once
- * - Rerun is absent while the forecast is fresh, appears with the stale notice
- *   once a task commit lands, and drives the recomputing indicator (#3132)
+ * - Rerun is absent only while the SERVER reports the forecast current (#3140);
+ *   otherwise it appears with the notice the server's evidence supports, and
+ *   drives the recomputing indicator (#3132)
+ * - The Rerun gate survives a reload — the predicate is not session state (#3140)
  * - Details panel opens on the Details button
  * - The bar expands to the histogram + sensitivity tornado
  * - The percentiles render on exactly one surface (no two-surface double-claim)
@@ -85,6 +87,12 @@ const FIXTURE_MC_RESULT = {
     { date: '2026-12-14', count: 7 },
   ],
   last_run_at: '2026-05-09T10:00:00Z',
+  // The server states forecast freshness explicitly on every branch (#3140);
+  // `current` is what withholds the Rerun button, and it is the only value that
+  // does. Specs that need the stale arc override it per-route.
+  forecast_staleness: 'current',
+  plan_version: 412,
+  plan_version_current: 412,
   // Server-computed risk fields (#987). cpm_finish = '2026-11-30' → P80
   // (2026-12-10) is +10d. confidence_curve is the cumulative share of the
   // buckets above (500 runs), which the panel renders directly.
@@ -401,19 +409,28 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(bar.getByText(/^P80:/)).toHaveCount(1);
   });
 
-  test('Rerun is withheld while fresh, offered with the stale notice, and runs (#3132)', async ({
+  test('Rerun is withheld while fresh, offered with the stale notice, and runs (#3132, #3140)', async ({
     page,
   }) => {
     // UX-REVIEW §8.1: a recompute button parked on every forecast row is a debug
     // affordance on a user surface. The bar already says when the server last
-    // confirmed the run; the action belongs beside the sentence that asks for
-    // it. This spec walks the whole arc — fresh (no button), stale (button),
-    // clicked (recomputing) — because the middle state is the only one from
-    // which the old spec's click was reachable at all.
+    // confirmed the run; the action belongs beside the sentence that asks for it.
+    // This spec walks the whole arc — fresh (no button), stale (notice + button),
+    // clicked (recomputing) — because the middle state is the only one from which
+    // the click is reachable at all.
+    //
+    // The transition is driven by the SERVER's verdict flipping, not by a drag.
+    // Until #3140 it was driven by dragging a bar, because a session-local counter
+    // in `ScheduleView` was the only input to the staleness machinery and a drag was
+    // the only thing that bumped it. That counter is gone: the verdict rides the
+    // payload, so the honest way to exercise the gate is to change what the server
+    // says. (The drag → PATCH path itself is covered by the schedule drag specs;
+    // what is unique here is the gate and the layout guarantee below.)
+    let stale = false;
     let runCallCount = 0;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/`, async (route) => {
       runCallCount++;
-      // Delay the response so we can observe the pending state
+      // Delay the response so the pending state is observable.
       await new Promise((r) => setTimeout(r, 200));
       await route.fulfill({
         status: 200,
@@ -423,6 +440,20 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     });
 
     await gotoScheduleWithMC(page);
+
+    // Registered AFTER the helper so it shadows the helper's static `/latest/`
+    // route (Playwright resolves routes last-registered-first).
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...FIXTURE_MC_RESULT,
+          forecast_staleness: stale ? 'project_changed' : 'current',
+          plan_version_current: stale ? 413 : 412,
+        }),
+      }),
+    );
 
     const rerun = page.locator('[aria-label="Rerun Monte Carlo forecast"]');
     const details = page.locator('[data-testid="mc-details-btn"]');
@@ -435,82 +466,28 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     const freshDetailsBox = await details.boundingBox();
     expect(freshDetailsBox).not.toBeNull();
 
-    // Go stale the way the product does: drag a bar and confirm the commit.
-    // `ScheduleView` bumps the bar's `mutationVersion` from `useScheduleCommit`'s
-    // commit-success callback, and that prop is the only input to the staleness
-    // machinery — so faking it any other way would test the gate against a state
-    // the app cannot actually reach.
-    //
-    // The pointer is aimed using the ARIA overlay's `option`, which is
-    // absolutely positioned over its own bar: it is the only DOM node whose box
-    // is the bar's box, so this needs no hand-computed day-to-pixel math. The
-    // option itself is pointer-events-none (rule 27); the mouse lands on the
-    // interaction canvas underneath, which is what owns the drag FSM.
-    //
-    // Scroll the bar's start into view before measuring, and gate on the slice
-    // being wide enough to grab. This bar is 50 working days long and starts at
-    // the project start, so how much of it is on screen depends on the canvas's
-    // initial scroll and on the outline's width — neither of which this test
-    // controls. Grabbing blind is a *silent* no-op: the pointer lands outside
-    // the canvas, the drag FSM never sees it, and the failure surfaces three
-    // assertions later as "no popover", which reads like a product bug. It flaked
-    // 3-in-12 under contention before the scroll was added.
-    const bar = page.getByRole('option', { name: /Backend API/ });
-    const canvas = page.locator('canvas[data-layer="interaction"]');
-    const onCanvasWidth = async () => {
-      const b = await bar.boundingBox();
-      const c = await canvas.boundingBox();
-      if (!b || !c) return 0;
-      return Math.min(b.x + b.width, c.x + c.width) - Math.max(b.x, c.x);
-    };
-    // `style.left` on the option is viewport-relative (the overlay subtracts the
-    // engine's scrollLeft), so adding it to the current scrollLeft recovers the
-    // bar's canvas-origin x — same identity the marker test above relies on.
-    await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(
-        '[data-testid="schedule-canvas-scroll"]',
-      );
-      const el = document.querySelector<HTMLElement>('[role="option"][data-task-id="mc-t2"]');
-      if (!scroller || !el) return;
-      scroller.scrollLeft = Math.max(0, scroller.scrollLeft + Number.parseFloat(el.style.left) - 40);
+    // The plan moves. A reload is what delivers the new verdict here because e2e
+    // runs without a live WebSocket, which is what invalidates the query in
+    // production — and it doubles as proof the verdict is not session state.
+    stale = true;
+    await page.reload();
+
+    // Stale — the notice and the action arrive together. The wording is what the
+    // counter behind the verdict can actually support: the project was edited. It
+    // must NOT claim the plan (a date) changed, because the same counter advances
+    // on a logged time entry or a label.
+    await expect(status).toHaveText('Edited since this run', {
+      timeout: 10_000,
     });
-    await expect.poll(onCanvasWidth).toBeGreaterThan(120);
-
-    // The grab point is the INTERSECTION of the bar's box with the canvas's, not
-    // a fraction of the bar — the bar still runs past the right edge.
-    const barBox = await bar.boundingBox();
-    const canvasBox = await canvas.boundingBox();
-    expect(barBox).not.toBeNull();
-    expect(canvasBox).not.toBeNull();
-    const visibleLeft = Math.max(barBox!.x, canvasBox!.x);
-    const visibleRight = Math.min(barBox!.x + barBox!.width, canvasBox!.x + canvasBox!.width);
-    const grabX = visibleLeft + 20;
-    const dropX = Math.min(grabX + 60, visibleRight - 10);
-    const grabY = barBox!.y + barBox!.height / 2;
-    // Past the engine's 4px IDLE → DRAG_STARTED threshold, and clear of the
-    // right-edge resize zone (the bar's own right edge is off screen).
-    expect(dropX - grabX).toBeGreaterThan(20);
-    await page.mouse.move(grabX, grabY);
-    await page.mouse.down();
-    await page.mouse.move((grabX + dropX) / 2, grabY, { steps: 5 });
-    await page.mouse.move(dropX, grabY, { steps: 5 });
-    await page.mouse.up();
-    await page
-      .getByRole('dialog', { name: 'Reschedule task?' })
-      .getByRole('button', { name: 'Reschedule' })
-      .click();
-
-    // Stale — the notice and the action arrive together.
-    await expect(status).toHaveText('Stale — rerun for updated forecast', { timeout: 10_000 });
     await expect(rerun).toBeVisible();
 
     // …and nothing moved. Details anchors both the right edge (the group is
     // `ml-auto`) and the row height (both buttons are `h-7`), so its box is
     // unchanged across the transition. This is the layout-shift guarantee the
-    // conditional render depends on; assert it rather than assume it — it is
-    // what caught the 8px squeeze that `shrink-0` now prevents. Compared to
-    // the nearest pixel, not by float equality: sub-pixel text metrics are not
-    // the thing under test and would only make this flake on a font swap.
+    // conditional render depends on; assert it rather than assume it — it is what
+    // caught the 8px squeeze that `shrink-0` now prevents. Compared to the nearest
+    // pixel, not by float equality: sub-pixel text metrics are not the thing under
+    // test and would only make this flake on a font swap.
     const staleDetailsBox = await details.boundingBox();
     expect(staleDetailsBox).not.toBeNull();
     for (const side of ['x', 'y', 'width', 'height'] as const) {
@@ -520,6 +497,57 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await rerun.click();
     await expect(status).toHaveText('Recomputing…');
     expect(runCallCount).toBe(1);
+  });
+
+
+  test('Rerun SURVIVES a reload — the predicate is a server fact, not session state (#3140)', async ({
+    page,
+  }) => {
+    // The issue's own falsification line, run as a test: open the bar in the state
+    // that should show Rerun, then reload. The old predicate was a `useState(0)`
+    // counter in `ScheduleView`, so a reload reset it to 0 and the button vanished
+    // — while the plan was still exactly as stale as before. Because #3132 gated
+    // the ACTION on that counter, the state a user most needs the button in (a plan
+    // edited before the page was opened) was precisely the state that offered
+    // nothing.
+    //
+    // Nothing here mutates anything. The whole point is that the server reports the
+    // forecast as stale on a COLD load, with no prior in-session activity to
+    // remember — which is the one thing a session counter can never do.
+    await gotoScheduleWithMC(page, { ...FIXTURE_MC_RESULT, forecast_staleness: 'project_changed' });
+
+    const rerun = page.locator('[aria-label="Rerun Monte Carlo forecast"]');
+    const status = page.locator('[data-testid="mc-recomputing"]');
+
+    await expect(rerun).toBeVisible({ timeout: 10_000 });
+    await expect(status).toHaveText('Edited since this run');
+
+    await page.reload();
+
+    // Revert the fix and this is the assertion that fails: the counter is back to 0
+    // on a fresh mount, so the button is gone and the bar reads a confident `N ago`.
+    await expect(rerun).toBeVisible({ timeout: 10_000 });
+    await expect(status).toHaveText('Edited since this run');
+  });
+
+  test('an `unknown` verdict keeps Rerun reachable but makes NO staleness claim (#3140)', async ({
+    page,
+  }) => {
+    // A run recorded before #3140 carries no plan version, so the server cannot
+    // place it against the current plan. The action stays available — that is the
+    // reachability defect being fixed — while the bar keeps its ordinary `N ago`
+    // stamp, because asserting "Stale" on evidence we do not have is the same
+    // defect with the sign flipped.
+    await gotoScheduleWithMC(page, {
+      ...FIXTURE_MC_RESULT,
+      forecast_staleness: 'unknown',
+      plan_version: null,
+    });
+
+    await expect(page.locator('[aria-label="Rerun Monte Carlo forecast"]')).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.locator('[data-testid="mc-recomputing"]')).toHaveCount(0);
   });
 
   test('Details button opens the Monte Carlo detail panel', async ({ page }) => {

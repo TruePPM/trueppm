@@ -119,6 +119,9 @@ const mcResult = {
   deltaVsCpm: { p50: null, p80: null, p95: null },
   confidenceCurve: [],
   sensitivity: [],
+  forecastStaleness: 'current' as const,
+  planVersion: 1,
+  planVersionCurrent: 1,
 };
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,17 @@ interface AddedTimeCardProps {
   presentation: AddedTimePresentation;
   /** Project-scoped base path, e.g. `/projects/{id}`. Omitted pre-load. */
   base?: string;
+  /**
+   * The server's forecast-staleness verdict, when the caller has it (#3140).
+   *
+   * `presentation.state === 'stale'` is age-only — `risk_premium_state` marks a run
+   * stale after a week and knows nothing about the plan moving underneath it. Callers
+   * that hold the forecast payload can pass the broader verdict here so the action
+   * reads `Re-run forecast` in the case that most warrants it: a run superseded
+   * minutes ago. It deliberately affects ONLY the link label, not the as-of layout,
+   * so a caller that does not pass it renders exactly as before.
+   */
+  forecastStale?: boolean;
 }
 
 const CARD_BASE =
@@ -191,7 +202,7 @@ function AddedTimeEmptyCard({
   );
 }
 
-export function AddedTimeCard({ presentation, base }: AddedTimeCardProps) {
+export function AddedTimeCard({ presentation, base, forecastStale }: AddedTimeCardProps) {
   // Empty states are structurally distinct from a measured zero, not just worded
   // differently: no digit, no track, no as-of stamp, and a dashed frame. That is what
   // stops "we have not measured this" from reading as "we measured no risk".
@@ -201,6 +212,9 @@ export function AddedTimeCard({ presentation, base }: AddedTimeCardProps) {
 
   const { headline, endpoints, ratioPct, ratioLabel, asOf, band, state } = presentation;
   const isStale = state === 'stale';
+  // The link's own predicate — see `forecastStale` on the props. Broader than
+  // `isStale`, and only ever used for the label.
+  const offerRerun = isStale || forecastStale === true;
   const isNumeric = headline !== 'No added time';
   const spoken = addedTimeSpokenHeadline(headline);
 
@@ -267,7 +281,7 @@ export function AddedTimeCard({ presentation, base }: AddedTimeCardProps) {
               underline-offset-2 hover:underline rounded-control
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            {isStale ? 'Re-run forecast' : 'Forecast'} →
+            {offerRerun ? 'Re-run forecast' : 'Forecast'} →
           </Link>
         )}
       </div>

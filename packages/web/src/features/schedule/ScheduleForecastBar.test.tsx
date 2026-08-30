@@ -135,24 +135,27 @@ describe('ScheduleForecastBar', () => {
     expect(screen.queryByText(/P95:/)).not.toBeInTheDocument();
   });
 
-  it('withholds Rerun on a fresh forecast and offers it once stale (#3132)', () => {
+  it('withholds Rerun only when the SERVER says the forecast is current (#3132, #3140)', () => {
     // UX-REVIEW §8.1: a recompute button parked on every forecast row is a debug
-    // affordance on a user surface. Fresh, the bar states when the server last
-    // confirmed the run and offers nothing; stale, it says so AND offers the
-    // action. Details is the constant — it is what keeps the row height fixed
-    // across the transition, so no layout shift is possible from the gate.
-    const { rerender } = renderWithProviders(
-      <ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={0} />,
-    );
+    // affordance on a user surface. But the gate is only defensible if the
+    // predicate is true of the data rather than of this component instance —
+    // #3140. `current` is the one value that withholds the action, and it comes
+    // off the payload, so it survives a remount (asserted below).
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     expect(
       screen.queryByRole('button', { name: /Rerun Monte Carlo forecast/i }),
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId('mc-recomputing')).not.toBeInTheDocument();
     expect(screen.getByTestId('mc-details-btn')).toBeInTheDocument();
+  });
 
-    // A task mutation lands — the same signal ScheduleView feeds the bar.
-    rerender(<ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={1} />);
-
+  it('offers Rerun and says the run is stale when the server reports `aged`', () => {
+    mockResult = {
+      data: { ...FIXTURE_MC_RESULT, forecastStaleness: 'aged' },
+      isLoading: false,
+      error: null,
+    };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     expect(screen.getByTestId('mc-recomputing')).toHaveTextContent(
       /Stale — rerun for updated forecast/,
     );
@@ -160,12 +163,64 @@ describe('ScheduleForecastBar', () => {
     expect(screen.getByTestId('mc-details-btn')).toBeInTheDocument();
   });
 
+  it('says only "edited since this run" for `projectChanged` — never that the plan changed', () => {
+    // The server-side counter advances on ANY write in the project (a logged time
+    // entry, a label), so the notice must not assert that a date moved. This test
+    // is the guard on that wording, not on the presence of a notice.
+    mockResult = {
+      data: { ...FIXTURE_MC_RESULT, forecastStaleness: 'projectChanged' },
+      isLoading: false,
+      error: null,
+    };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByTestId('mc-recomputing')).toHaveTextContent(
+      /Edited since this run/,
+    );
+    expect(screen.getByTestId('mc-recomputing')).not.toHaveTextContent(/plan changed/i);
+    expect(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i })).toBeInTheDocument();
+  });
+
+  it('offers Rerun but makes NO staleness claim when the server reports `unknown`', () => {
+    // A run recorded before #3140 carries no plan version, so the server cannot
+    // place it. The action stays reachable (that is the defect being fixed) while
+    // the bar keeps the ordinary `N ago` stamp — an unfounded "Stale" would be the
+    // same defect with the sign flipped.
+    mockResult = {
+      data: { ...FIXTURE_MC_RESULT, forecastStaleness: 'unknown' },
+      isLoading: false,
+      error: null,
+    };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('mc-recomputing')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Rerun button across a full remount — the predicate is not session state', () => {
+    // The falsification line from #3140, as a unit test: the old predicate was a
+    // `useState(0)` counter, so a remount (the component's stand-in for a reload or
+    // a route re-entry) reset it to 0 and the button vanished. Reverting the fix
+    // makes THIS assertion fail, which is the only one that pins the actual defect.
+    mockResult = {
+      data: { ...FIXTURE_MC_RESULT, forecastStaleness: 'projectChanged' },
+      isLoading: false,
+      error: null,
+    };
+    const { unmount } = renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i })).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i })).toBeInTheDocument();
+  });
+
   it('fires the rerun mutation from the Rerun button once stale', async () => {
     const user = userEvent.setup();
-    const { rerender } = renderWithProviders(
-      <ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={0} />,
-    );
-    rerender(<ScheduleForecastBar projectId="p1" tasks={[]} mutationVersion={1} />);
+    mockResult = {
+      data: { ...FIXTURE_MC_RESULT, forecastStaleness: 'projectChanged' },
+      isLoading: false,
+      error: null,
+    };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     await user.click(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i }));
     expect(runMutate).toHaveBeenCalledTimes(1);
   });

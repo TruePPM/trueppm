@@ -37,8 +37,17 @@ export function MonteCarloSheet({ result, onClose }: Props) {
   // user has to refresh a stale premium at all, so without it the stale read is a
   // dead end. Every other state's action is `Forecast →`, i.e. the screen this sheet
   // was opened from, so it is withheld.
+  //
+  // `forecastStaleness` is in the condition because `risk_premium_state`'s `stale` is
+  // age-only (#3140). Without it, a plan edited five minutes ago leaves the desktop bar
+  // offering Rerun while this sheet — the ONLY rerun path a phone user has — reads
+  // `premium` and dead-ends. That is the cross-surface contradiction ADR-0954 §6 argues
+  // the two families exist to avoid, and it would have shipped one level down from the
+  // defect being fixed.
   const cardBase =
-    premium.state === 'unmeasurable' || premium.state === 'stale'
+    premium.state === 'unmeasurable' ||
+    premium.state === 'stale' ||
+    result.forecastStaleness !== 'current'
       ? `/projects/${result.projectId}`
       : undefined;
 
@@ -53,20 +62,13 @@ export function MonteCarloSheet({ result, onClose }: Props) {
       tabIndex={-1}
       className="fixed inset-0 z-50 md:hidden flex flex-col focus:outline-none"
     >
-      <div
-        className="flex-1 bg-neutral-overlay"
-        aria-hidden="true"
-        onClick={onClose}
-      />
+      <div className="flex-1 bg-neutral-overlay" aria-hidden="true" onClick={onClose} />
       <div
         className="bg-neutral-surface border-t border-neutral-border rounded-t-card px-4 pb-6 pt-3"
         style={{ maxHeight: '85vh', overflowY: 'auto' }}
       >
         {/* Drag handle (decorative) */}
-        <div
-          className="mx-auto mb-3 h-1 w-10 rounded-full bg-neutral-border"
-          aria-hidden="true"
-        />
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-neutral-border" aria-hidden="true" />
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-neutral-text-primary">
@@ -99,7 +101,11 @@ export function MonteCarloSheet({ result, onClose }: Props) {
             guarantee that the two surfaces cannot disagree about the same run. It
             carries its own visible title, so no heading is added above it. */}
         <div className="mt-4">
-          <AddedTimeCard presentation={premium} base={cardBase} />
+          <AddedTimeCard
+            presentation={premium}
+            base={cardBase}
+            forecastStale={result.forecastStaleness !== 'current'}
+          />
         </div>
 
         <div className="mt-4 overflow-x-auto">

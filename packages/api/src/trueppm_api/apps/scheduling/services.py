@@ -210,6 +210,7 @@ def record_monte_carlo_run(
     distribution: dict[str, Any] | None = None,
     diagnostic: dict[str, Any] | None = None,
     status_date: date | None = None,
+    plan_version: int | None = None,
 ) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0175).
 
@@ -238,6 +239,12 @@ def record_monte_carlo_run(
     the caller's already-resolved ``project.status_date or timezone.localdate()``
     (ADR-0132) — so a persisted run states which "today" produced its percentiles
     instead of leaving that substitution unrecorded (#2638).
+
+    ``plan_version`` is the project's ``last_sync_version`` (ADR-0686) as the caller read
+    it *before* loading the task set, so a later reader can tell whether the plan has been
+    written to since — the server-owned answer to "is this forecast still current?" that
+    replaced a session-local counter in the web client (#3140). ``None`` for callers that
+    do not supply one; such a run classifies as ``unknown``, never ``current``.
     """
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
@@ -255,6 +262,7 @@ def record_monte_carlo_run(
             distribution=distribution,
             diagnostic=diagnostic,
             status_date=status_date,
+            plan_version=plan_version,
         )
     except Exception:
         logger.exception(

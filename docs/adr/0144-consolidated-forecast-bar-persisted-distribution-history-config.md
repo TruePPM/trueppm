@@ -64,6 +64,11 @@ percentile chips (rendered **once**), the maximize/minimize toggle, the consolid
 **Rerun** and **Details** actions, the run-history disclosure, and — when expanded — the
 histogram + sensitivity tornado. The no-result "Run a simulation" prompt and the stale /
 recomputing machinery (`isStale`/`isRecomputing`/`mutationVersion`) move here too.
+  *Amended by ADR-0954 (#3140, 2026-08-30): that machinery is gone. `mutationVersion`
+  was a session-local counter, so it missed every write path but the drag commit and
+  reset on reload; staleness is now a server-declared `forecast_staleness` verdict on
+  the MC payload. The bar's ownership of the surface — and everything else in this
+  section — is unchanged.*
 
 - **Single shared UTC formatter.** New `lib/formatUtcDate.ts` exports `fmtUtcShort`
   ("Aug 19") and `fmtUtcLong` ("August 19, 2026"), both pinned to `timeZone: 'UTC'`.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import uuid
 from datetime import date as _date
 from datetime import datetime as _datetime
 from datetime import timedelta
@@ -53,6 +54,11 @@ from trueppm_api.apps.projects.models import (
     three_point_estimates_ordered,
 )
 from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+from trueppm_api.apps.scheduling.forecast_staleness import (
+    forecast_staleness_facts,
+    forecast_staleness_for_payload,
+    forecast_staleness_from_run,
+)
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     FailedTaskStatus,
@@ -113,6 +119,28 @@ def mc_latest_cache_key(pk: object) -> str:
     f-strings is how a version bump gets applied to two of them.
     """
     return f"mc_latest:v{MC_LATEST_CACHE_VERSION}:{pk}"
+
+
+def _current_plan_state(pk: uuid.UUID | str) -> tuple[int | None, _datetime | None]:
+    """The project's live plan version and last CPM recalc time (#3140).
+
+    Both terms the staleness discriminant compares a run against, in one narrow
+    ``values_list`` rather than loading the row: callers that already hold the project
+    read the two attributes directly, and this exists for the ones that do not.
+
+    ``(None, None)`` when the row is gone (a concurrent hard delete), which classifies
+    the forecast as ``unknown`` rather than inventing a comparison — see
+    :func:`~.forecast_staleness.classify_forecast_staleness`.
+    """
+    # `is_deleted=False` matches every sibling project fetch in this module. It changes
+    # nothing for the current caller, which already resolved the project through a
+    # filtered fetch — it stops the helper failing open on soft-delete for the next one.
+    row = (
+        Project.objects.filter(pk=pk, is_deleted=False)
+        .values_list("last_sync_version", "recalculated_at")
+        .first()
+    )
+    return row if row is not None else (None, None)
 
 
 # Upper bound on how many parked tasks a single bulk requeue/drop touches, so a
@@ -323,6 +351,7 @@ def _persist_mc_run_if_authorized(
     task_count: int,
     result_dict: dict[str, Any],
     status_date: _date | None,
+    plan_version: int | None,
 ) -> None:
     """Persist an author-attributed ``MonteCarloRun`` drift row for Scheduler+ callers.
 
@@ -372,6 +401,10 @@ def _persist_mc_run_if_authorized(
         # never-recorded substitution, #2638) — same value already echoed on
         # result_dict below, so the persisted row and the response agree.
         status_date=status_date,
+        # The plan version the run was computed against (#3140) — the same value
+        # already on result_dict, so the persisted row and the cache entry give the
+        # same answer once the TTL expires and the read falls back to history.
+        plan_version=plan_version,
     )
     if run is not None:
         result_dict["run_id"] = str(run.id)
@@ -431,7 +464,19 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "until #2299), risk_premium_as_of, risk_premium_reason, "
                 "risk_premium_cpm_finish, risk_premium_p80. Derived at response time, "
                 "never cached, so the ratio never describes a remaining duration that "
-                "has since elapsed."
+                "has since elapsed. Plus the forecast-staleness family (#3140): "
+                "forecast_staleness (current|project_changed|aged|unknown — the "
+                "discriminant every client renders from, never null; only `current` "
+                "means the forecast still describes the plan, and clients keep the "
+                "recompute action reachable on the other three), plan_version (the "
+                "project's sync version this run was computed against; null for runs "
+                "recorded before #3140, which classify as `unknown`, never `current`), "
+                "and plan_version_current (that version as of this response). "
+                "`project_changed` is deliberately not named `plan_changed`: the "
+                "underlying counter advances on ANY write in the project, so a "
+                "description or label edit raises it without moving a date. It is a "
+                "sound trigger for offering a recompute and NOT evidence that a "
+                "schedule value changed — do not narrate it as one."
             ),
         ),
         400: OpenApiResponse(
@@ -539,6 +584,16 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             {"detail": "n_simulations must be a positive integer."},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # The plan version this run is about to be computed against (#3140) — the
+    # project's ADR-0686 sync sequence, already on the instance loaded above, so
+    # this costs nothing. Read HERE, before the committed task set is loaded
+    # below, and the ordering is the correctness property: a write that lands
+    # between this line and the query leaves the run recorded against the older
+    # version and therefore reading stale. Capturing it afterwards would claim
+    # the run covered a write it never saw — false-fresh, the one direction that
+    # loses the user the Rerun action.
+    plan_version = project.last_sync_version
 
     # Shared converter (#1491): includes the calendar's CalendarException
     # holiday/shutdown ranges, which the previous inline construction dropped —
@@ -668,6 +723,13 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             deterministic=(mc_result.p50 == mc_result.p80 == mc_result.p95),
         ),
         "last_run_at": run_at.isoformat(),
+        # The plan version this run was computed against (#3140), captured above
+        # before the task set was read. Carried on the cache entry — not only on
+        # the persisted row below — because a run triggered by a *Member* refreshes
+        # the cache but persists no attributed row (#1502), so for those runs the
+        # cache entry is the only place this observation exists. Unlike the
+        # risk-premium family, this is not derivable at read time from anything.
+        "plan_version": plan_version,
         # The data date this run was actually computed against (ADR-0132, #2638):
         # the project's explicit status_date, or today when unset. Carried on the
         # cache entry too (it is part of ``result_dict``) so a cached read states
@@ -688,6 +750,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         task_count=len(db_tasks),
         result_dict=result_dict,
         status_date=mc_status_date,
+        plan_version=plan_version,
     )
     # Added time (#2531, ADR-0698) rides the response but NOT the cache entry above.
     # Two of its terms depend on when the response is built rather than when the run
@@ -695,6 +758,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # to null once the CPM finish passes, and `state` flips to `stale` with age. A
     # premium frozen at cache-write would keep reporting a share of a remainder that
     # has since elapsed, so it is derived per response instead.
+    current_plan_version, current_recalculated_at = _current_plan_state(pk)
     return Response(
         {
             **result_dict,
@@ -703,6 +767,19 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
                 cpm_finish=cpm_finish,
                 taken_at=run_at,
                 diagnostic=result_dict["forecast_diagnostic"],
+                today=timezone.localdate(),
+            ),
+            # Staleness is re-read rather than assumed `current` (#3140). The project's
+            # version is fetched again here because a synced write can land *during* the
+            # simulation, and that run genuinely does not cover it — telling the user so
+            # immediately is the whole point of the discriminant. One indexed pk read on
+            # an endpoint that just ran a Monte Carlo simulation is not a cost worth
+            # trading a false `current` for.
+            **forecast_staleness_facts(
+                plan_version=plan_version,
+                plan_version_current=current_plan_version,
+                taken_at=run_at,
+                recalculated_at=current_recalculated_at,
                 today=timezone.localdate(),
             ),
         }
@@ -751,7 +828,22 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                     "risk_premium_cpm_finish, risk_premium_p80. The premium is derived on "
                     "every response and is never stored in the cache entry. Legacy runs with "
                     "no stored distribution return empty "
-                    "confidence_curve/histogram_buckets/sensitivity arrays."
+                    "confidence_curve/histogram_buckets/sensitivity arrays. "
+                    "Plus the forecast-staleness family (#3140): forecast_staleness "
+                    "(current|project_changed|aged|unknown — never null; only `current` "
+                    "means the forecast still describes the plan, and a client keeps the "
+                    "recompute action reachable on the other three), plan_version (the "
+                    "project's sync version this run was computed against — unlike the "
+                    "risk_premium family this one IS carried on the cache entry and the "
+                    "persisted row, because it is a run-time observation that cannot be "
+                    "re-derived later; null for runs recorded before #3140, which "
+                    "classify as `unknown`, never `current`), and plan_version_current "
+                    "(that version as of this response). `project_changed` is "
+                    "deliberately not named `plan_changed`: the underlying counter "
+                    "advances on ANY write in the project, so a description or label "
+                    "edit raises it without moving a date. It is a sound trigger for "
+                    "offering a recompute and NOT evidence that a schedule value "
+                    "changed — do not narrate it as one."
                 ),
             ),
             404: OpenApiResponse(
@@ -781,7 +873,24 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
             # duration still remaining today) and `risk_premium_state` (which ages into
             # `stale`) would be wrong by the time it is read back.
             return Response(
-                {**cached, **risk_premium_for_forecast_payload(cached, today=timezone.localdate())}
+                {
+                    **cached,
+                    **risk_premium_for_forecast_payload(cached, today=timezone.localdate()),
+                    # Same read-time discipline, different reason (#3140): the entry
+                    # carries the plan version the run SAW, and the project has been free
+                    # to move for up to 24 hours since. `project` is already loaded, so
+                    # the comparison costs nothing. An entry written before #3140 has no
+                    # `plan_version` key and classifies as `unknown` — honest, and it
+                    # self-heals on the next run, which is why `MC_LATEST_CACHE_VERSION`
+                    # is deliberately NOT bumped here: unlike the #2833 engine fix, no
+                    # cached *number* is wrong, only unplaceable.
+                    **forecast_staleness_for_payload(
+                        cached,
+                        plan_version_current=project.last_sync_version,
+                        recalculated_at=project.recalculated_at,
+                        today=timezone.localdate(),
+                    ),
+                }
             )
 
         latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
@@ -833,6 +942,15 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 # Overview card and every forecast surface read one derivation of what
                 # a premium of 0 means, and cannot disagree (ADR-0698).
                 **build_risk_premium(latest, today=timezone.localdate()),
+                # Persisted with the run since #3140. Legacy rows carry none and classify
+                # as `unknown` rather than `current` — the client then keeps Rerun
+                # reachable and makes no staleness claim it cannot support.
+                **forecast_staleness_from_run(
+                    latest,
+                    plan_version_current=project.last_sync_version,
+                    recalculated_at=project.recalculated_at,
+                    today=timezone.localdate(),
+                ),
             }
         )
 
@@ -2177,7 +2295,19 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             ),
         ],
         responses={
-            200: OpenApiResponse(description="The derivation of the requested value."),
+            200: OpenApiResponse(
+                description=(
+                    "The derivation of the requested value. The Monte Carlo quantities "
+                    "(p50/p80/p95) additionally carry forecast_staleness "
+                    "(current|project_changed|aged|unknown), plan_version and "
+                    "plan_version_current (#3140), so a cited percentile states whether "
+                    "the run it comes from still describes the current plan rather than "
+                    "presenting a superseded value with full derivation confidence. "
+                    "`project_changed` means the project was written to (or its CPM "
+                    "output recomputed) since the run — grounds for rerunning, NOT "
+                    "evidence that a schedule date changed."
+                )
+            ),
             400: OpenApiResponse(
                 description="Missing/unknown quantity, or invalid schedule input."
             ),
@@ -2220,7 +2350,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
         self.check_object_permissions(request, project)
 
         if quantity in _MC_DERIVATION_QUANTITIES:
-            return self._monte_carlo_derivation(pk, quantity)
+            return self._monte_carlo_derivation(project, quantity)
 
         task_id = request.query_params.get("task_id")
         if not task_id:
@@ -2252,7 +2382,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             )
         return Response(derivation.to_dict())
 
-    def _monte_carlo_derivation(self, pk: str, quantity: str) -> Response:
+    def _monte_carlo_derivation(self, project: Project, quantity: str) -> Response:
         """Derive a Monte Carlo percentile from the latest run (#987).
 
         The percentile's "why" is the deterministic ``cpm_finish`` it is measured
@@ -2267,6 +2397,19 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
         refreshes the cache but persists no attributed row, and the derivation is
         part of the open read surface, so it must see cache-only forecasts.
         """
+        # This endpoint exists so an agent can cite the *why* beside the value
+        # (ADR-0218). A percentile whose run predates the current plan is a stale
+        # citation delivered with full derivation confidence, so the staleness
+        # discriminant travels with the derivation too (#3140) — otherwise
+        # `get_monte_carlo_forecast` and `get_schedule_derivation` report opposite
+        # trustworthiness for one run.
+        # Read off the project `get()` already loaded — it is fetched without
+        # `.only()`/`.defer()`, so both columns are in memory and this costs nothing.
+        # `_current_plan_state` exists for the caller that does NOT hold the row.
+        pk = project.pk
+        plan_version_current = project.last_sync_version
+        recalculated_at = project.recalculated_at
+        today = timezone.localdate()
         cached = cache.get(mc_latest_cache_key(pk))
         if cached is not None:
             return Response(
@@ -2279,6 +2422,12 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     "drivers": cached.get("sensitivity", []),
                     "runs": cached.get("runs"),
                     "last_run_at": cached.get("last_run_at"),
+                    **forecast_staleness_for_payload(
+                        cached,
+                        plan_version_current=plan_version_current,
+                        recalculated_at=recalculated_at,
+                        today=today,
+                    ),
                 }
             )
         latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
@@ -2301,5 +2450,11 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 "drivers": dist.get("sensitivity", []),
                 "runs": latest.n_simulations,
                 "last_run_at": latest.taken_at.isoformat(),
+                **forecast_staleness_from_run(
+                    latest,
+                    plan_version_current=plan_version_current,
+                    recalculated_at=recalculated_at,
+                    today=today,
+                ),
             }
         )

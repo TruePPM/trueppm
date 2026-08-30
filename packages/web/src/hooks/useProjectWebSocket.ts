@@ -106,7 +106,8 @@ type InvalidateKey =
   | 'project-overview'
   | 'project-attention'
   | 'project-my-tasks'
-  | 'cp-tasks';
+  | 'cp-tasks'
+  | 'monte-carlo-latest';
 type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
 
 /**
@@ -122,18 +123,26 @@ type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
  * coalescing helper: a burst of task edits collapses into one refetch per key rather
  * than one per event.
  *
- * `monte-carlo-latest` — the fifth key named in #2912 — is deliberately **not** here.
- * It serves the cached result of the most recent simulation, which changes only when
- * someone runs one, and no broadcast event exists for a completed run. Invalidating it
- * on a task edit would re-fetch the identical row. Propagating a collaborator's
- * simulation needs a server-side event that does not exist yet; that is backend work,
- * not a missing handler.
+ * `monte-carlo-latest` — the fifth key named in #2912 — was deliberately **excluded**
+ * here, on the grounds that it serves the cached result of the most recent simulation
+ * and "invalidating it on a task edit would re-fetch the identical row". **#3140 made
+ * that false**: the payload now carries a per-response staleness discriminant
+ * (`forecast_staleness`, derived from the project's live sync version and last recalc),
+ * so after a task edit the row is genuinely different — and the forecast bar gates its
+ * Rerun *action* on that field, which makes refetching it the difference between the
+ * user having the recompute affordance and not. So it is in the list now.
+ *
+ * The **other half** of #2912's note still stands and is not solved by this: propagating
+ * a *collaborator's completed simulation* needs a server-side event that still does not
+ * exist. This change refreshes the staleness verdict, not the forecast itself. Do not
+ * read the key's presence here as that backend work being done.
  */
 const OVERVIEW_KEYS = [
   'project-overview',
   'project-attention',
   'project-my-tasks',
   'cp-tasks',
+  'monte-carlo-latest',
 ] as const satisfies readonly InvalidateKey[];
 
 // A single dispatched-event handler. `on(...)` registers these against one or
