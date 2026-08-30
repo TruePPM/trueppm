@@ -1,4 +1,5 @@
 import type { DeliveryMode, Task } from '@/types';
+import { postOrderRollup } from './postOrderRollup';
 
 /**
  * How a Schedule outline row presents its delivery mode (#2737, ADR-0801).
@@ -82,70 +83,7 @@ function toRowMode(parts: Set<SingleModeKind>): RowMode {
  * Callers memoize on the task array.
  */
 export function computeRowModes(tasks: Task[]): Map<string, RowMode> {
-  const childIds = new Map<string, string[]>();
-  const byId = new Map<string, Task>();
-  for (const task of tasks) {
-    byId.set(task.id, task);
-    if (task.parentId) {
-      const siblings = childIds.get(task.parentId);
-      if (siblings) siblings.push(task.id);
-      else childIds.set(task.parentId, [task.id]);
-    }
-  }
-
-  const resolved = new Map<string, RowMode>();
-  /**
-   * What each row hands UP to its ancestors — kept separate from what it
-   * DISPLAYS, because a milestone contributes nothing while still displaying
-   * as the baseline. Collapsing the two would let one gate inside an otherwise
-   * uniform scrum phase read the phase as MIXED, which is the failure this
-   * whole rollup exists to avoid.
-   */
-  const contributed = new Map<string, Set<SingleModeKind>>();
-
-  // Iterative post-order so a 2000-row import can't blow the call stack the way
-  // a recursive walk would on a deep WBS.
-  const walk = (rootId: string): void => {
-    const stack: Array<{ id: string; expanded: boolean }> = [{ id: rootId, expanded: false }];
-    while (stack.length) {
-      const frame = stack.pop();
-      if (!frame) break;
-      const kids = childIds.get(frame.id) ?? [];
-      if (!frame.expanded && kids.length) {
-        stack.push({ id: frame.id, expanded: true });
-        for (const kid of kids) stack.push({ id: kid, expanded: false });
-        continue;
-      }
-      const task = byId.get(frame.id);
-      if (!task) continue;
-      const parts = new Set<SingleModeKind>();
-      for (const kid of kids) {
-        for (const part of contributed.get(kid) ?? []) parts.add(part);
-      }
-      // A leaf, or a parent every one of whose descendants is a gate: fall back
-      // to this row's own contribution. A gate itself contributes nothing and
-      // displays as the baseline, so it renders no chip — its diamond glyph
-      // already says what it is.
-      if (!parts.size) {
-        const own = contributedMode(task);
-        if (own) parts.add(own);
-      }
-      contributed.set(frame.id, parts);
-      resolved.set(frame.id, toRowMode(parts));
-    }
-  };
-
-  for (const task of tasks) {
-    if (!task.parentId || !byId.has(task.parentId)) walk(task.id);
-  }
-  // Orphans whose parent id points outside the loaded set (a filtered or
-  // paginated list) never got walked from a root; resolve them standalone
-  // rather than leaving the row with no mode at all.
-  for (const task of tasks) {
-    if (!resolved.has(task.id)) walk(task.id);
-  }
-
-  return resolved;
+  return postOrderRollup(tasks, contributedMode, toRowMode).resolved;
 }
 
 export interface ModePresentation {

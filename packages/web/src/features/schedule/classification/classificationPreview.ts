@@ -126,39 +126,63 @@ function previewRow(
   governance: AxisTally,
   delivery: AxisTally,
 ): { changed: boolean; withheld: boolean } {
-  let changed = false;
-  let withheld = false;
+  const g = previewGovernance(task, isRoot, spec, governance);
+  const d = previewDelivery(task, spec, delivery);
+  return { changed: g.changed || d.changed, withheld: g.withheld || d.withheld };
+}
 
-  if (spec.governanceClass !== null) {
-    const inherited = task.parentGovernanceInherited ?? true;
-    if (task.isMilestone && spec.skipMilestones) {
-      withheld = true;
-    } else if (!isRoot && spec.preserveGovernanceOverrides && !inherited) {
-      governance.overridesKept += 1;
-    } else {
-      const targetBit = !isRoot;
-      const current = task.governanceClass ?? DEFAULT_GOVERNANCE;
-      if (current !== spec.governanceClass || inherited !== targetBit) {
-        governance.applied += 1;
-        changed = true;
-      } else {
-        governance.unchanged += 1;
-      }
-    }
+/**
+ * The governance axis. Two asymmetries live here and nowhere else:
+ * `skip_milestones` governs this axis only, and the root takes
+ * `parent_governance_inherited = false` because declaring a subtree's governance
+ * *is* breaking inheritance from whatever sits above it.
+ */
+function previewGovernance(
+  task: Task,
+  isRoot: boolean,
+  spec: ClassificationSpec,
+  governance: AxisTally,
+): { changed: boolean; withheld: boolean } {
+  if (spec.governanceClass === null) return { changed: false, withheld: false };
+
+  const inherited = task.parentGovernanceInherited ?? true;
+  if (task.isMilestone && spec.skipMilestones) {
+    return { changed: false, withheld: true };
+  }
+  if (!isRoot && spec.preserveGovernanceOverrides && !inherited) {
+    governance.overridesKept += 1;
+    return { changed: false, withheld: false };
   }
 
-  if (spec.deliveryMode !== null) {
-    if (task.isMilestone) {
-      withheld = true;
-    } else if ((task.deliveryMode ?? DEFAULT_DELIVERY) !== spec.deliveryMode) {
-      delivery.applied += 1;
-      changed = true;
-    } else {
-      delivery.unchanged += 1;
-    }
+  const targetBit = !isRoot;
+  const current = task.governanceClass ?? DEFAULT_GOVERNANCE;
+  if (current !== spec.governanceClass || inherited !== targetBit) {
+    governance.applied += 1;
+    return { changed: true, withheld: false };
   }
+  governance.unchanged += 1;
+  return { changed: false, withheld: false };
+}
 
-  return { changed, withheld };
+/**
+ * The delivery axis. `delivery_mode` is never written to a milestone under any
+ * flag — `is_milestone`, `delivery_mode = 'milestone'` and `duration = 0` are
+ * three encodings of one fact, and the rollup SQL keys on the third.
+ */
+function previewDelivery(
+  task: Task,
+  spec: ClassificationSpec,
+  delivery: AxisTally,
+): { changed: boolean; withheld: boolean } {
+  if (spec.deliveryMode === null) return { changed: false, withheld: false };
+  if (task.isMilestone) return { changed: false, withheld: true };
+
+  if ((task.deliveryMode ?? DEFAULT_DELIVERY) !== spec.deliveryMode) {
+    delivery.applied += 1;
+    return { changed: true, withheld: false };
+  }
+  delivery.unchanged += 1;
+  return { changed: false, withheld: false };
 }
 
 export function previewClassification(
