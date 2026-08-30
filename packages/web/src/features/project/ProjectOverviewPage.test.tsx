@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, MemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { ProjectOverviewPage, CriticalPathPanel } from './ProjectOverviewPage';
+import { DRAFT_EXCLUSION_SENTENCE } from './draftExclusion';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -1774,8 +1775,14 @@ describe('ProjectOverviewPage — the commit moment (#3129)', () => {
     // has not been agreed to — the pill is state disclosure, the button is capability.
     mockHeaderState({ lifecycle: 'draft', role: 200 });
     renderPage();
-    expect(await screen.findByLabelText('Project lifecycle: Draft')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText(/Not in program rollup/i)).toBeInTheDocument());
+    const pill = await screen.findByLabelText('Project lifecycle: Draft');
+    // Rendered text, not the attribute — the consequence must survive a fast visual
+    // scan, and a bare `title` is unreachable on touch (rules 287/328b). The whole
+    // list is asserted, including My Work, which used to live only in that `title`.
+    expect(pill).toHaveTextContent('Draft');
+    expect(pill).not.toHaveAttribute('title');
+    await waitFor(() => expect(screen.getByText(DRAFT_EXCLUSION_SENTENCE)).toBeInTheDocument());
+    expect(DRAFT_EXCLUSION_SENTENCE).toMatch(/My Work/);
     expect(commitButton()).not.toBeInTheDocument();
   });
 
@@ -1811,6 +1818,19 @@ describe('ProjectOverviewPage — the commit moment (#3129)', () => {
     expect(within(dialog).getByText(/working calendar/i)).toBeInTheDocument();
     expect(within(dialog).getByText(/amending/i)).toBeInTheDocument();
     expect(within(dialog).getByText(/cannot un-commit/i)).toBeInTheDocument();
+    // The honest half of the Amend sentence is present...
+    expect(within(dialog).getByText(/recorded in plan history/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/tells the people whose work moved/i)).toBeInTheDocument();
+    // ...and the claim the client cannot yet deliver is absent, across phrasings
+    // rather than against the one retired wording (rule 308d). `amend_reason` is a
+    // real write-only serializer field with zero senders in packages/web — #3150 owns
+    // the prompt that collects it — so until then no copy may say a reason is
+    // captured. Nor may anything claim committing notifies: `commit_project()` writes
+    // no notification row, which is why #3129 renamed `notified_resource_count`.
+    expect(
+      within(dialog).queryByText(/carries a reason|reason for the change|asks you why/i),
+    ).toBeNull();
+    expect(within(dialog).queryByText(/notif|the team is told|we'll let/i)).toBeNull();
   });
 
   it('does not offer a re-baseline or "keep v1" exit — #3150 owns the second exit', async () => {

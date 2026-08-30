@@ -1,5 +1,6 @@
 import { Button } from '@/components/Button';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { DRAFT_EXCLUDED_AGGREGATES } from '@/features/project/draftExclusion';
 
 interface CommitPlanConfirmDialogProps {
   isPending: boolean;
@@ -22,14 +23,22 @@ interface CommitPlanConfirmDialogProps {
  *    value** so a later calendar edit changes variance rather than silently moving the
  *    thing variance is measured from (ADR-0845).
  * 2. *The project joins the aggregates.* A draft is held out of program rollup,
- *    portfolio health, search, My Work and the notification fan-out (#3128), so
- *    committing is what makes it visible to everyone else.
+ *    portfolio health, search and My Work (#3128), so committing is what makes it
+ *    visible to everyone else. The list is imported from `draftExclusion.ts` rather
+ *    than spelled here, so this sheet and the header state one phrase (web-rule 328).
  * 3. *Authoring becomes amending.* This is the half UX-REVIEW §4 insists on, because it
  *    is what makes the door one-way rather than a save — and it is **live**, not
  *    forthcoming: `amend.is_amendable()` keys on `lifecycle == ACTIVE`, and
- *    `TaskViewSet.perform_update` already records the reason into plan history and
- *    calls `notify_amend` on a committed project. #3150 adds the client prompt that
- *    collects the reason; the mode change itself is real now.
+ *    `TaskViewSet.perform_update` already writes an amend entry into plan history and
+ *    calls `notify_amend` on a committed project.
+ *
+ *    **It must not promise the reason.** `amend_reason` is a real write-only field on
+ *    the task serializer, but nothing in `packages/web/` sends it — the prompt that
+ *    collects it is #3150 — so today `record_amend_reason` stores the bare `amend`
+ *    marker. Telling a PM that an edit "carries a reason into plan history" would
+ *    describe a prompt they will never see and a reason they will never find, which
+ *    is web-rule 308's class with the tense, not the noun, doing the lying. Say what
+ *    ships: the edit is recorded, and the people whose work moved are told.
  *
  * **What this sheet must never say:** that committing tells the team. It does not.
  * `commit_project()` writes no notification row and fires no `on_commit` hook — the
@@ -43,6 +52,16 @@ interface CommitPlanConfirmDialogProps {
  *
  * Self-traps focus (web-rule 206/245). Cancel precedes Commit in DOM order and takes
  * initial focus — never autofocus a one-way action.
+ *
+ * `isPending` is the trap's `focusKey` because this sheet swaps state while staying
+ * open: both buttons go `disabled` during the POST, so the trap's focusable set is
+ * momentarily **empty**, the browser drops focus to `<body>`, and nothing re-seats it.
+ * That is rule 245(a)'s multi-state case, and it bites hardest on the non-409 error
+ * path, where the sheet stays open with focus outside it — `document.activeElement` is
+ * then neither the first nor the last focusable, so the Tab handler stops intercepting
+ * and Tab walks into the page behind the scrim, defeating `aria-modal` (WCAG 2.4.3 /
+ * 2.1.2). With the key passed, the empty phase seats the container (hence
+ * `tabIndex={-1}`) and the re-enabled phase seats Cancel again.
  */
 export function CommitPlanConfirmDialog({
   isPending,
@@ -52,9 +71,13 @@ export function CommitPlanConfirmDialog({
   // Esc closes via the trap's own handler, but only when no request is in flight —
   // dismissing the sheet mid-POST would leave the user with no signal about an
   // irreversible write they can no longer see the result of.
-  const trapRef = useFocusTrap<HTMLDivElement>(true, () => {
-    if (!isPending) onCancel();
-  });
+  const trapRef = useFocusTrap<HTMLDivElement>(
+    true,
+    () => {
+      if (!isPending) onCancel();
+    },
+    isPending,
+  );
   return (
     <div
       ref={trapRef}
@@ -62,6 +85,7 @@ export function CommitPlanConfirmDialog({
       aria-modal="true"
       aria-labelledby="commit-plan-title"
       aria-describedby="commit-plan-body"
+      aria-busy={isPending}
       tabIndex={-1}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
@@ -87,15 +111,11 @@ export function CommitPlanConfirmDialog({
               frozen copy of every task&apos;s dates, and the working calendar they were computed
               against. This becomes the anchor every variance number is measured from.
             </li>
-            <li>
-              Joins the project to program rollup, portfolio health, search and My Work, which a
-              draft is held out of.
-            </li>
+            <li>Joins the project to {DRAFT_EXCLUDED_AGGREGATES}, which a draft is held out of.</li>
             <li>
               Changes what editing means. Authoring becomes{' '}
               <strong className="font-medium text-neutral-text-primary">amending</strong>: from here
-              on a structural edit carries a reason into plan history and tells the people whose
-              work moved.
+              on every edit is recorded in plan history and tells the people whose work moved.
             </li>
           </ul>
           <p className="mt-3">

@@ -60,17 +60,23 @@ interface CommitState {
   commitCalls: number;
   /** When set, /commit/ answers this instead of succeeding. */
   refuse409: boolean;
+  /** When set, /commit/ answers 500 — the path that leaves the sheet OPEN. */
+  fail500: boolean;
 }
 
 function json(body: unknown, status = 200) {
   return { status, contentType: 'application/json', body: JSON.stringify(body) };
 }
 
-async function setupRoutes(page: Page, opts: { role: number; refuse409?: boolean }) {
+async function setupRoutes(
+  page: Page,
+  opts: { role: number; refuse409?: boolean; fail500?: boolean },
+) {
   const state: CommitState = {
     lifecycle: 'draft',
     commitCalls: 0,
     refuse409: opts.refuse409 ?? false,
+    fail500: opts.fail500 ?? false,
   };
 
   await page.addInitScript(() => {
@@ -115,6 +121,10 @@ async function setupRoutes(page: Page, opts: { role: number; refuse409?: boolean
 
   await page.route(`**/api/v1/projects/${PROJECT_ID}/commit/`, async (route: Route) => {
     state.commitCalls += 1;
+    if (state.fail500) {
+      await route.fulfill(json({ detail: 'Server error.' }, 500));
+      return;
+    }
     if (state.refuse409 || state.lifecycle === 'active') {
       await route.fulfill(
         json({ detail: 'This plan has already been committed.', code: 'already_committed' }, 409),
@@ -202,7 +212,16 @@ test.describe('Commit plan (#3129)', () => {
     const state = await setupRoutes(page, { role: 300 });
     await gotoOverview(page);
 
-    await expect(page.getByLabel('Project lifecycle: Draft')).toBeVisible();
+    const pill = page.getByLabel('Project lifecycle: Draft');
+    await expect(pill).toBeVisible();
+    // Rendered text, never the attribute alone (rule 328b) — and the consequence line
+    // must carry the whole list, My Work included; it lived only in a bare `title`
+    // until this review, which is unreachable on touch and to keyboard focus (287).
+    await expect(pill).toHaveText('Draft');
+    await expect(
+      page.getByText(/A draft is held out of .*My Work until the plan is committed\./),
+    ).toBeVisible();
+    await expect(pill).not.toHaveAttribute('title', /./);
     await commitButton(page).click();
 
     const dialog = page.getByRole('dialog', { name: /commit this plan/i });
@@ -212,6 +231,11 @@ test.describe('Commit plan (#3129)', () => {
     await expect(dialog.getByText(/Baseline v1/)).toBeVisible();
     await expect(dialog.getByText(/amending/i)).toBeVisible();
     await expect(dialog.getByText(/cannot un-commit/i)).toBeVisible();
+    // Assert the capability, not the retired wording (rule 308d): nothing here may
+    // promise a reason prompt (`amend_reason` has no client sender; #3150 owns it) or
+    // a notification on commit (`commit_project()` writes no notification row).
+    await expect(dialog.getByText(/carries a reason|reason for the change/i)).toHaveCount(0);
+    await expect(dialog.getByText(/notif|the team is told/i)).toHaveCount(0);
     // #3150 owns the second exit; offering only a re-baseline here teaches slip laundering.
     await expect(dialog.getByText(/re-baseline|keep v1|let variance stand/i)).toHaveCount(0);
 
@@ -225,6 +249,13 @@ test.describe('Commit plan (#3129)', () => {
     // gone after the invalidation refetch — not merely gone for a moment.
     await expect(page.getByLabel('Project lifecycle: Draft')).toHaveCount(0);
     await expect(commitButton(page)).toHaveCount(0);
+
+    // The focus trap restores its trigger — but that trigger just unmounted with the
+    // draft state, so the restore lands on a detached node and focus falls to <body>,
+    // the top of the document, immediately after the one action the user came for
+    // (rule 206's unmounting-trigger clause, WCAG 2.4.3). It must be seated on the
+    // neighbour that survives the flip instead.
+    await expect(page.getByRole('button', { name: 'Update Status' })).toBeFocused();
   });
 
   test('a 409 double-commit says so and retires the button instead of offering a retry', async ({
@@ -244,6 +275,35 @@ test.describe('Commit plan (#3129)', () => {
     await expect(page.getByText(/try again/i)).toHaveCount(0);
     await expect(dialog).toBeHidden();
     expect(state.commitCalls).toBe(1);
+  });
+
+  test('a failed commit leaves the sheet open WITH focus still trapped inside it', async ({
+    page,
+  }) => {
+    // The one error path that keeps the sheet mounted, and therefore the one where a
+    // focus leak is reachable. While the POST is in flight both buttons go `disabled`,
+    // so `useFocusTrap`'s focusable set is momentarily empty and the browser drops
+    // focus to <body>. Nothing re-seats it unless the pending state is passed as the
+    // trap's `focusKey` — and once focus is outside, `document.activeElement` is
+    // neither the first nor the last focusable, so the Tab handler stops intercepting
+    // and Tab walks into the page behind the scrim. That is an `aria-modal="true"`
+    // surface the keyboard can leave (rule 245a, WCAG 2.4.3 / 2.1.2).
+    await setupRoutes(page, { role: 300, fail500: true });
+    await gotoOverview(page);
+
+    await commitButton(page).click();
+    const dialog = page.getByRole('dialog', { name: /commit this plan/i });
+    await dialog.getByRole('button', { name: 'Commit plan' }).click();
+
+    await expect(page.getByText(/Couldn't commit the plan/)).toBeVisible();
+    await expect(dialog).toBeVisible();
+
+    // Focus survived the disabled phase, and Tab keeps it inside.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Commit plan' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
   });
 
   test('a Scheduler sees the Draft state but is not offered the act', async ({ page }) => {

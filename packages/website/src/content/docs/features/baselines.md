@@ -39,8 +39,8 @@ stateDiagram-v2
     end note
     note right of Active
         Baseline v1 captured.
-        Structural edits are
-        amendments from here on.
+        Every edit is an
+        amendment from here on.
     end note
 ```
 
@@ -54,8 +54,13 @@ Committing is a single transaction that does two things:
    out of.
 
 You can keep editing afterwards — committing is not a lock. What changes is that editing
-a committed plan is **amending** it: a structural edit carries a reason into the project's
-[change history](/features/change-history/) and notifies the people whose work moved.
+a committed plan is **amending** it: the edit is recorded in the project's
+[change history](/features/change-history/) and the people who hold an assignment on the
+changed work are notified.
+
+TruePPM does not yet ask you *why* a committed plan changed — the amendment is recorded
+without a reason. The prompt that collects one, and the changeset view that reads those
+reasons back, ship in **0.5**.
 
 **You cannot un-commit.** A plan is committed once, so that the anchor every variance
 number is measured from cannot move. Committing a second time returns `409`.
@@ -84,7 +89,7 @@ the amendment path described above.
 |---|---|---|
 | `POST /api/v1/projects/{id}/commit/` | Commit the plan; capture `Baseline v1` | Project Manager (`ADMIN`) |
 
-Structured rebaseline reasons and a post-commit changeset view are planned for 0.5.
+Structured rebaseline reasons and a post-commit changeset view also ship in 0.5.
 
 ## Capturing and managing baselines in the app
 
