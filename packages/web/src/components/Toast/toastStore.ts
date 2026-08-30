@@ -3,14 +3,44 @@ import { create } from 'zustand';
 /**
  * Global toast store (v2 fluidity, ADR-0126; issue 1225). Backs the single
  * `ToastHost` mounted in `AppShell`. Kept pure/synchronous — auto-dismiss timing
- * lives in the host so the store stays trivially testable. Modeled on the
- * `scheduleActionToast` slice shape (`stores/scheduleStore.ts`) and the
- * `commandPaletteStore` Zustand pattern.
+ * lives in the host so the store stays trivially testable.
  *
  * App-wide confirmations only (task created/completed/saved, pin/unpin, theme).
  * Board-local transient notices stay in `BoardDropNotice` (web rule 170).
+ *
+ * ## Two slots with fixed roles, not a queue (#3149, D5)
+ *
+ * The queue used to be unbounded, so three confirmations at once covered a third
+ * of the plan. Capping it is right; **evicting the oldest is not.** This tree has
+ * two dwells — `TOAST_DEFAULT_DURATION_MS` for a passive confirmation and the far
+ * longer `TOAST_ACTION_DURATION_MS` for a toast carrying an Undo (#1113) — so an
+ * action toast is the *oldest* toast for its entire life. Under drop-oldest, two
+ * passive confirmations would evict the Undo before the user's hand arrived: the
+ * exact case the long dwell was bought for. Age was standing in for
+ * disposability while dwell was being set by importance, and the proxy is what
+ * was wrong, not the cap.
+ *
+ * So the state is not a list at all. It is two named slots:
+ *
+ * - `transient` — the newest passive confirmation. A new passive replaces it in
+ *   place; the outgoing one's remaining dwell is discarded, not transferred.
+ * - `action` — the newest actionable toast. Rendered *below* the transient one,
+ *   nearest the thumb.
+ *
+ * A passive toast can never displace an action toast, because they do not
+ * compete for the same slot. The cap is two, and it is structural: there is
+ * nowhere for a third to go.
+ *
+ * Two actionables *can* evict each other — but only where the loser's undo
+ * survives the pill. That is what `ToastItem.trailBacked` gates: absent a
+ * durable home for the displaced action, an incoming actionable queues at depth
+ * one instead of displacing, so D6's "eviction may cost convenience, never
+ * capability" is true by construction rather than by assumption.
  */
 export type ToastVariant = 'success' | 'info' | 'error';
+
+/** Which of the host's two fixed slots a toast occupies. Derived from `action`. */
+export type ToastSlot = 'transient' | 'action';
 
 /**
  * An optional inline action button rendered inside the toast pill (issue 1113). Used
@@ -32,6 +62,34 @@ export interface ToastItem {
   /** Auto-dismiss after this many ms (handled by the host). */
   durationMs: number;
   action?: ToastAction;
+  /** The slot this toast owns. `action ? 'action' : 'transient'`. */
+  slot: ToastSlot;
+  /**
+   * How many identical passives coalesced into this pill; 1 means none did.
+   * Rendered as a `×n` suffix by `toastDisplayMessage`.
+   */
+  count: number;
+  /**
+   * Bumped on every coalesce. The host's dwell timer depends on it, so an
+   * absorbed repeat restarts the clock *without* changing `id` — the pill keeps
+   * its React key, so it neither remounts nor replays its entrance animation.
+   * Restarting the clock by minting a new id would reintroduce the flicker that
+   * coalescing exists to stop.
+   */
+  revision: number;
+  /** `Date.now()` of the push that last touched this toast — the coalescing window. */
+  pushedAt: number;
+  /**
+   * Whether this toast's `action` is ALSO recorded somewhere durable that outlives
+   * the pill — a session trail, a server ledger — so that losing the pill costs the
+   * user a shortcut rather than the capability itself.
+   *
+   * This is what decides whether an incoming actionable may **displace** this one
+   * (see the `push` action branch). It defaults to `false`, which is the safe
+   * reading: a caller that has not said its undo is recorded elsewhere is assumed to
+   * be the only place that undo exists.
+   */
+  trailBacked: boolean;
 }
 
 export interface ToastInput {
@@ -39,6 +97,8 @@ export interface ToastInput {
   variant?: ToastVariant;
   durationMs?: number;
   action?: ToastAction;
+  /** See `ToastItem.trailBacked`. Defaults to `false`. */
+  trailBacked?: boolean;
 }
 
 /** Default auto-dismiss — the prototype toast lingers ~2.6s. */
@@ -51,6 +111,16 @@ export const TOAST_DEFAULT_DURATION_MS = 2600;
  */
 export const TOAST_ACTION_DURATION_MS = 8000;
 
+/**
+ * Two identical passives raised inside this window are the same event seen twice
+ * (a held key, a rapid-edit burst), not two things worth two pills. They coalesce
+ * into one toast with a count suffix and a restarted clock.
+ */
+export const TOAST_COALESCE_WINDOW_MS = 600;
+
+/** How many displaced action toasts the demotion trail keeps. Newest last. */
+export const TOAST_TRAIL_CAP = 10;
+
 // Monotonic id source. A module counter (not Date.now()/Math.random()) keeps ids
 // deterministic for tests and unique within a session — which is all the host needs.
 let seq = 0;
@@ -60,20 +130,214 @@ function nextToastId(): string {
 }
 
 interface ToastState {
-  toasts: ToastItem[];
+  /** Newest passive confirmation, or null. Rendered above the action slot. */
+  transient: ToastItem | null;
+  /** Newest actionable toast, or null. Rendered below — nearest the thumb. */
+  action: ToastItem | null;
+  /**
+   * An incoming actionable held back because focus is inside the one on screen
+   * (D8). Depth **one**: a second arrival replaces the waiting one rather than
+   * growing a queue, because a stack of undos the user never asked to see is the
+   * unbounded stack this issue removed, only invisible.
+   */
+  pending: ToastItem | null;
+  /**
+   * Action toasts that lost the slot to a newer one, newest last, capped.
+   *
+   * D6: eviction may cost convenience, never capability. A displaced toast's
+   * `action` closure is still callable here, so the undo it offered survives the
+   * pill that offered it.
+   *
+   * **Nothing renders this yet.** The design assumed the displaced action demotes
+   * into the session trail, but that trail (`features/schedule/trail/trailStore`)
+   * is Schedule-scoped and keyed on a server ledger handle, while action toasts
+   * are raised app-wide (pins, time entries, notifications, sync conflicts). This
+   * field is the app-wide durable home the argument needs; wiring a surface onto
+   * it is the open integration question recorded on #3149.
+   */
+  trail: ToastItem[];
+  /** Id of the toast that currently contains focus, reported by the host. */
+  focusedId: string | null;
   /** Enqueue a toast; returns its id so a caller can dismiss it early. */
   push: (input: ToastInput) => string;
   dismiss: (id: string) => void;
+  /**
+   * The host reports focus entering or leaving a pill. The store needs this — not
+   * just the host — because focus decides *displacement*, which is a store rule.
+   */
+  setFocusWithin: (id: string, within: boolean) => void;
   clear: () => void;
 }
 
+/** Append to the demotion trail, dropping the oldest past the cap. */
+function demote(trail: ToastItem[], toast: ToastItem): ToastItem[] {
+  const next = [...trail, toast];
+  return next.length > TOAST_TRAIL_CAP ? next.slice(next.length - TOAST_TRAIL_CAP) : next;
+}
+
 export const useToastStore = create<ToastState>((set) => ({
-  toasts: [],
-  push: ({ message, variant = 'info', durationMs = TOAST_DEFAULT_DURATION_MS, action }) => {
-    const id = nextToastId();
-    set((s) => ({ toasts: [...s.toasts, { id, message, variant, durationMs, action }] }));
+  transient: null,
+  action: null,
+  pending: null,
+  trail: [],
+  focusedId: null,
+  push: ({ message, variant = 'info', durationMs, action, trailBacked = false }) => {
+    const slot: ToastSlot = action ? 'action' : 'transient';
+    const dwell = durationMs ?? (action ? TOAST_ACTION_DURATION_MS : TOAST_DEFAULT_DURATION_MS);
+    const now = Date.now();
+    // The id is minted inside the reducer for the action slot but has to be
+    // returned, so it is captured here rather than read back off the state.
+    let id = '';
+
+    set((s) => {
+      if (slot === 'transient') {
+        const current = s.transient;
+        if (
+          current &&
+          current.message === message &&
+          current.variant === variant &&
+          now - current.pushedAt < TOAST_COALESCE_WINDOW_MS
+        ) {
+          id = current.id;
+          return {
+            transient: {
+              ...current,
+              count: current.count + 1,
+              revision: current.revision + 1,
+              // The longer of the two, never the incoming one blindly: a coalesce
+              // restarts a window and must not shorten one. A caller that asked for
+              // a 9s dwell should not have it cut to the 2.6s default by a duplicate
+              // it did not raise and cannot see.
+              durationMs: Math.max(current.durationMs, dwell),
+              pushedAt: now,
+            },
+          };
+        }
+        if (
+          current &&
+          current.variant === 'error' &&
+          variant !== 'error' &&
+          now - current.pushedAt < current.durationMs
+        ) {
+          // The same argument that replaced drop-oldest, applied to the axis the
+          // slot split does not read. `slot` is derived from actionability alone,
+          // so a passive failure notice and a routine confirmation land in the same
+          // slot — and the confirmation wins purely by being newer, which is
+          // drop-oldest coming back in through the other door. An error is not
+          // disposable the way "Estimate saved" is: it holds its slot until its own
+          // dwell is up, and only another error replaces it early. The incoming
+          // confirmation is dropped rather than queued, because a confirmation the
+          // user sees three seconds late is worse than one they never see.
+          //
+          // Dwell is measured from `pushedAt` rather than from the host's live
+          // timer: the store cannot see a hover pause, so a hovered error holds the
+          // slot for its nominal duration and no longer. Erring short here only
+          // ever costs a confirmation, never the error.
+          id = nextToastId();
+          return {};
+        }
+        id = nextToastId();
+        // Replaced in place. No focus check is needed here and none is missing: a
+        // passive pill holds nothing focusable, so focus can never be inside one.
+        return {
+          transient: {
+            id,
+            message,
+            variant,
+            durationMs: dwell,
+            slot,
+            count: 1,
+            revision: 0,
+            pushedAt: now,
+            trailBacked,
+          },
+        };
+      }
+
+      id = nextToastId();
+      const incoming: ToastItem = {
+        id,
+        message,
+        variant,
+        durationMs: dwell,
+        action,
+        slot,
+        count: 1,
+        revision: 0,
+        pushedAt: now,
+        trailBacked,
+      };
+      const current = s.action;
+
+      if (current && (s.focusedId === current.id || !current.trailBacked)) {
+        // Two reasons to hold the incoming one back, one mechanism (#3149).
+        //
+        // D8 — focus is inside the toast on screen. A toast with focus inside it is
+        // never displaced; the only way a keyboard user loses the control is by
+        // leaving it.
+        //
+        // D6 — the toast on screen is not trail-backed, so displacing it would
+        // destroy the only undo the user has. D6's claim is that eviction may cost
+        // convenience but never capability, and that claim rests entirely on the
+        // displaced toast demoting somewhere durable. Where no such place exists for
+        // the raising surface, the honest move is not to evict at all.
+        //
+        // **Today that is every global action toast.** The one surface with a
+        // session trail is the Schedule, and it does not use this host — it renders
+        // its own `schedule-action-toast` (see `ScheduleView`). So the eviction
+        // branch below is currently unreachable in production and exists for the
+        // first trail-backed caller, which will opt in by passing `trailBacked`.
+        // This asymmetry is deliberate: it is a contract keyed on where an undo is
+        // durably recorded, not an inconsistency to be smoothed over by letting
+        // every surface evict.
+        //
+        // Either way the incoming one waits at depth one, and whatever was already
+        // waiting demotes rather than evaporating.
+        return { pending: incoming, trail: s.pending ? demote(s.trail, s.pending) : s.trail };
+      }
+      return { action: incoming, trail: current ? demote(s.trail, current) : s.trail };
+    });
+
     return id;
   },
-  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-  clear: () => set({ toasts: [] }),
+  dismiss: (id) =>
+    set((s) => {
+      const focusedId = s.focusedId === id ? null : s.focusedId;
+      if (s.transient?.id === id) return { transient: null, focusedId };
+      if (s.action?.id === id) {
+        // The slot frees, so anything held back by D8 takes it now — this is the
+        // "released when the user presses Undo" half of the queue's release rule.
+        return { action: s.pending, pending: null, focusedId };
+      }
+      // `focusedId` is normalized on every branch, including this one. A pending
+      // toast never paints, so it cannot hold focus today and this cannot fire —
+      // but the whole reducer's correctness rests on `focusedId` being accurate,
+      // and the first change that renders `pending` would otherwise inherit a
+      // stuck claim that queues every later action toast behind a dead id.
+      if (s.pending?.id === id) return { pending: null, focusedId };
+      return {};
+    }),
+  setFocusWithin: (id, within) =>
+    set((s) => {
+      if (within) return s.focusedId === id ? {} : { focusedId: id };
+      if (s.focusedId !== id) return {};
+      if (s.pending && s.action?.id === id && s.action.trailBacked) {
+        // Focus left the protected toast: release the queued one and demote the one
+        // it was waiting on, exactly as an unprotected displacement would have.
+        //
+        // `trailBacked` is re-checked here and not just in `push`. Losing focus
+        // removes the D8 reason to wait, but it does not create a durable home for
+        // an undo that never had one — so an un-backed toast keeps its slot and the
+        // queued one goes on waiting for a dismissal. Without this check, blurring
+        // would quietly perform exactly the eviction the push path had refused.
+        return {
+          focusedId: null,
+          action: s.pending,
+          pending: null,
+          trail: demote(s.trail, s.action),
+        };
+      }
+      return { focusedId: null };
+    }),
+  clear: () => set({ transient: null, action: null, pending: null, trail: [], focusedId: null }),
 }));

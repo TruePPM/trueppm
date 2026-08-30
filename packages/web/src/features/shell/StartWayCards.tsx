@@ -20,8 +20,11 @@ const WAYS: readonly WayDef[] = [
 export interface StartWayCardsProps {
   value: WayIn;
   onChange: (way: WayIn) => void;
-  /** Below 900px the sheet is a full-screen surface and the three ways stack 2×2
-   *  instead of one row of three (#2728). */
+  /** Below 900px the sheet is a full-screen surface and the ways lay out two per
+   *  row instead of one row of three (#2728) — with today's three ways that is
+   *  2 + 1, not the 2×2 this said while a fourth card was still planned (#3130).
+   *  The grid is `grid-cols-2`, so restoring the fourth way (ADR-0913) fills the
+   *  second row without touching this component. */
   compact?: boolean;
 }
 

@@ -60,6 +60,16 @@ describe('StartWayCards (#2728)', () => {
     expect(onChange).toHaveBeenCalledWith('import');
   });
 
+  it('compact lays the ways out two per row — 2 + 1 with today’s three ways (#3130)', () => {
+    // The docblock used to call this "2×2", written when a fourth way was still
+    // planned. The grid is `grid-cols-2` and there are three cards, so the second
+    // row holds one — pinning both here keeps the prose and the class in step.
+    render(<StartWayCards value="blank" onChange={vi.fn()} compact />);
+    const group = screen.getByRole('radiogroup', { name: /start from/i });
+    expect(group.className).toContain('grid-cols-2');
+    expect(group.querySelectorAll('[role="radio"]')).toHaveLength(3);
+  });
+
   it('only the roving-focus card is a Tab stop', () => {
     render(<StartWayCards value="import" onChange={vi.fn()} />);
     expect(screen.getByRole('radio', { name: /^import/i })).toHaveAttribute('tabindex', '0');

@@ -405,14 +405,20 @@ def _apply_recreate_as_edit(
     "create".
     """
     from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.services import maybe_record_scope_injection
 
     if not can_user_edit_task(ctx.request, existing, method="PATCH"):
         out.reject(index, row_id, CODE_FORBIDDEN, "You may not edit this task.")
         return
+    # Snapshot BEFORE the serializer save: `ser.save()` mutates the instance in
+    # place, so reading `sprint_id` afterwards would compare the new value with
+    # itself and the injection would never be detected.
+    old_sprint_id = str(existing.sprint_id) if existing.sprint_id else None
     ser = TaskSerializer(existing, data=data, partial=True, context=_row_serializer_context(ctx))
     if not _validate_or_reject(ser, index, row_id, out):
         return
     task = ser.save()
+    maybe_record_scope_injection(task, old_sprint_id, ctx.request.user)
     out.updated_ids.append(task.pk)
     out.applied.append({"index": index, "id": str(task.pk), "op": "create", "outcome": "updated"})
     _note_project_start_shift(task, out)
@@ -507,8 +513,20 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
 
 
 def _apply_update(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOutcome) -> None:
-    """Apply one ``update`` op under the per-row edit bar."""
+    """Apply one ``update`` op under the per-row edit bar.
+
+    **Sprint sovereignty is not optional on this path.** Moving a task into an
+    ACTIVE sprint is an *injection* (ADR-0102): it must write a
+    ``SprintScopeChange`` and set ``sprint_pending`` so the row is visible but
+    excluded from the commitment until someone accepts it. Every other write
+    path routes through ``maybe_record_scope_injection`` — ``perform_create`` /
+    ``perform_update`` on ``TaskViewSet``, both sync upload buckets, and
+    ``_apply_create`` right above. This branch did not, so a bulk sprint write
+    landed straight in the commitment and moved the burndown with nothing to
+    accept or reject (#3152).
+    """
     from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.services import maybe_record_scope_injection
 
     task = _resolve_target(index, op, ctx, out)
     if task is None:
@@ -531,11 +549,18 @@ def _apply_update(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
         )
         return
 
+    # Snapshot BEFORE the save, for the same reason `_apply_recreate_as_edit` does.
+    old_sprint_id = str(task.sprint_id) if task.sprint_id else None
+
     ser = TaskSerializer(task, data=data, partial=True, context=_row_serializer_context(ctx))
     if not _validate_or_reject(ser, index, task.pk, out):
         return
 
     saved = ser.save()
+    # Unconditional: the helper self-guards subtasks, unchanged links, rows that
+    # are already pending, and non-ACTIVE targets, so there is no condition to
+    # restate here that could drift from the one the other write paths use.
+    maybe_record_scope_injection(saved, old_sprint_id, ctx.request.user)
     out.updated_ids.append(saved.pk)
     out.applied.append({"index": index, "id": str(saved.pk), "op": "update", "outcome": "updated"})
     _note_project_start_shift(saved, out)

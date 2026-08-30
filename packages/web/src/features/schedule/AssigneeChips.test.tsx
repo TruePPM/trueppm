@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { AssigneeChips } from './AssigneeChips';
+import { AssigneeChips, chipTitle, formatOwnerCellLabel } from './AssigneeChips';
 import type { TaskAssignee } from '@/types';
 
 function makeAssignee(name: string, units = 1.0, resourceId = name): TaskAssignee {
@@ -71,5 +71,90 @@ describe('AssigneeChips', () => {
     render(<AssigneeChips assignees={[makeAssignee('Alice', 0.333)]} />);
     // Math.round(0.333 * 100) = 33
     expect(screen.getByTitle('Alice (33%)')).toBeInTheDocument();
+  });
+});
+
+/**
+ * #3154 — allocation used to exist only in a `title`, which is nothing to a touch
+ * user and nothing to a screen reader. These assert *rendered text* and
+ * `toBeVisible()`, never `toHaveAttribute` alone: rule 328(b) is specifically that
+ * an attribute is not a statement, so a test that reads the attribute would pass on
+ * the broken build.
+ */
+describe('AssigneeChips — allocation is stated at rest (#3154)', () => {
+  it('renders the percentage as visible text at size="md"', () => {
+    render(<AssigneeChips assignees={[makeAssignee('Alice Chen', 0.5)]} size="md" max={3} />);
+    expect(screen.getByText('50%')).toBeVisible();
+  });
+
+  it('renders one number per visible chip, in chip order, with a single trailing %', () => {
+    const assignees = [
+      makeAssignee('Alice Chen', 1.0, 'r1'),
+      makeAssignee('Bob Martinez', 0.5, 'r2'),
+    ];
+    render(<AssigneeChips assignees={assignees} size="md" max={3} />);
+    expect(screen.getByText('100/50%')).toBeVisible();
+  });
+
+  it('scopes the run to the rendered chips, not the overflowed assignees', () => {
+    // 3 chips render and a "+1" summarises the rest, so the run pairs 1:1 with the
+    // chips. The full per-assignee list stays reachable through the gridcell name.
+    const assignees = [
+      makeAssignee('Alice Chen', 1.0, 'r1'),
+      makeAssignee('Bob Martinez', 0.5, 'r2'),
+      makeAssignee('Carol Park', 0.25, 'r3'),
+      makeAssignee('Dan Ruiz', 0.75, 'r4'),
+    ];
+    render(<AssigneeChips assignees={assignees} size="md" max={3} />);
+    expect(screen.getByText('100/50/25%')).toBeVisible();
+  });
+
+  it('rounds the visible run through the same conversion as the title', () => {
+    render(<AssigneeChips assignees={[makeAssignee('Alice', 0.333)]} size="md" max={3} />);
+    expect(screen.getByText('33%')).toBeVisible();
+  });
+
+  it('hides the visible run from assistive tech — the gridcell name states it once', () => {
+    render(<AssigneeChips assignees={[makeAssignee('Alice Chen', 0.5)]} size="md" max={3} />);
+    expect(screen.getByText('50%')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('renders NO percentage text at size="sm" — the inline chips are unchanged', () => {
+    render(<AssigneeChips assignees={[makeAssignee('Alice Chen', 0.5)]} size="sm" />);
+    expect(screen.queryByText('50%')).toBeNull();
+    // and the sm chip still carries its own per-chip tooltip
+    expect(screen.getByTitle('Alice Chen (50%)')).toBeInTheDocument();
+  });
+
+  it('renders no percentage text at the default size (sm)', () => {
+    render(<AssigneeChips assignees={[makeAssignee('Alice Chen', 0.5)]} />);
+    expect(screen.queryByText('50%')).toBeNull();
+  });
+});
+
+describe('formatOwnerCellLabel (#3154)', () => {
+  it('states "Owner: none" for an unassigned task', () => {
+    expect(formatOwnerCellLabel([])).toBe('Owner: none');
+  });
+
+  it('states each assignee with its units, using the chip formatter', () => {
+    const assignees = [
+      makeAssignee('Alice Chen', 1.0, 'r1'),
+      makeAssignee('Bob Martinez', 0.5, 'r2'),
+    ];
+    expect(formatOwnerCellLabel(assignees)).toBe(
+      `Owner: ${chipTitle(assignees[0])}, ${chipTitle(assignees[1])}`,
+    );
+    expect(formatOwnerCellLabel(assignees)).toBe('Owner: Alice Chen (100%), Bob Martinez (50%)');
+  });
+
+  it('names every assignee, including the ones the chips overflow', () => {
+    const assignees = [
+      makeAssignee('Alice Chen', 1.0, 'r1'),
+      makeAssignee('Bob Martinez', 0.5, 'r2'),
+      makeAssignee('Carol Park', 0.25, 'r3'),
+      makeAssignee('Dan Ruiz', 0.75, 'r4'),
+    ];
+    expect(formatOwnerCellLabel(assignees)).toContain('Dan Ruiz (75%)');
   });
 });

@@ -7,6 +7,15 @@ export interface StartCalendarPickerProps {
   value: string | null;
   onChange: (calendarId: string | null) => void;
   inherited: InheritedCalendar;
+  /**
+   * `id` of the form this field belongs to, when it is rendered outside that
+   * form's DOM subtree — the Start sheet pins it in the footer, below the
+   * scrolling `<form>` (#3130). Without it the browser excludes the control from
+   * the form's implicit-submission behavior, so Enter would do nothing here while
+   * working from every other field on the sheet. The value itself never travels
+   * through the form: it is controlled React state read at submit.
+   */
+  formId?: string;
 }
 
 /**
@@ -22,7 +31,12 @@ export interface StartCalendarPickerProps {
  * at create time; leaving it on "inherited" omits the field entirely and lets the
  * server perform the same resolution authoritatively.
  */
-export function StartCalendarPicker({ value, onChange, inherited }: StartCalendarPickerProps) {
+export function StartCalendarPicker({
+  value,
+  onChange,
+  inherited,
+  formId,
+}: StartCalendarPickerProps) {
   const { data: library, isLoading: libraryLoading } = useCalendarLibrary();
   const options = (library ?? []).filter((c) => c.id !== inherited.id);
 
@@ -33,6 +47,7 @@ export function StartCalendarPicker({ value, onChange, inherited }: StartCalenda
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
         disabled={inherited.loading || libraryLoading}
+        form={formId}
         aria-label="Working calendar"
         style={{ backgroundImage: SELECT_CHEVRON }}
         className="h-9 pl-3 pr-8 rounded-control border border-neutral-border bg-neutral-surface

@@ -2966,7 +2966,16 @@ def maybe_record_scope_injection(task: Any, old_sprint_id: Any, by: Any) -> Any 
         or task.sprint_pending
     ):
         return None
-    target_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
+    # Prefer the relation the caller already has in hand. Every route into here
+    # has resolved it: DRF's `PrimaryKeyRelatedField.to_internal_value` caches
+    # the Sprint on the instance during `save()`, and `_lock_bulk_targets`
+    # `select_related("sprint")` on top of that. Without this, a batch moving
+    # N tasks into ONE sprint re-fetches that same row N times — 500 identical
+    # point lookups at `TASK_BULK_MAX_OPERATIONS`. Falling back to the query
+    # keeps every caller at no worse than its previous cost.
+    target_sprint = task.sprint
+    if target_sprint is None or str(target_sprint.pk) != new_sprint_id:
+        target_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
     if target_sprint is None or target_sprint.state != SprintState.ACTIVE:
         return None
     return record_sprint_scope_change(task=task, sprint=target_sprint, by=by)

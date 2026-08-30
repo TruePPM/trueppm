@@ -142,6 +142,11 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     await userEvent.type(screen.getByRole('textbox', { name: /^name/i }), name);
   }
 
+  /** True when `a` comes before `b` in document order. */
+  function precedes(a: Element, b: Element): boolean {
+    return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }
+
   // ---------------------------------------------------------------------------
   // One screen — every field present at once, no step navigation
   // ---------------------------------------------------------------------------
@@ -159,6 +164,106 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(screen.queryByRole('button', { name: /^back$/i })).not.toBeInTheDocument();
   });
 
+  // ---------------------------------------------------------------------------
+  // Order: the way in leads, the calendar lives in the footer (#3130,
+  // design handoff case 01: "template / blank / import, calendar in the footer")
+  // ---------------------------------------------------------------------------
+
+  it('leads with the way in, then name → program → start date', () => {
+    renderModal();
+    const ways = screen.getByRole('radiogroup', { name: /start from$/i });
+    const name = screen.getByRole('textbox', { name: /^name/i });
+    const program = screen.getByRole('combobox', { name: /^program$/i });
+    const startDate = screen.getByLabelText(/start date/i);
+
+    expect(precedes(ways, name)).toBe(true);
+    expect(precedes(name, program)).toBe(true);
+    expect(precedes(program, startDate)).toBe(true);
+  });
+
+  it('puts the working calendar in the footer — after the fields, beside the actions', () => {
+    renderModal();
+    const form = document.getElementById('new-project-form');
+    const startDate = screen.getByLabelText(/start date/i);
+    const calendar = screen.getByRole('combobox', { name: /working calendar/i });
+    const cancel = screen.getByRole('button', { name: /cancel/i });
+
+    expect(precedes(startDate, calendar)).toBe(true);
+    expect(precedes(calendar, cancel)).toBe(true);
+    // The footer is pinned outside the scrolling <form>, which is what keeps the
+    // calendar on screen however tall the Template list grows.
+    expect(form).not.toBeNull();
+    expect(form!.contains(startDate)).toBe(true);
+    expect(form!.contains(calendar)).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // The commit note (#3130) — worded to create-on-submit, not to the handoff's
+  // draft lifecycle, which this sheet deliberately does not have (#3127,
+  // docs/design/handoff/2026-08-v4-beta1-review/README.md §5)
+  // ---------------------------------------------------------------------------
+
+  it('states in the footer that nothing is created until Create is pressed', () => {
+    renderModal();
+    // toBeVisible, not toBeInTheDocument: a stated outcome that renders to zero
+    // width or display:none is the same as an absent one (rule 316(c)).
+    expect(screen.getByText(/nothing is created until you press create project\./i)).toBeVisible();
+  });
+
+  it('the note names whichever commit button is actually on screen (#3130)', async () => {
+    renderModal();
+    await userEvent.click(screen.getByRole('radio', { name: /^import/i }));
+    expect(
+      screen.getByText(/nothing is created until you press create & import spreadsheet\./i),
+    ).toBeVisible();
+    expect(screen.queryByText(/until you press create project\./i)).not.toBeInTheDocument();
+  });
+
+  it('does not deny a create that is already in flight', () => {
+    // While the mutation is pending the note would be flatly false, and the button
+    // it names ("Create project") is not on screen — it reads "Creating…". Rule 316
+    // prefers no sentence to a confident wrong one.
+    mockMutation.isPending = true;
+    renderModal();
+    expect(screen.queryByText(/nothing is created/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/until you press creating/i)).not.toBeInTheDocument();
+  });
+
+  it('does not state a silent discard the sheet has no unsaved-changes guard for', () => {
+    // Rule 217 requires a guard on any dirty dismiss; this sheet has none on its
+    // four dismiss paths. Saying "closing discards what you have entered" as
+    // reassurance would ship that gap as though it were the intended contract.
+    renderModal();
+    expect(screen.queryByText(/closing this sheet discards/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/will be (lost|discarded)/i)).not.toBeInTheDocument();
+  });
+
+  it('describes the submit button with the note rather than renaming it', () => {
+    renderModal();
+    const submit = screen.getByRole('button', { name: /^create project$/i });
+    const describedBy = submit.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)).toHaveTextContent(/nothing is created/i);
+  });
+
+  it('never claims a draft is saved — the sheet creates an ACTIVE project on submit', () => {
+    // Rule 308(d): assert the *capability* is absent, not one retired phrasing.
+    // `Project.lifecycle` defaults to ACTIVE and `commit_project()` (the only
+    // draft → active transition) has no caller in the web app until #3129, so any
+    // "saved as a draft" / "we'll keep this for you" copy here would be a false
+    // claim. `handleSubmit` is the only caller of `useCreateProject`.
+    renderModal();
+    for (const claim of [
+      /until you open the designer/i,
+      /\bdraft\b/i,
+      /\bautosave|auto-save|automatically saved|saved automatically\b/i,
+      /we.?ll (keep|save|remember)/i,
+      /pick up where you left off|returning is exact/i,
+    ]) {
+      expect(screen.queryByText(claim)).not.toBeInTheDocument();
+    }
+  });
+
   it('cut fields (description, copy-settings-from, use-program-defaults, default member role) are not on this screen', () => {
     renderModal();
     expect(screen.queryByPlaceholderText(/optional/i)).not.toBeInTheDocument();
@@ -170,6 +275,26 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
   it('focuses the name input on mount', () => {
     renderModal();
     expect(screen.getByRole('textbox', { name: /^name/i })).toHaveFocus();
+  });
+
+  it('does not scroll the way cards off the top to reach that focus (rule 358)', () => {
+    // Name is no longer the sheet's first control, and `focus()` defaults to
+    // scrolling every scrollable ancestor until its target is visible — which on a
+    // short viewport would scroll the way-in cards, the thing the reorder exists to
+    // lead with, out of the body before they are ever read. jsdom does not lay out,
+    // so the observable part is the option that suppresses it.
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      renderModal();
+      const nameInput = screen.getByRole('textbox', { name: /^name/i });
+      const mountCall = focusSpy.mock.calls.find(
+        (_call, i) => focusSpy.mock.instances[i] === nameInput,
+      );
+      expect(mountCall).toBeDefined();
+      expect(mountCall![0]).toEqual({ preventScroll: true });
+    } finally {
+      focusSpy.mockRestore();
+    }
   });
 
   it('Create is disabled until a name is entered', () => {
@@ -489,13 +614,18 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(templateCard).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('traps focus with Tab cycling within the dialog', async () => {
+  // Since #3130 the way in leads the body, so the dialog's first tab stop is the
+  // *selected* way card — its two siblings carry `tabindex="-1"` under the roving
+  // model and are not tab stops at all. The trap has to agree with that, or
+  // Shift+Tab off the real first stop never matches `first` and focus leaves the
+  // modal entirely.
+  it('traps focus with Tab cycling — last wraps to the selected way card', async () => {
     renderModal();
     await fillName('Test');
     const createBtn = screen.getByRole('button', { name: /create project/i });
     createBtn.focus();
     await userEvent.tab();
-    expect(document.activeElement).not.toBe(createBtn);
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: /^blank/i }));
   });
 
   it('traps focus with Shift+Tab — first to last', async () => {
@@ -503,10 +633,47 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     // Create must be enabled (a disabled button is not a Tab stop) to be the
     // dialog's last focusable element for this assertion to be meaningful.
     await fillName('Test');
-    const nameInput = screen.getByRole('textbox', { name: /^name/i });
-    nameInput.focus();
+    screen.getByRole('radio', { name: /^blank/i }).focus();
     await userEvent.tab({ shift: true });
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /create project/i }));
+  });
+
+  it('Shift+Tab from the name field stays inside the dialog', async () => {
+    renderModal();
+    await fillName('Test');
+    screen.getByRole('textbox', { name: /^name/i }).focus();
+    await userEvent.tab({ shift: true });
+    expect(screen.getByRole('dialog', { name: /new project/i })).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+  });
+
+  it('keeps the footer calendar attached to the form it sits outside of', () => {
+    // The field moved out of the <form> subtree (#3130); `form="new-project-form"`
+    // is what keeps it part of the form for implicit submission, so Enter works
+    // from here like it does from Name / Program / Start date.
+    //
+    // The attribute is the assertable half: jsdom implements implicit submission
+    // for text inputs only, never for a <select>, so driving Enter here would pass
+    // or fail on jsdom's gap rather than on this wiring. The browser half is
+    // covered where a real one is running — e2e/context-create.spec.ts.
+    renderModal();
+    expect(screen.getByRole('combobox', { name: /working calendar/i })).toHaveAttribute(
+      'form',
+      'new-project-form',
+    );
+  });
+
+  it('Tab from the start date reaches the footer calendar, then the actions', async () => {
+    renderModal();
+    await fillName('Test');
+    screen.getByLabelText(/start date/i).focus();
+    await userEvent.tab();
+    expect(document.activeElement).toBe(
+      screen.getByRole('combobox', { name: /working calendar/i }),
+    );
+    await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /cancel/i }));
   });
 
   // ---------------------------------------------------------------------------

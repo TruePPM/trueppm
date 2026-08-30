@@ -402,3 +402,112 @@ test.describe('#2106 — editable Duration in the task detail drawer', () => {
     );
   });
 });
+
+/**
+ * #3211 — the unit picker must never overflow the Duration cell.
+ *
+ * The vitals strip is a `grid-cols-4`, which sizes each TRACK `minmax(0, 1fr)`
+ * but leaves each ITEM at `min-width: auto` — so a cell wider than its track
+ * overflows into its neighbour rather than shrinking, and nothing clips it. With
+ * the picker laid out BESIDE the duration button, this cell's min-content was
+ * 169.6px against a 126.25px track in the 540px drawer, and the 43px of overflow
+ * painted over the Float cell's label and value.
+ *
+ * These assert the geometry, not `toBeVisible()` — the picker and the Float cell
+ * both had boxes and both passed `toBeVisible()` on the broken build (web rule
+ * 354(e)). The invariant is that their boxes do not intersect.
+ */
+test.describe('#3211 — the duration unit picker stays inside its cell', () => {
+  test('the picker does not overlap the Float cell in the 540px drawer', async ({ page }) => {
+    await setup(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const picker = drawer.getByRole('radiogroup', { name: 'Duration unit' });
+    const floatCell = drawer.getByRole('group', { name: 'Float' });
+    await expect(picker).toBeVisible();
+    await expect(floatCell).toBeVisible();
+
+    const pickerBox = (await picker.boundingBox())!;
+    const floatBox = (await floatCell.boundingBox())!;
+    expect(pickerBox).not.toBeNull();
+    expect(floatBox).not.toBeNull();
+
+    // The whole picker sits left of where the Float cell begins.
+    expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual(floatBox.x);
+  });
+
+  test('the Duration cell does not overflow its grid track', async ({ page }) => {
+    await setup(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const durationCell = drawer.getByRole('group', { name: 'Float' })
+      .locator('xpath=preceding-sibling::div[1]');
+    const picker = drawer.getByRole('radiogroup', { name: 'Duration unit' });
+
+    const cellBox = (await durationCell.boundingBox())!;
+    const pickerBox = (await picker.boundingBox())!;
+
+    // The picker is contained by the cell on both axes. The right edge is the one
+    // that regressed; the left is asserted so a future fix cannot satisfy this by
+    // pushing the picker out of the other side of the cell.
+    expect(pickerBox.x).toBeGreaterThanOrEqual(cellBox.x);
+    expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual(cellBox.x + cellBox.width);
+  });
+
+  test('the picker still commits a unit change from its stacked position', async ({ page }) => {
+    const { patches } = await setup(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    await drawer.getByRole('radio', { name: 'Hours' }).click();
+
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0]).toEqual({ duration_unit: 'hours' });
+  });
+
+  test('the strip is the same height at rest and while editing', async ({ page }) => {
+    await setup(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const frame = drawer
+      .getByRole('group', { name: 'Float' })
+      .locator('xpath=ancestor::div[contains(@class,"rounded-card")][1]');
+
+    const atRest = (await frame.boundingBox())!.height;
+    await drawer.getByRole('button', { name: /Duration, 5 days/ }).click();
+    await expect(drawer.getByRole('textbox', { name: 'Duration in days' })).toBeVisible();
+    const editing = (await frame.boundingBox())!.height;
+
+    // Stacked, an edit-mode cell that dropped the picker collapsed the strip by
+    // 35px and re-expanded on commit, jumping every drawer section below it.
+    // The tolerance is the input's own 1px border, which is not a layout jump —
+    // it is deliberately far below the 35px regression this pins.
+    expect(Math.abs(editing - atRest)).toBeLessThanOrEqual(2);
+  });
+
+  test('the picker is still clickable while the duration input is open', async ({ page }) => {
+    const { patches } = await setup(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    await drawer.getByRole('button', { name: /Duration, 5 days/ }).click();
+    await expect(drawer.getByRole('textbox', { name: 'Duration in days' })).toBeVisible();
+
+    // The input's onBlur commits and leaves edit mode, and blur fires on
+    // mousedown — so if the picker unmounted with the branch it would be gone
+    // before mouseup and no click would ever fire.
+    await drawer.getByRole('radio', { name: 'Hours' }).click();
+
+    await expect.poll(() => patches.filter((b) => 'duration_unit' in b).length).toBe(1);
+    expect(patches.find((b) => 'duration_unit' in b)).toEqual({ duration_unit: 'hours' });
+  });
+});
+

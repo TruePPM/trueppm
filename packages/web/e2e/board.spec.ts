@@ -246,13 +246,27 @@ test.describe('Board view', () => {
     await expect(page.getByText('Alpha Phase')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('renders LaneMeta with phase name, progress %, and task count', async ({ page }) => {
+  test('renders LaneMeta with phase name, progress bar, and task count', async ({ page }) => {
     await expect(page.getByText('Alpha Phase')).toBeVisible();
     // #991 (ADR-0115): the lane renders the phase summary task's server-owned,
     // delivery-mode-weighted percent_complete rollup (b1.percent_complete = 55),
     // not a divergent client mean of the leaf tasks.
-    await expect(page.getByText('55%')).toBeVisible();
-    await expect(page.getByText('4 tasks')).toBeVisible();
+    //
+    // #3148 moved that rollup out of the visible row: the header states one
+    // proportion once, as the bar, and the number now lives in the accessible
+    // name (plus a hover/focus tooltip). `exact: true` because `name` is a
+    // substring match — a loose string would match a longer label and let this
+    // pass on a header that had lost the number entirely.
+    await expect(
+      page.getByRole('progressbar', { name: 'Phase progress: 55% complete', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('55%')).toHaveCount(0);
+    // The count names what kind of work the lane holds, and the word follows
+    // commitment: this lane's four cards all carry a `planned_start`, so they
+    // are `items` (the outline's governed neutral noun), not `tasks` and not
+    // `ideas`.
+    await expect(page.getByText('4 items')).toBeVisible();
+    await expect(page.getByText('4 tasks')).toHaveCount(0);
   });
 
   test('per-phase + button opens a one-field compose in the lane (#2952)', async ({ page }) => {
@@ -331,9 +345,12 @@ test.describe('Board view', () => {
     // Lane meta — the inline 6px progress bar replaces the old ProgressRing
     // (#385 introduced it at 4px; #1965 thickened it to h-1.5 for glanceable
     // color mass). The lane meta div is `role="progressbar"` with aria-label /
-    // aria-valuenow.
-    const laneBar = page.locator('[role="progressbar"][aria-label*="Phase progress"]').first();
+    // aria-valuenow. Anchored with `^=` since #3148: the label now leads with
+    // "Phase progress:" and carries the percent, so a `*=` match would also
+    // accept a label that merely mentions the phrase.
+    const laneBar = page.locator('[role="progressbar"][aria-label^="Phase progress:"]').first();
     await expect(laneBar).toBeVisible();
+    await expect(laneBar).toHaveAttribute('aria-valuenow', '55');
 
     // Column status dots are aria-hidden; assert via a class probe scoped to
     // the column header row (the heading carries the accessible label).
@@ -779,5 +796,154 @@ test.describe('Board card readiness chip (#2430)', () => {
     await expect(page.getByText('Build')).toBeVisible({ timeout: 10_000 });
 
     await expect(page.getByText('baselined', { exact: true }).first()).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lane header progress slot (#3148)
+// ---------------------------------------------------------------------------
+
+/**
+ * A three-lane board, one lane per state of the progress slot.
+ *
+ * The slot renders a proportion as a bar, or the absence of one as an em-dash —
+ * never both, never neither. Three lanes is the minimum that shows the em-dash
+ * is a *state*, not a rendering of zero: the uncommitted lane sits beside a
+ * measured one, so "no bar here" is legible as a difference rather than as a
+ * lane that failed to load.
+ */
+const SLOT_BASE = {
+  early_start: '2026-01-05',
+  early_finish: '2026-01-16',
+  duration: 10,
+  is_critical: false,
+  is_milestone: false,
+  assignees: [] as string[],
+  total_float: null,
+  predecessor_count: 0,
+  is_blocked: false,
+  linked_risks_count: 0,
+  linked_risks_max_severity: null,
+};
+
+const SLOT_TASKS = [
+  // Lane 1 — mid-progress. Server-owned rollup on the summary (ADR-0115).
+  { ...SLOT_BASE, id: 's1', wbs_path: '1', name: 'Delivery Phase', percent_complete: 55, is_summary: true, parent_id: null, status: 'IN_PROGRESS' },
+  { ...SLOT_BASE, id: 's1a', wbs_path: '1.1', name: 'Delivery card', planned_start: '2026-01-05', percent_complete: 55, is_summary: false, parent_id: 's1', status: 'IN_PROGRESS' },
+
+  // Lane 2 — complete. 100% must be distinguishable from 97% by form.
+  { ...SLOT_BASE, id: 's2', wbs_path: '2', name: 'Shipped Phase', percent_complete: 100, is_summary: true, parent_id: null, status: 'COMPLETE' },
+  { ...SLOT_BASE, id: 's2a', wbs_path: '2.1', name: 'Shipped card', planned_start: '2026-01-05', percent_complete: 100, is_summary: false, parent_id: 's2', status: 'COMPLETE' },
+
+  // Lane 3 — uncommitted. Cards exist; none carries a PM-committed
+  // `planned_start`, so `isTaskScheduled` counts zero committed work and there
+  // is no delivery to roll up.
+  { ...SLOT_BASE, id: 's3', wbs_path: '3', name: 'Ideas Phase', percent_complete: 0, is_summary: true, parent_id: null, status: 'NOT_STARTED' },
+  { ...SLOT_BASE, id: 's3a', wbs_path: '3.1', name: 'Idea one', percent_complete: 0, is_summary: false, parent_id: 's3', status: 'NOT_STARTED' },
+  { ...SLOT_BASE, id: 's3b', wbs_path: '3.2', name: 'Idea two', percent_complete: 0, is_summary: false, parent_id: 's3', status: 'NOT_STARTED' },
+];
+
+async function setupSlotBoard(page: import('@playwright/test').Page) {
+  await setupAuth(page);
+  await setupCatchAll(page);
+  await setupApiMocks(page, {
+    projects: FIXTURE_PROJECTS,
+    projectId: FIXTURE_PROJECT_ID,
+    tasks: SLOT_TASKS,
+  });
+  await page.route('**/api/v1/dependencies/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.goto(`${BASE_URL}/board`);
+  await expect(page.getByText('Ideas Phase')).toBeVisible({ timeout: 10_000 });
+}
+
+/** Every lane-header slot that drew a bar. Scoped by the label's own prefix so
+ *  a progressbar belonging to another surface can never be counted here. */
+function laneBars(page: import('@playwright/test').Page) {
+  return page.locator('[role="progressbar"][aria-label^="Phase progress:"]');
+}
+
+test.describe('Board lane header — the progress slot (#3148)', () => {
+  test('mid-progress draws a bar and states the percent only in the accessible name', async ({
+    page,
+  }) => {
+    await setupSlotBoard(page);
+    // `exact: true` — `name` is a substring match, so a loose string would bind
+    // to a longer label and pass on a header that never carried the number.
+    await expect(
+      page.getByRole('progressbar', { name: 'Phase progress: 55% complete', exact: true }),
+    ).toBeVisible();
+    // The numeral is gone from every lane header on the page.
+    await expect(page.getByText('55%')).toHaveCount(0);
+    await expect(page.getByText('100%')).toHaveCount(0);
+  });
+
+  test('the percent is reachable by keyboard focus, not hover alone', async ({ page }) => {
+    await setupSlotBoard(page);
+    const bar = page.getByRole('progressbar', {
+      name: 'Phase progress: 55% complete',
+      exact: true,
+    });
+    await bar.focus();
+    // A coarse pointer has no hover; the tab stop is what keeps the number
+    // reachable without one. No fact may live only in a tooltip.
+    await expect(page.getByRole('tooltip')).toContainText('55% complete');
+  });
+
+  test('complete is told by form — a ring, not a numeral', async ({ page }) => {
+    await setupSlotBoard(page);
+    const done = page.getByRole('progressbar', {
+      name: 'Phase progress: 100% complete',
+      exact: true,
+    });
+    await expect(done).toBeVisible();
+    await expect(done).toHaveAttribute('aria-valuenow', '100');
+    // `outline`, not `ring` — the focus ring owns the `ring-*` channel, and a
+    // completion mark that its own focus state erases is not a distinction.
+    await expect(done).toHaveClass(/outline-1/);
+    await expect(done).toHaveClass(/outline-brand-primary/);
+  });
+
+  test('an uncommitted lane renders no progressbar and names itself "not applicable"', async ({
+    page,
+  }) => {
+    await setupSlotBoard(page);
+    // Two measured lanes, three lanes on the board: the third drew nothing.
+    // "Indeterminate" would have been a progressbar; "not applicable" is not.
+    await expect(laneBars(page)).toHaveCount(2);
+    await expect(
+      page.getByRole('img', {
+        name: 'Phase progress: not applicable — no committed work in this phase',
+        exact: true,
+      }),
+    ).toBeVisible();
+  });
+
+  test('the count noun switches with commitment across lanes on one board', async ({ page }) => {
+    await setupSlotBoard(page);
+    // Both words on screen at once, which is the only way to see that the noun
+    // tracks commitment rather than tracking the lane. Two committed lanes hold
+    // one card each; the uncommitted lane holds two.
+    await expect(page.getByText('1 item').first()).toBeVisible();
+    await expect(page.getByText('2 ideas')).toBeVisible();
+    // The old noun is gone from every lane header on the board.
+    await expect(page.getByText('1 task')).toHaveCount(0);
+    await expect(page.getByText('2 tasks')).toHaveCount(0);
+  });
+
+  test('an uncommitted lane explains the em-dash on focus', async ({ page }) => {
+    await setupSlotBoard(page);
+    await page
+      .getByRole('img', {
+        name: 'Phase progress: not applicable — no committed work in this phase',
+        exact: true,
+      })
+      .focus();
+    await expect(page.getByRole('tooltip')).toContainText('No committed work yet');
   });
 });

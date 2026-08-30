@@ -121,7 +121,7 @@ test.describe('Unscheduled gutter — bulk schedule (#2987)', () => {
 
     const sheet = page.getByTestId('bulk-edit-sheet');
     await expect(sheet).toBeVisible();
-    await expect(sheet).toContainText('3 rows');
+    await expect(sheet).toContainText('3 items');
   });
 
   test('dating the selection empties the tray of everything it could act on', async ({ page }) => {
@@ -163,6 +163,6 @@ test.describe('Unscheduled gutter — bulk schedule (#2987)', () => {
 
     const sheet = page.getByTestId('bulk-edit-sheet');
     await expect(sheet).toBeVisible();
-    await expect(sheet).toContainText('3 rows');
+    await expect(sheet).toContainText('3 items');
   });
 });
