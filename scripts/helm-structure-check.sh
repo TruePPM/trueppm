@@ -165,19 +165,41 @@ trap 'rm -rf "$np_split"' EXIT
 # shellcheck disable=SC2016  # $index is a yq expression variable, not a shell one
 echo "$NP_ALL" | (cd "$np_split" && yq -s '"doc_" + $index' >/dev/null)
 
-# The rendered allow-lists, as comma-wrapped strings for substring matching.
-# `select()` over a multi-document stream emits a blank line per non-matching
-# document, so squeeze ALL whitespace out before wrapping — otherwise the list
-# reads ",\napi,celery-worker,…" and the ",api," substring test never matches.
+# The rendered allow-lists, ONE COMPONENT PER LINE.
+#
+# Do not join these into a comma string and substring-match. That form inherits
+# its correctness from one yq build's separator style: `select()` over a
+# multi-document stream emits a BLANK LINE per non-matching document on the
+# pinned v4.44.3, but a `---` DOCUMENT SEPARATOR on older builds (alpine ships
+# v4.35.2). `---` is not whitespace, so a `tr -d '[:space:]'` sized for the
+# blank-line form leaves the separator inside the joined list, and every
+# substring test then fails against `,---api,celery-worker,…,demo-seed---,`
+# — naming a chart file to go edit for a NetworkPolicy regression that is not
+# there (#3147). The failure is confident, specific, and wrong, which makes it
+# indistinguishable from a real one.
+#
+# Emitting one component per line and matching WHOLE LINES states the dependency
+# instead of inheriting it: both separator styles are dropped explicitly below,
+# so the check reads the same under any yq.
 np_components() {
   echo "$NP_ALL" \
-    | yq "select(.kind == \"NetworkPolicy\" and (.metadata.name | test(\"$1\$\"))) | [.spec.ingress[].from[].podSelector.matchLabels[\"app.kubernetes.io/component\"]] | join(\",\")" \
-    | tr -d '[:space:]'
+    | yq "select(.kind == \"NetworkPolicy\" and (.metadata.name | test(\"$1\$\"))) | [.spec.ingress[].from[].podSelector.matchLabels[\"app.kubernetes.io/component\"]] | map(select(. != null)) | .[]" \
+    | awk '{ gsub(/[[:space:]]/, "", $0); if ($0 != "" && $0 != "---") print }'
 }
-pg_allowed=",$(np_components postgresql),"
-vk_allowed=",$(np_components valkey),"
-[ "$pg_allowed" != ",," ] || fail "could not read the postgresql NetworkPolicy ingress allow-list"
-[ "$vk_allowed" != ",," ] || fail "could not read the valkey NetworkPolicy ingress allow-list"
+
+# Whole-line membership. awk exits 0 either way, so this is safe under `set -e`
+# where a bare `grep -x` with no match would abort the script.
+np_allows() { # <allow-list> <component>
+  printf '%s\n' "$1" | awk -v want="$2" '$0 == want { hit = 1 } END { exit hit ? 0 : 1 }'
+}
+
+# Human-readable rendering for failure messages only — never for matching.
+np_render() { printf '%s\n' "$1" | awk 'NR > 1 { printf ", " } { printf "%s", $0 } END { print "" }'; }
+
+pg_allowed="$(np_components postgresql)"
+vk_allowed="$(np_components valkey)"
+[ -n "$pg_allowed" ] || fail "could not read the postgresql NetworkPolicy ingress allow-list"
+[ -n "$vk_allowed" ] || fail "could not read the valkey NetworkPolicy ingress allow-list"
 
 np_checked=0
 for f in "$np_split"/doc_*.yml; do
@@ -197,19 +219,21 @@ for f in "$np_split"/doc_*.yml; do
   case ",$urls," in
     *,DATABASE_URL,*)
       [ -n "$comp" ] || fail "$kind/$wl_name receives DATABASE_URL but carries no app.kubernetes.io/component label, so no NetworkPolicy rule can ever match it"
-      case "$pg_allowed" in
-        *",$comp,"*) np_checked=$((np_checked + 1)) ;;
-        *) fail "$kind/$wl_name (component '$comp') receives DATABASE_URL but is NOT in the postgresql NetworkPolicy ingress allow-list (${pg_allowed}) — its connections are dropped on an enforcing CNI. Add it in templates/networkpolicy.yaml." ;;
-      esac
+      if np_allows "$pg_allowed" "$comp"; then
+        np_checked=$((np_checked + 1))
+      else
+        fail "$kind/$wl_name (component '$comp') receives DATABASE_URL but is NOT in the postgresql NetworkPolicy ingress allow-list ($(np_render "$pg_allowed")) — its connections are dropped on an enforcing CNI. Add it in templates/networkpolicy.yaml."
+      fi
       ;;
   esac
   case ",$urls," in
     *,REDIS_URL,*)
       [ -n "$comp" ] || fail "$kind/$wl_name receives REDIS_URL but carries no app.kubernetes.io/component label"
-      case "$vk_allowed" in
-        *",$comp,"*) np_checked=$((np_checked + 1)) ;;
-        *) fail "$kind/$wl_name (component '$comp') receives REDIS_URL but is NOT in the valkey NetworkPolicy ingress allow-list (${vk_allowed}) — its connections are dropped on an enforcing CNI. Add it in templates/networkpolicy.yaml." ;;
-      esac
+      if np_allows "$vk_allowed" "$comp"; then
+        np_checked=$((np_checked + 1))
+      else
+        fail "$kind/$wl_name (component '$comp') receives REDIS_URL but is NOT in the valkey NetworkPolicy ingress allow-list ($(np_render "$vk_allowed")) — its connections are dropped on an enforcing CNI. Add it in templates/networkpolicy.yaml."
+      fi
       ;;
   esac
 done
