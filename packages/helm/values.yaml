@@ -244,9 +244,19 @@ postgresql:
     username: trueppm
     # Leave password empty to have the chart generate a strong random password
     # (randAlphaNum 32) on first install and persist it in the chart-owned
-    # connection Secret (helm.sh/resource-policy: keep), so re-renders never
-    # churn it. Set an explicit value only if you must control the credential;
-    # in that case the chart honors it verbatim.
+    # connection Secret (helm.sh/resource-policy: keep), so `helm install` and
+    # `helm upgrade` never churn it. Set an explicit value only if you must
+    # control the credential; in that case the chart honors it verbatim.
+    #
+    # SET THIS EXPLICITLY IF YOU DEPLOY THROUGH A RENDERER (#3226). The read-back
+    # uses `lookup`, which needs a live cluster connection and returns empty
+    # under `helm template` / `--dry-run` / `helm diff` — the chart then
+    # generates a NEW password. Argo CD applies the output of `helm template`, so
+    # with this left empty every sync overwrites the Secret while the PVC keeps
+    # the old credential, and the API can no longer authenticate. Supply the
+    # value from your secret manager, or disable this subchart and use a managed
+    # database (what values-prod.yaml does). See
+    # /administration/deployment/#chart-generated-passwords-and-gitops
     password: ""
     database: trueppm
 
@@ -271,7 +281,10 @@ valkey:
   # (packages/website/src/content/docs/administration/valkey-ha.md).
   #
   # Auth is ON by default. Leave password empty to have the chart generate and
-  # persist a strong random password (same pattern as postgresql.auth.password).
+  # persist a strong random password (same pattern as postgresql.auth.password) —
+  # including the same `lookup` caveat: set it explicitly if you deploy through a
+  # renderer such as Argo CD, or the password is regenerated on every render
+  # (#3226). See /administration/deployment/#chart-generated-passwords-and-gitops
   enabled: true
   auth:
     enabled: true
