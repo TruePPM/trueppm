@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
@@ -80,7 +80,28 @@ describe('TaskListRow — Owner column (#248)', () => {
     renderWithRouter(
       <TaskListRow task={taskWithAssignees} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
     );
-    expect(screen.getByLabelText(/Owner: Alice, Bob/i)).toBeInTheDocument();
+    // #3154: the name carries units, not just names — the chips are aria-hidden and
+    // the visible run is too, so this is the only channel that states allocation.
+    expect(screen.getByLabelText('Owner: Alice (100%), Bob (50%)')).toBeInTheDocument();
+  });
+
+  it('states per-assignee allocation in the Owner cell name (#3154)', () => {
+    const taskWithAssignees = {
+      ...base,
+      assignees: [
+        { resourceId: 'r1', name: 'Alice', units: 1 },
+        { resourceId: 'r2', name: 'Bob', units: 0.5 },
+      ],
+    };
+    renderWithRouter(
+      <TaskListRow task={taskWithAssignees} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    const cell = screen.getByLabelText(/^Owner: Alice/);
+    expect(cell).toHaveAccessibleName('Owner: Alice (100%), Bob (50%)');
+    // …and the same fact is drawn, not just named (rule 328(b)).
+    expect(within(cell).getByText('100/50%')).toBeVisible();
+    // …exactly once: the drawn copy is hidden from assistive tech.
+    expect(within(cell).getByText('100/50%')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('shows "Owner: none" when task has no assignees', () => {
