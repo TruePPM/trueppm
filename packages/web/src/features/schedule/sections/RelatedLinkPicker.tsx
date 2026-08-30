@@ -1,3 +1,4 @@
+import { ScopeTab, useDebouncedValue } from '../pickerScope';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { RelationType, Task } from '@/types';
@@ -75,11 +76,7 @@ export function RelatedLinkPicker({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Debounce the program search term; local filtering stays instant.
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 200);
-    return () => clearTimeout(t);
-  }, [search]);
+  const debouncedSearch = useDebouncedValue(search);
 
   const programSearch = useProgramTaskSearch(
     scope === 'program' ? programId : null,
@@ -367,33 +364,6 @@ export function RelatedLinkPicker({
   );
 }
 
-function ScopeTab({
-  label,
-  selected,
-  onSelect,
-}: {
-  label: string;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      tabIndex={-1}
-      onClick={onSelect}
-      className={[
-        'h-7 rounded-control px-2 font-medium transition-colors',
-        selected
-          ? 'bg-brand-primary text-neutral-text-inverse'
-          : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  );
-}
 
 function ProgramResults({
   listboxId,
