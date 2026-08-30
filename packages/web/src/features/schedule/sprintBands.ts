@@ -1,4 +1,5 @@
 import type { SprintState, Task } from '@/types';
+import { postOrderRollup } from './postOrderRollup';
 
 /**
  * Which rows of the schedule outline a sprint window covers (#2738, ADR-0803).
@@ -105,68 +106,11 @@ function contributedSprint(task: Task): string | null {
  * imported WBS cannot blow the call stack.
  */
 function resolveRowSprints(tasks: Task[]): Map<string, string | null> {
-  const childIds = new Map<string, string[]>();
-  const byId = new Map<string, Task>();
-  for (const task of tasks) {
-    byId.set(task.id, task);
-    if (task.parentId) {
-      const siblings = childIds.get(task.parentId);
-      if (siblings) siblings.push(task.id);
-      else childIds.set(task.parentId, [task.id]);
-    }
-  }
-
-  const resolved = new Map<string, string | null>();
-  /**
-   * What each row hands UP, kept separate from what it resolves to: a phase
-   * resolves to a sprint only when its descendants agree, but it still hands up
-   * that same set so a grandparent sees the disagreement rather than a
-   * flattened "one of them".
-   */
-  const contributed = new Map<string, Set<string>>();
-
-  const walk = (rootId: string): void => {
-    const stack: Array<{ id: string; expanded: boolean }> = [{ id: rootId, expanded: false }];
-    while (stack.length) {
-      const frame = stack.pop();
-      if (!frame) break;
-      const kids = childIds.get(frame.id) ?? [];
-      if (!frame.expanded && kids.length) {
-        stack.push({ id: frame.id, expanded: true });
-        for (const kid of kids) stack.push({ id: kid, expanded: false });
-        continue;
-      }
-      const task = byId.get(frame.id);
-      if (!task) continue;
-      const ids = new Set<string>();
-      for (const kid of kids) {
-        for (const id of contributed.get(kid) ?? []) ids.add(id);
-      }
-      if (!ids.size) {
-        const own = contributedSprint(task);
-        if (own) ids.add(own);
-      }
-      contributed.set(frame.id, ids);
-      resolved.set(frame.id, ids.size === 1 ? [...ids][0] : null);
-    }
-  };
-
-  const roots: string[] = [];
-  for (const task of tasks) {
-    if (!task.parentId || !byId.has(task.parentId)) {
-      roots.push(task.id);
-      walk(task.id);
-    }
-  }
-  // Rows whose parent id points outside the loaded set (filtered or collapsed
-  // outline) were never reached from a root — resolve them standalone rather
-  // than leaving them unattributed and punching a hole through a band.
-  for (const task of tasks) {
-    if (!resolved.has(task.id)) {
-      roots.push(task.id);
-      walk(task.id);
-    }
-  }
+  // A subtree resolves to a sprint only when every descendant contributes that
+  // same one; any disagreement resolves to null and draws no band of its own.
+  const { resolved, roots, childIds } = postOrderRollup(tasks, contributedSprint, (ids) =>
+    ids.size === 1 ? [...ids][0] : null,
+  );
 
   // Top-down inheritance pass. Driven off the child index rather than off array
   // order, so it is correct even if the caller hands rows in some order other

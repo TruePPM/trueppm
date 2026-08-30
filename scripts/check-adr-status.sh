@@ -21,13 +21,155 @@
 # below, with a reason. Prefer flipping the status — the allowlist is for the rare case
 # where the citation is genuinely forward-looking.
 #
-# Usage:  scripts/check-adr-status.sh
+# Usage:  scripts/check-adr-status.sh [ROOT]
+#         scripts/check-adr-status.sh --self-test
+#
+#   ROOT        directory to scan, defaulting to the repository root. Everything
+#               below is relative to it: docs/adr, packages/*/src, and the
+#               published index at packages/website/src/content/docs/architecture/
+#               decisions.md. The only caller that passes it is --self-test, which
+#               runs THIS script against fixture trees so there is no second copy
+#               of the detection rules to drift out of sync with the gate (#3195).
+#   --self-test assert the gate can still fail: fixture trees carrying a planted
+#               violation must be rejected, and clean ones accepted. Runs first in
+#               the same CI job as the real scan, because a gate's failure mode is
+#               a green pipeline — "it passed" is not evidence that it can fail.
+#
 # Exit:   0 all cited ADRs decided · 1 at least one cited ADR still Proposed
+#         (or a stale index statistic) · 2 invocation error
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+
+# Sourced before the `cd` below, and resolved from BASH_SOURCE rather than $0:
+# once the scan root is injectable, the cwd at this point is not the repo root.
+# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/git-ignored.sh"
+
+if [ "${1:-}" = "--self-test" ]; then
+  # Detection proof (#3195). This gate was opted out of ci:gate-selftest-parity as
+  # PENDING: its detection had been verified once, by hand, and nothing repeated it.
+  # #3172 is what that costs — boundary:imports passed a real Apache-2.0 violation
+  # for its entire life, on green pipelines, because the CI image's grep rejected an
+  # option and the empty result read as "no violations". This gate greps with the
+  # same option family (`-I`, `--exclude-dir`) and its status parser has four header
+  # shapes to keep straight, so both are asserted here rather than assumed.
+  #
+  # Every case runs the REAL script against a fixture root. Both directions are
+  # asserted: a self-test that only checks the happy path proves nothing.
+  st_tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064  # expand now, not at trap time
+  trap "rm -rf '$st_tmp'" EXIT
+  st_rc=0
+
+  st_probe() { # <name> <expect-pass|expect-fail> <root>
+    if bash "$0" "$3" >/dev/null 2>&1; then
+      if [ "$2" = "expect-pass" ]; then echo "SELF-TEST OK: $1 accepted."
+      else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; st_rc=1; fi
+    else
+      if [ "$2" = "expect-fail" ]; then echo "SELF-TEST OK: $1 correctly rejected."
+      else echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; st_rc=1; fi
+    fi
+  }
+
+  st_src() { # <root> <adr-number…> — shipped source citing each ADR by name
+    mkdir -p "$1/packages/api/src"
+    local root="$1"; shift
+    : > "$root/packages/api/src/thing.py"
+    for n in "$@"; do
+      printf '# Implements the decision recorded in ADR-%s.\n' "$n" \
+        >> "$root/packages/api/src/thing.py"
+    done
+    printf 'def f():\n    return 1\n' >> "$root/packages/api/src/thing.py"
+  }
+
+  st_adr() { # <root> <adr-number> <status-header-block>
+    mkdir -p "$1/docs/adr"
+    printf '# ADR-%s — self-test probe\n\n%s\n\n## Context\nfixture\n' "$2" "$3" \
+      > "$1/docs/adr/$2-probe.md"
+  }
+
+  st_index() { # <root> <index-body>
+    mkdir -p "$1/packages/website/src/content/docs/architecture"
+    printf '%s\n' "$2" \
+      > "$1/packages/website/src/content/docs/architecture/decisions.md"
+  }
+
+  # --- Part 1: an ADR cited from shipped source must not say "Proposed". -----
+  d="$st_tmp/accepted"; st_src "$d" 9998
+  st_adr "$d" 9998 '## Status
+Accepted — status corrected 2026-01-01 after ADR audit (#9998, verified: shipped).'
+  st_probe "citation of an Accepted ADR" expect-pass "$d"
+
+  # All FOUR header shapes the corpus uses must be parsed. An unparseable header
+  # degrades to a WARN, so a parser that stops recognizing one of these is a
+  # silent hole in the gate rather than a visible failure.
+  d="$st_tmp/proposed-block"; st_src "$d" 9999
+  st_adr "$d" 9999 '## Status
+Proposed'
+  st_probe "Proposed ADR cited from source — '## Status' block header" expect-fail "$d"
+
+  d="$st_tmp/proposed-inline"; st_src "$d" 9999
+  st_adr "$d" 9999 '## Status: Proposed'
+  st_probe "Proposed ADR cited from source — '## Status:' inline header" expect-fail "$d"
+
+  d="$st_tmp/proposed-bullet"; st_src "$d" 9999
+  st_adr "$d" 9999 '- **Status:** Proposed'
+  st_probe "Proposed ADR cited from source — bullet front-matter header" expect-fail "$d"
+
+  d="$st_tmp/proposed-bold"; st_src "$d" 9999
+  st_adr "$d" 9999 '**Status:** Proposed'
+  st_probe "Proposed ADR cited from source — bold inline header" expect-fail "$d"
+
+  # The documented non-failure: a citation pointing at no ADR is a broken
+  # reference, a different defect from status drift, and is WARNed not failed.
+  # Asserting it keeps a future "tighten the gate" from changing the contract by
+  # accident rather than on purpose.
+  d="$st_tmp/unresolved"; st_src "$d" 9999
+  st_probe "ADR-9999 cited with no ADR file (unresolved reference, WARN only)" expect-pass "$d"
+
+  # The escape hatch has to hold too, or the gate becomes noisy enough to get
+  # disabled — which is how the protection is really lost.
+  d="$st_tmp/allowlisted"; st_src "$d" 0096
+  st_adr "$d" 0096 '## Status
+Proposed'
+  st_probe "Proposed ADR cited but present in ADR_STATUS_ALLOWLIST (0096)" expect-pass "$d"
+
+  # --- Part 2: the published index must not misstate the corpus statistics. --
+  # Two ADRs (0001, 0003) spanning 0001-0003 → 1 unused number in 1 gap range.
+  st_stats_tree() { # <root>
+    st_src "$1" 0001
+    st_adr "$1" 0001 '## Status
+Accepted'
+    st_adr "$1" 0003 '## Status
+Accepted'
+  }
+
+  d="$st_tmp/stats-ok"; st_stats_tree "$d"
+  st_index "$d" 'The corpus holds 2 numbered ADRs spanning 0001-0003; 1 numbers are unused across 1 gap ranges.'
+  st_probe "index statistics matching the tree" expect-pass "$d"
+
+  d="$st_tmp/stats-stale"; st_stats_tree "$d"
+  st_index "$d" 'The corpus holds 301 numbered ADRs spanning 0001-0003; 1 numbers are unused across 1 gap ranges.'
+  st_probe "index quoting a stale ADR count" expect-fail "$d"
+
+  d="$st_tmp/stats-nospan"; st_stats_tree "$d"
+  st_index "$d" 'The corpus holds 2 numbered ADRs; 1 numbers are unused across 1 gap ranges.'
+  st_probe "index that never states the current ADR span" expect-fail "$d"
+
+  [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
+  exit "$st_rc"
+fi
+
+ROOT="${1:-$REPO_ROOT}"
+
+if [ ! -d "$ROOT" ]; then
+  echo "ERROR: '$ROOT' is not a directory. Run from the repository root." >&2
+  exit 2
+fi
+
+cd "$ROOT"
 
 ADR_DIR="docs/adr"
 
@@ -65,8 +207,7 @@ ADR_STATUS_ALLOWLIST="
 # 313 / 0 — 544 binary notices, ~2170 fake references, and any genuinely broken
 # reference invisible among them (#3178). Listing files first also gives
 # drop_ignored_lines a path to judge, which -ho does not.
-# shellcheck source-path=SCRIPTDIR source=lib/git-ignored.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib/git-ignored.sh"
+# (lib/git-ignored.sh is sourced at the top of this script, before the `cd`.)
 
 CITED="$(
   grep -rlIE 'ADR-[0-9]{4}' packages/*/src 2>/dev/null \

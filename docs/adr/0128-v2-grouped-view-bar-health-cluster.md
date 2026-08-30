@@ -18,6 +18,16 @@ Accepted (2026-06-14)
 > Everything else in §A (visual-only grouping, empty groups render nothing, standalone
 > Overview/Settings, the a11y group structure) is unchanged.
 
+> **§A's `PEOPLE` group superseded by [ADR-0942](0942-project-rail-verb-bands-and-a-workspace-scope-band.md) (2026-08-30, #3135).**
+> The one-item `PEOPLE` group this ADR justified at §A ("keeping the label with one item
+> now is cheaper than re-teaching the IA when a second people-surface lands") is retired:
+> the bet was falsifiable and 14 months on it was falsified — no second people-surface
+> arrived. `Team` moves into a **`WORKSPACE` scope band** alongside `Settings`, which is a
+> different *kind* of band rather than a fourth verb band. ADR-0195's methodology-adaptive
+> amendment above is **retained in full** and is not affected. The rest of §A — visual-only
+> grouping, empty groups rendering nothing, the a11y group structure — is unchanged, except
+> that `Overview` is no longer standalone (it leads `TRACK` as "Dashboard").
+
 ## Context
 
 Epic #1163 (the v2 golden-standard redesign, ADR-0126) replaces the project

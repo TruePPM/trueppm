@@ -567,17 +567,31 @@ def _parse_date(raw: str, order: str) -> date | None:
 
     match = _SLASH_DATE_RE.match(text)
     if match:
-        if order == "iso":
-            return None
-        a, b, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
-        if year < 100:
-            year += 2000 if year < 70 else 1900
-        day, month = (a, b) if order == "dmy" else (b, a)
-        try:
-            return date(year, month, day)
-        except ValueError:
-            return None
+        return _slash_date(match, order)
+    return _formatted_date(text)
 
+
+def _slash_date(match: re.Match[str], order: str) -> date | None:
+    """Read a ``a/b/yyyy`` cell under a settled ``mdy``/``dmy`` order.
+
+    Under ``iso`` this returns ``None`` rather than guessing: an operator who
+    asserts ISO has ruled out the slash convention, so such a row is malformed
+    and should be reported as such.
+    """
+    if order == "iso":
+        return None
+    a, b, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    if year < 100:
+        year += 2000 if year < 70 else 1900
+    day, month = (a, b) if order == "dmy" else (b, a)
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _formatted_date(text: str) -> date | None:
+    """Read a cell against each known non-slash format in turn."""
     # Excel sometimes hands back a full timestamp for a date-formatted cell.
     text = text.split("T")[0].split(" 00:00:00")[0]
     for fmt in _DATE_FORMATS:
@@ -585,6 +599,44 @@ def _parse_date(raw: str, order: str) -> date | None:
             return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
+    return None
+
+
+def _decimal_mark(digits: str) -> str | None:
+    """Which mark in ``digits`` is the decimal separator, or ``None`` for neither.
+
+    Both ``.`` and ``,`` group as well as separate, so a bare
+    ``str.replace(",", ".")`` corrupts one convention to fix the other. The rules:
+
+    - **Both marks present** — the *last* is the decimal mark. Unambiguous in
+      every locale: ``1.234,56`` and ``1,234.56`` both mean 1234.56.
+    - **One mark, repeated** — grouping. ``1.234.567`` is not a number with two
+      decimal points.
+    - **One comma, exactly three trailing digits, integer part not a bare zero**
+      — grouping. ``1,500`` reads as fifteen hundred. The leading-zero carve-out
+      matters: ``0,500`` is not ambiguous, because no locale writes five hundred
+      with a leading zero, so it can only be a decimal mark. Without it a German
+      3-decimal column turned a half-day task into a 500-day one.
+    - **One period, exactly three trailing digits** — decimal, so ``1.500`` stays
+      1.5. The asymmetry with the comma rule is the point: every previously
+      correct US file keeps parsing identically, so fixing the European case
+      regresses nothing.
+    - **Any other single mark** — decimal. ``3,5`` is three and a half.
+    """
+    dots = digits.count(".")
+    commas = digits.count(",")
+    if dots and commas:
+        return "." if digits.rindex(".") > digits.rindex(",") else ","
+    if dots > 1 or commas > 1:
+        return None
+    if commas == 1:
+        integer_part, fraction_part = digits.split(",")
+        # A three-digit tail reads as thousands grouping — unless the integer part
+        # is a bare zero, in which case grouping is impossible and it is a decimal.
+        groups_thousands = len(fraction_part) == 3 and integer_part.lstrip("0") != ""
+        return None if groups_thousands else ","
+    if dots == 1:
+        return "."
     return None
 
 
@@ -629,24 +681,7 @@ def _parse_decimal(text: str) -> tuple[float, bool] | None:
     token = match.group(0).rstrip(".,")
     negative = token.startswith("-")
     digits = token.lstrip("-")
-    dots = digits.count(".")
-    commas = digits.count(",")
-
-    decimal_mark: str | None
-    if dots and commas:
-        decimal_mark = "." if digits.rindex(".") > digits.rindex(",") else ","
-    elif dots > 1 or commas > 1:
-        decimal_mark = None
-    elif commas == 1:
-        integer_part, fraction_part = digits.split(",")
-        # A three-digit tail reads as thousands grouping — unless the integer part
-        # is a bare zero, in which case grouping is impossible and it is a decimal.
-        groups_thousands = len(fraction_part) == 3 and integer_part.lstrip("0") != ""
-        decimal_mark = None if groups_thousands else ","
-    elif dots == 1:
-        decimal_mark = "."
-    else:
-        decimal_mark = None
+    decimal_mark = _decimal_mark(digits)
 
     if decimal_mark is None:
         normalized = digits.replace(".", "").replace(",", "")
@@ -974,6 +1009,11 @@ def _build_tasks(
     _build_date_preview(result, data_rows, by_field, order)
 
 
+def _optional_index(by_field: dict[str, list[int]], field: str) -> int | None:
+    """Column index for ``field``, or ``None`` when the mapping has no such column."""
+    return _one(by_field, field) if field in by_field else None
+
+
 def _build_date_preview(
     result: ParseResult,
     data_rows: list[list[Any]],
@@ -989,32 +1029,42 @@ def _build_date_preview(
     """
     if not result.date_order.has_date_columns:
         return
-    start_idx = _one(by_field, "planned_start") if "planned_start" in by_field else None
-    finish_idx = _one(by_field, "planned_finish") if "planned_finish" in by_field else None
-    name_idx = _one(by_field, "name") if "name" in by_field else None
+    start_idx = _optional_index(by_field, "planned_start")
+    finish_idx = _optional_index(by_field, "planned_finish")
+    name_idx = _optional_index(by_field, "name")
 
-    rows: list[dict[str, Any]] = []
-    for offset, row in enumerate(data_rows[:SAMPLE_ROW_COUNT]):
-        raw_start = _cell(row, start_idx).strip() if start_idx is not None else ""
-        raw_finish = _cell(row, finish_idx).strip() if finish_idx is not None else ""
-        start = _parse_date(raw_start, order) if raw_start else None
-        finish = _parse_date(raw_finish, order) if raw_finish else None
-        rows.append(
-            {
-                "row": offset + 2,
-                "name": _cell(row, name_idx).strip() if name_idx is not None else "",
-                "raw_start": raw_start,
-                "raw_finish": raw_finish,
-                "start": start.isoformat() if start else None,
-                "finish": finish.isoformat() if finish else None,
-                # Inclusive of both endpoints, matching _apply_derived_duration.
-                "duration_days": (finish - start).days + 1 if start and finish else None,
-                # A cell that was present and would not parse — the state the
-                # "{k} of {n} rows cannot be read as {order}" copy counts.
-                "unreadable": bool((raw_start and not start) or (raw_finish and not finish)),
-            }
-        )
-    result.date_preview = rows
+    result.date_preview = [
+        _preview_row(row, offset, start_idx, finish_idx, name_idx, order)
+        for offset, row in enumerate(data_rows[:SAMPLE_ROW_COUNT])
+    ]
+
+
+def _preview_row(
+    row: list[Any],
+    offset: int,
+    start_idx: int | None,
+    finish_idx: int | None,
+    name_idx: int | None,
+    order: str,
+) -> dict[str, Any]:
+    """One rendered preview row, exactly as the wizard's table shows it."""
+    raw_start = _cell(row, start_idx).strip() if start_idx is not None else ""
+    raw_finish = _cell(row, finish_idx).strip() if finish_idx is not None else ""
+    start = _parse_date(raw_start, order) if raw_start else None
+    finish = _parse_date(raw_finish, order) if raw_finish else None
+    return {
+        "row": offset + 2,
+        "name": _cell(row, name_idx).strip() if name_idx is not None else "",
+        "raw_start": raw_start,
+        "raw_finish": raw_finish,
+        "start": start.isoformat() if start else None,
+        "finish": finish.isoformat() if finish else None,
+        # Inclusive of both endpoints, matching _apply_derived_duration.
+        "duration_days": (finish - start).days + 1 if start and finish else None,
+        # A cell that was present and would not parse — the state the
+        # "{k} of {n} rows cannot be read as {order}" copy counts.
+        "unreadable": bool((raw_start and not start) or (raw_finish and not finish)),
+    }
 
 
 # --- Import review branch (#2732) ----------------------------------------
@@ -1253,29 +1303,47 @@ def _reading(
     matched, failed = _tally(cells, order)
     reading = DateReading(order=order, values_matched=matched, values_failed=failed)
 
-    start_idx = _one(by_field, "planned_start") if "planned_start" in by_field else None
-    finish_idx = _one(by_field, "planned_finish") if "planned_finish" in by_field else None
-    name_idx = _one(by_field, "name") if "name" in by_field else None
+    start_idx = _optional_index(by_field, "planned_start")
+    finish_idx = _optional_index(by_field, "planned_finish")
+    name_idx = _optional_index(by_field, "name")
 
     for offset, row in enumerate(data_rows):
         raws = [_cell(row, i) for i in (start_idx, finish_idx) if i is not None]
         if any(raw.strip() and _parse_date(raw, order) is None for raw in raws):
             reading.rows_unparseable += 1
-        if reading.sample_row is not None:
-            continue
-        start = _parse_date(_cell(row, start_idx), order) if start_idx is not None else None
-        finish = _parse_date(_cell(row, finish_idx), order) if finish_idx is not None else None
-        if start and finish:
-            reading.sample_row = offset + 2
-            reading.sample_name = _cell(row, name_idx).strip() if name_idx is not None else ""
-            reading.sample_raw_start = _cell(row, start_idx).strip()
-            reading.start = start.isoformat()
-            reading.finish = finish.isoformat()
-            # Inclusive of both endpoints, matching _apply_derived_duration —
-            # the comparison is worthless if it disagrees with the duration the
-            # import will actually write.
-            reading.duration_days = (finish - start).days + 1
+        if reading.sample_row is None:
+            _capture_sample(reading, row, offset, start_idx, finish_idx, name_idx, order)
     return reading
+
+
+def _capture_sample(
+    reading: DateReading,
+    row: list[Any],
+    offset: int,
+    start_idx: int | None,
+    finish_idx: int | None,
+    name_idx: int | None,
+    order: str,
+) -> None:
+    """Record this row as the worked example, if it has both ends under ``order``.
+
+    A no-op unless the row parses to both a start and a finish: a duration is the
+    only rendering of the choice that is self-evidently right or wrong to a
+    reader, so a half-parsed row is not worth showing.
+    """
+    start = _parse_date(_cell(row, start_idx), order) if start_idx is not None else None
+    finish = _parse_date(_cell(row, finish_idx), order) if finish_idx is not None else None
+    if not (start and finish):
+        return
+    reading.sample_row = offset + 2
+    reading.sample_name = _cell(row, name_idx).strip() if name_idx is not None else ""
+    reading.sample_raw_start = _cell(row, start_idx).strip()
+    reading.start = start.isoformat()
+    reading.finish = finish.isoformat()
+    # Inclusive of both endpoints, matching _apply_derived_duration — the
+    # comparison is worthless if it disagrees with the duration the import will
+    # actually write.
+    reading.duration_days = (finish - start).days + 1
 
 
 def _build_task(

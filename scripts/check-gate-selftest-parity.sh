@@ -50,12 +50,6 @@ CI_FILE="${CI_FILE_OVERRIDE:-.gitlab-ci.yml}"
 OPT_OUT="
 check-issue-boundary.sh	EXTERNAL: input is the GitLab tracker's issue labels, not the repo — a fixture cannot represent a violation
 check-release-images.sh	EXTERNAL: queries the container registry for published release images; covered by scripts/tests/check-release-images.test.sh
-check-extension-signals.sh	PENDING (#3195): hand-verified — a bare Signal().send() is detected
-check-adr-status.sh	PENDING (#3195): hand-verified — an ADR-9999 reference is reported unresolved
-check-design-system-v2.sh	PENDING (#3195): hand-verified — a raw hex literal and an off-token shadow are detected
-check-e2e-catchall.sh	PENDING (#3195): hand-verified — a spec mocking the API without the catch-all is detected
-check-migration-numbering.py	PENDING (#3195): hand-verified — a duplicate migration number is detected
-check-boundary-doc-command.sh	PENDING (#3195): hand-verified — a doc instructing the stale boundary grep is detected
 "
 
 opt_out_reason() {

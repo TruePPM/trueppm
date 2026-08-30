@@ -708,6 +708,9 @@ boundary:imports:
     # The documentation half (#2859): a doc that tells a contributor to verify
     # the boundary with the naive grep reports the invariant as broken on a
     # clean tree. Same job — both halves guard the same rule and both are ~1s.
+    # Same reasoning as the import half above: prove the doc check can still
+    # fail before trusting that it passed (#3195).
+    - bash scripts/check-boundary-doc-command.sh --self-test
     - bash scripts/check-boundary-doc-command.sh
 
 suppressions:check:
@@ -868,6 +871,9 @@ lint:design-system-v2:
   before_script:
     - apk add --no-cache bash grep
   script:
+    # Self-test FIRST: the DS-v2 ratchet's matcher also sees quoted issue refs as
+    # hex, so both the detection and its carve-out have to be proven live (#3195).
+    - bash scripts/check-design-system-v2.sh --self-test
     - bash scripts/check-design-system-v2.sh
 
 lint:dropdown-scroll:
@@ -908,6 +914,10 @@ lint:e2e-catchall:
   before_script:
     - apk add --no-cache bash grep
   script:
+    # Self-test FIRST: a spec that mocks the API without the catch-all reads as
+    # an environmental flake months later, so a green run here has to be backed
+    # by proof the gate can still reject one (#3195).
+    - bash scripts/check-e2e-catchall.sh --self-test
     - bash scripts/check-e2e-catchall.sh
 
 lint:adr-collisions:
@@ -1143,6 +1153,9 @@ docs:adr-status:
   before_script:
     - apk add --no-cache bash grep sed findutils python3
   script:
+    # Self-test FIRST: this gate polices ADR status AND the index statistics that
+    # every ADR-adding branch perturbs, so a silent pass is costly (#3195).
+    - bash scripts/check-adr-status.sh --self-test
     - bash scripts/check-adr-status.sh
 
 security:demo-nginx-allowlist:
@@ -1531,6 +1544,10 @@ api:extension-signals:
   before_script:
     - apk add --no-cache bash grep sed
   script:
+    # Self-test FIRST: a bare Signal().send() lets an enterprise receiver's
+    # exception break the OSS write path that fired it. Prove the gate still
+    # catches one before believing it found none (#3195).
+    - bash scripts/check-extension-signals.sh --self-test
     - bash scripts/check-extension-signals.sh
 
 demo:readonly-posture:
@@ -2606,6 +2623,10 @@ api:migration-numbering:
   script:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - git fetch origin "$CI_DEFAULT_BRANCH" --quiet
+    # Self-test FIRST: a duplicate migration number exists only on the merged
+    # tree, so both branches stay green alone and this job is the one place it
+    # can surface. Prove it can still reject one (#3195).
+    - python3 scripts/check-migration-numbering.py --self-test
     - python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
 
 api:migration-constraint-safety:
