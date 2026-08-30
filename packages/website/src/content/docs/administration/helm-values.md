@@ -344,7 +344,7 @@ alone, at boot.
 | `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap (needs a Grafana sidecar watching for the label below). |
 | `dashboards.label` / `labelValue` | `grafana_dashboard` / `"1"` | Label key/value your Grafana sidecar watches for auto-import. Defaults match the upstream kube-prometheus-stack sidecar convention. |
 | `dashboards.annotations` | `{}` | Extra annotations on the dashboard ConfigMap. |
-| `alerts.enabled` | `false` | Ship starter PrometheusRule alerts (**requires the Prometheus Operator CRDs**) covering beat staleness, outbox depth/age, and dead-letter. Thresholds tunable under `alerts.thresholds` below. |
+| `alerts.enabled` | `false` | Ship starter PrometheusRule alerts (**requires the Prometheus Operator CRDs**) covering beat staleness, outbox depth/age, dead-letter, outbound email, backups, and volume capacity. Thresholds tunable under `alerts.thresholds` below. |
 | `alerts.labels` | `{}` | Extra labels stamped on the PrometheusRule, e.g. `release: kube-prometheus-stack` so the operator's `ruleSelector` picks it up. |
 | `alerts.thresholds.beatStaleFor` | `2m` | How long the Beat heartbeat must read stale (via the `/api/v1/health/beat/` Blackbox probe) before the alert fires. |
 | `alerts.thresholds.outboxDepth` | `500` | Outbox row-count threshold that starts the `outboxDepthFor` clock. |
@@ -353,6 +353,12 @@ alone, at boot.
 | `alerts.thresholds.outboxOldestAgeFor` | `10m` | How long `outboxOldestAgeSeconds` must stay breached before the alert fires. |
 | `alerts.thresholds.deadLetter` | `0` | Dead-letter gauge value that starts the `deadLetterFor` clock — any dead-lettered message is worth alerting on. |
 | `alerts.thresholds.deadLetterFor` | `5m` | How long the dead-letter gauge must stay above `deadLetter` before the alert fires. |
+| `alerts.thresholds.backup.jobFailedFor` | `5m` | How long a failed backup Job must persist before `TruePPMBackupJobFailed` fires. Rendered only when `backup.enabled`. |
+| `alerts.thresholds.backup.staleAfterSeconds` | `172800` | Age (seconds) of the last **successful** backup that fires `TruePPMBackupStale`. 48h = 2x the default daily schedule, so one missed run is tolerated and two are not. **Raise this if you lengthen `backup.schedule`** — a weekly schedule under a 48h window alerts every week by construction. |
+| `alerts.thresholds.backup.staleFor` | `30m` | How long `staleAfterSeconds` must stay breached before the alert fires. |
+| `alerts.thresholds.backup.neverSucceededFor` | `26h` | How long the "no successful backup has ever been recorded" condition must hold before `TruePPMBackupNeverSucceeded` fires. Must exceed one full schedule period plus slack, or a fresh install alerts before its first scheduled run. |
+| `alerts.thresholds.volumeAvailablePercent` | `15` | Free-space percentage below which `TruePPMVolumeFillingUp` starts its clock, for **every** claim in the namespace — database, Valkey, backups, media. |
+| `alerts.thresholds.volumeAvailableFor` | `15m` | How long a volume must stay below `volumeAvailablePercent` before the alert fires. |
 | `otelCollector.enabled` | `false` | Documentation-only reminder — the chart bundles no Collector; deploy one as a sibling release. |
 
 ## `helm test`
@@ -368,6 +374,26 @@ Off by default — a backup CronJob needs a durable destination, so you turn it 
 deliberately. This is logical backup only (`pg_dump`); see [Backup &
 Restore](/administration/backup-restore/) for the full runbook.
 
+:::caution[`backup.enabled` alone is not a backup]
+Setting `backup.enabled=true` without a destination used to render a CronJob
+whose `backups` volume was an `emptyDir`: the Job dumped, exited 0, the artifact
+died with the pod, and the CronJob reported success forever. From 0.4 the chart
+**refuses to render** that combination. Pick one:
+
+- `backup.persistence.enabled=true` — a chart-managed PVC
+- `backup.persistence.existingClaim` — a claim you manage
+- `backup.s3.enabled=true` — an off-cluster bucket
+- `backup.extraVolumes` **together with** `backup.mediaDir` — your own volume.
+  Both are required: `extraVolumes` is ignored unless `mediaDir` is set, so
+  `extraVolumes` alone silently falls back to the `emptyDir` this guard exists
+  to prevent.
+
+Enabling backups is also what renders the `TruePPMBackupJobFailed`,
+`TruePPMBackupStale`, and `TruePPMBackupNeverSucceeded` alerts (with
+`alerts.enabled=true`) — a scheduled backup nobody is alerting on is the same
+silent failure one step later.
+:::
+
 | Key | Default | What it does |
 |---|---|---|
 | `backup.enabled` | `false` | Enable the backup CronJob. |
@@ -375,7 +401,7 @@ Restore](/administration/backup-restore/) for the full runbook.
 | `backup.image` | `postgres:16-alpine` | Client-capable image carrying `pg_dump`/`psql` (the lean app image has no client binaries). |
 | `backup.outputDir` | `/backups` | In-container artifact path (the mounted volume when persistence is on). |
 | `backup.mediaDir` | `""` | Include a local media/attachment PVC in the artifact. Leave empty when attachments live in object storage. |
-| `backup.keepDaily` / `keepWeekly` | `7` / `4` | `keepDaily` is enforced in-job; `keepWeekly` is advisory for an external lifecycle policy. |
+| `backup.keepDaily` / `keepWeekly` | `7` / `4` | `keepDaily` is enforced in-job. **`keepWeekly` is read by no template** — nothing promotes dailies to weeklies. It exists as the documented place to record the weekly retention your object store's lifecycle policy enforces, next to the schedule it belongs to; changing it changes nothing on the cluster. |
 | `backup.persistence.*` | disabled, `10Gi` RWO | Chart-managed PVC destination. |
 | `backup.s3.*` | disabled | S3-compatible off-cluster destination; the secret **must** come from a Kubernetes Secret via `existingSecret`. |
 | `backup.extraVolumes` / `extraVolumeMounts` | `[]` | Mount your media PVC read-only when `mediaDir` is set. |

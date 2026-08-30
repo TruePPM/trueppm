@@ -150,6 +150,19 @@ password copy) and writes a single timestamped artifact to `backup.outputDir`,
 pruning that directory to `backup.keepDaily`. It is **off by default** so enabling it
 never creates a PersistentVolumeClaim you did not ask for.
 
+**A destination is required.** With none, `backup.outputDir` was backed by an
+`emptyDir`: the Job dumped, exited 0, the artifact died with the pod, and the
+CronJob reported success forever. The chart now refuses to render that — set one
+of `backup.persistence.enabled`, `backup.persistence.existingClaim`,
+`backup.s3.enabled`, or `backup.extraVolumes` **together with**
+`backup.mediaDir` (`extraVolumes` is ignored unless `mediaDir` is set, so alone
+it silently falls back to the `emptyDir`).
+
+The CronJob runs an **inlined command**, not `scripts/backup.sh` — the lean
+application image carries no `pg_dump`. Both producers write the same `MANIFEST`
+field set and `restore.sh` consumes either artifact; `run_context` says which
+one you are holding.
+
 Adding `backup.s3.enabled=true` uploads each artifact off-cluster. The job then runs
 in two phases — an initContainer dumps (it needs `pg_dump`, so it uses the PostgreSQL
 image) and the main container uploads (it needs an S3 client, so it uses
