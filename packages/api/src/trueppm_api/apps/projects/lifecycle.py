@@ -39,6 +39,68 @@ committed yet" from "does not exist" and has no way to debug the difference.
 ``lifecycle`` is returned as an ordinary field instead, so a client can filter on
 a stated fact. Filtering is something a caller can do; recovering from silence is
 not.
+
+**Two more surfaces are deliberately NOT on this list** (#3144). The #3128 audit
+found both leaking and left both, because filtering them is a decision about
+people and about their own files rather than a correctness fix about plans. Both
+decisions are KEEP, and the reasoning is recorded here so the next audit reads it
+instead of re-deriving it.
+
+*The mention fan-out* (``access.groups._program_membership_base_qs``). The
+strongest reason is structural rather than a values call. That queryset is the
+one base **all four** ``@program-*`` keys narrow, and its own docstring forbids a
+per-key filter. So a draft exclusion has no legal placement: written where it
+belongs it also drops the draft's Admin out of ``@program-pms`` and its Scheduler
+out of ``@program-schedulers`` — the people *authoring the draft*, cut out of
+program-wide coordination — and written per key it breaks the invariant the
+helper was extracted to hold. The values argument agrees: draft-ness is a
+property of the plan someone was added to, not of their standing in the program,
+and the failure mode of dropping them is silence neither they nor the sender can
+see, exactly as for the MCP surface above. Two further consequences, both
+deliberate:
+
+* ``@program-stakeholders`` has a second arm. ``ExternalStakeholder`` is
+  program-owned with **no project FK**, so no project-level narrowing can reach
+  it. Excluding the internal arm would report ``viewer_member_count: 0`` beside a
+  non-zero external count on a program whose projects are all drafts — an
+  incoherence between the arms that does not exist today.
+* A mention *written in* a draft project still fans out program-wide. That is the
+  other leak direction, and it is kept too: #3128's three notification sites were
+  unattended machine sweeps over a project population, whereas a PM typing
+  ``@program-stakeholders`` into a draft is deliberately asking for review, which
+  is what a draft is for.
+
+The cost of keeping, named so a later report traces here: draft memberships
+consume ``@program-all``'s ``ALL_GROUP_HARD_CAP`` slots, so enough drafts can trip
+``GroupTooLargeError`` on the strength of plans nobody committed to. Accepted —
+the cap is a blast-radius guard over real people, who are genuinely reached.
+
+Keeping also holds ``count_program_stakeholder_reach`` in lockstep with the
+resolver (ADR-0697) for free: the count and the fan-out cannot drift if neither
+moves. The program-settings docs say the alias reaches "members holding the Viewer
+role on any project inside the program", which stays true under KEEP; that
+sentence becomes wrong, and must gain the gap, only if this decision flips.
+
+*The cross-project asset feeds* (``projects.asset_feed``, behind
+``GET /programs/{pk}/assets/`` and ``GET /assets/``) are the member's own browse
+list, which this module exempts, at two scopes — the workspace view is literally
+the program view with the ``project__program=`` clause dropped, and both narrow to
+the caller's own ``ProjectMembership``. ``?q=`` makes them look like the
+omni-search palette this list does name, but the line under omni-search and the
+dependency picker is that a returned row is *acted on across a boundary*: the
+palette navigates into a project, the picker mints an edge that moves a real
+project's dates. Nothing downstream of an asset row changes a schedule, and the
+feed emits no count, health band or ranking that an exclusion would make truer.
+What exclusion would produce instead is a visibility discontinuity at the commit
+moment: a file you attached to your own draft disappears from the surface built to
+find it and returns when somebody else commits the plan.
+
+``GET /assets/`` is additionally a declared MCP read surface
+(``McpReadableViewMixin``), which the paragraph above exempts outright; note this
+covers only the workspace tier — ``ProgramAssetsView`` is not MCP-readable, and
+the browse-list argument is what carries it. An operator who wants a project out
+of an agent's index already has ``mcp_settings.mcp_excluded_project_ids``, a
+stated and auditable lever orthogonal to lifecycle.
 """
 
 from __future__ import annotations
@@ -55,10 +117,12 @@ _M = TypeVar("_M", bound=Model)
 def visible_projects(qs: QuerySet[Project]) -> QuerySet[Project]:
     """Drop drafts from an aggregate.
 
-    Apply to any queryset feeding a rollup, a health figure, a search result or
-    a notification fan-out. Do **not** apply it to a direct read of one project
-    by id, to the project list a member browses, or to the MCP read surface —
-    a draft is not a secret, it is merely uncommitted.
+    Apply to any queryset feeding a rollup, a health figure, a search result or an
+    **unattended** notification fan-out over a project population. Do **not** apply
+    it to a direct read of one project by id, to the project list a member browses,
+    to the MCP read surface, or to a mention resolver, where a human named the
+    audience at write time (#3144) — a draft is not a secret, it is merely
+    uncommitted.
     """
     return qs.exclude(lifecycle=ProjectLifecycle.DRAFT)
 
