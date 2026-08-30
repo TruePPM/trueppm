@@ -1661,6 +1661,78 @@ describe('ScheduleView — phase-in-waiting after #2955', () => {
   });
 });
 
+describe('ScheduleView — the phase-in-waiting cleanup waits for an answer (#3213)', () => {
+  const KEY = 'trueppm.schedule.phaseInWaiting.project-1';
+
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it('keeps the persisted set while the tasks query has not answered', () => {
+    // The regression: `allTasks` is `rawTasks ?? []`, so "not loaded yet" and "loaded,
+    // and empty" arrive at the cleanup effect as the same value. The effect runs on the
+    // first commit — before the query settles — finds no task for the remembered id,
+    // and deletes it. The persist effect then writes the emptied set back to
+    // sessionStorage, which is what makes the loss permanent: the re-run once tasks
+    // arrive sees `size === 0` and returns early, so nothing restores it.
+    window.sessionStorage.setItem(KEY, JSON.stringify(['remembered-phase']));
+    mockTasks = null;
+    mockIsLoading = true;
+
+    renderSchedule();
+
+    // Prove the component actually mounted and ran its effects. Without this the
+    // assertion below is vacuous: a ScheduleView that threw, or never rendered,
+    // would leave the seeded value untouched and pass for the wrong reason.
+    expect(screen.getByLabelText('Loading Schedule')).toBeInTheDocument();
+
+    expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? 'null')).toEqual([
+      'remembered-phase',
+    ]);
+  });
+
+  it('still prunes an id once the answer arrives and the task is genuinely gone', () => {
+    // The other half of the guard: it must delay the cleanup, not disable it. An empty
+    // array from a query that HAS answered is a real answer, and a remembered id with
+    // no task behind it is exactly what this effect exists to drop.
+    window.sessionStorage.setItem(KEY, JSON.stringify(['deleted-phase']));
+    mockTasks = [];
+    mockIsLoading = false;
+
+    renderSchedule();
+
+    expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? 'null')).toEqual([]);
+  });
+
+  it('surfaces a remembered id to the outline once the tasks arrive', () => {
+    window.sessionStorage.setItem(KEY, JSON.stringify(['remembered-phase']));
+    mockTasks = [
+      {
+        ...FIXTURE_TASKS[0],
+        id: 'remembered-phase',
+        name: 'Regulatory approvals',
+        wbs: '9',
+        parentId: null,
+        isSummary: false,
+        isPhase: false,
+        structureRole: 'work',
+      },
+    ];
+    mockIsLoading = false;
+
+    renderSchedule();
+
+    expect(screen.getByTestId('task-list-panel')).toHaveAttribute(
+      'data-phase-in-waiting',
+      'remembered-phase',
+    );
+  });
+});
+
 describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
   it('registers neither chord outside build mode — the selection they act on only exists there', () => {
     mockMobile = true;
