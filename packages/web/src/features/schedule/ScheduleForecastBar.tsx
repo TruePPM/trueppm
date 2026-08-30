@@ -74,7 +74,7 @@ interface ForecastFreshness {
 }
 
 /**
- * Read the server's staleness verdict — it does not compute one (#3140, web rule 356).
+ * Read the server's staleness verdict — it does not compute one (#3140, web rule 359).
  *
  * This used to be a `useState(0)` counter bumped from `useScheduleCommit`'s drag/resize
  * commit, which made "is the forecast stale?" a fact about *this component instance's
