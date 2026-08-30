@@ -1017,6 +1017,34 @@ docs:version-accuracy:
     - bash scripts/check-version-status.sh --self-test
     - bash scripts/remove-ships-in-callouts.sh --self-test
 
+docs:config-links:
+  # Every https://docs.trueppm.com link in the two files an operator actually
+  # edits — packages/helm/values.yaml and .env.example — must resolve to a page
+  # AND an anchor that exist (#3190).
+  #
+  # Those two files carried zero documentation links between them: their only
+  # `https://` strings were example values, and the one pointer that existed was
+  # `Full variable list: docs/administration/configuration.` — no scheme, no
+  # host, and a trailing period that reads as part of the path. From inside a
+  # values file on someone's disk a site-relative path resolves to nothing.
+  #
+  # With forty absolute links the failure mode moves: a link that 404s is worse
+  # than no link, because it looks authoritative. Anchors drift whenever a
+  # heading is reworded, which docs branches do routinely, so this has to be
+  # checked rather than reviewed.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    # BusyBox grep rejects --include/--exclude-dir; this gate uses neither, but
+    # `grep -oh` and `grep -qx` are both POSIX and safe here.
+    - apk add --no-cache bash grep sed
+  script:
+    - bash scripts/check-config-doc-links.sh
+    - bash scripts/check-config-doc-links.sh --self-test
+
 docs:tree-split:
   extends: .fast-job
   # Docs tree-split gate (#2928). Two documentation trees exist and only one is

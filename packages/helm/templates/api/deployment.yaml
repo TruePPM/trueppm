@@ -50,6 +50,13 @@ spec:
           emptyDir: {}
         - name: staticfiles
           emptyDir: {}
+        # The attachment/media claim, when local attachment storage is in use.
+        # Mounted on the init containers too: they import settings.prod, whose
+        # boot guard now probes MEDIA_ROOT for writability (#3184), so an
+        # unmounted migrate container would crash-loop the pod.
+        {{- with (include "trueppm.mediaVolume" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
       initContainers:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
@@ -75,9 +82,13 @@ spec:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
             {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
+            {{- include "trueppm.mediaEnv" . | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- with (include "trueppm.mediaVolumeMount" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
         - name: bootstrap
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -92,6 +103,7 @@ spec:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
             {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
+            {{- include "trueppm.mediaEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
             {{- if .Values.admin.email }}
@@ -103,6 +115,9 @@ spec:
               mountPath: /run/trueppm
             - name: tmp
               mountPath: /tmp
+            {{- with (include "trueppm.mediaVolumeMount" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
         # collectstatic populates the /app/staticfiles emptyDir the api container
         # serves through WhiteNoise (#3183). The image deliberately does NOT bake
         # the output — packages/api/Dockerfile:103 says it "writes here at
@@ -126,11 +141,15 @@ spec:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
             {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
+            {{- include "trueppm.mediaEnv" . | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
             - name: staticfiles
               mountPath: /app/staticfiles
+            {{- with (include "trueppm.mediaVolumeMount" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
@@ -156,6 +175,9 @@ spec:
               mountPath: /tmp
             - name: staticfiles
               mountPath: /app/staticfiles
+            {{- with (include "trueppm.mediaVolumeMount" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
           {{- include "trueppm.preStop" (dict "root" $ "tier" "api") | nindent 10 }}
           {{- if .Values.probes.api.startupEnabled }}
           # Governs the boot window instead of liveness (#3188). While a startup

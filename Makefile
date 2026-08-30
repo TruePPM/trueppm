@@ -363,6 +363,13 @@ version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
 	@# any docs branch can trip this. ~3s, no network.
 	@bash scripts/check-version-status.sh
 
+config-doc-links-check: ## Run the docs:config-links CI job locally (#3190)
+	@# Every https://docs.trueppm.com link in packages/helm/values.yaml and
+	@# .env.example must resolve to a page and anchor that exist. Those two files
+	@# had zero links between them; now that they have forty, a link that 404s is
+	@# worse than none, because it reads as authoritative. <1s, no network.
+	@bash scripts/check-config-doc-links.sh
+
 docs-tree-split-check: ## Run the docs:tree-split CI job locally (#2928)
 	@# No *.md basename may exist in both docs/ and the published website tree,
 	@# and no source pointer may name a docs/<published-tree>/ page that is not
@@ -405,7 +412,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

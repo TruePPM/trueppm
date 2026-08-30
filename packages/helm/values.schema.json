@@ -774,6 +774,42 @@
         }
       }
     },
+    "persistence": {
+      "description": "Persistent storage the application itself writes to. Distinct from backup.persistence, which is the backup job's output volume.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "media": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingClaim": {
+              "type": "string"
+            },
+            "storageClass": {
+              "type": "string"
+            },
+            "accessMode": {
+              "type": "string",
+              "enum": [
+                "ReadWriteOnce",
+                "ReadWriteMany",
+                "ReadWriteOncePod"
+              ]
+            },
+            "size": {
+              "type": "string"
+            },
+            "mountPath": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "observability": {
       "type": "object",
       "additionalProperties": false,
