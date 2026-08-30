@@ -221,8 +221,10 @@ test('add a skill from the resource detail panel', async ({ page }) => {
   await page.getByRole('combobox', { name: /search skills/i }).fill('React');
   await page.getByRole('option', { name: /react/i }).click();
 
-  // The added skill appears as a chip in the Skills list.
-  await expect(page.getByText('React', { exact: true })).toBeVisible();
+  // The added skill appears as a chip in the Skills list, stating the proficiency
+  // that was just chosen — the chip's text is `React` completed by an sr-only
+  // `, Expert` (#3200), so `exact: true` on the bare name no longer matches it.
+  await expect(page.getByTitle('React, Expert')).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
