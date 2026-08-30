@@ -64,7 +64,10 @@ const TIMEZONE_OPTIONS = [
 // `"board"` and the project-view route slugs); the label is display-only. Storing
 // the capitalized label drifted the saved value from the token convention (#2013).
 const DEFAULT_VIEW_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'overview', label: 'Overview' },
+  // Label follows VIEW_TAB_META.overview ("Dashboard", ADR-0942 §7); the stored VALUE
+  // stays the `overview` route token (#2013 — capitalizing the label once drifted the
+  // saved value off the token convention).
+  { value: 'overview', label: 'Dashboard' },
   { value: 'board', label: 'Board' },
   { value: 'schedule', label: 'Schedule' },
   { value: 'wbs', label: 'WBS' },
@@ -473,7 +476,7 @@ export function WorkspaceGeneralPage() {
           help={
             <FieldHelp
               label="Default project view"
-              body="The view a member lands on the first time they open a project — Overview, Board, Schedule, WBS, Table, or Calendar. Each member can still switch views afterward, and their choice is remembered per project."
+              body="The view a member lands on the first time they open a project — Dashboard, Board, Schedule, WBS, Table, or Calendar. Each member can still switch views afterward, and their choice is remembered per project."
               docHref="administration/workspace-settings/"
             />
           }

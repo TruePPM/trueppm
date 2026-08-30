@@ -35,7 +35,6 @@ function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
     landing: { intent: 'my_work', path: '/me/work', resolved_by: 'role_policy' },
     hidden_views: [],
     role_context: 'unified',
-    schedule_in_deliver: false,
     dnd_enabled: false,
     timezone: 'auto',
     date_format: 'auto',

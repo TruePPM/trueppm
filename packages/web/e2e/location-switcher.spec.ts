@@ -168,8 +168,10 @@ test.describe('Top-bar location switcher (#1643)', () => {
 
     // The leaf is a plain aria-current label, never an interactive control.
     const location = page.getByRole('navigation', { name: 'Location' });
-    await expect(location.getByText('Overview')).toHaveAttribute('aria-current', 'page');
-    await expect(location.getByRole('button', { name: 'Overview' })).toHaveCount(0);
+    // The leaf reads through the rail's own `labelFor` seam, so it says "Dashboard"
+    // (ADR-0942 §7) — the wayfinding word and the nav row can never disagree.
+    await expect(location.getByText('Dashboard')).toHaveAttribute('aria-current', 'page');
+    await expect(location.getByRole('button', { name: 'Dashboard' })).toHaveCount(0);
 
     // Open the picker and confirm it lists both member projects.
     await trigger.click();

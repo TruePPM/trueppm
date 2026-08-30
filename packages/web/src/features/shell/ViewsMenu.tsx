@@ -6,11 +6,11 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateHiddenViews } from '@/hooks/useUpdateHiddenViews';
-import { useUpdateScheduleInDeliver } from '@/hooks/useUpdateScheduleInDeliver';
 import {
   groupedVisibleViews,
   surfaceHiddenViews,
-  STANDALONE_LEADING,
+  ALWAYS_ON_VIEW_KEYS,
+  HIDEABLE_VIEW_KEYS,
 } from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import { ROLE_SCHEDULER } from '@/lib/roles';
@@ -141,16 +141,16 @@ const GROUP_HEADER =
  * drawer too (the former `hidden md:block` desktop gate is gone).
  *
  * Only methodology-visible views are toggleable (a view the methodology preset
- * already hides never appears here). Overview is shown as an always-on row with
- * no toggle — the structural guarantee the nav can never be emptied. The hidden
- * set is the per-user global `UserProfile.hidden_views`; toggling PATCHes it with
- * optimistic local state and the rail recomposes on `['current-user']` invalidation.
+ * already hides never appears here), and only views in `HIDEABLE_VIEW_KEYS`.
+ * That second filter is load-bearing since ADR-0942: `overview` and `settings` are
+ * band members now, so listing every band member would offer a toggle whose PATCH the
+ * server rejects with a 400. They render in the always-on section instead — the
+ * structural guarantee the nav can never be emptied. The hidden set is the per-user
+ * global `UserProfile.hidden_views`; toggling PATCHes it with optimistic local state and
+ * the rail recomposes on `['current-user']` invalidation.
  *
- * The menu also carries the Schedule-in-Deliver *placement* opt-in (ADR-0203,
- * #1645): a display-only toggle that *additionally* surfaces Schedule under the
- * Deliver group. It is a placement, not a visibility change (it never hides a
- * view), so it lives in its own "Placement" section and only appears when it can
- * take effect (a Deliver group exists and Schedule is currently shown — HYBRID).
+ * The Schedule-in-Deliver *placement* opt-in this menu used to carry (ADR-0203, #1645) is
+ * retired by ADR-0942 §3 / #3137 — every view now has exactly one home per render.
  */
 export function ViewsMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -164,7 +164,6 @@ export function ViewsMenu() {
   const { user } = useCurrentUser();
   const iteration = useIterationLabel(projectId);
   const update = useUpdateHiddenViews();
-  const updateScheduleInDeliver = useUpdateScheduleInDeliver();
 
   // Optimistic override: while a PATCH is in flight `pending` holds the desired
   // set so the rows flip instantly; it is reconciled to the server value once the
@@ -179,19 +178,6 @@ export function ViewsMenu() {
       setPending(null);
     }
   }, [pending, serverHidden]);
-
-  // Optimistic override for the Schedule-in-Deliver placement opt-in (#1645),
-  // mirroring the `pending` hidden-views pattern: flip instantly, reconcile to the
-  // server value once `['current-user']` catches up, clear on error.
-  const [pendingSchedule, setPendingSchedule] = useState<boolean | null>(null);
-  const serverScheduleInDeliver = user?.schedule_in_deliver ?? false;
-  const scheduleInDeliver = pendingSchedule ?? serverScheduleInDeliver;
-
-  useEffect(() => {
-    if (pendingSchedule !== null && pendingSchedule === serverScheduleInDeliver) {
-      setPendingSchedule(null);
-    }
-  }, [pendingSchedule, serverScheduleInDeliver]);
 
   // Close on Escape; return focus to the trigger.
   useEffect(() => {
@@ -229,8 +215,15 @@ export function ViewsMenu() {
   // the raw per-project override, gates which views appear in the menu.
   const methodology: Methodology = project?.effective_methodology ?? 'HYBRID';
   const methodLabel = methodologyLabel(methodology);
-  const roleAllows = (view: string) =>
-    view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER);
+  // Same two WORKSPACE gates the rail composes with (`useGroupedProjectViews`): Team
+  // behind Scheduler+, Settings behind admin. `settings` never reaches the toggle list
+  // (it is not hideable) but it does reach the always-on list, and a member who cannot
+  // open project Settings must not be told it is "always shown" for them.
+  const roleAllows = (view: string) => {
+    if (view === 'resources') return role !== null && role >= ROLE_SCHEDULER;
+    if (view === 'settings') return user?.can_access_admin_settings !== false;
+    return true;
+  };
 
   // Per-project leaf-surface toggles (ADR-0193, issue 956) are a stronger hide
   // than the per-user preference: a surface the project turned off is not a
@@ -240,34 +233,27 @@ export function ViewsMenu() {
     surfaceHiddenViews(project?.effective_surface_visibility ?? { reporting: true }),
   );
 
-  // The toggleable groups = methodology-visible views, minus the role-gated ones
-  // and the project-surface-hidden ones.
+  // The toggleable bands = methodology-visible views, minus the role-gated ones, the
+  // project-surface-hidden ones, and the always-on ones. `HIDEABLE_VIEW_KEYS` is the
+  // authored vocabulary (ADR-0942 §6), NOT band membership — offering a toggle for
+  // `overview` or `settings` would emit a PATCH the server answers with a 400.
   const groups = groupedVisibleViews(methodology)
     .map((g) => ({
       ...g,
-      visibleViews: g.visibleViews.filter((v) => roleAllows(v) && !surfaceHidden.has(v)),
+      visibleViews: g.visibleViews.filter(
+        (v) => HIDEABLE_VIEW_KEYS.has(v) && roleAllows(v) && !surfaceHidden.has(v),
+      ),
     }))
     .filter((g) => g.visibleViews.length > 0);
 
+  // The always-on rows, in taxonomy order, filtered by the same role gate — a member who
+  // cannot reach project Settings must not be told it is "always shown" for them.
+  const alwaysOnViews = ['overview', 'settings'].filter(
+    (v) => ALWAYS_ON_VIEW_KEYS.has(v) && roleAllows(v),
+  );
+
   const labelFor = (view: string) =>
     view === 'sprints' ? iteration.plural : (VIEW_TAB_META[view]?.label ?? view);
-
-  // Schedule-in-Deliver placement opt-in (#1645) is only offered when it can
-  // actually take effect: a DELIVER group exists AND Schedule is currently visible
-  // (methodology-visible and not personally hidden) — i.e. HYBRID in practice.
-  // Never offer a dead toggle: on WATERFALL (no Deliver group) and AGILE (Schedule
-  // hidden by methodology) the row is absent, matching the composition seam's guard.
-  const hasDeliverGroup = groups.some((g) => g.id === 'DELIVER');
-  const scheduleShown = groups.some((g) => g.visibleViews.includes('schedule'));
-  const canPlaceScheduleInDeliver = hasDeliverGroup && scheduleShown && !hiddenSet.has('schedule');
-
-  function toggleScheduleInDeliver() {
-    const next = !scheduleInDeliver;
-    setPendingSchedule(next);
-    updateScheduleInDeliver.mutate(next, {
-      onError: () => setPendingSchedule(null),
-    });
-  }
 
   function commit(next: string[]) {
     setPending(next);
@@ -326,15 +312,28 @@ export function ViewsMenu() {
             </p>
           </div>
 
-          {/* Always-on Overview — no toggle (the nav can never be emptied). */}
+          {/* Always-on rows — no toggle (the nav can never be emptied). Dashboard is the
+              landing surface; Settings is an admin surface, not a hideable workflow view.
+              Both are band members since ADR-0942 but neither is in HIDEABLE_VIEW_KEYS. */}
           <div className={GROUP_HEADER}>Always on</div>
-          <div className="flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-neutral-text-primary">
-            <OverviewMetaIcon />
-            <span className="flex-1">{VIEW_TAB_META[STANDALONE_LEADING].label}</span>
-            <span className="flex items-center text-neutral-text-secondary" title="Always shown">
-              <PinIcon aria-hidden="true" />
-            </span>
-          </div>
+          {alwaysOnViews.map((view) => {
+            const { Icon } = VIEW_TAB_META[view];
+            return (
+              <div
+                key={view}
+                className="flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-neutral-text-primary"
+              >
+                <Icon className="text-neutral-text-secondary" aria-hidden="true" />
+                <span className="flex-1">{labelFor(view)}</span>
+                <span
+                  className="flex items-center text-neutral-text-secondary"
+                  title="Always shown"
+                >
+                  <PinIcon aria-hidden="true" />
+                </span>
+              </div>
+            );
+          })}
 
           {groups.map((group) => (
             <div key={group.id}>
@@ -373,34 +372,6 @@ export function ViewsMenu() {
             </div>
           ))}
 
-          {/* Placement opt-in (#1645) — additively surface Schedule under Deliver.
-              Distinct from the hide/show list above: this re-groups a view rather
-              than hiding it. Only rendered when it can take effect (HYBRID). */}
-          {canPlaceScheduleInDeliver && (
-            <>
-              <div className={GROUP_HEADER}>Placement</div>
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={scheduleInDeliver}
-                onClick={toggleScheduleInDeliver}
-                className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left hover:bg-chrome-surface-raised focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
-              >
-                <span className="flex-1 text-neutral-text-primary leading-tight">
-                  Also show {labelFor('schedule')} under Deliver
-                  <span className="block text-xs text-neutral-text-secondary">
-                    Keep the plan next to the cadence
-                  </span>
-                </span>
-                {scheduleInDeliver ? (
-                  <EyeIcon className="text-brand-primary" aria-hidden="true" />
-                ) : (
-                  <EyeOffIcon className="text-neutral-text-secondary" aria-hidden="true" />
-                )}
-              </button>
-            </>
-          )}
-
           <div className="mx-4 mt-1 border-t border-neutral-border" aria-hidden="true" />
           <button
             type="button"
@@ -417,10 +388,4 @@ export function ViewsMenu() {
       )}
     </>
   );
-}
-
-// The Overview tab icon (kept local so the row matches the bar's leading tab).
-function OverviewMetaIcon() {
-  const { Icon } = VIEW_TAB_META[STANDALONE_LEADING];
-  return <Icon className="text-neutral-text-secondary" aria-hidden="true" />;
 }

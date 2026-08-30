@@ -42,13 +42,32 @@ describe('useGroupedProjectViews', () => {
     // and assets (ADR-0215) automatically, so no presentation can silently drop them.
     expect(views).toContain('activity');
     expect(views).toContain('assets');
-    // …and the full DELIVER trio + planning + people.
-    expect(views).toEqual(expect.arrayContaining(['schedule', 'grid', 'product-backlog', 'sprints', 'board', 'resources']));
-    // overview / settings are standalone, never inside a group.
-    expect(views).not.toContain('overview');
-    expect(views).not.toContain('settings');
-    expect(result.current.standaloneLeading).toBe('overview');
-    expect(result.current.standaloneTrailing).toBe('settings');
+    // …and the full DELIVER trio + planning + the WORKSPACE scope band.
+    expect(views).toEqual(
+      expect.arrayContaining([
+        'schedule',
+        'grid',
+        'product-backlog',
+        'sprints',
+        'board',
+        'resources',
+      ]),
+    );
+    // ADR-0942 retired the standalone leading/trailing views: `overview` and `settings`
+    // are band members now, so there is no second place a presentation must remember to
+    // look — which is the whole point of this hook (#1642).
+    expect(views).toContain('overview');
+    expect(views).toContain('settings');
+    expect(result.current.groups.map((g) => g.id)).toEqual([
+      'PLAN',
+      'DELIVER',
+      'TRACK',
+      'WORKSPACE',
+    ]);
+    expect(result.current.groups.find((g) => g.id === 'WORKSPACE')?.visibleViews).toEqual([
+      'resources',
+      'settings',
+    ]);
   });
 
   it('reads the SERVER-RESOLVED effective_methodology, not the raw override (rule 196)', () => {
@@ -83,8 +102,63 @@ describe('useGroupedProjectViews', () => {
     mockUseRole.mockReturnValueOnce({ role: 100, isLoading: false }); // MEMBER < SCHEDULER
     const { result } = renderHook(() => useGroupedProjectViews('p1'));
     expect(allViews(result.current.groups)).not.toContain('resources');
-    // The PEOPLE group, now empty, is dropped entirely.
-    expect(result.current.groups.some((g) => g.id === 'PEOPLE')).toBe(false);
+    // The WORKSPACE band survives on Settings alone — a scope band renders with both,
+    // either, or neither member (ADR-0942 §2), and this is the reachable one-member case.
+    expect(result.current.groups.find((g) => g.id === 'WORKSPACE')?.visibleViews).toEqual([
+      'settings',
+    ]);
+  });
+
+  it('gates the Settings view behind admin, and drops the WORKSPACE band when neither member survives', () => {
+    // Both members gated away: a Member (no Scheduler) who also cannot reach project
+    // Settings. The band must vanish entirely — no label, and for a scope band no rule
+    // and no raised ground either (the empty-band rule, ADR-0942 §2).
+    mockUseRole.mockReturnValueOnce({ role: 100, isLoading: false });
+    mockUseCurrentUser.mockReturnValueOnce({
+      user: { hidden_views: [], role_context: 'unified', can_access_admin_settings: false },
+      isLoading: false,
+    });
+    const { result } = renderHook(() => useGroupedProjectViews('p1'));
+    expect(result.current.groups.some((g) => g.id === 'WORKSPACE')).toBe(false);
+    expect(allViews(result.current.groups)).not.toContain('settings');
+  });
+
+  it('keeps Settings visible while the admin signal is still loading (#2033)', () => {
+    // Strict `!== false`: an undefined `can_access_admin_settings` must not flash-hide
+    // the row for an admin whose /auth/me/ has not landed yet.
+    mockUseCurrentUser.mockReturnValueOnce({
+      user: { hidden_views: [], role_context: 'unified' },
+      isLoading: true,
+    });
+    const { result } = renderHook(() => useGroupedProjectViews('p1'));
+    expect(allViews(result.current.groups)).toContain('settings');
+  });
+
+  it('never lets the personal hidden-set empty the rail (ADR-0942 §6)', () => {
+    // Every hideable key hidden at once. Dashboard and Settings remain because they are
+    // always-on, not because they sit outside the bands — they no longer do.
+    mockUseCurrentUser.mockReturnValueOnce({
+      user: {
+        hidden_views: [
+          'schedule',
+          'grid',
+          'calendar',
+          'product-backlog',
+          'sprints',
+          'board',
+          'today',
+          'risk',
+          'reports',
+          'activity',
+          'assets',
+          'resources',
+        ],
+        role_context: 'unified',
+      },
+      isLoading: false,
+    });
+    const { result } = renderHook(() => useGroupedProjectViews('p1'));
+    expect(allViews(result.current.groups)).toEqual(['overview', 'settings']);
   });
 
   it('labels the Sprints view with the configured iteration plural', () => {
@@ -94,35 +168,24 @@ describe('useGroupedProjectViews', () => {
     expect(result.current.labelFor('assets')).toBe('Assets');
   });
 
-  it('echoes Schedule into DELIVER on HYBRID when the user opts in (#1645)', () => {
+  it('gives Schedule exactly one home — the placement opt-in is retired (#3137)', () => {
+    // ADR-0942 §3: a nav item listed twice is two objects to the person using it. The
+    // `schedule_in_deliver` opt-in (ADR-0203, #1645) that echoed Schedule into DELIVER
+    // while keeping it in PLAN is gone, field and all — a stale profile carrying the key
+    // must change nothing.
     mockUseCurrentUser.mockReturnValueOnce({
       user: { hidden_views: [], role_context: 'unified', schedule_in_deliver: true },
       isLoading: false,
     });
     const { result } = renderHook(() => useGroupedProjectViews('p1'));
-    const plan = result.current.groups.find((g) => g.id === 'PLAN');
-    const deliver = result.current.groups.find((g) => g.id === 'DELIVER');
-    // Schedule stays in Plan AND additionally appears in Deliver — display-only,
-    // routing to the same segment. The sprint trio stays contiguous (append).
-    expect(plan?.visibleViews).toContain('schedule');
-    expect(deliver?.visibleViews).toContain('schedule');
-    expect(deliver?.visibleViews.slice(0, 3)).toEqual(['product-backlog', 'sprints', 'board']);
-  });
-
-  it('does NOT echo Schedule into DELIVER when the opt-in is off (calm default)', () => {
-    // Default mock has no schedule_in_deliver → false.
-    const { result } = renderHook(() => useGroupedProjectViews('p1'));
-    const deliver = result.current.groups.find((g) => g.id === 'DELIVER');
-    expect(deliver?.visibleViews).not.toContain('schedule');
-  });
-
-  it('never resurrects a personally-hidden Schedule via the Deliver opt-in (#1645)', () => {
-    mockUseCurrentUser.mockReturnValueOnce({
-      user: { hidden_views: ['schedule'], role_context: 'unified', schedule_in_deliver: true },
-      isLoading: false,
-    });
-    const { result } = renderHook(() => useGroupedProjectViews('p1'));
-    // Hidden wins: Schedule appears in neither Plan nor Deliver.
-    expect(allViews(result.current.groups)).not.toContain('schedule');
+    const bandsWithSchedule = result.current.groups
+      .filter((g) => g.visibleViews.includes('schedule'))
+      .map((g) => g.id);
+    expect(bandsWithSchedule).toEqual(['PLAN']);
+    expect(result.current.groups.find((g) => g.id === 'DELIVER')?.visibleViews).toEqual([
+      'product-backlog',
+      'sprints',
+      'board',
+    ]);
   });
 });

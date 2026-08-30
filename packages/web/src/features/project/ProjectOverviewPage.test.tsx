@@ -1153,18 +1153,18 @@ describe('zero-task Overview — no empty card (#2733)', () => {
     setupZeroTask();
     renderPage();
 
-    await screen.findByRole('heading', { name: /overview/i });
+    await screen.findByRole('heading', { name: /dashboard/i });
     expect(screen.queryByRole('heading', { name: /add your first task/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add your first task/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /invite teammates/i })).not.toBeInTheDocument();
   });
 
-  it('renders the ordinary Overview body on a zero-task project', async () => {
+  it('renders the ordinary Dashboard body on a zero-task project', async () => {
     // The KPI dashboard is no longer swapped out — a project with no work reads as
     // a plan surface waiting for work, not as a failure state.
     setupZeroTask();
     renderPage();
-    expect(await screen.findByRole('heading', { name: /overview/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /dashboard/i })).toBeInTheDocument();
   });
 });
 

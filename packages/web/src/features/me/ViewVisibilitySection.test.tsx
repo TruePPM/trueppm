@@ -19,13 +19,22 @@ describe('ViewVisibilitySection (ADR-0139)', () => {
     mockUseCurrentUser.mockReturnValue({ user: { hidden_views: [] }, isLoading: false });
   });
 
-  it('lists every hideable view as a switch and Overview as always-on (no switch)', () => {
+  it('lists every hideable view as a switch, and both always-on views without one', () => {
     render(<ViewVisibilitySection />);
-    expect(screen.getByText(/Overview — always shown/i)).toBeInTheDocument();
-    // Switches are shown=on by default.
-    const board = screen.getByRole('switch', { name: /Board — shown/i });
+    // ADR-0942 §6: `overview` (now labelled Dashboard) and `settings` are band members
+    // but not hideable. Offering a switch for either would emit a PATCH the server
+    // rejects with a 400, so they render as static always-on rows.
+    expect(screen.getByText(/^Dashboard — always shown$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Settings — always shown$/)).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /^Dashboard/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /^Settings/ })).not.toBeInTheDocument();
+    // Switches are shown=on by default. `^Board` anchors the name: "Dashboard" contains
+    // "board", so an unanchored /Board/i matches the always-on row too.
+    const board = screen.getByRole('switch', { name: /^Board — shown/i });
     expect(board).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('switch', { name: /Schedule — shown/i })).toBeInTheDocument();
+    // Team stays hideable and stays labelled "Team" — it moved bands, not vocabulary.
+    expect(screen.getByRole('switch', { name: /^Team — shown/i })).toBeInTheDocument();
   });
 
   it('toggling a switch off PATCHes the view into the hidden set', () => {

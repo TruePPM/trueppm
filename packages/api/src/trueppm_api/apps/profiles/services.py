@@ -256,19 +256,22 @@ def get_hidden_views(user: Any) -> list[str]:
     return list(profile.hidden_views) if profile is not None else []
 
 
-def get_profile_prefs(user: Any) -> tuple[str, list[str], str, bool, str, str]:
+def get_profile_prefs(user: Any) -> tuple[str, list[str], str, str, str]:
     """All app preferences in one row read — ``(default_landing, hidden_views,
-    role_context, schedule_in_deliver, timezone, date_format)``.
+    role_context, timezone, date_format)``.
 
-    ``/auth/me/`` surfaces all six fields, so reading them together (one
+    ``/auth/me/`` surfaces all five fields, so reading them together (one
     ``.only()`` query) avoids extra ``UserProfile`` lookups per response. Returns
-    the defaults (``AUTO``, ``[]``, ``UNIFIED``, ``False``, ``"auto"``, ``AUTO``)
-    when the user has no profile row yet — ``role_context`` defaults to the neutral
-    dual-hat lens (#412, ADR-0162), ``schedule_in_deliver`` to off (ADR-0203,
-    #1645), and ``timezone`` / ``date_format`` to the ``"auto"`` sentinel (#1953,
-    ADR-0410) that resolves client-side to the browser's zone/locale — matching the
-    model defaults so an unconfigured user reads as "Unified Today", the calm
-    Schedule-in-Plan-only default, and zero-config browser-local display.
+    the defaults (``AUTO``, ``[]``, ``UNIFIED``, ``"auto"``, ``AUTO``) when the user
+    has no profile row yet — ``role_context`` defaults to the neutral dual-hat lens
+    (#412, ADR-0162), and ``timezone`` / ``date_format`` to the ``"auto"`` sentinel
+    (#1953, ADR-0410) that resolves client-side to the browser's zone/locale —
+    matching the model defaults so an unconfigured user reads as "Unified Today" with
+    zero-config browser-local display.
+
+    ``schedule_in_deliver`` was the fourth element until ADR-0942 §3 / #3137 retired
+    the Schedule-in-Deliver placement preference: every view now has exactly one home
+    per render, so there is nothing left for the flag to place.
     """
 
     profile = (
@@ -277,19 +280,17 @@ def get_profile_prefs(user: Any) -> tuple[str, list[str], str, bool, str, str]:
             "default_landing",
             "hidden_views",
             "role_context",
-            "schedule_in_deliver",
             "timezone",
             "date_format",
         )
         .first()
     )
     if profile is None:
-        return DefaultLanding.AUTO, [], RoleContext.UNIFIED, False, "auto", DateFormat.AUTO
+        return DefaultLanding.AUTO, [], RoleContext.UNIFIED, "auto", DateFormat.AUTO
     return (
         profile.default_landing,
         list(profile.hidden_views),
         profile.role_context,
-        profile.schedule_in_deliver,
         profile.timezone,
         profile.date_format,
     )

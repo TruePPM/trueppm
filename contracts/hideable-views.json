@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "Cross-language contract for the per-user nav customization vocabulary (ADR-0139, ADR-0942 §6).",
+    "",
+    "Before ADR-0942 the web derived its hideable set from band membership",
+    "(`VIEW_GROUPS.flatMap(g => g.views)`) and `apps/profiles/constants.py` asked in prose to",
+    "'keep the two lists in sync'. That derivation is what made the WORKSPACE band a trap: moving",
+    "`settings` into a band would have silently made it user-hideable, which the server rejects",
+    "with a 400 and which would have destroyed the ADR-0030/0139 guarantee that a user's nav can",
+    "never be emptied.",
+    "",
+    "So hideability is now an AUTHORED vocabulary on both sides, and this file is the third",
+    "artifact both sides assert against — a pytest for the server set and a vitest for the web",
+    "set. Drift therefore fails a pipeline in whichever language introduces it, instead of",
+    "surviving a code review.",
+    "",
+    "`hideable` is the set a user may put in `UserProfile.hidden_views`.",
+    "`alwaysOn` is its complement: views that are band members but can never be hidden.",
+    "The two are disjoint and together cover every band member — asserted, not assumed.",
+    "",
+    "Adding a hideable view: add the key here, to `HIDEABLE_VIEW_KEYS` in",
+    "`packages/web/src/features/shell/methodologyTabs.ts`, and to `HIDEABLE_VIEW_KEYS` in",
+    "`packages/api/src/trueppm_api/apps/profiles/constants.py`. Any one of the three alone fails."
+  ],
+  "hideable": [
+    "activity",
+    "assets",
+    "board",
+    "calendar",
+    "grid",
+    "product-backlog",
+    "reports",
+    "resources",
+    "risk",
+    "schedule",
+    "sprints",
+    "today"
+  ],
+  "alwaysOn": ["overview", "settings"]
+}

@@ -27,7 +27,6 @@ function user(timezone: string, dateFormat: string): UserFixture {
     landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
     hidden_views: [],
     role_context: 'unified',
-    schedule_in_deliver: false,
     dnd_enabled: false,
     timezone,
     date_format: dateFormat,

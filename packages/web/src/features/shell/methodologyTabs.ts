@@ -18,6 +18,8 @@ import type { Methodology } from '@/types';
  * | risk            | ✅        | ✅    | ✅     |
  * | reports         | ✅        | ✅    | ✅     |
  * | activity        | ✅        | ✅    | ✅     |
+ * | assets          | ✅        | ✅    | ✅     |
+ * | settings        | ✅        | ✅    | ✅     |
  *
  * `grid` replaces the legacy `wbs` + `list` entries (issue 334). Outline mode
  * inside Grid covers the WBS use case for WATERFALL and HYBRID; Flat mode is
@@ -37,105 +39,149 @@ export function isTabVisibleForMethodology(view: string, methodology: Methodolog
 }
 
 /**
- * v2 grouped view bar (ADR-0128 §A, amended by ADR-0195 and ADR-0203) — the grouping that
- * replaces the flat tab strip. Grouping is **visual only**: the route segments are unchanged
- * (rule 108 / ADR-0030) and the methodology filter above still owns visibility —
- * `groupedVisibleViews` simply applies it *within* each group.
+ * The project rail's view taxonomy (ADR-0942, superseding ADR-0128 §A's `PEOPLE`
+ * group and its standalone leading/trailing views). Grouping is **visual only**:
+ * the route segments are unchanged (rule 108 / ADR-0030) and the methodology filter
+ * above still owns visibility — `groupedVisibleViews` simply applies it *within*
+ * each band.
  *
- * The layout is **methodology-adaptive** (ADR-0195, issue 1466): AGILE and HYBRID surface a
- * dedicated `DELIVER` group co-locating the daily sprint circuit
- * (Backlog → Sprints → Board) as one cognitive object; WATERFALL has no DELIVER group and
- * keeps `board` in TRACK (its kanban-tracking home) exactly as ADR-0128 shipped. `board`
- * is therefore the one view whose group depends on methodology — see `viewGroupsFor`.
+ * Three **verb** bands in lifecycle order plus one **scope** band:
  *
- * The group was named `SPRINT` in ADR-0195; ADR-0203 renamed it to **DELIVER** because the
- * iteration term is configurable (Sprint / Iteration / Cycle / PI, ADR-0111/0116) and lives
- * on the *view*, so a group literally labeled "Sprint" collides with the view inside it and
- * hard-codes agile jargon into a Hybrid workspace. "Deliver" is terminology-neutral and
- * verb-consistent with Plan / Track. The group *label* is always the fixed word "Deliver",
- * never the configurable iteration term (§12 invariant #5).
+ * ```
+ * PLAN       schedule · grid · calendar
+ * DELIVER    product-backlog · sprints · board            (AGILE/HYBRID only)
+ * TRACK      overview · today · risk · reports · activity · assets   (+ board on WATERFALL)
+ * ─────────────────────────────────────────────────────── full-bleed rule
+ * WORKSPACE  resources · settings                          pinned, raised
+ * ```
  *
- * `overview` (orientation landing) and `settings` (admin) stay **standalone** outside
- * the groups — see `STANDALONE_LEADING` / `STANDALONE_TRAILING`.
+ * **Every view is a band member** — `STANDALONE_LEADING` / `STANDALONE_TRAILING` are
+ * retired concepts. `overview` leads TRACK because the landing route leads its own band
+ * and "Overview" named a *position* that is no longer true (ADR-0942 §7/§8); `today`
+ * follows it as the head of the tracking sequence proper (ADR-0180, amended).
+ *
+ * The layout stays **methodology-adaptive** (ADR-0195 §A′, retained in full): AGILE and
+ * HYBRID surface a dedicated `DELIVER` band co-locating the daily sprint circuit
+ * (Backlog → Sprints → Board) as one cognitive object; WATERFALL has no DELIVER band and
+ * keeps `board` in TRACK (its kanban-tracking home). `board` is therefore the one view
+ * whose band depends on methodology — see `viewGroupsFor`. That is not a violation of the
+ * one-home rule: `board` is in exactly one band for any given project, and the rule
+ * forbids two bands *in one render*.
+ *
+ * `calendar` deliberately stays in PLAN. `HIDDEN_FOR_METHODOLOGY` hides only `sprints`
+ * and `product-backlog` on WATERFALL, so `calendar` is visible there — and WATERFALL has
+ * no DELIVER band, so moving `calendar` into DELIVER would delete it from the WATERFALL
+ * rail outright (ADR-0942 §4).
+ *
+ * The DELIVER band's *label* is always the fixed word "Deliver", never the configurable
+ * iteration term (ADR-0203 §12 invariant #5) — a band literally labeled "Sprint" would
+ * collide with the view inside it and hard-code agile jargon into a Hybrid workspace.
  */
-export type ViewGroupId = 'PLAN' | 'DELIVER' | 'TRACK' | 'PEOPLE';
+export type ViewGroupId = 'PLAN' | 'DELIVER' | 'TRACK' | 'WORKSPACE';
+
+/**
+ * What kind of container a band is. Deliberately about the container rather than the
+ * contents (ADR-0942 §2):
+ *
+ * - `verb` — a labelled group inside the rail's scrolling flow.
+ * - `scope` — a container the rail's flow *ends at*: a full-bleed rule, a raised ground,
+ *   and items pinned out of the scrolling sequence.
+ *
+ * Everything else about the two is identical **on purpose** — type, weight, color, height,
+ * icon, active state. The distinction is never carried by contrast, size, weight or
+ * opacity: each of those reads as "less important" in DS v1.0 and three of them read as
+ * "unavailable". WORKSPACE is not less important (a self-hoster lives in Settings in week
+ * one), it is *elsewhere* — so the rail says elsewhere by changing the floor, not by
+ * fading the furniture.
+ */
+export type ViewGroupKind = 'verb' | 'scope';
 
 export interface ViewGroupDef {
   id: ViewGroupId;
-  /** Spelled-out label used for the group's `aria-label` ("Plan views") and the
+  kind: ViewGroupKind;
+  /** Spelled-out label used for the band's `aria-label` ("Plan views") and the
    *  visible mono header ("PLAN", uppercased at render). */
   label: string;
   /** Canonical view keys in display order (before the methodology filter). */
   views: readonly string[];
 }
 
-/** The leading standalone view (no group label) — the orientation landing (ADR-0030). */
-export const STANDALONE_LEADING = 'overview';
-/** The trailing standalone view (no group label) — project admin. */
-export const STANDALONE_TRAILING = 'settings';
-
-/** Methodologies that run a delivery cadence → surface the dedicated `DELIVER` group
- *  (ADR-0195; the group was named `SPRINT` before ADR-0203 renamed it). */
+/** Methodologies that run a delivery cadence → surface the dedicated `DELIVER` band
+ *  (ADR-0195; the band was named `SPRINT` before ADR-0203 renamed it). */
 const DELIVER_METHODOLOGIES: ReadonlySet<Methodology> = new Set(['AGILE', 'HYBRID']);
 
 /**
- * Ordered group → view assignment for a methodology (ADR-0195/ADR-0203, amends ADR-0128 §A).
- * The render order is PLAN · [DELIVER] · TRACK · PEOPLE; `board` lives in DELIVER for
- * cadence-running methodologies and in TRACK for WATERFALL. Every non-standalone view
- * must appear in exactly one group here for the current methodology, or it silently
- * never renders — the `groupedVisibleViews` invariant test guards this.
+ * Ordered band → view assignment for a methodology (ADR-0942, amending ADR-0195/0203 and
+ * superseding ADR-0128 §A). The render order is PLAN · [DELIVER] · TRACK · WORKSPACE;
+ * `board` lives in DELIVER for cadence-running methodologies and in TRACK for WATERFALL.
+ * Every view must appear in exactly one band here for the current methodology, or it
+ * silently never renders — the `groupedVisibleViews` invariant test guards this.
  */
 function viewGroupsFor(methodology: Methodology): readonly ViewGroupDef[] {
   const hasDeliver = DELIVER_METHODOLOGIES.has(methodology);
   return [
-    { id: 'PLAN', label: 'Plan', views: ['schedule', 'grid', 'calendar'] },
+    { id: 'PLAN', kind: 'verb', label: 'Plan', views: ['schedule', 'grid', 'calendar'] },
     // DELIVER — the co-located sprint circuit (ADR-0195, renamed from SPRINT in ADR-0203).
-    // Only for AGILE/HYBRID; on WATERFALL the group is absent (Backlog/Sprints are hidden
+    // Only for AGILE/HYBRID; on WATERFALL the band is absent (Backlog/Sprints are hidden
     // and Board falls to TRACK), so no "Deliver" label ever appears on a schedule-first
     // project. The label is the fixed word "Deliver", never the configurable iteration term.
     ...(hasDeliver
       ? [
           {
             id: 'DELIVER' as const,
+            kind: 'verb' as const,
             label: 'Deliver',
             views: ['product-backlog', 'sprints', 'board'],
           },
         ]
       : []),
-    // `today` leads TRACK — the Unified Today split view (ADR-0180). Visible for every
-    // methodology (the board it embeds already is); it degrades gracefully with no active
-    // sprint. On WATERFALL, `board` trails Today here as the kanban-tracking surface.
+    // `overview` leads TRACK — the landing route leads its own band (ADR-0942 §8), which
+    // also makes the desktop head order match mobile's, where ADR-0196 already fixes
+    // `overview` first and `today` second (the #1324 guarantee). `today` (ADR-0180) is the
+    // head of the tracking sequence proper; it is visible for every methodology (the board
+    // it embeds already is) and degrades gracefully with no active sprint. On WATERFALL,
+    // `board` trails Today here as the kanban-tracking surface.
     {
       id: 'TRACK',
+      kind: 'verb',
       label: 'Track',
       // `assets` (ADR-0215) trails TRACK — the unified reference-material surface
       // (task files + external links), visible for every methodology.
       views: hasDeliver
-        ? ['today', 'risk', 'reports', 'activity', 'assets']
-        : ['today', 'board', 'risk', 'reports', 'activity', 'assets'],
+        ? ['overview', 'today', 'risk', 'reports', 'activity', 'assets']
+        : ['overview', 'today', 'board', 'risk', 'reports', 'activity', 'assets'],
     },
-    { id: 'PEOPLE', label: 'People', views: ['resources'] },
+    // WORKSPACE — the scope band (ADR-0942 §2/§5). Team and Settings answer the same kind
+    // of question ("who and how is this project set up") rather than naming a lifecycle
+    // step, which is why they sit together and outside the verb sequence. Both members are
+    // independently gated — `resources` behind Scheduler+, `settings` behind admin — so the
+    // band can render with both, either, or neither member; the empty-band rule below drops
+    // it entirely when nothing survives, rule and raised ground included.
+    { id: 'WORKSPACE', kind: 'scope', label: 'Workspace', views: ['resources', 'settings'] },
   ];
 }
 
 /**
- * Canonical superset group layout (the HYBRID shape — every group, every view, each view
- * once). Consumed by `HIDEABLE_VIEW_KEYS` and the Customize-views UI, which need the full
- * hideable set regardless of the active methodology. The *rendered* layout is
+ * Canonical superset band layout (the HYBRID shape — every band, every view, each view
+ * once). Consumed by the Customize-views UI, which needs the full view vocabulary
+ * regardless of the active methodology. The *rendered* layout is
  * `groupedVisibleViews(methodology)`; this constant is the union template only.
+ *
+ * Note it is deliberately **not** the source of `HIDEABLE_VIEW_KEYS` any more — see below.
  */
 export const VIEW_GROUPS: readonly ViewGroupDef[] = viewGroupsFor('HYBRID');
 
 export interface VisibleViewGroup extends ViewGroupDef {
-  /** The group's views that survive the methodology filter, in order. */
+  /** The band's views that survive the methodology filter, in order. */
   visibleViews: string[];
 }
 
 /**
- * Apply the methodology visibility matrix to the methodology-adaptive grouped layout.
- * Pure (no role gate — that stays in `ViewTabs`, as today) so it is trivially
- * unit-testable. Groups with no surviving views are dropped so the bar never renders an
- * empty group label (ADR-0128 §A / ADR-0195).
+ * Apply the methodology visibility matrix to the methodology-adaptive band layout.
+ * Pure (no role gate — that stays in `useGroupedProjectViews`) so it is trivially
+ * unit-testable. Bands with no surviving views are dropped so the rail never renders an
+ * empty band label — and, for the scope band, no rule and no raised ground either
+ * (ADR-0128 §A's empty-band rule, applied unchanged by ADR-0942 §2).
  */
 export function groupedVisibleViews(methodology: Methodology): VisibleViewGroup[] {
   return viewGroupsFor(methodology)
@@ -147,57 +193,85 @@ export function groupedVisibleViews(methodology: Methodology): VisibleViewGroup[
 }
 
 /**
- * The set of view keys a user is permitted to hide (ADR-0139). Mirrors the
- * server-side `HIDEABLE_VIEW_KEYS` (profiles/constants.py) — keep the two in
- * sync. `overview` (`STANDALONE_LEADING`) and `settings` (`STANDALONE_TRAILING`)
- * are intentionally absent: Overview is the always-on landing (the structural
- * guarantee the nav can never be emptied) and Settings is an admin surface.
+ * The set of view keys a user is permitted to hide (ADR-0139).
+ *
+ * This is an **authored literal**, not a derivation (ADR-0942 §6). It used to be
+ * `new Set(VIEW_GROUPS.flatMap((g) => g.views))` — hideability fell out of band
+ * membership, and `overview` / `settings` were unhideable purely because they stood
+ * outside every band. ADR-0942 puts both *inside* bands, so under the old derivation they
+ * would have silently become user-hideable: the web vocabulary would diverge from the
+ * server's frozen one, the server would reject the resulting write with a 400, and the
+ * ADR-0030/0139 guarantee that a user's nav can never be emptied would be gone.
+ *
+ * Band membership and hideability are therefore decoupled. Three invariants hold, and are
+ * asserted by `methodologyTabs.test.ts` rather than by this comment:
+ *   1. this set and {@link ALWAYS_ON_VIEW_KEYS} are disjoint;
+ *   2. every band member is in exactly one of them — so a view added to a band can neither
+ *      silently become hideable nor silently become un-customizable;
+ *   3. this set equals the server's `apps/profiles/constants.py` set, via the shared
+ *      `contracts/hideable-views.json` contract that a pytest asserts against too.
  */
-export const HIDEABLE_VIEW_KEYS: ReadonlySet<string> = new Set(VIEW_GROUPS.flatMap((g) => g.views));
+export const HIDEABLE_VIEW_KEYS: ReadonlySet<string> = new Set([
+  // PLAN
+  'schedule',
+  'grid',
+  'calendar',
+  // DELIVER (AGILE/HYBRID) — Backlog · Sprints · Board (ADR-0195)
+  'product-backlog',
+  'sprints',
+  'board',
+  // TRACK
+  'today',
+  'risk',
+  'reports',
+  'activity',
+  'assets',
+  // WORKSPACE
+  'resources',
+]);
 
 /**
- * Compose the per-user hidden-views preference (ADR-0139) on top of the
- * methodology filter, then apply the per-user Schedule-in-Deliver placement
- * opt-in (ADR-0203, #1645). Layering order: methodology preset (here, via
- * `groupedVisibleViews`) → personal hidden-set → Schedule-in-Deliver placement →
- * role gate (in `useGroupedProjectViews`).
+ * The authored complement of {@link HIDEABLE_VIEW_KEYS} — band members a user may never
+ * hide (ADR-0942 §6). `overview` is the always-on landing (ADR-0030): keeping it
+ * unhideable is what guarantees a user's nav can never be emptied. `settings` is an admin
+ * surface, not a hideable workflow view.
  *
- * A view the methodology already hides never reaches the hidden filter, so a user
- * can only hide views that are visible for the current methodology. Groups left
- * empty by the personal filter are dropped (same as the methodology pass) so the
- * bar never renders an empty group label.
+ * These are *not* absent from the server's vocabulary by accident — the server rejects
+ * either key in `hidden_views` with a 400 (`apps/profiles/constants.py`).
+ */
+export const ALWAYS_ON_VIEW_KEYS: ReadonlySet<string> = new Set(['overview', 'settings']);
+
+/**
+ * Compose the per-user hidden-views preference (ADR-0139) on top of the methodology
+ * filter. Layering order: methodology preset (here, via `groupedVisibleViews`) → personal
+ * hidden-set → role gate (in `useGroupedProjectViews`).
  *
- * `scheduleInDeliver` (opt-in, off by default) *additionally* echoes the Schedule
- * view into the DELIVER group so the plan sits next to the cadence. It is a
- * **placement addition, never a visibility change** (§12 invariant #5): it only
- * fires when Schedule is genuinely visible elsewhere (i.e. survives the
- * methodology + hidden filter — HYBRID in practice, since WATERFALL has no DELIVER
- * group and AGILE hides Schedule) and a DELIVER group exists. It therefore never
- * resurrects a methodology- or user-hidden view, and never invents a group. The
- * Schedule key is *appended* after the sprint circuit so Backlog → Sprints → Board
- * stays contiguous (Alex/Jordan's sprint-circuit guardrail). Schedule remains in
- * PLAN too — it now appears in both groups, routing to the same segment. Pure →
+ * A view the methodology already hides never reaches the hidden filter, so a user can only
+ * hide views that are visible for the current methodology. Bands left empty by the
+ * personal filter are dropped (same as the methodology pass) so the rail never renders an
+ * empty band label.
+ *
+ * {@link ALWAYS_ON_VIEW_KEYS} survive the hidden-set unconditionally. The server already
+ * rejects those keys with a 400, so a well-formed profile can never carry them — but the
+ * always-on guarantee is the reason this taxonomy is safe at all, and making it hold
+ * *here*, at the single composition seam, means a stale or hand-crafted `hidden_views`
+ * cannot empty someone's nav either.
+ *
+ * The `scheduleInDeliver` placement opt-in (ADR-0203, #1645) that used to be applied here
+ * is retired by ADR-0942 §3 / #3137: every view appears in exactly one band in any given
+ * render, because a nav item listed twice is two objects to the person using it. Pure →
  * unit-testable.
  */
 export function groupedVisibleViewsForUser(
   methodology: Methodology,
   hiddenViews: ReadonlySet<string>,
-  scheduleInDeliver = false,
 ): VisibleViewGroup[] {
-  const groups = groupedVisibleViews(methodology)
-    .map((g) => ({ ...g, visibleViews: g.visibleViews.filter((v) => !hiddenViews.has(v)) }))
+  return groupedVisibleViews(methodology)
+    .map((g) => ({
+      ...g,
+      visibleViews: g.visibleViews.filter((v) => !hiddenViews.has(v) || ALWAYS_ON_VIEW_KEYS.has(v)),
+    }))
     .filter((g) => g.visibleViews.length > 0);
-
-  if (!scheduleInDeliver) return groups;
-  // Only echo Schedule into Deliver when it is genuinely visible elsewhere (Plan)
-  // — never resurrect a hidden view, never invent a Deliver group.
-  const scheduleVisible = groups.some((g) => g.visibleViews.includes('schedule'));
-  if (!scheduleVisible) return groups;
-  return groups.map((g) =>
-    g.id === 'DELIVER' && !g.visibleViews.includes('schedule')
-      ? { ...g, visibleViews: [...g.visibleViews, 'schedule'] }
-      : g,
-  );
 }
 
 /**

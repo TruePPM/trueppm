@@ -424,7 +424,7 @@ export function ProjectSettingsPage() {
         // anyway — this makes the reason readable at the call site instead of
         // leaving a future reader to work out why it silently does nothing.
         exitTo={`/projects/${projectId}/overview`}
-        exitLabel="Overview"
+        exitLabel="Dashboard"
       >
         <SettingsSection id="template-divergence">
           <ProjectTemplateDivergencePage />
@@ -458,7 +458,7 @@ export function ProjectSettingsPage() {
       navGroups={navGroups}
       anchorAliases={PROJECT_SETTINGS_ANCHOR_ALIASES}
       exitTo={`/projects/${projectId}/overview`}
-      exitLabel="Overview"
+      exitLabel="Dashboard"
     >
       <SettingsSection id="general">
         <ProjectGeneralPage />
