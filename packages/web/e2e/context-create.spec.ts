@@ -145,6 +145,93 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     await expect(programPicker.locator('option:checked')).toHaveText('Delivery Program');
   });
 
+  test('Start sheet → the way in leads, the working calendar and the commit note sit in the footer (#3130)', async ({
+    page,
+  }) => {
+    await page.goto(`/programs/${GID}/overview`);
+    await expect(page.getByRole('heading', { name: 'Delivery Program' })).toBeVisible();
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await expect(dialog).toBeVisible();
+
+    // Laid out top-to-bottom, not just present in the DOM — the defect this fixes
+    // was purely one of *position*, so a presence assertion could not have caught
+    // it. Compare rendered y positions, which is what the reader actually sees.
+    const ways = dialog.getByRole('radiogroup', { name: /start from/i });
+    const nameField = dialog.getByRole('textbox', { name: /^name/i });
+    const calendar = dialog.getByRole('combobox', { name: /working calendar/i });
+    await expect(ways).toBeVisible();
+    await expect(calendar).toBeVisible();
+
+    const [waysBox, nameBox, calendarBox] = await Promise.all([
+      ways.boundingBox(),
+      nameField.boundingBox(),
+      calendar.boundingBox(),
+    ]);
+    expect(waysBox).not.toBeNull();
+    expect(nameBox).not.toBeNull();
+    expect(calendarBox).not.toBeNull();
+    expect(waysBox!.y).toBeLessThan(nameBox!.y);
+    expect(nameBox!.y).toBeLessThan(calendarBox!.y);
+
+    // The commit note states create-on-submit, which is what this sheet does — the
+    // design handoff's "Nothing is created until you open the designer" describes a
+    // draft lifecycle the web app cannot leave until #3129, so it must not ship.
+    const submit = dialog.getByRole('button', { name: /^create project$/i });
+    await expect(
+      dialog.getByText(/nothing is created until you press create project\./i),
+    ).toBeVisible();
+    await expect(dialog.getByText(/open the designer/i)).toHaveCount(0);
+    // The note is the button's description, never part of its accessible name.
+    const noteId = await submit.getAttribute('aria-describedby');
+    expect(noteId).toBeTruthy();
+    await expect(dialog.locator(`#${noteId!}`)).toContainText(/nothing is created/i);
+
+    // Switching the way renames the commit, and the note follows it.
+    await dialog.getByRole('radio', { name: /^import/i }).click();
+    await expect(
+      dialog.getByText(/nothing is created until you press create & import spreadsheet\./i),
+    ).toBeVisible();
+  });
+
+  test('Start sheet → Enter submits from the relocated calendar field (#3130)', async ({ page }) => {
+    // The calendar now sits outside the <form> subtree, in the pinned footer, and
+    // is held in the form by `form="new-project-form"`. Implicit submission is a
+    // browser behavior jsdom does not implement for a <select>, so this is the
+    // only layer that can prove the wiring works rather than merely being present.
+    await page.route('**/api/v1/projects/', (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'Internal server error' }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+      });
+    });
+
+    await page.goto(`/programs/${GID}/overview`);
+    await expect(page.getByRole('heading', { name: 'Delivery Program' })).toBeVisible();
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('textbox', { name: /^name/i }).fill('Enter from the calendar');
+
+    const post = page.waitForRequest(
+      (r) => r.method() === 'POST' && r.url().includes('/api/v1/projects/'),
+    );
+    await dialog.getByRole('combobox', { name: /working calendar/i }).focus();
+    await page.keyboard.press('Enter');
+    await post;
+    // The 500 keeps the sheet open, so the assertion is about the submit having
+    // happened at all rather than about where it navigated.
+    await expect(dialog.getByRole('alert')).toHaveText(/failed to create project/i);
+  });
+
   test('Program context → the picker can be changed to standalone, creating a project with no program (#2673)', async ({ page }) => {
     let capturedBody: Record<string, unknown> | null = null;
     const NEW_PROJECT_ID = 'e2e-2673-new-standalone-0001';
