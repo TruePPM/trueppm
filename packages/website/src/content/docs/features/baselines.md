@@ -15,7 +15,81 @@ baseline manager. The API behavior below is unchanged.
 :::
 
 
+## Committing the plan
+
+Most projects get their first baseline automatically, by being **committed**.
+
+A new project starts as a **draft** — a plan nobody has agreed to yet. A draft is fully
+writable; what it is not is *visible*. TruePPM holds a draft out of program rollup,
+portfolio health, search, My Work and the notification fan-out, so a half-built plan
+cannot quietly become part of an aggregate someone reports upward.
+
+Committing ends that. On the project **Overview**, a draft shows a **Draft** chip, and a
+Project Manager sees a **Commit plan** button beside **Update Status**:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: project created
+    Draft --> Active: Commit plan
+    note right of Draft
+        Excluded from rollup,
+        portfolio health, search,
+        My Work, notifications.
+        Fully editable.
+    end note
+    note right of Active
+        Baseline v1 captured.
+        Structural edits are
+        amendments from here on.
+    end note
+```
+
+Committing is a single transaction that does two things:
+
+1. **Captures `Baseline v1`** and makes it active — including a copy of the working
+   calendar the dates were computed against, stored *by value*. A later calendar edit
+   therefore changes your variance rather than silently moving the thing variance is
+   measured from.
+2. **Flips the project from draft to active**, so it joins every aggregate it was held
+   out of.
+
+You can keep editing afterwards — committing is not a lock. What changes is that editing
+a committed plan is **amending** it: a structural edit carries a reason into the project's
+[change history](/features/change-history/) and notifies the people whose work moved.
+
+**You cannot un-commit.** A plan is committed once, so that the anchor every variance
+number is measured from cannot move. Committing a second time returns `409`.
+
+```bash
+# Commit the plan. Requires the Project Manager role. Returns 409 if already committed.
+curl -X POST -H "Authorization: Bearer $JWT" \
+  https://trueppm.example.com/api/v1/projects/$PROJECT_ID/commit/
+```
+
+```json
+{
+  "baseline_id": "8f14e45f-ceea-467a-9f6b-2c1a3e9d4b70",
+  "baseline_name": "Baseline v1",
+  "task_count": 12,
+  "assigned_resource_count": 4
+}
+```
+
+`assigned_resource_count` is how many people hold a resource assignment in the plan you
+just committed — the audience the commit concerns. It is **not** a count of notifications
+sent; committing sends none. People are notified when their work later *moves*, which is
+the amendment path described above.
+
+| Method & path | Purpose | Permission |
+|---|---|---|
+| `POST /api/v1/projects/{id}/commit/` | Commit the plan; capture `Baseline v1` | Project Manager (`ADMIN`) |
+
+Structured rebaseline reasons and a post-commit changeset view are planned for 0.5.
+
 ## Capturing and managing baselines in the app
+
+Beyond the automatic `Baseline v1`, you can capture further baselines at any time — for
+example one per phase gate.
 
 From the **Schedule** view, open the Actions (**···**) menu:
 

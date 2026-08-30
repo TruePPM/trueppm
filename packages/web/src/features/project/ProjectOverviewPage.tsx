@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_SCHEDULER, canCommitPlan } from '@/lib/roles';
+import { useCommitProject } from '@/hooks/useProjectMutations';
+import { commitRefusalMessage } from '@/hooks/commitRefusal';
+import { CommitPlanConfirmDialog } from '@/features/project/CommitPlanConfirmDialog';
+import { toast } from '@/components/Toast/toast';
 import { apiClient } from '@/api/client';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { PinToggle } from '@/components/PinToggle';
@@ -210,8 +214,54 @@ interface ProjectHeaderProps {
 
 function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const { data: project } = useProject(projectId);
   const { role } = useCurrentUserRole(projectId);
+  const commitProject = useCommitProject(projectId);
+  const queryClient = useQueryClient();
+
+  // The draft lifecycle (#2962, #3129). Strict equality against 'draft', never a
+  // falsy check: `lifecycle` is absent on a response cached before #3129, and
+  // treating absent as draft would offer Commit on an already-committed plan.
+  const isDraft = project?.lifecycle === 'draft';
+  // Admin+ per ADR-0773's matrix row, which the endpoint now enforces (#3129).
+  // Everyone sees the Draft pill; only Admin+ gets the button — a Team Member
+  // needs to know the plan has not been agreed to, not to be offered the act.
+  const canCommit = canCommitPlan(role);
+
+  function handleCommit() {
+    if (!navigator.onLine) {
+      // Never queue this optimistically. Commit is one-way and server-authoritative:
+      // an offline "success" the server later refuses would tell the PM the anchor
+      // is laid down when it is not. Same guard as BaselineTab's capture.
+      toast.error("You're offline — committing needs a connection.");
+      return;
+    }
+    commitProject.mutate(undefined, {
+      onSuccess: (result) => {
+        setCommitDialogOpen(false);
+        toast.success(
+          `Plan committed — ${result.baseline_name} captured from ${result.task_count} ` +
+            `task${result.task_count === 1 ? '' : 's'} across ${result.assigned_resource_count} ` +
+            `assigned ${result.assigned_resource_count === 1 ? 'person' : 'people'}.`,
+        );
+      },
+      onError: (error) => {
+        // A 409 means someone else committed while this sheet was open. Retrying can
+        // never clear it, so say what happened and close — the `onSuccess` cache
+        // invalidation does not run on an error path, so refetch the project
+        // explicitly or the button keeps offering an act the server will refuse.
+        const refusal = commitRefusalMessage(error);
+        if (refusal !== null) {
+          setCommitDialogOpen(false);
+          toast.error(refusal);
+          void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+          return;
+        }
+        toast.error("Couldn't commit the plan — try again.");
+      },
+    });
+  }
   // Server gates the `health` field to Admin+ (ProjectSerializer.validate); role
   // is null while the membership query loads, so gate pessimistically to avoid a
   // flash of an editable Save action.
@@ -263,6 +313,23 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
             Reported: {REPORTED_HEALTH_LABEL[reportedHealth]}
           </span>
         )}
+        {/* A **pill**, because the design system's one status vocabulary reserves the
+            dot for health and the pill/chip for state — and "nobody has agreed to this
+            yet" is a state, not a health reading. Calm-neutral rather than amber for
+            the same reason: a draft is not at risk, it is unfinished.
+
+            Rendered for every role, unlike the Commit button below. Until #3129 there
+            was no lifecycle chrome anywhere in the client, so a contributor had no way
+            to tell whether the plan they were looking at had been agreed to. */}
+        {isDraft && (
+          <span
+            className="bg-transparent border border-neutral-border rounded-chip px-2 py-0.5 text-xs font-medium text-neutral-text-secondary"
+            aria-label="Project lifecycle: Draft"
+            title="Not in program rollup, portfolio health, search or My Work until the plan is committed."
+          >
+            Draft
+          </span>
+        )}
         <div className="flex items-center gap-3 ml-auto">
           {/* Pin leads the action cluster: it is the only control here that is
               about *this* project rather than an operation on it, and it is the
@@ -303,9 +370,41 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
           >
             Update Status
           </button>
+          {/* Trails Update Status so the cluster's rightmost control stays stable as a
+              project leaves draft — Commit is the transient one. Both are primary
+              weight: they are the same kind of act (declare something about this
+              project), and demoting the one-way one would misstate its consequence. */}
+          {isDraft && canCommit && (
+            <button
+              type="button"
+              onClick={() => setCommitDialogOpen(true)}
+              disabled={commitProject.isPending}
+              className="text-xs bg-brand-primary text-neutral-text-inverse rounded-control px-3 h-7 font-medium
+                hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                focus-visible:outline-none"
+            >
+              Commit plan
+            </button>
+          )}
         </div>
       </div>
       <p className="text-xs text-neutral-text-secondary">{subtitle}</p>
+      {isDraft && (
+        <p className="text-xs text-neutral-text-secondary">
+          Not in program rollup, portfolio health, or search until committed.
+        </p>
+      )}
+
+      {commitDialogOpen && (
+        <CommitPlanConfirmDialog
+          isPending={commitProject.isPending}
+          onCancel={() => {
+            if (!commitProject.isPending) setCommitDialogOpen(false);
+          }}
+          onConfirm={handleCommit}
+        />
+      )}
 
       {statusDialogOpen && (
         <UpdateStatusDialog
