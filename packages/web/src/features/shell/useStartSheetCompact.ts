@@ -2,7 +2,8 @@ import { useSyncExternalStore } from 'react';
 
 /**
  * Below 900px the Start sheet (#2728) becomes a full-screen surface with the same
- * field order and the way-in cards stacked 2×2 instead of one row of three. 900px
+ * order and the way-in cards laid out two per row — 2 + 1 for today's three ways,
+ * not the 2×2 this said while a fourth was still planned (#3130). 900px
  * is bespoke to this component — it does not line up with `useBreakpoint`'s
  * toolbar-driven `md`/`lg` tiers (768/1024), so this is its own tiny query rather
  * than a misapplied reuse of that hook. Follows the same SSR-safe
