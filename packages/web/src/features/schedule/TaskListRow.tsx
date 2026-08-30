@@ -50,7 +50,7 @@ import { useReconcileEntry, useWorkingDaysMask } from './reconcile/useReconcileE
 import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
-import { AssigneeChips } from './AssigneeChips';
+import { AssigneeChips, formatOwnerCellLabel } from './AssigneeChips';
 import {
   depFlag,
   describeLinksCell,
@@ -4042,15 +4042,20 @@ function TaskProgressCell({
 function TaskOwnerCell({ task, widthPx }: { task: Task; widthPx: number }) {
   return (
     <div
-      className="flex items-center shrink-0 pl-2"
+      // `overflow-hidden` bounds the allocation run to the column (#3154) — the
+      // cell is a fixed width at the right edge of the outline, so an unbounded
+      // child bleeds over the Gantt canvas.
+      className="flex items-center shrink-0 overflow-hidden pl-2"
       style={{ width: widthPx }}
       role="gridcell"
+      // The name states each assignee's units, derived from `chipTitle` — the same
+      // formatter the tooltip and the visible run use, so the three cannot drift
+      // (rule 328). Before #3154 it listed names only, so allocation was
+      // unreachable by assistive tech.
       aria-label={
         task.isSummary
           ? 'Summary task — owner column empty'
-          : task.assignees.length === 0
-            ? 'Owner: none'
-            : `Owner: ${task.assignees.map((a) => a.name).join(', ')}`
+          : formatOwnerCellLabel(task.assignees)
       }
     >
       {!task.isSummary && <AssigneeChips assignees={task.assignees} size="md" max={3} />}

@@ -211,7 +211,7 @@ The task list shows eight columns by default in **Grid**. All except Item can be
 | Start | 74 px | Computed early start (read-only — change Planned Start to override). |
 | Finish | 74 px | Computed early finish (read-only). |
 | % | 44 px | Percent complete. |
-| Owner | 72 px | Up to three 24 px assignee avatars overlapping; "+N" overflow chip. |
+| Owner | 72 px | Up to three 24 px assignee avatars overlapping; "+N" overflow chip. Each avatar's allocation is stated beside the cluster as a positional run — `100%` for one owner, `100/50%` for two, in avatar order. At two or more owners the run is wider than the default column and clips with an ellipsis; widen the column to read it in full. Screen readers get the same figures from the cell itself, which announces as `Owner: Alice Chen (100%), Bob Martinez (50%)`. |
 
 Column widths are persisted per-browser under `trueppm.schedule.columnWidths.v5`.
 
