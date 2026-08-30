@@ -27,11 +27,25 @@ All configuration is via environment variables. For local development, `docker-c
 
 | Variable | Default |
 |----------|---------|
-| `SECRET_KEY` | `dev-secret-key-change-in-prod` |
+| `SECRET_KEY` | `django-insecure-change-me-in-prod` |
 | `DATABASE_URL` | `postgres://trueppm:trueppm@db:5432/trueppm` |
-| `REDIS_URL` | `redis://valkey:6379` |
+| `REDIS_URL` | `redis://redis:6379` |
 | `DJANGO_SETTINGS_MODULE` | `trueppm_api.settings.dev` |
 | `ALLOWED_HOSTS` | `*` |
+
+These are the defaults in `settings/base.py` — the values that apply when the
+variable is unset. They are **not** the values `docker-compose.yml` sets, and
+this table used to quote the compose file for `SECRET_KEY` and `REDIS_URL`
+instead: it listed `dev-secret-key-change-in-prod` and `redis://valkey:6379`,
+neither of which any code path produces. An operator grepping their
+configuration for the documented string found nothing and could reasonably
+conclude they had already replaced it.
+
+The `SECRET_KEY` default's `django-insecure-` prefix matters: it is exactly what
+`validate_secret_key` rejects, so production refuses to boot on it rather than
+running with a key published in this repository. The compose files set their own
+values on top; check what your deployment actually passes, not what this table
+says is the fallback.
 
 :::danger
 Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The default secret key is public — anyone who knows it can forge session cookies and JWTs.
@@ -181,7 +195,98 @@ is never appropriate in production — list the names instead.
 | `TRUEPPM_WORKFLOW_PURGE_BATCH_SIZE` | `500` | Rows deleted per statement by the nightly workflow retention purge. The purge deletes in bounded chunks rather than one unbounded statement, so the first run on a mature install cannot hold a long lock over a large slice of the history/outbox tables. The legacy bare `WORKFLOW_PURGE_BATCH_SIZE` is still read as a fallback when the prefixed var is unset. |
 | `TRUEPPM_IDEMPOTENCY_RETENTION_HOURS` | `24` | Hours to retain stored `Idempotency-Key` responses, purged hourly by the Celery beat task. After expiry, a retry with the same key re-runs the mutation. Set the Django setting to `None` to disable automatic purging. The legacy bare `IDEMPOTENCY_RETENTION_HOURS` is still read as a fallback when the prefixed var is unset. |
 | `TRUEPPM_IDEMPOTENCY_MAX_BODY_BYTES` | `1048576` | Maximum stored response body size, in bytes (1 MiB default). Responses larger than this are not stored — the claim row is dropped so a retry re-runs the mutation. Single-object mutation responses effectively never approach this limit. The legacy bare `IDEMPOTENCY_MAX_BODY_BYTES` is still read as a fallback when the prefixed var is unset. |
-| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / `EMAIL_TIMEOUT` / … | _(Django default)_ | SMTP settings for notification and invite email. **Every one of these binds directly from the container environment** — set them as plain env vars or Helm `env:` values, no settings override needed. See [Outbound email](/administration/email/) for the full variable list and how they relate to the in-app Email & SMTP page. |
+| `EMAIL_BACKEND` | `django.core.mail.backends.smtp.EmailBackend` | Django mail backend. Change it to `django.core.mail.backends.console.EmailBackend` to print mail to the log instead of sending it — useful when validating templates without a relay. |
+| `EMAIL_HOST` | _(empty)_ | SMTP relay hostname. Deliberately empty rather than Django's implicit `localhost`, so an unconfigured deploy fails visibly instead of silently trying to talk to a mail server on the container itself. |
+| `EMAIL_PORT` | `587` | **Not Django's 25.** 587 is submission-with-STARTTLS, which pairs with the `EMAIL_USE_TLS` default below. Use `465` with `EMAIL_USE_SSL=true` for implicit TLS. |
+| `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` | _(empty)_ | Relay credentials. Supply the password through a Secret, never a values file. |
+| `EMAIL_USE_TLS` | `true` | **Not Django's `False`.** STARTTLS on the submission port. Mutually exclusive with `EMAIL_USE_SSL`. |
+| `EMAIL_USE_SSL` | `false` | Implicit TLS (port 465). Set exactly one of this and `EMAIL_USE_TLS`. |
+| `EMAIL_TIMEOUT` | `10` | Seconds. **Not Django's `None`** — an unbounded socket timeout means one unreachable relay can hold a Celery worker indefinitely. |
+| `DEFAULT_FROM_EMAIL` | `notifications@trueppm.local` | **Set this.** `.local` is a reserved TLD that most relays reject outright, so leaving the default silently breaks outbound mail on an otherwise correct SMTP configuration. |
+
+**Every one of these binds directly from the container environment** — set them
+as plain env vars or Helm `env:` values, no settings override needed. See
+[Outbound email](/administration/email/) for how they relate to the in-app
+Email & SMTP page.
+
+Each row above was previously a single line whose Default column read
+_(Django default)_ for all of them. Four are overridden, and the
+`DEFAULT_FROM_EMAIL` one breaks mail delivery when left alone.
+
+## Logging
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `DJANGO_LOG_LEVEL` | `INFO` | Fleet-wide log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). `DEBUG` is verbose enough to matter on a busy instance — Docker's `json-file` driver has no size cap by default, so pair it with log rotation. The Helm chart exposes this as `logging.level`. |
+| `TRUEPPM_LOG_JSON` | `false` | Emit one JSON object per log record instead of human-readable console output, so a collector (Loki, ELK, CloudWatch) can index the fields — including the OTel `trace_id` / `span_id` / `request_id` needed for log-to-trace correlation. **`settings.prod` forces this on regardless**, so it only affects non-production settings modules. |
+| `SQL_LOG_LEVEL` | `WARNING` | Level for the `django.db.backends` logger. **Development settings only** (`settings/dev.py`); production's logging config does not read it. Set to `DEBUG` to print every SQL statement — the fastest way to find an N+1 locally. |
+| `TRUEPPM_POD_NAME` | _(empty)_ | Identifies which replica emitted a record or a metric. Set it from the downward API (`valueFrom.fieldRef.fieldPath: metadata.name`); empty means log lines cannot be attributed to a pod. |
+
+## OpenTelemetry
+
+Telemetry is **opt-in with no default endpoint**: leave `OTEL_EXPORTER_OTLP_ENDPOINT`
+empty and no provider is installed at all — a strict no-op with no per-request
+cost. The Helm chart renders every variable below from its structured
+`observability.otlp.*` block; set them directly only on Compose or a bare
+container. See [Observability](/administration/observability/) for collector
+wiring.
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_ | Your collector, e.g. `http://otel-collector:4317`. **Empty disables telemetry entirely** — this is the master switch, not `TRUEPPM_OTEL_ENABLED`. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` (4317) or `http/protobuf` (4318). Must match what your collector listens for. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | _(empty)_ | Comma-separated `key=value` headers, for a SaaS OTLP endpoint's bearer token. Supply through a Secret — it is a credential. |
+| `OTEL_SERVICE_NAME` | `trueppm-api` | `service.name` resource attribute. Change it when several TruePPM instances report to one backend. |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Standard OTel sampler name. Use `parentbased_traceidratio` with the argument below to sample a fraction of traces on a busy instance. |
+| `OTEL_TRACES_SAMPLER_ARG` | _(empty)_ | Sampler argument — with `parentbased_traceidratio`, the ratio (`0.1` = 10%). |
+| `TRUEPPM_OTEL_ENABLED` | `true` | Master kill switch **within** an already-configured endpoint. Set `false` to stop exporting without unsetting the endpoint, e.g. to isolate telemetry as a suspect during an incident. |
+| `TRUEPPM_OTEL_TRACES_ENABLED` | `true` | Export traces. Turn off to keep metrics only — traces are by far the higher-volume signal. |
+| `TRUEPPM_OTEL_METRICS_ENABLED` | `true` | Export metrics. |
+| `TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED` | `true` | Attach the acting user's id to spans. **Set `false` if your tracing backend is not an appropriate place for user identifiers** — that is a data-protection decision, not a performance one. |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED` | `true` | Track whether telemetry export is itself succeeding, so a silent collector outage is visible rather than looking like an idle system. |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS` | `60` | Rolling window over which export attempts are counted. |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS` | `150` | A successful export within this many seconds means healthy. Raise it if your collector is behind a flaky link. |
+| `TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS` | `600` | No successful export in this long means stale. |
+
+## Retention
+
+Every window below is enforced by a nightly Celery beat job, so **beat must be
+running** for any of them to apply. **Never set one to `0`** — a zero-day window
+puts the cutoff at the present moment, so the next run deletes everything in
+scope. Several of these are also editable in
+[Retention & purge](/administration/retention/); the environment variable is the
+default the app starts with.
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `30` | Days a trashed project stays recoverable before it is hard-deleted with all its children by CASCADE. **`0` is refused at boot** — it would purge every trashed project on the next tick, irreversibly and with no tombstone. |
+| `TRUEPPM_TOMBSTONE_RETENTION_DAYS` | `90` | Days deletion tombstones are kept for the offline sync protocol. This is the **floor on how long a mobile client may stay offline**: a device that syncs after longer than this will not learn about deletions and keeps rows the server has dropped. Raise it if your field users go offline for months; do not lower it below your longest expected offline period. |
+| `TRUEPPM_BATCH_OPERATION_RETENTION_DAYS` | `30` | Days batch-operation records (bulk edits, imports) are kept for review before purging. |
+| `TRUEPPM_BOARD_EVENT_RETENTION_HOURS` | `24` | **Hours**, not days. Board events back the real-time replay window for a client that reconnects; a longer window costs storage on a table with high write volume. |
+
+## Rate limiting and access
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `TRUEPPM_THROTTLE_GIT_WEBHOOK_IP_RATE` | `600/min` | Per-IP limit for inbound Git webhooks, in DRF `<count>/<period>` form. Deliberately high: a monorepo push fans out to many hook deliveries from one address, and throttling them drops commit links silently. Lower it only if webhooks are a load problem. |
+| `TRUEPPM_FAILED_TASK_BULK_ACTION_MAX` | `500` | Maximum failed background tasks one bulk retry/discard may act on. Bounds a single admin click's blast radius on the queue. |
+| `TRUEPPM_PASSWORD_RESET_TIMEOUT` | `1800` | Seconds a password-reset link stays valid (30 minutes). Django's own default is 3 days; this is deliberately much shorter, since the link is a bearer credential sitting in a mailbox. Raise it only if your users routinely hit expiry. |
+| `TRUEPPM_RATE_LIMIT_DISABLE_ACK` | _(empty)_ | Acknowledgment sentinel required **in addition to** `TRUEPPM_RATE_LIMIT_ENABLED=false` to actually turn throttling off. Without both, limits stay on and the attempt is logged at CRITICAL — a stray env var cannot silently open a DoS path. See [disabling rate limiting entirely](#disabling-rate-limiting-entirely). |
+| `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` | `false` | Re-enables the legacy WebSocket token-in-query-string authentication. **Leave off.** A query string is logged by proxies, load balancers, and browser history, so the token leaks into places a header never reaches. Only for a client too old to use the ticket flow, and only while you upgrade it. |
+
+## Variables that are not operator settings
+
+Read from the environment but **not** configuration knobs. Listed so a grep of
+`packages/api/src` does not leave you wondering what you missed.
+
+| Variable | What it is |
+|----------|-----------|
+| `TRUEPPM_ALLOW_DEV_SETTINGS` | The override on the guard that stops `settings.dev` loading anywhere. It disables authentication instance-wide — see the dev-settings section above. |
+| `PYTEST_CURRENT_TEST` | Set by pytest itself; read only to detect that a test runner is active. |
+| `TRUEPPM_TEST_DB` / `TRUEPPM_TEST_DB_TEMPLATE` | Per-worktree test-database isolation and the CI template-DB prewarm. Development and CI only. |
+| `DJANGO_SUPERUSER_USERNAME` / `DJANGO_SUPERUSER_PASSWORD` | Django's own `createsuperuser` variables, honored by `create_admin`. Prefer the generated password file — see [Admin password setup](/administration/admin-password/). |
+| `SSO_KEYCLOAK_*` / `SSO_ADMIN_EMAIL` | Inputs to `seed_sso_keycloak`, a local-development fixture command. Not read by the running application. |
+| `INTEGRATION_USER_EMAIL` | Input to `seed_integration_fixtures`, likewise a development fixture command. |
 
 ## Object storage (S3 / MinIO)
 
