@@ -252,6 +252,59 @@ export function useCalendars() {
 // Project lifecycle (#530) — archive / unarchive / transfer / delete
 // ---------------------------------------------------------------------------
 
+/** What `POST /projects/{id}/commit/` returns (#2963, #3129). */
+export interface CommitProjectResult {
+  baseline_id: string;
+  /** Always `Baseline v1` for the first commit. */
+  baseline_name: string;
+  /** Rows captured into the baseline. */
+  task_count: number;
+  /**
+   * How many people hold a resource assignment in the plan just committed.
+   *
+   * The audience the commit **concerns** — it is NOT a count of notifications sent,
+   * and committing sends none (#3129). Counted from `TaskResource`, never
+   * `Task.assignee`, because a bare assignee carries no load and may never reach the
+   * person. Render it as the baseline's scope ("across N assigned people"), never as
+   * a delivery ("N people notified"); the field was called `notified_resource_count`
+   * until #3129 and that name asserted something the server does not do.
+   */
+  assigned_resource_count: number;
+}
+
+/**
+ * POST /api/v1/projects/:id/commit/ — take a plan from draft to active, capturing
+ * Baseline v1 (#2963, #3129). Admin+ (ADR-0773).
+ *
+ * **One-way.** `commit_project()` refuses a project that is already active, so there
+ * is no un-commit and no second v1 — a second capture would move the anchor every
+ * variance number is subtracted from. A concurrent commit answers 409
+ * `already_committed`; pass that through `commitRefusalMessage` rather than the
+ * generic retry copy, because retrying can never succeed.
+ *
+ * Invalidates `['project', id]` (the `lifecycle` flip, which hides the Commit
+ * affordance), `['projects']` (drafts are excluded from aggregate lists, so the
+ * project may now appear where it did not), and `['baselines', id]` (v1 is new and
+ * active, so the baseline surfaces are stale).
+ */
+export function useCommitProject(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation<CommitProjectResult, Error, void>({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('projectId is required');
+      const res = await apiClient.post<CommitProjectResult>(`/projects/${projectId}/commit/`);
+      return res.data;
+    },
+    onSuccess: () => {
+      if (projectId) {
+        void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        void queryClient.invalidateQueries({ queryKey: ['baselines', projectId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
 /** POST /api/v1/projects/:id/archive/ — mark a project read-only. Owner only. */
 export function useArchiveProject(projectId: string | null | undefined) {
   const queryClient = useQueryClient();

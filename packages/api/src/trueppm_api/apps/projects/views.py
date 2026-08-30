@@ -11071,13 +11071,52 @@ class BoardLanesView(McpReadableViewMixin, APIView):
     },
 )
 class ProjectCommitView(IdempotencyMixin, APIView):
-    """POST /projects/{pk}/commit/ — draft → active with baseline v1."""
+    """POST /projects/{pk}/commit/ — draft → active with baseline v1.
 
-    def get_permissions(self) -> list[BasePermission]:
-        # Committing is a schedule-affecting act with a notification fan-out, so
-        # it sits at the same floor as other schedule writes rather than at
-        # plain membership.
-        return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+    **No agent can reach this today, and the precondition for that changing is
+    written here rather than discovered later (#3129).** MCP tokens are confined
+    to safe methods, so a mutation is unreachable by one, and the agent-action
+    hash chain is written from ``McpReadableViewMixin.finalize_response`` — a
+    *read*-path hook this view does not and should not inherit. If a write-MCP
+    surface is ever opened (#505 / #604), routing it at this endpoint without
+    first giving it an ``allowed``/``refused`` audit entry would make the single
+    most consequential mutation in the project lifecycle the one un-audited agent
+    write: it is one-way (``commit_project()`` refuses an already-active project),
+    and it decides the anchor every later variance number is subtracted from.
+    """
+
+    # Admin+ (Project Manager, role >= 300) — the same floor as its own siblings.
+    #
+    # Committing *creates* a baseline and *activates* it. Both acts are already gated
+    # at `IsProjectAdmin` on the endpoints that do them individually
+    # (`BaselineViewSet.create`, `BaselineActivateView`), and ADR-0773's role matrix
+    # has an explicit row — "Publish / commit the plan (0.5 draft lifecycle)" — that
+    # is ❌ for Viewer, Member AND Scheduler. A Scheduler floor here was therefore a
+    # lower-privileged route to two writes the Admin floor is supposed to hold: a
+    # bypass rather than a policy (#3129).
+    #
+    # Nothing about this endpoint argues for the lower of the two floors. It is
+    # strictly the more consequential path: since #3127 made `lifecycle` read-only
+    # this is the only legal `draft -> active` transition, and it is one-way —
+    # `commit_project()` refuses an already-active project, so the anchor can neither
+    # be re-laid nor withdrawn.
+    #
+    # The previous rationale justified the Scheduler floor with "a notification
+    # fan-out". No such fan-out exists: `commit_project()` writes no notification row
+    # and registers no `on_commit` hook for one. The claim is deleted rather than
+    # reworded — a permission rationale resting on a capability the code does not
+    # have is the worst possible place for one.
+    #
+    # **Declared as a class attribute, not returned from `get_permissions()`, and that
+    # is load-bearing (#3129).** `tests/apps/access/test_route_table_invariants.py`
+    # discovers project-scoped routes by reading this attribute off the class; a view
+    # whose gate exists only inside a `get_permissions()` override is invisible to it.
+    # That guard exists for precisely this bug lineage (#2508/#2551/#2745 — "a
+    # `projects/<pk>/…` route names a project-scoped class and nothing enforces it"),
+    # so the endpoint that just turned out to have the wrong floor is the last one
+    # that should be sitting outside it. There is no branching here to justify an
+    # override.
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.commit_moment import (
@@ -11085,13 +11124,33 @@ class ProjectCommitView(IdempotencyMixin, APIView):
             commit_project,
         )
 
-        project = get_object_or_404(Project, pk=pk)
+        # `IsAuthenticated` has already run, so this is a real user. Narrow once,
+        # here, rather than at each use: `request.user` is typed
+        # `User | AnonymousUser`, and both the membership lookup below and
+        # `commit_project()` need the narrowed type — the service must never be
+        # handed an AnonymousUser, and `memberships__user` will not accept one.
+        # Mirrors `ProjectScopedViewSet.get_queryset`'s guard shape.
+        user = request.user if request.user.is_authenticated else None
+        if user is None:  # pragma: no cover — IsAuthenticated makes this unreachable
+            raise NotAuthenticated
+
+        # Membership-scoped, so a non-member gets 404 for a real id and 404 for a
+        # fake one (#3129). The unscoped lookup this replaces answered 403 for a
+        # project that exists and 404 for one that does not, which makes the
+        # endpoint an existence oracle for any authenticated stranger. `/archive/`
+        # has never had that shape — it resolves through `ProjectScopedViewSet`'s
+        # membership-filtered queryset — and two sibling lifecycle endpoints must
+        # not disagree about whether a project's existence is a secret.
+        project = get_object_or_404(
+            Project.objects.filter(
+                pk=pk,
+                is_deleted=False,
+                memberships__user=user,
+                memberships__is_deleted=False,
+            )
+        )
         self.check_object_permissions(request, project)
         try:
-            # IsAuthenticated has already run, so this is a real user — narrow
-            # for the type checker rather than widening the service signature to
-            # accept AnonymousUser, which it must never be handed.
-            user = request.user if request.user.is_authenticated else None
             result = commit_project(project, user=user)
         except AlreadyCommitted:
             return Response(
@@ -11101,12 +11160,46 @@ class ProjectCommitView(IdempotencyMixin, APIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+
+        # Commit captures a baseline, so it owes the same two notifications
+        # `BaselineViewSet.perform_create` sends for the manual path (#3129).
+        # Neither fired here before, which meant the *automatic* v1 — the anchor
+        # every variance number is measured from — was the one baseline invisible
+        # to both live clients and webhook subscribers. `baseline.captured` is a
+        # published event ("A baseline snapshot is captured"), and this path
+        # captures one; `baseline_created` is already in FROZEN_WS_EVENT_TYPES, so
+        # neither needs a taxonomy change.
+        #
+        # `source="commit"` rather than `"api"`: a subscriber can then tell the
+        # automatic v1 from a later manual capture, which is exactly the
+        # distinction that makes the event actionable.
+        #
+        # Deferred with `on_commit` and built from plain values captured now — a
+        # delivery failure must never roll back a commit that has been accepted,
+        # and the lambda must not close over a model instance whose transaction
+        # has since closed.
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id_str = str(project.pk)
+        baseline_id_str = str(result.baseline.id)
+        captured_payload = _baseline_webhook_payload(
+            result.baseline, task_count=result.task_count, source="commit"
+        )
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str, "baseline_created", {"id": baseline_id_str}
+            )
+        )
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(project_id_str, "baseline.captured", captured_payload)
+        )
+
         return Response(
             {
                 "baseline_id": str(result.baseline.id),
                 "baseline_name": result.baseline.name,
                 "task_count": result.task_count,
-                "notified_resource_count": len(result.notified_resource_ids),
+                "assigned_resource_count": len(result.assigned_resource_ids),
             },
             status=status.HTTP_200_OK,
         )

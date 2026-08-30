@@ -20,6 +20,7 @@ import {
   canAuthorDependencies,
   canAuthorPlan,
   canEditRisk,
+  canCommitPlan,
   progressCompleteAutoStatus,
 } from './roles';
 
@@ -190,5 +191,40 @@ describe('progressCompleteAutoStatus (#2639)', () => {
   it('treats null/undefined (role still loading) as below-Admin — never over-promises COMPLETE', () => {
     expect(progressCompleteAutoStatus(null)).toBe('REVIEW');
     expect(progressCompleteAutoStatus(undefined)).toBe('REVIEW');
+  });
+});
+
+describe('canCommitPlan (#3129)', () => {
+  // ADR-0773's matrix row "Publish / commit the plan (0.5 draft lifecycle)" reads
+  // ❌ ❌ ❌ ✅ ✅. The endpoint enforced one band lower than that until #3129, so
+  // this table is the client half of the same rule and exists to keep the two from
+  // drifting apart again.
+  it.each([
+    ['Viewer', ROLE_VIEWER, false],
+    ['Member', ROLE_MEMBER, false],
+    ['Scheduler', ROLE_SCHEDULER, false],
+    ['Admin', ROLE_ADMIN, true],
+    ['Owner', ROLE_OWNER, true],
+  ])('%s → %s', (_label, role, expected) => {
+    expect(canCommitPlan(role)).toBe(expected);
+  });
+
+  it('excludes the Scheduler band specifically — the boundary #3129 moved', () => {
+    // The whole disputed band, not just its floor: an Enterprise custom role
+    // registered at 250 must not inherit a capability ADR-0773 denies Scheduler.
+    expect(canCommitPlan(ROLE_SCHEDULER)).toBe(false);
+    expect(canCommitPlan(ROLE_SCHEDULER + 50)).toBe(false);
+    expect(canCommitPlan(ROLE_ADMIN - 1)).toBe(false);
+  });
+
+  it('admits an Enterprise custom role in the project-lead band (>= semantics)', () => {
+    expect(canCommitPlan(ROLE_ADMIN + 50)).toBe(true);
+  });
+
+  it('treats null/undefined (role still loading) as denied', () => {
+    // Pessimistic until settled: a Commit button that flashes and vanishes offers a
+    // one-way, non-undoable act to someone who may turn out to lack it.
+    expect(canCommitPlan(null)).toBe(false);
+    expect(canCommitPlan(undefined)).toBe(false);
   });
 });

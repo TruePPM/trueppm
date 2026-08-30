@@ -186,10 +186,33 @@ test('Selecting a roster item shows the detail panel', async ({ page }) => {
 test('Detail panel shows full skill list', async ({ page }) => {
   await seedAuthAndNavigate(page);
   await page.getByRole('option', { name: /Alice Nguyen/i }).click();
-  // SkillChips have title="Name — Proficiency"; use title to avoid strict-mode
+  // SkillChips have title="Name, Proficiency"; use title to avoid strict-mode
   // collision with any plain-text "React" label elsewhere in the panel.
-  await expect(page.getByTitle('React — Expert')).toBeVisible();
-  await expect(page.getByTitle('TypeScript — Intermediate')).toBeVisible();
+  await expect(page.getByTitle('React, Expert')).toBeVisible();
+  await expect(page.getByTitle('TypeScript, Intermediate')).toBeVisible();
+});
+
+test('Roster row states each skill proficiency in its accessible name', async ({ page }) => {
+  // #3200 / rule 328(b). The title asserted above is a pointer convenience with no
+  // touch affordance, and the proficiency dots are aria-hidden — so before the fix
+  // the row's accessible name was the bare skill names and the level was reachable
+  // by nobody without a mouse. Assert the name, which is the channel that carries
+  // it at rest.
+  //
+  // `\s*` around the comma, not the literal `React, Expert` the unit test asserts:
+  // the two accessible-name implementations disagree on separator whitespace. The
+  // chip states the skill as text and completes it with an `sr-only` span, and
+  // jsdom's `dom-accessibility-api` concatenates the two contributions directly
+  // (`React, Expert`) while Playwright's inserts a space between them
+  // (`React , Expert`). Both are inaudible; neither is a defect. Pinning either
+  // spelling here would red on the other engine.
+  await seedAuthAndNavigate(page);
+  await expect(
+    page.getByRole('option', { name: /React\s*,\s*Expert/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('option', { name: /TypeScript\s*,\s*Intermediate/ }),
+  ).toBeVisible();
 });
 
 test('Add to project opens combobox with candidates', async ({ page }) => {

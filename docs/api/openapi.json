@@ -46535,15 +46535,15 @@
                         "type": "integer",
                         "description": "Rows captured into the baseline."
                     },
-                    "notified_resource_count": {
+                    "assigned_resource_count": {
                         "type": "integer",
-                        "description": "People with a resource assignment in the plan, who are told what was committed. Counted from TaskResource, never Task.assignee — a bare assignee carries no load and may not reach the person at all."
+                        "description": "How many people have a resource assignment in the plan being committed. Counted from TaskResource, never Task.assignee — a bare assignee carries no load and may not reach the person at all. This is the audience the commit concerns, so a client can say who it affects; it is NOT a count of notifications sent. Committing sends none."
                     }
                 },
                 "required": [
+                    "assigned_resource_count",
                     "baseline_id",
                     "baseline_name",
-                    "notified_resource_count",
                     "task_count"
                 ]
             },
