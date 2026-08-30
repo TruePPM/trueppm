@@ -667,7 +667,59 @@ api_static_mount="$(echo "$DEP" | yq '.spec.template.spec.containers[0].volumeMo
 [ "$api_static_mount" = "$static_root" ] \
   || fail "the api container mounts staticfiles at '$api_static_mount' but STATIC_ROOT is '$static_root' — WhiteNoise would serve an empty directory (#3183)"
 
-# N+2. Placement knobs exist and reach every workload (#3188).
+# N+3. A backup must have somewhere durable to land (#3185).
+#      backup.enabled with no destination rendered a CronJob whose `backups`
+#      volume was an emptyDir: the Job dumped, exited 0, the artifact died with
+#      the pod, and the CronJob reported success forever. The only guard was a
+#      comment in values.yaml, and a comment cannot fail a render.
+#
+#      Asserted from BOTH sides, because a guard that only rejects is as broken
+#      as one that only accepts: the four documented destinations must each
+#      render, and the no-destination case must not.
+if helm template trueppm "$CHART" --set image.tag=latest --set backup.enabled=true >/dev/null 2>&1; then
+  fail "backup.enabled=true rendered with no destination — the artifact would go to an emptyDir and be discarded while the CronJob reports success (#3185)"
+fi
+# extraVolumes WITHOUT mediaDir must also be refused: cronjob-backup.yaml renders
+# extraVolumes only inside `if .Values.backup.mediaDir`, so accepting it alone
+# would wave through the exact emptyDir fallback this guard exists to stop.
+if helm template trueppm "$CHART" --set image.tag=latest --set backup.enabled=true \
+     --set 'backup.extraVolumes[0].name=own' >/dev/null 2>&1; then
+  fail "backup.extraVolumes without backup.mediaDir was accepted as a destination, but the template ignores extraVolumes unless mediaDir is set (#3185)"
+fi
+backup_dest_checked=0
+for dest in \
+  "--set backup.persistence.enabled=true" \
+  "--set backup.persistence.existingClaim=my-backups" \
+  "--set backup.s3.enabled=true --set backup.s3.bucket=b" \
+  "--set backup.mediaDir=/var/lib/trueppm/media --set backup.extraVolumes[0].name=own --set backup.extraVolumes[0].emptyDir.medium="
+do
+  # shellcheck disable=SC2086
+  helm template trueppm "$CHART" --set image.tag=latest --set backup.enabled=true $dest >/dev/null 2>&1 \
+    || fail "a documented backup destination was refused by the render: $dest (#3185)"
+  backup_dest_checked=$((backup_dest_checked + 1))
+done
+
+# The CronJob's inline command and scripts/backup.sh are two producers of one
+# artifact format. They diverged silently before (#3185): the template's tar
+# swallowed failures with `|| true` and its MANIFEST carried two of the script's
+# seven fields, so an artifact could not tell a restorer whether media was in it.
+BACKUP_CMD="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set backup.enabled=true --set backup.persistence.enabled=true \
+  --show-only templates/cronjob-backup.yaml \
+  | yq eval-all 'select(.kind == "CronJob") | .spec.jobTemplate.spec.template.spec.containers[0].command[2]' -)"
+[ -n "$BACKUP_CMD" ] || fail "could not extract the backup CronJob's inline command (#3185)"
+manifest_fields_checked=0
+for field in created_utc run_context pg_dump_version db_included media_included redis_included s3_destination; do
+  echo "$BACKUP_CMD" | grep -q "echo \"$field:" \
+    || fail "the CronJob's MANIFEST omits '$field', which scripts/backup.sh writes — a restorer cannot read one artifact the way they read the other (#3185)"
+  grep -q "echo \"$field:" "$(cd "$(dirname "$0")" && pwd)/backup.sh" \
+    || fail "scripts/backup.sh no longer writes MANIFEST field '$field' but the CronJob still does — the two producers have drifted (#3185)"
+  manifest_fields_checked=$((manifest_fields_checked + 1))
+done
+echo "$BACKUP_CMD" | grep -q 'tar -czf "$STAGE/media.tar.gz".*|| true' \
+  && fail "the CronJob's media tar swallows failure with '|| true' — it would ship an artifact whose MANIFEST claims media it does not carry (#3185)"
+
+# N+4. Placement knobs exist and reach every workload (#3188).
 #      values.schema.json closes the root with additionalProperties:false, so a
 #      missing knob is REJECTED rather than ignored — `--set
 #      imagePullSecrets[0].name=regcred` failed schema validation, which meant a
@@ -756,57 +808,6 @@ case "$pdb_names" in
   *trueppm-web*) ;;
   *) fail "no PodDisruptionBudget for the web tier — the only tier a browser loads is the unprotected one (#3188)" ;;
 esac
-# N+3. A backup must have somewhere durable to land (#3185).
-#      backup.enabled with no destination rendered a CronJob whose `backups`
-#      volume was an emptyDir: the Job dumped, exited 0, the artifact died with
-#      the pod, and the CronJob reported success forever. The only guard was a
-#      comment in values.yaml, and a comment cannot fail a render.
-#
-#      Asserted from BOTH sides, because a guard that only rejects is as broken
-#      as one that only accepts: the four documented destinations must each
-#      render, and the no-destination case must not.
-if helm template trueppm "$CHART" --set image.tag=latest --set backup.enabled=true >/dev/null 2>&1; then
-  fail "backup.enabled=true rendered with no destination — the artifact would go to an emptyDir and be discarded while the CronJob reports success (#3185)"
-fi
-# extraVolumes WITHOUT mediaDir must also be refused: cronjob-backup.yaml renders
-# extraVolumes only inside `if .Values.backup.mediaDir`, so accepting it alone
-# would wave through the exact emptyDir fallback this guard exists to stop.
-if helm template trueppm "$CHART" --set image.tag=latest --set backup.enabled=true \
-     --set 'backup.extraVolumes[0].name=own' >/dev/null 2>&1; then
-  fail "backup.extraVolumes without backup.mediaDir was accepted as a destination, but the template ignores extraVolumes unless mediaDir is set (#3185)"
-fi
-backup_dest_checked=0
-for dest in \
-  "--set backup.persistence.enabled=true" \
-  "--set backup.persistence.existingClaim=my-backups" \
-  "--set backup.s3.enabled=true --set backup.s3.bucket=b" \
-  "--set backup.mediaDir=/var/lib/trueppm/media --set backup.extraVolumes[0].name=own --set backup.extraVolumes[0].emptyDir.medium="
-do
-  # shellcheck disable=SC2086
-  helm template trueppm "$CHART" --set image.tag=latest --set backup.enabled=true $dest >/dev/null 2>&1 \
-    || fail "a documented backup destination was refused by the render: $dest (#3185)"
-  backup_dest_checked=$((backup_dest_checked + 1))
-done
-
-# The CronJob's inline command and scripts/backup.sh are two producers of one
-# artifact format. They diverged silently before (#3185): the template's tar
-# swallowed failures with `|| true` and its MANIFEST carried two of the script's
-# seven fields, so an artifact could not tell a restorer whether media was in it.
-BACKUP_CMD="$(helm template trueppm "$CHART" --set image.tag=latest \
-  --set backup.enabled=true --set backup.persistence.enabled=true \
-  --show-only templates/cronjob-backup.yaml \
-  | yq eval-all 'select(.kind == "CronJob") | .spec.jobTemplate.spec.template.spec.containers[0].command[2]' -)"
-[ -n "$BACKUP_CMD" ] || fail "could not extract the backup CronJob's inline command (#3185)"
-manifest_fields_checked=0
-for field in created_utc run_context pg_dump_version db_included media_included redis_included s3_destination; do
-  echo "$BACKUP_CMD" | grep -q "echo \"$field:" \
-    || fail "the CronJob's MANIFEST omits '$field', which scripts/backup.sh writes — a restorer cannot read one artifact the way they read the other (#3185)"
-  grep -q "echo \"$field:" "$(cd "$(dirname "$0")" && pwd)/backup.sh" \
-    || fail "scripts/backup.sh no longer writes MANIFEST field '$field' but the CronJob still does — the two producers have drifted (#3185)"
-  manifest_fields_checked=$((manifest_fields_checked + 1))
-done
-echo "$BACKUP_CMD" | grep -q 'tar -czf "$STAGE/media.tar.gz".*|| true' \
-  && fail "the CronJob's media tar swallows failure with '|| true' — it would ship an artifact whose MANIFEST claims media it does not carry (#3185)"
 
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
@@ -826,5 +827,5 @@ echo "  - NOTES.txt names each trusted envFrom source and says the list is repla
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
 echo "  - both api probes send Host: $ing_host (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
-echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"
+echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"
