@@ -317,6 +317,21 @@ log "init-prod.sh generated a ${#drill_secret}-character SECRET_KEY into .env"
 # still has the pre-render tree, so nginx is currently bound to a stale or absent
 # source. Re-sync and recreate it.
 log "re-syncing the rendered nginx template and recreating nginx"
+# Stop nginx BEFORE the sync, not just recreate it after.
+#
+# By this point nginx is crash-looping: its first boot bound a bind source the
+# daemon did not have, so Docker created a DIRECTORY there and envsubst dies on
+# it. `restart: unless-stopped` means Docker keeps restarting it — and every
+# restart re-creates that directory. The sync's `rm -rf` therefore closes only
+# half the race: it clears the directory, and a restart landing in the window
+# before `tar -x` writes the member puts it straight back, which fails the
+# extraction with
+#   tar: can't remove old file nginx/active.conf.template: Is a directory
+# and takes the drill down with it. The window is small and the restart backoff
+# grows, so this fires intermittently rather than every run — it is a race, not
+# a constant, and no amount of `rm -rf` can win it while the writer is live.
+# Stopping the only process that recreates the path is what actually closes it.
+compose stop nginx >/dev/null 2>&1 || true
 sync_checkout_to_daemon
 assert_template_on_daemon
 # --no-deps is essential: without it compose recreates nginx's dependency chain

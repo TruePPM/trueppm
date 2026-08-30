@@ -199,7 +199,7 @@ data:
         # and the app never saw the request. Keep this >= the largest cap: the
         # application's own limit should be what rejects an oversized file,
         # because it names the limit in the error.
-        client_max_body_size {{ .Values.web.maxBodySize | default "50M" }};
+        client_max_body_size {{ .Values.web.maxBodySize | default "110M" }};
 
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {

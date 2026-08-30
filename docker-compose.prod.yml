@@ -1,5 +1,13 @@
 # Production stack — pull images from the registry, nginx on 80/443.
-# First-time setup: ./init-prod.sh
+#
+# FIRST RUN IS MANDATORY: ./init-prod.sh
+#   It is not a convenience wrapper. It generates SECRET_KEY, obtains or mints
+#   the TLS certificate, and RENDERS nginx/active.conf.template — which the
+#   nginx service bind-mounts and which does NOT exist in a fresh checkout. Run
+#   `docker compose -f docker-compose.prod.yml up -d` first and Docker creates a
+#   DIRECTORY at that path, after which nginx dies with "Is a directory" — a
+#   failure that reads like a bug in the image (#3189).
+#
 # Subsequent starts: docker compose -f docker-compose.prod.yml up -d
 #
 # Required .env variables:
@@ -30,13 +38,46 @@
 # Optional .env variables:
 #   DJANGO_SUPERUSER_EMAIL=you@yourdomain.com  (default: admin@example.com,
 #     a reserved domain that cannot receive password-reset mail — set this)
-#   TRUEPPM_ADMIN_PASSWORD_FILE=/run/trueppm/admin_password  (default)
+#   (TRUEPPM_ADMIN_PASSWORD_FILE is NOT settable from .env — the api and
+#     api-init services set it in `environment:`, which OVERRIDES `env_file:`,
+#     so a value in .env is read and then silently discarded. Same trap
+#     .env.example already warns about for DATABASE_URL. It is pinned because
+#     the path must match the admin_password volume mount below; change both
+#     together in this file if you need a different one, #3189.)
 #
 # Retrieve the initial admin password after first deploy:
 #   docker compose -f docker-compose.prod.yml exec api cat /run/trueppm/admin_password
 
+# Pin the project name. Without it, Compose derives it from the CHECKOUT
+# DIRECTORY, so volumes and containers are named after wherever you cloned —
+# while the documentation hardcodes `trueppm_postgres_data` and `trueppm-db-1`.
+# Renaming or re-cloning the directory silently orphans the Postgres volume and
+# every documented `docker exec` stops resolving (#3189).
+name: trueppm
+
+# Log rotation, applied to every service below via the `*logging` anchor.
+# NOTHING in any compose file set this: Django emits single-line JSON per
+# request in production (settings/prod.py), plus a Celery worker and beat at
+# --loglevel=info, and Docker's default json-file driver has NO cap. On a
+# long-running single-server install that is a guaranteed disk-full incident —
+# which takes Postgres down with it.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
 services:
   db:
+    <<: *logging
+    # Resource limits (#3189). docker-compose.demo.yml capped every service and
+    # PRODUCTION capped none, so a runaway MPXJ import or a Celery task could OOM
+    # the whole box — including Postgres. Raise these for your workload; see
+    # /administration/sizing/.
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
     image: postgres:16-alpine
     restart: unless-stopped
     security_opt:
@@ -58,14 +99,34 @@ services:
   # The .env variable name (REDIS_PASSWORD) is preserved to avoid breaking
   # existing self-hosters' .env files (deferred to 1.0).
   valkey:
+    <<: *logging
     image: valkey/valkey:8-alpine
     restart: unless-stopped
     read_only: true
     security_opt:
       - no-new-privileges:true
-    tmpfs:
-      - /data
-    command: valkey-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    # A PERSISTENT volume, not tmpfs (#3189). This was `tmpfs: /data` with no
+    # size limit — so every restart wiped the Celery broker, the Channels layer,
+    # the cache and the throttle counters, and the tmpfs could grow to half the
+    # host's RAM before anything complained. The DEV stack used a persistent
+    # volume while production did not, which is the inversion backwards.
+    #
+    # --appendonly yes so an AOF actually lands on that volume; without it the
+    # volume holds nothing and the restart behaviour is unchanged. maxmemory is
+    # set below the container limit with `noeviction`: this instance is the
+    # BROKER, not only a cache, so LRU eviction under pressure silently discards
+    # queued tasks. Failing the write loudly is recoverable; losing a task is not.
+    volumes:
+      - valkey_data:/data
+    command: >
+      valkey-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+      --appendonly yes
+      --maxmemory 768mb
+      --maxmemory-policy noeviction
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
     healthcheck:
       test: ["CMD-SHELL", "valkey-cli -a $$REDIS_PASSWORD --no-auth-warning ping"]
       interval: 5s
@@ -99,6 +160,7 @@ services:
   # Runs migrations, collectstatic, and admin bootstrap once before the API
   # starts. Exits 0 on success; api waits for this to complete.
   api-init:
+    <<: *logging
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
       sh -c "python manage.py migrate --noinput &&
@@ -112,6 +174,8 @@ services:
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       # See the "Bundled-datastore posture" note above this service.
       TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+      # Pinned here, NOT settable from .env — `environment:` overrides
+      # `env_file:`. It must match the admin_password volume mount (#3189).
       TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
       STATIC_ROOT: /app/staticfiles
     volumes:
@@ -124,6 +188,14 @@ services:
         condition: service_healthy
 
   api:
+    <<: *logging
+    # Resource limits (#3189). docker-compose.demo.yml capped every service and
+    # PRODUCTION capped none, so a runaway MPXJ import or a Celery task could OOM
+    # the whole box — including Postgres. Raise these for your workload; see
+    # /administration/sizing/.
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     restart: unless-stopped
     read_only: true
@@ -139,6 +211,8 @@ services:
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       # See the "Bundled-datastore posture" note above the api-init service.
       TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+      # Pinned here, NOT settable from .env — `environment:` overrides
+      # `env_file:`. It must match the admin_password volume mount (#3189).
       TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
       # Must match api-init's STATIC_ROOT, and the volume below must be the same
       # one it collected into (#2828). WhiteNoise (base.py MIDDLEWARE) is what
@@ -162,6 +236,14 @@ services:
       retries: 3
 
   celery:
+    <<: *logging
+    # Resource limits (#3189). docker-compose.demo.yml capped every service and
+    # PRODUCTION capped none, so a runaway MPXJ import or a Celery task could OOM
+    # the whole box — including Postgres. Raise these for your workload; see
+    # /administration/sizing/.
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info"]
     restart: unless-stopped
@@ -181,6 +263,17 @@ services:
     depends_on:
       api-init:
         condition: service_completed_successfully
+    # `restart: unless-stopped` only restarts on process EXIT, so a worker whose
+    # event loop has wedged reports `Up` forever (#3189). `celery inspect ping`
+    # round-trips a control-plane message over the broker, so it detects that
+    # AND confirms the pod can still reach Valkey — the same probe the Helm
+    # chart uses.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A trueppm_api.celery inspect ping -d celery@$$HOSTNAME --timeout 10 >/dev/null"]
+      interval: 30s
+      timeout: 15s
+      start_period: 60s
+      retries: 3
 
   # Beat is the SINGLE scheduler for the whole stack: it is the one process that
   # dispatches CELERY_BEAT_SCHEDULE (outbox and email drains, retention purge,
@@ -189,6 +282,14 @@ services:
   # consume and that endpoint reports 503 forever. Never scale this service past
   # one replica — a second beat double-fires every periodic task.
   celery-beat:
+    <<: *logging
+    # Resource limits (#3189). docker-compose.demo.yml capped every service and
+    # PRODUCTION capped none, so a runaway MPXJ import or a Celery task could OOM
+    # the whole box — including Postgres. Raise these for your workload; see
+    # /administration/sizing/.
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     # `--schedule` / `--pidfile` under /tmp: read_only is on and beat's default
     # paths are relative to the container working directory, which is not
@@ -222,10 +323,22 @@ services:
         condition: service_completed_successfully
       celery:
         condition: service_started
+    # Beat runs no worker control plane of its own, so the ping targets the
+    # fleet: it asserts beat can reach the broker and that a worker answers. The
+    # product already ships /api/v1/health/beat/ for the other direction (is beat
+    # alive?) and nothing consumed it; this is the container-level half (#3189).
+    # A generous failureThreshold keeps a brief worker blip from killing beat.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A trueppm_api.celery inspect ping --timeout 10 >/dev/null"]
+      interval: 60s
+      timeout: 15s
+      start_period: 90s
+      retries: 5
 
   # Copies the pre-built frontend assets into the shared volume so nginx
   # can serve them. Exits immediately after the copy.
   web-build:
+    <<: *logging
     image: ghcr.io/trueppm/web:${APP_VERSION:-latest}
     # The web image now runs as a non-root user (uid 101, nginx-unprivileged).
     # This one-shot init only copies the static bundle into the shared volume,
@@ -238,6 +351,14 @@ services:
       - frontend_dist:/dist
 
   nginx:
+    <<: *logging
+    # Resource limits (#3189). docker-compose.demo.yml capped every service and
+    # PRODUCTION capped none, so a runaway MPXJ import or a Celery task could OOM
+    # the whole box — including Postgres. Raise these for your workload; see
+    # /administration/sizing/.
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 256
     image: nginx:1.27-alpine
     restart: unless-stopped
     read_only: true
@@ -306,6 +427,17 @@ services:
         condition: service_completed_successfully
       api:
         condition: service_healthy
+    # A wedged nginx keeps its process alive, so `restart: unless-stopped`
+    # never fires and the container reports `Up` while serving nothing (#3189).
+    # Probes the local listener over plain HTTP: the container always listens on
+    # :80 regardless of TLS_MODE (letsencrypt/selfsigned redirect from it), and
+    # a probe that needed the certificate would fail for the wrong reason.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider -T 5 http://127.0.0.1/api/v1/health/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
 
   # Renews the Let's Encrypt certificate every 12 hours.
   #
@@ -325,6 +457,7 @@ services:
   # :80 on the host. Renewing through the webroot nginx already serves at
   # /.well-known/acme-challenge/ needs no port and no downtime.
   certbot:
+    <<: *logging
     image: certbot/certbot
     restart: unless-stopped
     profiles: ["letsencrypt"]
@@ -335,6 +468,9 @@ services:
 
 volumes:
   postgres_data:
+  # Valkey AOF. Persistent so a restart does not wipe the broker, the channel
+  # layer, the cache and the throttle counters at once (#3189).
+  valkey_data:
   admin_password:
   frontend_dist:
   static_files:

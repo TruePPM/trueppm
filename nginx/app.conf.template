@@ -46,11 +46,19 @@ server {
     add_header X-Content-Type-Options    "nosniff" always;
     add_header Content-Security-Policy   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'" always;
 
-    # Must stay >= the largest application upload cap — MSPROJECT_MAX_UPLOAD_MB
-    # is 50 (Jira 25, CSV 10, seed 5). At 20M a valid .mpp file was rejected
-    # here with a bare 413 before the app could return the error naming the
-    # limit (#2604). The app cap is the enforcement point; this is headroom.
-    client_max_body_size 50M;
+    # 110M, not 50M (#3189). The largest application cap is the ATTACHMENT one:
+    # serializers.py sets MAX_ATTACHMENT_SIZE_BYTES = 100 MB and
+    # settings/base.py sets DATA_UPLOAD_MAX_MEMORY_SIZE to the same, with a
+    # comment instructing operators to set nginx to 100m. At 50M every
+    # attachment between 50 and 100 MB got a bare nginx 413 on every deployment
+    # path — the documented feature was capped at half its documented size, and
+    # the rejection never reached the app that could name the limit.
+    #
+    # 110 rather than 100: multipart framing and headers add a few KB, so at
+    # exactly 100M a legal 100 MB upload still 413s. The app cap remains the
+    # enforcement point; this is headroom above it, which is what the earlier
+    # comment here claimed 50M was and was not.
+    client_max_body_size 110M;
 
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
@@ -86,13 +94,32 @@ server {
         proxy_read_timeout     86400s;
     }
 
-    # Django admin — restricted to loopback only at the Nginx layer.
-    # To access admin from outside the server, SSH-tunnel:
-    #   ssh -L 8443:127.0.0.1:443 user@yourserver
-    #   then visit https://localhost:8443/admin/
+    # Django admin — DENIED at the Nginx layer, and that is the whole control.
+    #
+    # The `allow 127.0.0.1; allow ::1;` that used to sit here could never match
+    # (#3189). nginx tests $remote_addr, which for a request arriving through a
+    # published port is the DOCKER BRIDGE GATEWAY, not the client's address — so
+    # the documented `ssh -L 8443:127.0.0.1:443` tunnel produced a 403 too. The
+    # rule failed closed, so it was never a vulnerability; it was a control that
+    # read as conditional while being absolute, and a documented procedure that
+    # could not work. packages/web/nginx.conf records the same fact.
+    #
+    # Adding set_real_ip_from for the bridge would not rescue the tunnel either:
+    # an SSH port-forward sends no X-Forwarded-For for nginx to read.
+    #
+    # TO REACH DJANGO ADMIN on this stack, go at the API container directly,
+    # which is not behind this nginx at all:
+    #   ssh -L 8000:127.0.0.1:8000 user@yourserver
+    #   docker compose -f docker-compose.prod.yml run --rm --service-ports \
+    #     -p 127.0.0.1:8000:8000 api
+    #   then visit http://localhost:8000/admin/
+    # Or use `docker compose exec api python manage.py shell` for one-off work.
+    #
+    # limit_req stays as defense in depth: if you replace `deny all` with your
+    # own office CIDR, the rate limit is still there. Django admin is a plain
+    # Django view, so no DRF throttle scope applies to it and there is no lockout
+    # backend — and the bootstrap guarantees a superuser exists.
     location /admin/ {
-        allow 127.0.0.1;
-        allow ::1;
         deny all;
 
         limit_req zone=admin_login burst=2 nodelay;

@@ -1856,13 +1856,18 @@ helm:template:
     # against app caps of 10-50 MB: every import above 1 MB failed at the edge
     # with a bare 413 and the app never saw the request. Assert both, because a
     # values-file tidy-up is exactly how the empty map came back.
+    #
+    # Both are 110M/110m since #3189, sized against the largest cap — attachments
+    # at 100 MB — plus 10 MB of multipart framing headroom. The ingress one is
+    # the load-bearing assertion: /api goes straight to the API Service, so it is
+    # the only limit an attachment upload meets on a default install.
     - |
-      grep -q 'client_max_body_size 50M;' /tmp/rendered.yaml \
-        || { echo "PROD REGRESSION: web nginx no longer clears the 50 MB app upload cap (#2604)"; exit 1; }
+      grep -q 'client_max_body_size 110M;' /tmp/rendered.yaml \
+        || { echo "PROD REGRESSION: web nginx no longer clears the 100 MB attachment cap (#2604, #3189)"; exit 1; }
     - |
       helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
-        | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 50m' \
-        || { echo "PROD REGRESSION: ingress no longer raises proxy-body-size — a default install 413s every import >1 MB (#2604)"; exit 1; }
+        | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 110m' \
+        || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >50 MB (#2604, #3189)"; exit 1; }
     # The demo keeps its own 1M ceiling: it is read-only and imports nothing. If
     # web.maxBodySize ever leaks into the demo branch, the demo has silently
     # gained a 50 MB upload surface.

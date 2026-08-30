@@ -20,10 +20,46 @@ if [[ ! -f .env ]]; then
   echo "ERROR: .env file not found. Copy .env.example and fill in the required values." >&2
   exit 1
 fi
-set -a
-# shellcheck disable=SC1091
-source .env
-set +a
+# Parse .env as KEY=VALUE, never `source` it (#3189).
+#
+# `set -a; source .env` executes the file as bash. .env.example documents
+#   CSP_CONNECT_SRC='self' wss:
+# which bash reads as an assignment prefix plus the COMMAND `wss:` — so under
+# `set -euo pipefail` this script died with exit 127 on a line the file itself
+# tells you to uncomment, while Docker Compose parses it correctly. The value
+# worked everywhere except the script the documentation tells you to run.
+#
+# Worse: a password containing `$(...)` or a backtick would have been EXECUTED.
+# .env holds DB_PASSWORD and REDIS_PASSWORD, and both are meant to be random —
+# `python3 -c "import secrets; ..."` output routinely contains `$`.
+#
+# This reader assigns, exports, and evaluates nothing. It mirrors Compose's own
+# rules: skip blanks and comments, split on the first `=`, and strip ONE layer
+# of quotes only when they surround the WHOLE value — so `CSP_CONNECT_SRC='self'
+# wss:` keeps the quotes CSP syntax actually requires.
+load_env_file() {
+  local file="$1" line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"                       # tolerate CRLF-saved .env files
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    key="${key#"${key%%[![:space:]]*}"}"       # ltrim
+    key="${key%"${key##*[![:space:]]}"}"       # rtrim
+    # Anything that is not a shell-legal name is not a variable assignment.
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    value="${line#*=}"
+    if [[ ${#value} -ge 2 && "$value" == \"*\" ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ ${#value} -ge 2 && "$value" == \'*\' ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    printf -v "$key" '%s' "$value"
+    export "${key?}"
+  done < "$file"
+}
+
+load_env_file .env
 
 : "${DOMAIN:?Set DOMAIN=yourdomain.com in .env}"
 : "${DB_PASSWORD:?Set DB_PASSWORD in .env}"

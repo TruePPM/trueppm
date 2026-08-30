@@ -72,8 +72,19 @@ x-api-env: &api-env
   TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
   TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE: "true"
 
+# Log rotation for every service below. Docker's json-file driver has no cap by
+# default, and a long-running demo host fills its disk exactly like a production
+# one does (#3189).
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
 services:
   db:
+    <<: *logging
     image: postgres:16-alpine
     restart: unless-stopped
     security_opt:
@@ -94,6 +105,7 @@ services:
       retries: 5
 
   valkey:
+    <<: *logging
     image: valkey/valkey:8-alpine
     restart: unless-stopped
     read_only: true
@@ -126,6 +138,7 @@ services:
   # Share links need no admin account: demo-seed mints them with
   # create_demo_share_link.
   api-init:
+    <<: *logging
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
       sh -c "python manage.py migrate --noinput &&
@@ -148,6 +161,7 @@ services:
   # with the sample's own persona account, which also carries an unusable
   # password — _resolve_owner's third branch, which is now the one that runs.
   demo-seed:
+    <<: *logging
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
       sh -c "python manage.py load_sample_project &&
@@ -164,6 +178,7 @@ services:
         condition: service_completed_successfully
 
   api:
+    <<: *logging
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     restart: unless-stopped
     security_opt:
@@ -195,6 +210,7 @@ services:
 
   # Copies the pre-built frontend assets into the shared volume for nginx.
   web-build:
+    <<: *logging
     image: ghcr.io/trueppm/web:${APP_VERSION:-latest}
     user: "0"
     entrypoint: ["/bin/sh", "-c"]
@@ -203,6 +219,7 @@ services:
       - demo_frontend_dist:/dist
 
   nginx:
+    <<: *logging
     image: nginx:1.27-alpine
     restart: unless-stopped
     read_only: true
