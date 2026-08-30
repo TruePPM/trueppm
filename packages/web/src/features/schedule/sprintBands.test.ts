@@ -220,6 +220,41 @@ describe('computeSprintBands — row attribution (#2738)', () => {
   });
 });
 
+describe('computeSprintBands — a phase reads from its descendants (#2738)', () => {
+  /**
+   * The rollup rule: a row contributes its OWN sprint only when no descendant
+   * contributed one. Without it a phase carrying a stale sprint of its own would
+   * disagree with its children and resolve the whole subtree to "mixed", which
+   * silently deletes the band.
+   *
+   * This was uncovered here until #3204 — mutating the rule left all 34 existing
+   * cases green, because none of them gives a parent a sprint that differs from
+   * its children's.
+   */
+  it('ignores a phase\'s own sprint when its children all agree on another', () => {
+    const tasks = [
+      task('phase', { sprintId: 's2', isSummary: true }),
+      task('kid-1', { sprintId: 's1', parentId: 'phase' }),
+      task('kid-2', { sprintId: 's1', parentId: 'phase' }),
+    ];
+    const bands = computeSprintBands(tasks, [sprint('s1'), sprint('s2')]);
+    // One band, for s1 — the children's sprint — covering all three rows.
+    expect(bands).toHaveLength(1);
+    expect(bands[0].sprintId).toBe('s1');
+    expect(sprintBandByTaskId(tasks, bands).get('phase')?.sprintId).toBe('s1');
+  });
+
+  it('resolves a phase to no band when its children disagree', () => {
+    const tasks = [
+      task('phase', { isSummary: true }),
+      task('kid-1', { sprintId: 's1', parentId: 'phase' }),
+      task('kid-2', { sprintId: 's2', parentId: 'phase' }),
+    ];
+    const bands = computeSprintBands(tasks, [sprint('s1'), sprint('s2')]);
+    expect(sprintBandByTaskId(tasks, bands).get('phase')).toBeUndefined();
+  });
+});
+
 describe('sprintBandByTaskId (#2738)', () => {
   it('maps every covered row to its whole band, dates included', () => {
     const tasks = [task('a', { sprintId: 's1' }), task('b'), task('c', { sprintId: 's1' })];
