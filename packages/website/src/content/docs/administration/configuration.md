@@ -37,6 +37,35 @@ All configuration is via environment variables. For local development, `docker-c
 Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The default secret key is public — anyone who knows it can forge session cookies and JWTs.
 :::
 
+### `TRUEPPM_ALLOW_DEV_SETTINGS` — the one variable that disables authentication
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `TRUEPPM_ALLOW_DEV_SETTINGS` | _(unset)_ | Set to `1` to permit `trueppm_api.settings.dev` to load outside a test runner. **Never set this on any instance reachable by anyone but you.** |
+
+`settings.dev` sets DRF's `DEFAULT_PERMISSION_CLASSES` to `AllowAny`,
+`ALLOWED_HOSTS` to `["*"]`, `DEBUG = True`, and a hardcoded integration
+encryption key. Loading it is not "development mode" — it removes
+authentication from **every** endpoint instance-wide.
+
+The module refuses to import unless one of four things is true: pytest is
+running, `pytest` or `mypy` is already imported, or `TRUEPPM_ALLOW_DEV_SETTINGS=1`
+is set. That guard is fail-closed and the default state is safe — an
+unconfigured container cannot load dev settings by accident. This variable is
+the only way to override it, which is exactly why it is documented here:
+
+- **Do not put it in a Helm values file, a Kubernetes Secret, a ConfigMap, or a
+  `.env` used by anything other than your workstation.** It has no legitimate
+  production use.
+- **Alarm on it.** If your configuration management or admission control can
+  reject a manifest containing this key, do that.
+- The safe way to run a local instance is `DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev`
+  in the dev compose stack, which sets it for you and binds to localhost.
+
+Setting it does not by itself load dev settings — `DJANGO_SETTINGS_MODULE` still
+has to name the dev module. It removes the interlock that would otherwise stop
+that combination.
+
 ### Host names you must include
 
 Django validates the `Host` header in `get_host()`, before any view runs, and

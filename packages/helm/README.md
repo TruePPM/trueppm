@@ -188,8 +188,15 @@ Demo mode also replaces the web tier's nginx config with an **allowlist** that
 mirrors `nginx/demo.conf.template` (#1763): only the two share projections and the
 liveness probe are proxied, while `/admin/`, `/ws/` and every other `/api/` route
 return 404. That is the actual control. A bootstrap superuser still exists — the api
-Deployment creates one on every deploy, as the compose demo does — it simply has no
-public login surface. To reach Django admin on a demo release:
+Deployment creates one on every deploy — it simply has no public login surface.
+
+That is safe on the chart and was not on `docker-compose.demo.yml`: this path
+uses the operator's own `SECRET_KEY` from their Secret, while the compose demo
+bakes a public one, so a superuser there had tokens anyone could forge from a
+value printed in the repository. The compose demo no longer creates that account
+(#3187) — do not read this paragraph as saying it still does.
+
+To reach Django admin on a demo release:
 
 ```bash
 kubectl port-forward svc/<release>-trueppm-api 8000:8000

@@ -16,11 +16,18 @@
 # bump on the share link itself.
 #
 # Note what this does NOT claim: a bootstrap superuser exists, because the api
-# Deployment creates one on every deploy (as the compose demo does too). It has no
-# public login surface — demo mode replaces the web nginx config with an allowlist
-# that 404s /admin/, /ws/ and all of /api/ except the share projections and the
-# liveness probe. Reach admin with:
+# Deployment creates one on every deploy. It has no public login surface — demo
+# mode replaces the web nginx config with an allowlist that 404s /admin/, /ws/
+# and all of /api/ except the share projections and the liveness probe. Reach
+# admin with:
 #   kubectl port-forward svc/<release>-trueppm-api 8000:8000
+#
+# This is safe HERE and was NOT safe on the compose demo, for one reason: this
+# file bakes no secrets (see below), so the superuser's tokens are signed with
+# the operator's own SECRET_KEY. docker-compose.demo.yml bakes a public one, and
+# it also ran create_admin — a superuser whose tokens anyone could forge. It no
+# longer does (#3187), so do not re-derive "the compose demo does it too" from
+# this comment.
 #
 # WHAT THIS IS NOT
 #

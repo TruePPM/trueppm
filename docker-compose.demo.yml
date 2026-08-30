@@ -39,10 +39,23 @@
 #
 # ── Security note ─────────────────────────────────────────────────────────────
 # The SECRET_KEY / INTEGRATION_ENCRYPTION_KEY below are BAKED DEMO VALUES, safe
-# ONLY because this stack has zero user accounts and no authenticated write path
-# (nobody ever logs in — access is exclusively via the anonymous read-only share
-# endpoint). Do NOT copy these into a real deployment; use docker-compose.prod.yml
-# with generated secrets for anything that holds real data.
+# ONLY because this stack has zero login-capable accounts and no authenticated
+# write path (nobody ever logs in — access is exclusively via the anonymous
+# read-only share endpoint). Do NOT copy these into a real deployment; use
+# docker-compose.prod.yml with generated secrets for anything that holds real
+# data.
+#
+# That "zero accounts" claim is load-bearing, not decorative. A public
+# SECRET_KEY means a public JWT_SIGNING_KEY (base.py derives one from the
+# other), so any account that CAN log in has a token anyone can forge. Two
+# things keep the claim true, and both must stay true together:
+#
+#   1. api-init does not run create_admin — no superuser is created.
+#   2. demo-seed runs load_sample_project WITHOUT --with-personas, so its
+#      accounts are created with unusable passwords.
+#
+# scripts/check-demo-readonly.sh enforces both. If you ever need a real account
+# on this stack, the baked keys must go first.
 
 # Shared environment for every API-image container (init, seed, api).
 # Top-level `x-` extension field + YAML anchor keeps the demo config in one place.
@@ -97,21 +110,30 @@ services:
       timeout: 3s
       retries: 5
 
-  # Runs migrations + collectstatic + admin bootstrap once. The admin account
-  # exists only so an operator can manage share links via the loopback-only
-  # /admin/; it is never exposed publicly.
+  # Runs migrations + collectstatic once. It deliberately does NOT run
+  # create_admin (#3187): this stack's entire security posture is that no
+  # login-capable account exists, which is what makes the baked public
+  # SECRET_KEY above harmless. A superuser plus a published signing key is a
+  # forgeable superuser token, held back only by the /api/ allowlist in
+  # nginx/demo.conf.template — one config line with no defense behind it.
+  #
+  # It used to run create_admin anyway, and because api-init completes before
+  # demo-seed, load_sample_project's _resolve_owner took its superuser branch —
+  # not the persona branch its own comment describes. Three comments in this
+  # file and one in that command all asserted "no superuser"; the stack created
+  # one. Removing it is what makes the shared assumption true.
+  #
+  # Share links need no admin account: demo-seed mints them with
+  # create_demo_share_link.
   api-init:
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
       sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput &&
-             python manage.py create_admin"
+             python manage.py collectstatic --noinput"
     environment:
       <<: *api-env
-      TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
       STATIC_ROOT: /app/staticfiles
     volumes:
-      - demo_admin_password:/run/trueppm
       - demo_static_files:/app/staticfiles
     depends_on:
       db:
@@ -122,8 +144,9 @@ services:
   # Auto-seeds the read-only sample and mints/pins the public share link.
   # NOTE: load_sample_project runs WITHOUT --with-personas — no persona logins,
   # no TRUEPPM_DEMO_PASSWORD path (#1350). Read-only posture by construction.
-  # With no superuser on this stack the command owns the program with the
-  # sample's own persona account, which also carries an unusable password.
+  # With no superuser on this stack (see api-init) the command owns the program
+  # with the sample's own persona account, which also carries an unusable
+  # password — _resolve_owner's third branch, which is now the one that runs.
   demo-seed:
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
@@ -225,6 +248,5 @@ services:
 
 volumes:
   demo_postgres_data:
-  demo_admin_password:
   demo_frontend_dist:
   demo_static_files:
