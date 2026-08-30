@@ -121,8 +121,18 @@ class Migration(migrations.Migration):
 
     initial = True
 
+    # The auth.0002 edge widens auth_permission.name to varchar(255) before
+    # post_migrate's create_permissions() inserts this app's 51-character
+    # historical-model permission names (#3081). Stated here as well as on the
+    # replaced 0001_initial, and both copies are deliberate: remove_replaced_nodes
+    # re-points a replaced migration's dependencies onto the replacement, so
+    # 0001_initial's copy already reaches this node and the two are individually
+    # redundant today. They are not jointly redundant — the originals carry the
+    # edge through a future `squashmigrations` regeneration, and this copy keeps
+    # it if the originals are ever dropped from disk.
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+        ("auth", "0002_alter_permission_name_max_length"),
     ]
 
     operations = [

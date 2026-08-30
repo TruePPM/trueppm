@@ -13,7 +13,18 @@ import trueppm_api.fields
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies: list[tuple[str, str]] = []  # type: ignore[misc]
+    # auth.0002 widens auth_permission.name from varchar(50) to varchar(255).
+    # This app's simple-history shadow models generate permission names longer
+    # than 50 characters ("Can change historical project signal privacy policy"
+    # is 51), and post_migrate's create_permissions() inserts them for every app
+    # present in the migration state. Without this edge a targeted
+    # `migrate projects <n>` on an empty database pulls auth in at 0001 only and
+    # the insert dies with DataError: value too long for type character
+    # varying(50). A full `migrate` happens to apply auth.0002 anyway, which is
+    # why deploys never saw it (#3081).
+    dependencies: list[tuple[str, str]] = [  # type: ignore[misc]
+        ("auth", "0002_alter_permission_name_max_length"),
+    ]
 
     operations = [
         # Enable PostgreSQL ltree extension before any model that uses LtreeField.
