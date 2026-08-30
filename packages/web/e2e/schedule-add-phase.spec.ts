@@ -412,6 +412,68 @@ test.describe('Phase-in-waiting hint layout (#3057)', () => {
     expect(nameBox).not.toBeNull();
     expect(nameBox!.width).toBeGreaterThan(40);
   });
+
+  test('a slow tasks response does not erase the remembered phase (#3213)', async ({ page }) => {
+    await setupCatchAll(page);
+    await setupAuth(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: [
+        {
+          id: 't-empty-phase',
+          wbs_path: '1',
+          name: 'Regulatory approvals',
+          early_start: '2026-04-05',
+          early_finish: '2026-04-09',
+          planned_start: '2026-04-05',
+          duration: 5,
+          percent_complete: 0,
+          is_critical: false,
+          is_milestone: false,
+          is_summary: false,
+          parent_id: null,
+          status: 'NOT_STARTED',
+          assignees: [],
+          total_float: null,
+          predecessor_count: 0,
+          is_blocked: false,
+          linked_risks_count: 0,
+          linked_risks_max_severity: null,
+        },
+      ],
+    });
+
+    // Hold the tasks answer back so ScheduleView is guaranteed to mount and run its
+    // effects first. That ordering is what a cold load looks like on a real network,
+    // and it is the state the cleanup effect used to read as "these rows are gone" —
+    // deleting the remembered set and persisting the deletion, so nothing restored it
+    // when the tasks did land. Registered after setupApiMocks so it wins the match and
+    // falls through to the fixture handler.
+    //
+    // Deliberately deterministic rather than load-dependent: the layout test above
+    // exercises the same code path only when a contended runner happens to lose the
+    // race (12/40 at --workers=12 before the guard), which is how this shipped
+    // unnoticed for five days and then red main twice in one afternoon.
+    await page.route('**/api/v1/tasks/**', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.fallback();
+    });
+
+    await page.addInitScript(
+      ([key, ids]: [string, string[]]) => {
+        window.sessionStorage.setItem(key, JSON.stringify(ids));
+      },
+      [`trueppm.schedule.phaseInWaiting.${FIXTURE_PROJECT_ID}`, ['t-empty-phase']] as [
+        string,
+        string[],
+      ],
+    );
+
+    await page.goto(BASE_URL);
+    const grid = page.getByRole('treegrid', { name: 'Item list' });
+    await expect(grid.getByTestId('phase-in-waiting-hint')).toBeVisible();
+  });
 });
 
 test.describe('Contributor-surface exclusion — a phase never appears in Quick Log Time (issue #1754)', () => {

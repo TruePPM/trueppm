@@ -2935,8 +2935,19 @@ export function ScheduleView() {
 
   // Drop an id once it becomes a real phase (gained a structural child) or was
   // deleted — keeps the persisted set from growing unbounded across a session.
+  //
+  // Gated on `rawTasks`, not on `allTasks` (#3213). `allTasks` is `rawTasks ?? []`,
+  // which says the same thing for "the query has not answered yet" as for "it
+  // answered, and there are no tasks" — and this effect's whole job is deletion, so
+  // it cannot afford to confuse the two. Its hooks run on the FIRST commit, long
+  // before the loading early-return below and long before the query settles, so on a
+  // cold load every persisted id looks deleted. Worse, the persist effect above then
+  // writes the emptied set back to sessionStorage, and the re-run once tasks arrive
+  // finds `size === 0` and returns — the session-scoped memory that exists to survive
+  // a reload does not survive one.
   useEffect(() => {
     if (phaseInWaitingIds.size === 0) return;
+    if (!rawTasks) return;
     setPhaseInWaitingIds((prev) => {
       let changed = false;
       const next = new Set(prev);
