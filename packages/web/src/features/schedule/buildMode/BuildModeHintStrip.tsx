@@ -1,5 +1,6 @@
 import type { FocusMode } from './useScheduleFocus';
 import { formatChord } from '@/lib/platform';
+import { countRows } from '../rowVocabulary';
 
 interface HintEntry {
   /** Glyph or short string rendered inside the <kbd> chip. */
@@ -41,7 +42,6 @@ const SELECTION_HINTS: HintEntry[] = [
   // and because with `displayOptions.structureButtons` off by default, this strip is
   // where the chord is discoverable at the moment it becomes meaningful.
   { key: formatChord('mod+alt+g'), label: 'Group into a phase' },
-  { key: formatChord('mod+shift+k'), label: 'Edit all selected' },
   { key: '⌫', label: 'Delete all selected' },
   { key: 'Esc', label: 'Clear selection' },
 ];
@@ -54,6 +54,16 @@ export interface BuildModeHintStripProps {
    * but what the planner can now do is a batch act, not a row act.
    */
   selectionCount?: number;
+  /**
+   * Open the bulk-edit sheet (`S23`, #3152). Absent for a reader who may not
+   * author — a control that cannot act is worse than no control.
+   *
+   * This replaces the passive `⌘⇧K Edit all selected` hint chip that used to sit
+   * here. A hint teaches a chord; a **control** performs the act and teaches the
+   * chord beside it, which is why a richer sheet needed a stronger front door —
+   * and why that door is a control rather than another teaching surface.
+   */
+  onBulkEdit?: () => void;
   /** Called when the "All shortcuts" affordance is clicked / activated. */
   onShowCheatsheet: () => void;
 }
@@ -64,7 +74,7 @@ function HintChip({ entry }: { entry: HintEntry }) {
       <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-xs tppm-mono text-chrome-text-primary">
         {entry.key}
       </kbd>
-      <span className="ml-1.5 text-[12px] text-chrome-text-secondary">
+      <span className="ml-1.5 text-xs text-chrome-text-secondary">
         {entry.label}
       </span>
     </span>
@@ -85,6 +95,7 @@ function HintChip({ entry }: { entry: HintEntry }) {
 export function BuildModeHintStrip({
   mode,
   selectionCount = 0,
+  onBulkEdit,
   onShowCheatsheet,
 }: BuildModeHintStripProps) {
   const multiSelect = selectionCount > 1;
@@ -112,6 +123,25 @@ export function BuildModeHintStrip({
       </span>
       <span className="text-chrome-text-secondary" aria-hidden="true">·</span>
       <div className="flex items-center gap-4 flex-1 min-w-0 overflow-hidden">
+        {multiSelect && onBulkEdit && (
+          <button
+            type="button"
+            onClick={onBulkEdit}
+            data-testid="build-mode-bulk-edit"
+            // rule 214: `focus:`, not `focus-visible:` — Firefox and desktop
+            // Safari withhold `:focus-visible` on pointer-initiated focus, which
+            // leaves a standalone chrome control with no visible ring at all.
+            className="inline-flex items-center gap-1.5 text-xs text-chrome-text-primary
+              hover:text-brand-primary
+              focus:outline-none focus:ring-2 focus:ring-brand-primary
+              focus:ring-offset-1 focus:ring-offset-chrome-surface-raised rounded-control"
+          >
+            Edit {countRows(selectionCount)}
+            <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-xs tppm-mono">
+              {formatChord('mod+shift+k')}
+            </kbd>
+          </button>
+        )}
         {hints.map((entry) => (
           <HintChip key={`${multiSelect ? 'sel' : mode}-${entry.key}`} entry={entry} />
         ))}
@@ -119,10 +149,12 @@ export function BuildModeHintStrip({
       <button
         type="button"
         onClick={onShowCheatsheet}
-        className="inline-flex items-center gap-1.5 text-[12px] text-chrome-text-secondary
+        // rule 214 — converted alongside the sibling control added in #3152
+        // rather than carried forward.
+        className="inline-flex items-center gap-1.5 text-xs text-chrome-text-secondary
           hover:text-chrome-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface-raised rounded-control"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1 focus:ring-offset-chrome-surface-raised rounded-control"
         aria-label="Show all keyboard shortcuts"
       >
         <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-xs tppm-mono">

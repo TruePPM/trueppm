@@ -200,6 +200,16 @@ def _program_membership_base_qs(
     deactivated users, a privacy suppression gate — cannot be inherited by three of
     the four group keys and silently skipped by the fourth. Add such filters
     **here**, never in a per-key branch.
+
+    **Draft projects are deliberately kept** (#3144; the reasoning is recorded in
+    ``projects.lifecycle``, not repeated here). A member whose only membership in
+    the program is on a project still in ``ProjectLifecycle.DRAFT`` is still
+    reached. The decisive reason is the paragraph above: a draft exclusion belongs
+    *here* by that rule, and here it would also cut the draft's own Admin out of
+    ``@program-pms`` and its Scheduler out of ``@program-schedulers`` — the people
+    authoring the plan, dropped from program-wide coordination. The absence of
+    :func:`~trueppm_api.apps.projects.lifecycle.exclude_draft_projects` in this
+    function is a decision, not an oversight.
     """
     from trueppm_api.apps.access.models import ProjectMembership
 
@@ -317,6 +327,11 @@ def _resolve_program_group_members(
     from trueppm_api.apps.access.models import Role
     from trueppm_api.apps.projects.models import Project
 
+    # The origin project's own lifecycle is deliberately not consulted (#3144): a
+    # mention written on a task in a DRAFT project still fans out program-wide,
+    # because a PM typing @program-stakeholders into a draft is asking for the
+    # review a draft exists to get. The notification sites the draft exclusion list
+    # does cover are unattended sweeps, not something a human just typed.
     program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
     if program_id is None:
         raise InvalidGroupKeyError(f"{key} (project has no program)")

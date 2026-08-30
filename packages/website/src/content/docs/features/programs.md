@@ -119,10 +119,11 @@ project to a program you administer even when you didn't navigate from one.
 :::
 
 :::note[Ships in 0.4]
-The sheet collects only what changes what happens next: name, program, start
-date, and working calendar, then one choice among three peer ways in —
-**Template**, **Blank**, or **Import** — same size, same row. Selecting a way
-swaps the panel beneath it. Everything else the old multi-step wizard asked for
+The sheet collects only what changes what happens next, and it leads with the way
+in: one choice among three peer ways to start — **Template**, **Blank**, or
+**Import** — same size, same row. Selecting a way swaps the panel beneath it. The
+project's own fields follow: name, program, and start date. Everything else the
+old multi-step wizard asked for
 up front (description, a manual planning-model picker, "copy settings from
 another project", "use program defaults", and the default role for new members)
 moved to project settings, reachable immediately after creation.
@@ -134,10 +135,11 @@ methodology (or the workspace default when standalone). It never enforces
 anything and stays changeable afterward in project settings — see
 [Project methodology preset](/features/methodology-preset/).
 
-**Working calendar moves onto the sheet itself**, shown as the resolved inherited
-default (the program's calendar, or the workspace default) with the option to
-override it before the project exists — it governs every computed date from the
-first schedule pass onward.
+**Working calendar moves onto the sheet itself**, in the pinned footer above the
+Cancel and Create buttons, shown as the resolved inherited default (the program's
+calendar, or the workspace default) with the option to override it before the
+project exists — it governs every computed date from the first schedule pass
+onward.
 :::
 
 Settings that a project already **inherits live** from its program — the iteration

@@ -56,11 +56,97 @@
 # Scope: packages/web/src, excluding tests/specs/stories and the token sources
 # themselves (globals.css / tailwind.config.ts / brand/ are where tokens are
 # DEFINED). Runs in `make lint` and the web:lint CI job.
+#
+# Usage:
+#   scripts/check-design-system-v2.sh              # scan packages/web/src
+#   scripts/check-design-system-v2.sh <root>       # scan <root> instead (self-test fixtures)
+#   scripts/check-design-system-v2.sh --self-test  # prove the gate can still fail
+#
+# The optional <root> argument exists ONLY so the self-test can run this exact
+# script against fixture directories — the alternative was copying the detection
+# patterns into a test, which is a second copy that drifts. When a root is
+# injected every ratchet floor drops to 0; see the note under the baselines.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-WEB_SRC="packages/web/src"
-SHELL_SRC="packages/web/src/features/shell"
+
+# ── Self-test (#3195) ───────────────────────────────────────────────────────
+# This gate carries two INTERNAL self-tests already (hex_pat_self_test,
+# pipeline_self_test) and they are good ones — but both assert against string
+# fixtures piped into the pattern, never against the gate's own exit code. A
+# ratchet reports a count and compares it to a baseline; a pattern can be
+# perfect and the gate still accept a violation because the floor is 124 and the
+# violation is 1. Nothing here proved the END-TO-END verdict until now, which is
+# why this script sat in check-gate-selftest-parity.sh's OPT_OUT list as
+# hand-verified-once.
+#
+# Every case runs the REAL script against a fixture root, so there is no second
+# copy of the detection patterns to drift out of sync with the gate.
+if [ "${1:-}" = "--self-test" ]; then
+  st_tmp="$(mktemp -d)"
+  # shellcheck disable=SC2064  # expand now, not at trap time
+  trap "rm -rf '$st_tmp'" EXIT
+  st_rc=0
+  st_probe() { # <name> <expect-pass|expect-fail> <dir>
+    if bash "$0" "$3" >/dev/null 2>&1; then
+      if [ "$2" = "expect-pass" ]; then echo "SELF-TEST OK: $1 accepted."
+      else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; st_rc=1; fi
+    else
+      if [ "$2" = "expect-fail" ]; then echo "SELF-TEST OK: $1 correctly rejected."
+      else echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; st_rc=1; fi
+    fi
+  }
+  st_fixture() { # <name> -> creates $st_tmp/<name> (+ the shell subtree check 4 scans)
+    mkdir -p "$st_tmp/$1/features/shell"
+    printf '%s' "$st_tmp/$1"
+  }
+
+  # ACCEPT: on-token color and on-token shadow. `shadow-card` is the reserved
+  # pop-surface token and must never be matched by the off-token shadow check.
+  d="$(st_fixture ontoken)"
+  {
+    printf 'const cls = "rounded-lg border border-neutral-border bg-surface-1 shadow-card px-3";\n'
+    printf 'const stroke = "var(--color-brand-600)";\n'
+    printf 'const tint = "bg-semantic-warning-bg text-semantic-warning";\n'
+  } > "$d/Widget.tsx"
+  st_probe "on-token color + shadow-card" expect-pass "$d"
+
+  # ACCEPT: issue references. This is the documented exemption (check 2 in the
+  # header, #2651) and it is the one most likely to break silently — most issue
+  # numbers are valid hex, so a regression here does not disarm the gate, it
+  # makes it fail unrelated MRs until somebody deletes it. Bare, quote-adjacent
+  # and colon-adjacent forms, which are the three the exemption covers.
+  d="$(st_fixture issueref)"
+  {
+    printf '// plain bare ref #2640 in prose\n'
+    printf '/* the "#2495 scope boundary" test */\n'
+    printf '// That is deliberate: #1788 tuned the phone bar\n'
+  } > "$d/Notes.tsx"
+  st_probe "issue references (bare / quoted / after a colon)" expect-pass "$d"
+
+  # REJECT: a raw hex color literal (check 2).
+  d="$(st_fixture hex)"
+  printf "const accent = '#f59e0b';\n" > "$d/Widget.tsx"
+  st_probe "raw hex color literal" expect-fail "$d"
+
+  # REJECT: an off-token shadow (check 3).
+  d="$(st_fixture shadow)"
+  printf 'const cls = "rounded-lg border border-neutral-border shadow-lg px-3";\n' > "$d/Widget.tsx"
+  st_probe "off-token shadow utility" expect-fail "$d"
+
+  [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
+  exit "$st_rc"
+fi
+
+# Scan root. Defaults to the web source tree; an argument overrides it so the
+# self-test above can drive this script against fixtures (see Usage in header).
+DS_V2_ROOT="${1:-}"
+if [ -n "$DS_V2_ROOT" ] && [ ! -d "$DS_V2_ROOT" ]; then
+  echo "ERROR: '$DS_V2_ROOT' is not a directory." >&2
+  exit 2
+fi
+WEB_SRC="${DS_V2_ROOT:-packages/web/src}"
+SHELL_SRC="$WEB_SRC/features/shell"
 
 # ── Baselines (ratchet floors). See header. Drive these to zero over time. ──
 # BASELINE_HEX counts hex literals in a COLOR context only (see hex_count and the
@@ -136,6 +222,22 @@ BASELINE_TINY_TEXT=2
 # question is not decidable here, and why counting the population is the part that was
 # actually missing.
 BASELINE_QUERY_ERROR=59
+
+# Under an injected scan root every ratchet floor is 0. The baselines above are
+# THIS TREE's grandfathered debt and mean nothing against an arbitrary
+# directory — and leaving them in place is precisely what would make the
+# self-test vacuous: a planted hex literal is hex=1, comfortably under 124, so
+# the gate would ACCEPT the violation while appearing to have run. The
+# zero-tolerance checks (dark-chrome, bare-suspense, semantic-tint) need no
+# adjustment; they already have no floor.
+if [ -n "$DS_V2_ROOT" ]; then
+  BASELINE_HEX=0
+  BASELINE_ARBITRARY=0
+  BASELINE_SHADOW=0
+  BASELINE_BLACK=0
+  BASELINE_TINY_TEXT=0
+  BASELINE_QUERY_ERROR=0
+fi
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
@@ -361,24 +463,29 @@ query_error_offenders() {
 # Input is the `path:line:content` shape the real scans produce.
 pipeline_self_test() {
   local rc=0 s
+  # tiny_text_filter's two carve-outs (rule 118's settings tree, rule 45's
+  # StatusBar) are anchored on $WEB_SRC, so these fixture paths must be too —
+  # otherwise the whole pattern self-test hard-fails the moment a scan root is
+  # injected, and its verdict would be about the prefix rather than the filter.
+  local W="$WEB_SRC"
   # -- tiny text: MUST be reported --
   for s in \
-    'packages/web/src/components/linkPresentation.tsx:61:  className="text-[11px] font-medium"' \
-    'packages/web/src/features/assets/AssetsPage.tsx:515:  className="px-1.5 text-[11px]"' \
-    'packages/web/src/features/settings/X.tsx:9:  className="text-[9px]"' \
-    'packages/web/src/features/shell/StatusBar.tsx:1:  className="text-[10px]"' \
-    'packages/web/src/features/foo/Bar.tsx:3:  className="text-[10px]"'; do
+    "$W"'/components/linkPresentation.tsx:61:  className="text-[11px] font-medium"' \
+    "$W"'/features/assets/AssetsPage.tsx:515:  className="px-1.5 text-[11px]"' \
+    "$W"'/features/settings/X.tsx:9:  className="text-[9px]"' \
+    "$W"'/features/shell/StatusBar.tsx:1:  className="text-[10px]"' \
+    "$W"'/features/foo/Bar.tsx:3:  className="text-[10px]"'; do
     printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
       || { echo "::error:: tiny-text pipeline MISSED an offender: $s" >&2; rc=1; }
   done
   # -- tiny text: MUST NOT be reported --
   for s in \
-    'packages/web/src/features/settings/X.tsx:9:  className="text-[11px]"' \
-    'packages/web/src/features/settings/X.tsx:9:  className="text-[10px]"' \
-    'packages/web/src/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
-    'packages/web/src/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
-    'packages/web/src/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
-    'packages/web/src/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
+    "$W"'/features/settings/X.tsx:9:  className="text-[11px]"' \
+    "$W"'/features/settings/X.tsx:9:  className="text-[10px]"' \
+    "$W"'/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
+    "$W"'/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
+    "$W"'/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
+    "$W"'/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
     printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
       && { echo "::error:: tiny-text pipeline COUNTED a sanctioned line: $s" >&2; rc=1; }
   done

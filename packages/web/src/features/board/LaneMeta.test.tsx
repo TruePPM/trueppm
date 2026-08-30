@@ -1,14 +1,26 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LaneMeta } from './LaneMeta';
+import { ROW_VOCABULARY, countRows } from '@/features/schedule/rowVocabulary';
 
+// `committedTaskCount` is explicit on purpose: since #3148 omitting it means
+// ZERO, not `taskCount`, so a fixture that leaves it out is describing an
+// uncommitted lane whether or not it meant to.
 const BASE_PROPS = {
   phaseId: 'phase-1',
   phaseName: 'Engineering',
   avgProgress: 55,
   taskCount: 8,
+  committedTaskCount: 4,
   railColor: '#3E8C6D',
 };
+
+/**
+ * The uncommitted slot's accessible name. It is also what separates the
+ * progress em-dash from the cost row's em-dash, which is why assertions key on
+ * it rather than on the glyph.
+ */
+const NO_PROGRESS = 'Phase progress: not applicable — no committed work in this phase';
 
 describe('LaneMeta', () => {
   it('renders phase name', () => {
@@ -16,24 +28,30 @@ describe('LaneMeta', () => {
     expect(screen.getByText('Engineering')).toBeInTheDocument();
   });
 
-  it('renders task count — plural', () => {
+  it('renders the count in the committed noun — plural', () => {
     render(<LaneMeta {...BASE_PROPS} taskCount={8} />);
-    expect(screen.getByText('8 tasks')).toBeInTheDocument();
+    expect(screen.getByText('8 items')).toBeInTheDocument();
   });
 
-  it('renders task count — singular', () => {
-    render(<LaneMeta {...BASE_PROPS} taskCount={1} />);
-    expect(screen.getByText('1 task')).toBeInTheDocument();
+  it('renders the count in the committed noun — singular', () => {
+    render(<LaneMeta {...BASE_PROPS} taskCount={1} committedTaskCount={1} />);
+    expect(screen.getByText('1 item')).toBeInTheDocument();
   });
 
-  it('renders percentage', () => {
-    render(<LaneMeta {...BASE_PROPS} avgProgress={55} />);
-    expect(screen.getByText('55%')).toBeInTheDocument();
-  });
-
-  it('clamps progress to 0–100', () => {
+  it('clamps progress to 0–100 — upper bound', () => {
     render(<LaneMeta {...BASE_PROPS} avgProgress={150} />);
-    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+  });
+
+  it('clamps progress to 0–100 — lower bound', () => {
+    // A negative rollup would otherwise reach `style.width` as `-20%`, which is
+    // not a valid track width, and `aria-valuenow` as a value outside the
+    // declared min/max.
+    const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={-20} />);
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    expect(container.querySelector<HTMLElement>('[role="progressbar"] > div')?.style.width).toBe(
+      '0%',
+    );
   });
 
   it('renders add-task button with correct aria-label', () => {
@@ -105,30 +123,27 @@ describe('LaneMeta', () => {
   });
 
   it('renders em-dash instead of 0% when there are no committed tasks (ADR-0057)', () => {
-    render(<LaneMeta {...BASE_PROPS} taskCount={0} avgProgress={0} />);
-    expect(screen.getByText('—')).toBeInTheDocument();
-    expect(screen.queryByText('0%')).not.toBeInTheDocument();
-  });
-
-  it('progress bar drops aria-valuenow when there are no committed tasks (issue #385)', () => {
     const { container } = render(
-      <LaneMeta {...BASE_PROPS} taskCount={0} avgProgress={0} />,
+      <LaneMeta {...BASE_PROPS} taskCount={0} committedTaskCount={0} avgProgress={0} />,
     );
-    const bar = container.querySelector('[role="progressbar"]');
-    expect(bar?.getAttribute('aria-valuenow')).toBe(null);
-    expect(bar?.getAttribute('aria-label')).toMatch(/No committed tasks/i);
+    expect(screen.getByText('—')).toBeInTheDocument();
+    // `queryByText('0%')` would be vacuous here — the pre-#3148 component also
+    // took the em-dash branch on this fixture and never rendered "0%". Deny the
+    // whole numeral shape instead, which is the claim that actually changed.
+    expect(container.textContent).not.toMatch(/\d+%/);
   });
 
   it('em-dash empty state triggers when committedTaskCount is 0 even with cards present', () => {
     // Lane has cards (taskCount=4) but none are committed (no plannedStart).
-    // The visible "{N} tasks" counter still reads the total, but the percent
-    // collapses to em-dash because there is no committed delivery to roll up.
-    render(
+    // The counter still reads the total — and names it `ideas`, because the
+    // word follows commitment — while the progress slot collapses to an
+    // em-dash, there being no committed delivery to roll up.
+    const { container } = render(
       <LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />,
     );
     expect(screen.getByText('—')).toBeInTheDocument();
-    expect(screen.queryByText('0%')).not.toBeInTheDocument();
-    expect(screen.getByText('4 tasks')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/\d+%/);
+    expect(screen.getByText('4 ideas')).toBeInTheDocument();
   });
 
   it('renders no SVG circle (ProgressRing replaced by inline bar in #385)', () => {
@@ -136,10 +151,326 @@ describe('LaneMeta', () => {
     expect(container.querySelector('circle')).toBeNull();
   });
 
-  it('percent label uses tppm-mono (issue #385)', () => {
-    render(<LaneMeta {...BASE_PROPS} avgProgress={55} />);
-    const pct = screen.getByText('55%');
-    expect(pct.className).toContain('tppm-mono');
+  // ── #3148: one progress slot per lane header ────────────────────────────
+  // The header used to state one proportion twice — an h-1.5 track drawn at
+  // `pct` and the string "55%" beside it. The slot now renders a bar OR an
+  // em-dash: never both, never neither, and nothing else in the header draws
+  // a bar. These four cases are the state table from the issue.
+  describe('the progress slot (#3148)', () => {
+    // State 1 — mid-progress.
+    it('mid-progress draws the bar and no percent numeral anywhere in the header', () => {
+      const { container } = render(
+        <LaneMeta {...BASE_PROPS} avgProgress={55} committedTaskCount={4} />,
+      );
+      expect(screen.getByRole('progressbar')).toBeInTheDocument();
+      // The numeral is gone from the *visible* row — not merely restyled.
+      expect(screen.queryByText('55%')).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/\d+%/);
+      // Exactly one bar in the header (D4).
+      expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
+    });
+
+    it('mid-progress relocates the percentage to the accessible name (D2)', () => {
+      render(<LaneMeta {...BASE_PROPS} avgProgress={55} committedTaskCount={4} />);
+      // A *string* `name` here is a full-string match — Testing Library differs
+      // from Playwright, whose `name` is a substring and needs `exact: true`.
+      // Either way the assertion must pin the whole label, or it would bind to
+      // a longer one and pass on a header that never carried the number.
+      expect(
+        screen.getByRole('progressbar', { name: 'Phase progress: 55% complete' }),
+      ).toBeInTheDocument();
+    });
+
+    it('mid-progress puts the slot on the keyboard path so the tooltip has a route (D2)', async () => {
+      render(<LaneMeta {...BASE_PROPS} avgProgress={55} taskCount={8} committedTaskCount={4} />);
+      const slot = screen.getByRole('progressbar');
+      expect(slot).toHaveAttribute('tabindex', '0');
+      // Focus — not hover — is the channel a coarse pointer and a keyboard user
+      // share. The percentage must arrive through it.
+      fireEvent.focus(slot);
+      expect(
+        await screen.findByText('55% complete · 4 of 8 items committed'),
+      ).toBeInTheDocument();
+    });
+
+    // State 2 — complete. 97% and 100% must not be four pixels apart.
+    it('complete is told by form: a detached ring, still with no numeral (D3)', () => {
+      const { container } = render(
+        <LaneMeta {...BASE_PROPS} avgProgress={100} committedTaskCount={4} />,
+      );
+      const track = screen.getByRole('progressbar');
+      expect(track).toHaveAttribute('aria-valuenow', '100');
+      // `outline`, not `ring`: the focus ring is a `ring-*` (box-shadow), so a
+      // completion `ring-1` would be replaced by `focus:ring-2` and the state
+      // would disappear exactly when a keyboard user inspected it.
+      expect(track.className).toContain('outline-1');
+      expect(track.className).toContain('outline-brand-primary');
+      expect(track.className).toContain('outline-offset-[1.5px]');
+      expect(track.className).not.toContain('ring-1');
+      expect(container.querySelector<HTMLElement>('[role="progressbar"] > div')?.style.width).toBe(
+        '100%',
+      );
+      expect(container.textContent).not.toMatch(/100%/);
+    });
+
+    it('short of complete carries no outline — the hairline is the whole distinction (D3)', () => {
+      render(<LaneMeta {...BASE_PROPS} avgProgress={97} committedTaskCount={4} />);
+      expect(screen.getByRole('progressbar').className).not.toContain('outline-1');
+    });
+
+    // The completion mark must survive focus. A `ring-1` would not: Tailwind's
+    // ring is a box-shadow and `focus:ring-2` overrides it, so a focused 100%
+    // bar and a focused 97% bar would be pixel-identical.
+    it('the completion mark and the focus ring occupy different channels', () => {
+      render(<LaneMeta {...BASE_PROPS} avgProgress={100} committedTaskCount={4} />);
+      const cls = screen.getByRole('progressbar').className;
+      expect(cls).toContain('outline-1');
+      expect(cls).toContain('focus:ring-2');
+      // The two must not both be `ring-*`, or focus erases completion.
+      expect(cls).not.toMatch(/(^|\s)ring-1(\s|$)/);
+    });
+
+    // State 3 — uncommitted. "Not applicable" is a different claim from
+    // "indeterminate", so there is no progressbar element to make it with.
+    it('uncommitted renders NO progressbar element at all', () => {
+      const { container } = render(
+        <LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />,
+      );
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
+    });
+
+    it('uncommitted carries the "not applicable" claim as the slot\'s accessible name', () => {
+      const { container } = render(
+        <LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />,
+      );
+      // Named via role+aria-label, NOT via an sr-only child: a bare focusable
+      // span is role `generic`, which does not support name-from-content, so
+      // descendant text would leave this tab stop announcing as blank.
+      expect(
+        screen.getByRole('img', { name: NO_PROGRESS }),
+      ).toBeInTheDocument();
+      // The glyph itself names nothing, so it stays out of the a11y tree.
+      expect(container.querySelector('[aria-hidden="true"].tppm-mono')?.textContent).toBe('—');
+    });
+
+    it('the em-dash slot is focusable and explains itself on focus', async () => {
+      render(
+        <LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />,
+      );
+      const slot = screen.getByRole('img', { name: NO_PROGRESS });
+      expect(slot).toHaveAttribute('tabindex', '0');
+      fireEvent.focus(slot);
+      expect(
+        await screen.findByText('No committed work yet — 4 ideas'),
+      ).toBeInTheDocument();
+    });
+
+    it('an uncommitted lane trades the phase accent for a neutral rail', () => {
+      const { container } = render(
+        <LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />,
+      );
+      const rail = container.querySelector<HTMLElement>('.w-\\[3px\\]');
+      expect(rail?.className).toContain('bg-neutral-text-disabled');
+      expect(rail?.style.background).toBe('');
+    });
+
+    it('a committed lane keeps the phase accent rail', () => {
+      const { container } = render(
+        <LaneMeta {...BASE_PROPS} committedTaskCount={4} railColor="#3E8C6D" />,
+      );
+      const rail = container.querySelector<HTMLElement>('.w-\\[3px\\]');
+      expect(rail?.className).not.toContain('bg-neutral-text-disabled');
+      // Assert the accent that was actually passed, not merely "something" —
+      // `not.toBe('')` is satisfied by any background at all and would not
+      // notice the neutral branch leaking into the committed one.
+      expect(rail?.style.background).toBe('rgb(62, 140, 109)');
+    });
+
+    // Omitting the prop must mean zero. The old docblock promised a fallback to
+    // `taskCount`, which answers "does this lane hold cards?" — a different
+    // question from the one the slot asks.
+    it('omitting committedTaskCount means zero, not taskCount', () => {
+      render(<LaneMeta phaseId="p" phaseName="Ideas" avgProgress={0} taskCount={6} railColor="#3E8C6D" />);
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(screen.getByText('—')).toBeInTheDocument();
+    });
+
+    // State 4 — showCost. One bar per header; spend stays in numerals.
+    it('showCost adds numerals under a dashed rule and no second bar (D4)', () => {
+      const { container } = render(
+        <LaneMeta
+          {...BASE_PROPS}
+          committedTaskCount={4}
+          showCost
+          phaseBudgetAtCompletion={180_000}
+          phaseActualCost={126_000}
+        />,
+      );
+      expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
+      expect(screen.getByText('$126K')).toBeInTheDocument();
+      expect(screen.getByText('$180K')).toBeInTheDocument();
+      const costRow = screen.getByLabelText('Phase budget: $126K of $180K');
+      expect(costRow.className).toContain('border-dashed');
+      expect(costRow.className).toContain('border-t');
+    });
+
+    it('showCost on an uncommitted lane still draws no bar', () => {
+      const { container } = render(
+        <LaneMeta
+          {...BASE_PROPS}
+          committedTaskCount={0}
+          showCost
+          phaseBudgetAtCompletion={180_000}
+          phaseActualCost={126_000}
+        />,
+      );
+      expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
+      expect(screen.getByRole('img', { name: NO_PROGRESS })).toBeInTheDocument();
+    });
+
+    // Two em-dashes on one header: the progress slot and the cost row's "no
+    // actuals" placeholder. They are different facts wearing the same glyph, so
+    // a `getByText('—')` here throws on multiple matches — the accessible name
+    // is what tells them apart, and is what these assertions must key on.
+    it('the progress em-dash stays distinguishable from the cost em-dash', () => {
+      const { container } = render(
+        <LaneMeta
+          {...BASE_PROPS}
+          committedTaskCount={0}
+          showCost
+          phaseBudgetAtCompletion={180_000}
+          phaseActualCost={null}
+        />,
+      );
+      expect(screen.getAllByText('—')).toHaveLength(2);
+      expect(screen.getByRole('img', { name: NO_PROGRESS })).toBeInTheDocument();
+      expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
+    });
+  });
+
+  // ── The count word switches with the state ──────────────────────────────
+  // The header's one chance to name what kind of work it holds. `items` is the
+  // outline's governed neutral noun; `ideas` is a claim about commitment, not
+  // about row type, which is why only the first comes from `rowVocabulary`.
+  describe('the count noun (#3148)', () => {
+    it('a committed lane counts items, never tasks', () => {
+      render(<LaneMeta {...BASE_PROPS} taskCount={8} committedTaskCount={4} />);
+      expect(screen.getByText('8 items')).toBeInTheDocument();
+      expect(screen.queryByText('8 tasks')).not.toBeInTheDocument();
+    });
+
+    it('an uncommitted lane counts ideas, never tasks or items', () => {
+      render(<LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />);
+      expect(screen.getByText('4 ideas')).toBeInTheDocument();
+      expect(screen.queryByText('4 tasks')).not.toBeInTheDocument();
+      expect(screen.queryByText('4 items')).not.toBeInTheDocument();
+    });
+
+    it('the noun follows commitment, not card count — same total, both words', () => {
+      // The pair is the whole point: one fixture differing only in
+      // `committedTaskCount` must produce two different nouns, which no
+      // single-state assertion can show.
+      const { unmount } = render(
+        <LaneMeta {...BASE_PROPS} taskCount={6} committedTaskCount={2} />,
+      );
+      expect(screen.getByText('6 items')).toBeInTheDocument();
+      unmount();
+      render(<LaneMeta {...BASE_PROPS} taskCount={6} committedTaskCount={0} avgProgress={0} />);
+      expect(screen.getByText('6 ideas')).toBeInTheDocument();
+    });
+
+    it('takes the committed noun from rowVocabulary, not a local literal', () => {
+      // If someone re-words `countRows`, this header must move with it rather
+      // than keeping a copy that silently disagrees with the outline.
+      render(<LaneMeta {...BASE_PROPS} taskCount={3} committedTaskCount={1} />);
+      expect(screen.getByText(countRows(3))).toBeInTheDocument();
+    });
+  });
+
+  // ── The one proportion, stated through four carriers ────────────────────
+  // #3148's whole thesis is that a proportion stated twice can drift. The
+  // percentage now travels through four channels at once — fill width,
+  // aria-valuenow, the accessible name, and the tooltip — so the property
+  // worth pinning is that they AGREE, not that each is individually right.
+  // Asserting them in four separate tests with four different fixtures (as the
+  // suite did before) cannot see a disagreement at a single pct.
+  describe('the carriers of the percentage agree (#3148)', () => {
+    for (const pct of [0, 37, 55, 97, 100]) {
+      it(`all four channels read ${pct}%`, async () => {
+        const { container, unmount } = render(
+          <LaneMeta {...BASE_PROPS} avgProgress={pct} taskCount={8} committedTaskCount={4} />,
+        );
+        const bar = screen.getByRole('progressbar');
+        expect(bar).toHaveAttribute('aria-valuenow', String(pct));
+        expect(bar).toHaveAttribute('aria-label', `Phase progress: ${pct}% complete`);
+        expect(
+          container.querySelector<HTMLElement>('[role="progressbar"] > div')?.style.width,
+        ).toBe(`${pct}%`);
+        fireEvent.focus(bar);
+        expect(
+          await screen.findByText(`${pct}% complete · 4 of 8 items committed`),
+        ).toBeInTheDocument();
+        // …and the visible row states it zero times.
+        expect(container.textContent).not.toMatch(/\d+%/);
+        unmount();
+      });
+    }
+  });
+
+  // ── Tooltip copy branches ───────────────────────────────────────────────
+  describe('the slot tooltip (#3148)', () => {
+    it('an empty phase says so rather than counting zero ideas', async () => {
+      // The `taskCount === 0` branch produces its own string; "0 uncommitted
+      // tasks" would be a strange way to say "there is nothing here".
+      render(<LaneMeta {...BASE_PROPS} taskCount={0} committedTaskCount={0} avgProgress={0} />);
+      fireEvent.focus(screen.getByRole('img', { name: NO_PROGRESS }));
+      expect(await screen.findByText(ROW_VOCABULARY.create.phaseHasNoRows)).toBeInTheDocument();
+    });
+
+    it('uses the singular when one task is uncommitted', async () => {
+      render(<LaneMeta {...BASE_PROPS} taskCount={1} committedTaskCount={0} avgProgress={0} />);
+      fireEvent.focus(screen.getByRole('img', { name: NO_PROGRESS }));
+      expect(
+        await screen.findByText('No committed work yet — 1 idea'),
+      ).toBeInTheDocument();
+    });
+
+    it('uses the singular in the committed tooltip too', async () => {
+      render(<LaneMeta {...BASE_PROPS} taskCount={1} committedTaskCount={1} avgProgress={40} />);
+      fireEvent.focus(screen.getByRole('progressbar'));
+      expect(
+        await screen.findByText('40% complete · 1 of 1 item committed'),
+      ).toBeInTheDocument();
+    });
+  });
+
+  // ── Workshop variant × the slot ─────────────────────────────────────────
+  // Every other workshop test inherits BASE_PROPS' committed count, so this is
+  // the only place the two features meet.
+  describe('workshop mode with an uncommitted lane (#3148)', () => {
+    it('flips the rail to neutral but keeps the phase tint on the lane body', () => {
+      const { container } = render(
+        <LaneMeta
+          {...BASE_PROPS}
+          workshop
+          taskCount={3}
+          committedTaskCount={0}
+          avgProgress={0}
+        />,
+      );
+      // The 3px edge is the "is there anything measurable here" signal and goes
+      // neutral. The 5% body wash is phase IDENTITY — which lane am I editing —
+      // and is deliberately NOT tied to commitment, or reordering phases in
+      // workshop mode would lose the color that tells them apart.
+      const rail = container.querySelector<HTMLElement>('.w-\\[3px\\]');
+      expect(rail?.className).toContain('bg-neutral-text-disabled');
+      expect((container.firstChild as HTMLElement).style.background).toContain('#3E8C6D');
+      // The slot still resolves, and the editable name is still reachable.
+      expect(screen.getByRole('img', { name: NO_PROGRESS })).toBeInTheDocument();
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: /Phase name: Engineering/ })).toBeInTheDocument();
+    });
   });
 
   it('renders workshop variant with contentEditable name', () => {

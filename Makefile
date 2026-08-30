@@ -122,6 +122,7 @@ migrations-numbering: ## Detect cross-branch migration-numbering collisions vs o
 	@# Best-effort fetch (mirrors pre-push-behind-warn); the script skips cleanly if
 	@# origin/main is unavailable offline — the CI job fetches it explicitly.
 	@git fetch origin main --quiet 2>/dev/null || true
+	@python3 scripts/check-migration-numbering.py --self-test
 	@python3 scripts/check-migration-numbering.py origin/main
 
 migrations-constraint-safety: ## Detect an AddConstraint on a table that may already hold violating rows (no DB)
@@ -287,6 +288,7 @@ dropdown-scroll-check: ## Fail if a role="menu"/role="listbox" panel has no scro
 extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses plain .send() (#2606)
 	@# A receiver's exception propagates through .send(), so a bug in enterprise
 	@# code breaks the OSS write path that fired the signal. Grep + sed, ~1s.
+	@bash scripts/check-extension-signals.sh --self-test
 	@bash scripts/check-extension-signals.sh
 
 demo-readonly-check: ## Fail if a demo manifest enables persona logins (#2773)
@@ -306,6 +308,7 @@ boundary-doc-check: ## Fail if a doc instructs the stale naive boundary grep (#2
 	@# the docs telling people to run it, so CONTRIBUTING.md and four other
 	@# surfaces handed a contributor a command that reports the project's sacred
 	@# invariant as violated on a clean tree. Grep over five doc roots, ~1s.
+	@bash scripts/check-boundary-doc-command.sh --self-test
 	@bash scripts/check-boundary-doc-command.sh
 
 web-rule-numbers-check: ## Fail if two packages/web/CLAUDE.md rules share a number (#2933)
@@ -347,6 +350,7 @@ design-system-check: ## Run the lint:design-system-v2 CI job locally (#2941)
 	@# The gate that polices hardcoded hex against the DS-v2 token ratchet. It was
 	@# the one bespoke CI check with no pre-push mirror, so a breach passed locally
 	@# and failed the pipeline — the exact round trip pre-push exists to prevent.
+	@bash scripts/check-design-system-v2.sh --self-test
 	@bash scripts/check-design-system-v2.sh
 
 adr-status-check: ## Run the docs:adr-status CI job locally (#2941)
@@ -354,6 +358,7 @@ adr-status-check: ## Run the docs:adr-status CI job locally (#2941)
 	@# statistics on the website must match the tree. Adding any ADR breaks four
 	@# hard-coded figures in architecture/decisions.md, which is a guaranteed red
 	@# pipeline on every branch that writes one. ~3s, no network.
+	@bash scripts/check-adr-status.sh --self-test
 	@bash scripts/check-adr-status.sh
 
 version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
@@ -383,6 +388,7 @@ ws-event-reachability-check: ## Run the docs:ws-event-reachability CI job locall
 	@bash scripts/check-ws-event-reachability.sh
 
 e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
+	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
 demo-nginx-allowlist-check: ## Run the demo nginx allowlist CI job locally (#2941)

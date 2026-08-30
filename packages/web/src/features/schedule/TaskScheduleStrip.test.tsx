@@ -213,13 +213,33 @@ describe('TaskScheduleStrip', () => {
       render(<TaskScheduleStrip task={makeTask({ durationUnit: 'hours' })} {...editableProps} />);
 
       await user.click(screen.getByRole('button', { name: /Duration/ }));
-      const input = screen.getByRole('textbox', { name: 'Duration in days' });
+      // The input announces the unit it is actually read in (#3211). It said
+      // "Duration in days" on an hours-authored cell, which told a screen-reader
+      // user to type days — a 4x error on this test's own 4h/day calendar.
+      const input = screen.getByRole('textbox', { name: 'Duration in hours' });
       await user.clear(input);
       await user.type(input, '7');
       await user.keyboard('{Enter}');
 
       expect(mutate).toHaveBeenCalledTimes(1);
       expect(mutate.mock.calls[0][0]).toEqual({ id: 't1', projectId: 'p1', duration: 2 });
+    });
+
+    it('names the duration input for the unit it is read in, not always days', async () => {
+      // Pins the corrected contract from both sides so neither can silently
+      // regress to the old always-"days" label.
+      const user = userEvent.setup();
+      const { unmount } = render(
+        <TaskScheduleStrip task={makeTask({ durationUnit: 'hours' })} {...editableProps} />,
+      );
+      await user.click(screen.getByRole('button', { name: /Duration/ }));
+      expect(screen.getByRole('textbox', { name: 'Duration in hours' })).toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: 'Duration in days' })).not.toBeInTheDocument();
+      unmount();
+
+      render(<TaskScheduleStrip task={makeTask({ durationUnit: 'days' })} {...editableProps} />);
+      await user.click(screen.getByRole('button', { name: /Duration/ }));
+      expect(screen.getByRole('textbox', { name: 'Duration in days' })).toBeInTheDocument();
     });
 
     it('accepts the "2w" weeks shorthand (reuses parseDurationInput → 10)', async () => {

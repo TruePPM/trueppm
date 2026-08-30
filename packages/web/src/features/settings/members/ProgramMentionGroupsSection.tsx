@@ -6,7 +6,8 @@ import {
   useProgramMentionGroups,
   useProgramMentionGroupMutations,
 } from '../hooks/useProgramMentionGroups';
-import { MentionGroupRow, type ProjectMemberOption } from './MentionGroupRow';
+import type { ProjectMemberOption } from './MentionGroupRow';
+import { MentionGroupList } from './MentionGroupList';
 
 interface ProgramMentionGroupsSectionProps {
   programId: string;
@@ -109,55 +110,22 @@ export function ProgramMentionGroupsSection({
         set of members across the program&rsquo;s projects in comments.
       </p>
 
-      {isLoading && (
-        <div className="space-y-px">
-          {Array.from({ length: 2 }, (_, i) => (
-            <div
-              key={i}
-              className="h-12 rounded bg-neutral-surface-raised motion-safe:animate-pulse"
-            />
-          ))}
-        </div>
-      )}
-
-      {isError && (
-        <p role="alert" className="text-sm text-semantic-critical py-2">
-          Failed to load mention groups — please refresh.
-        </p>
-      )}
-
-      {!isLoading && !isError && groups.length === 0 && (
-        <p className="text-sm text-neutral-text-disabled py-2">
-          No mention groups yet.
-          {canManageGroup && ' Create one below.'}
-        </p>
-      )}
-
-      {!isLoading && !isError && groups.length > 0 && (
-        <ul
-          aria-label="Program mention groups"
-          className="rounded border border-neutral-border divide-y divide-neutral-border bg-neutral-surface"
-        >
-          {groups.map((g) => (
-            <MentionGroupRow
-              key={g.id}
-              group={g}
-              canManageGroup={canManageGroup}
-              canManageMembers={canManageMembers}
-              memberOptions={memberOptions}
-              onRename={(id, name) => update.mutate({ id, name })}
-              onDelete={(id) => remove.mutate(id)}
-              onToggleEmailDefault={(id, value) =>
-                update.mutate({ id, email_default_on: value })
-              }
-              onAddMember={(id, user) => addMember.mutate({ id, user })}
-              onRemoveMember={(id, user) => removeMember.mutate({ id, user })}
-              onToggleMute={(id, muted) => mute.mutate({ id, muted })}
-              isBusy={isBusy}
-            />
-          ))}
-        </ul>
-      )}
+      <MentionGroupList
+        isLoading={isLoading}
+        isError={isError}
+        groups={groups}
+        listLabel="Program mention groups"
+        canManageGroup={canManageGroup}
+        canManageMembers={canManageMembers}
+        memberOptions={memberOptions}
+        isBusy={isBusy}
+        onRename={(id, name) => update.mutate({ id, name })}
+        onDelete={(id) => remove.mutate(id)}
+        onToggleEmailDefault={(id, value) => update.mutate({ id, email_default_on: value })}
+        onAddMember={(id, user) => addMember.mutate({ id, user })}
+        onRemoveMember={(id, user) => removeMember.mutate({ id, user })}
+        onToggleMute={(id, muted) => mute.mutate({ id, muted })}
+      />
 
       {/* Create form — Owner only */}
       {!canManageGroup && isClosed && myRole != null && myRole >= ROLE_OWNER && (

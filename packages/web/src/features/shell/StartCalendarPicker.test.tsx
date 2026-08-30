@@ -96,4 +96,29 @@ describe('StartCalendarPicker (#2728)', () => {
     );
     expect(screen.getByRole('combobox', { name: /working calendar/i })).toBeDisabled();
   });
+
+  it('attaches to a form it is rendered outside of when given a formId (#3130)', () => {
+    // The Start sheet pins this field in its footer, below the scrolling <form>,
+    // so without the attribute the browser drops it from that form's implicit
+    // submission and Enter silently does nothing here.
+    renderWithProviders(
+      <StartCalendarPicker
+        value={null}
+        onChange={vi.fn()}
+        inherited={inherited()}
+        formId="new-project-form"
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: /working calendar/i })).toHaveAttribute(
+      'form',
+      'new-project-form',
+    );
+  });
+
+  it('omits the form attribute entirely when no formId is given', () => {
+    renderWithProviders(
+      <StartCalendarPicker value={null} onChange={vi.fn()} inherited={inherited()} />,
+    );
+    expect(screen.getByRole('combobox', { name: /working calendar/i })).not.toHaveAttribute('form');
+  });
 });

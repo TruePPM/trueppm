@@ -179,7 +179,7 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
 
     const sheet = page.getByTestId('bulk-edit-sheet');
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByRole('heading', { name: 'Edit 3 rows' })).toBeVisible();
+    await expect(sheet.getByRole('heading', { name: 'Edit 3 items' })).toBeVisible();
     // The scope promise: this sheet never touches descendants.
     await expect(sheet).toContainText('no cascade');
   });
@@ -190,7 +190,7 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
     await page.keyboard.press('ControlOrMeta+Shift+KeyK');
 
     await expect(
-      page.getByTestId('bulk-edit-sheet').getByRole('heading', { name: 'Edit 1 row' }),
+      page.getByTestId('bulk-edit-sheet').getByRole('heading', { name: 'Edit 1 item' }),
     ).toBeVisible();
   });
 
@@ -201,10 +201,10 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
 
     await page.getByTestId('bulk_delivery_mode-scrum').click();
     // The blast radius is on the button, not buried in body copy.
-    await expect(page.getByTestId('bulk-edit-apply')).toContainText('Apply to 3');
+    await expect(page.getByTestId('bulk-edit-apply')).toContainText('Apply to 3 items');
     await page.getByTestId('bulk-edit-apply').click();
 
-    await expect(page.getByTestId('bulk-edit-result')).toContainText('3 of 3 rows updated');
+    await expect(page.getByTestId('bulk-edit-result')).toContainText('3 changes applied');
     await page.getByTestId('bulk-edit-done').click();
     await expect(page.getByTestId('bulk-edit-sheet')).toHaveCount(0);
 
@@ -223,10 +223,11 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
     await selectRows(page, ['t1', 't2']);
     await page.keyboard.press('ControlOrMeta+Shift+KeyK');
 
+    await page.getByTestId('bulk-owner-add').click();
     await page.getByTestId('bulk-edit-owner').selectOption(ANA_ID);
     await expect(page.getByTestId('bulk-edit-review')).toContainText('Add Ana Rivera (100%)');
     await page.getByTestId('bulk-edit-apply').click();
-    await expect(page.getByTestId('bulk-edit-result')).toContainText('2 of 2 rows updated');
+    await expect(page.getByTestId('bulk-edit-result')).toContainText('2 changes applied');
 
     const written = store.rows().find((r) => r.id === 't1') as {
       assignments?: { resource_id: string }[];
@@ -244,23 +245,25 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
 
     // The lock is called out before Apply, not only after it fails.
     await expect(page.getByTestId('bulk-edit-warning-not-editable')).toContainText(
-      '1 row you can’t edit',
+      '1 item you can’t edit',
     );
     await page.getByTestId('bulk_governance_class-flow').click();
     await page.getByTestId('bulk-edit-apply').click();
 
     const result = page.getByTestId('bulk-edit-result');
-    await expect(result).toContainText('3 of 4 rows updated');
-    await expect(result).toContainText('1 rejected');
+    // `S19` — the header counts CHANGES, and `S18`'s equation is on screen:
+    // 3 updated + 1 refused = the field's own denominator of 4.
+    await expect(result).toContainText('3 changes applied');
+    await expect(result).toContainText('3 updated, 1 refused of 4 items');
     await expect(result).toContainText('You may not edit this task.');
 
-    // Review makes the failures the selection — how a planner gets back to
+    // Retry makes the failures the selection — how a planner gets back to
     // scattered rows in a virtualized outline without scrolling for them.
     await page.getByTestId('bulk-edit-review-failed').click();
     await expect(page.getByTestId('bulk-edit-sheet')).toHaveCount(0);
     await page.keyboard.press('ControlOrMeta+Shift+KeyK');
     await expect(
-      page.getByTestId('bulk-edit-sheet').getByRole('heading', { name: 'Edit 1 row' }),
+      page.getByTestId('bulk-edit-sheet').getByRole('heading', { name: 'Edit 1 item' }),
     ).toBeVisible();
   });
 
@@ -269,7 +272,11 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
     await selectRows(page, ['t1', 't2']);
     await page.keyboard.press('ControlOrMeta+Shift+KeyK');
 
+    // `S22` — Escape reverts the last touched field FIRST, then closes. The
+    // sheet writes nothing before Apply, so there is no unsaved work to protect.
     await page.getByTestId('bulk_delivery_mode-kanban').click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('bulk-edit-sheet')).toBeVisible();
     await page.keyboard.press('Escape');
 
     await expect(page.getByTestId('bulk-edit-sheet')).toHaveCount(0);
@@ -286,13 +293,97 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
     await expect(page.getByTestId('bulk-edit-apply')).toBeEnabled();
   });
 
+  test('a bulk duration edit lands on every selected item (#3152)', async ({ page }) => {
+    // The field a weekly re-plan actually changes, end to end — and the reason
+    // the payload is now per row: `+3` resolves against each item's OWN duration,
+    // so one shared `data` object could not express it.
+    await page.goto(BASE_URL);
+    await selectRows(page, ['t1', 't2', 't3']);
+    await page.keyboard.press('ControlOrMeta+Shift+KeyK');
+
+    await page.getByTestId('bulk-duration-set').click();
+    // `S6` — the typed sign flips the worded operator; the select is the primary
+    // route and this is only a shortcut, so both must agree afterwards.
+    await page.getByTestId('bulk-duration-amount').fill('+3');
+    await expect(page.getByTestId('bulk-duration-op')).toHaveValue('plus');
+    await expect(page.getByTestId('bulk-edit-review')).toContainText('Increase by 3d');
+    await expect(page.getByTestId('bulk-edit-line-duration')).toContainText(
+      '3 to update of 3 items',
+    );
+
+    await page.getByTestId('bulk-edit-apply').click();
+    await expect(page.getByTestId('bulk-edit-result')).toContainText('3 changes applied');
+    await page.getByTestId('bulk-edit-done').click();
+    await expect(page.getByTestId('bulk-edit-sheet')).toHaveCount(0);
+
+    // The outcome, not the request. Every fixture row starts at 5 days, so the
+    // relative op has to have been resolved per row for all three to read 8.
+    for (const id of ['t1', 't2', 't3']) {
+      const written = store.rows().find((r) => r.id === id) as { duration?: number };
+      expect(written.duration).toBe(8);
+    }
+    await expect(page.locator('[data-row-id="t1"]')).toContainText('8');
+  });
+
+  test('the inert Replace arm refuses at the attempt, across a multi-row selection (#3153)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    await selectRows(page, ['t1', 't2', 't3']);
+    await page.keyboard.press('ControlOrMeta+Shift+KeyK');
+
+    const sheet = page.getByTestId('bulk-edit-sheet');
+    // `S9` — the 0.4 geometry is final: all four arms, present and labelled.
+    for (const arm of ['leave', 'add', 'remove', 'replace']) {
+      await expect(sheet.getByTestId(`bulk-owner-${arm}`)).toBeVisible();
+    }
+    // `S12` — `aria-disabled`, NEVER `disabled`, so the arm keeps its tab stop
+    // and its accessible name and the refusal is reachable by keyboard too.
+    const replace = sheet.getByTestId('bulk-owner-replace-input');
+    await expect(replace).toHaveAttribute('aria-disabled', 'true');
+    // The real `disabled` IDL property, not Playwright's `toBeEnabled()` — that
+    // helper treats `aria-disabled` as disabled, which is exactly the state this
+    // assertion has to be able to tell apart from a hard `disabled` attribute.
+    await expect(replace).toHaveJSProperty('disabled', false);
+    await expect(sheet.getByTestId('bulk-owner-replace-badge')).toHaveText('0.5');
+    // The reason is stated AT REST, before anyone attempts anything.
+    await expect(sheet).toContainText('Remove and Replace ship in 0.5');
+
+    // Driven by KEYBOARD, and not incidentally: `aria-disabled` is what makes an
+    // arm keep its tab stop, and Playwright's own actionability treats an
+    // aria-disabled control as un-clickable — so a pointer click here would
+    // assert the opposite of the property under test. Space on a focused radio
+    // is the attempt, and the `preventDefault` is what makes it refuse.
+    await replace.focus();
+    await expect(replace).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(sheet.getByTestId('bulk-owner-refusal')).toContainText('ships in 0.5');
+    // Nothing was selected and nothing became applicable — the refusal fires at
+    // the moment of the attempt, never silently at Apply.
+    await expect(replace).not.toBeChecked();
+    await expect(sheet.getByTestId('bulk-owner-leave-input')).toBeChecked();
+    await expect(page.getByTestId('bulk-edit-apply')).toBeDisabled();
+  });
+
+  test('the selection strip offers Edit N items as a control (#3152 S23)', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await selectRows(page, ['t1', 't2']);
+
+    const entry = page.getByTestId('build-mode-bulk-edit');
+    await expect(entry).toContainText('Edit 2 items');
+    await entry.click();
+    await expect(
+      page.getByTestId('bulk-edit-sheet').getByRole('heading', { name: 'Edit 2 items' }),
+    ).toBeVisible();
+  });
+
   test('the cheatsheet advertises the binding', async ({ page }) => {
     await page.goto(BASE_URL);
     await expect(page.getByText('Survey the site')).toBeVisible();
     await page.keyboard.press('?');
 
     await expect(
-      page.getByText('Edit every selected row — owner, classification, dates'),
+      page.getByText('Edit every selected item — dates, duration, progress, sprint, owner'),
     ).toBeVisible();
   });
 });

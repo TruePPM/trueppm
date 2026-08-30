@@ -19,13 +19,30 @@ for how it behaves.
 
 ## What the Start sheet sets at creation
 
+:::note[Ships in 0.4]
+The one-screen Start sheet described in this section ships in **TruePPM 0.4**, the
+first beta. `v0.3.0-alpha.3`, the latest release, still opens a three-step wizard
+(name and description, then schedule dates, then template) with no way-in cards and
+no working-calendar field at creation.
+:::
+
 The **New project** Start sheet — one screen, no step navigation — collects only
-what changes what happens next: name, program, start date, and working calendar,
-plus one choice among three peer ways in (Template, Blank, or Import). Planning
-model is derived from that choice and shown read-only, never asked for directly.
+what changes what happens next. It opens with the way in: one choice among three
+peer ways to start (Template, Blank, or Import). Below that come the project's own
+fields — name, program, and start date — and the **working calendar** sits in the
+pinned footer above the actions, where it stays in view however long the template
+list gets. Planning model is derived from the way you choose and shown read-only,
+never asked for directly.
 See [Creating a project under a program](/features/programs/#creating-a-project-under-a-program)
 for the full field list and [Project methodology preset](/features/methodology-preset/)
 for how the derived line resolves.
+
+Nothing is created until you press the sheet's commit button — which is what the
+footer tells you, naming whichever button is on screen (it reads **Create &
+import spreadsheet** on the Import way). The sheet does not create a draft as you
+type, so closing it leaves no project behind and no notification, webhook, or
+rollup sees anything until you commit. Note that it does not preserve your entries
+either: there is no autosave today, so a closed sheet starts fresh.
 
 Everything else on this page — default view, board cadence, visibility, the
 [default role for new members](/features/settings/project-members/#default-role-for-new-members),

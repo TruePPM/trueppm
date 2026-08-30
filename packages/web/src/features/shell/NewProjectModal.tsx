@@ -88,12 +88,61 @@ interface Props {
   programName?: string;
 }
 
+/**
+ * Tab stops inside the dialog, in DOM order.
+ *
+ * `:not([tabindex="-1"])` is applied to every branch, not just the generic
+ * `[tabindex]` one: the way cards are native `<button>`s under a roving tabindex
+ * (`useRovingTabIndex`, web rule 167), so only the selected one is actually
+ * tabbable while the other two carry `tabindex="-1"`. Matching them on
+ * `button:not([disabled])` alone made the *first DOM* card the trap's `first`,
+ * which was harmless while the cards sat mid-sheet but escapes the dialog now
+ * that the way in leads the body — Shift+Tab from the real first tab stop would
+ * not match `first`, so the trap would not wrap and focus would leave the modal.
+ */
 function getFocusable(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      [
+        'a[href]:not([tabindex="-1"])',
+        'button:not([disabled]):not([tabindex="-1"])',
+        'input:not([disabled]):not([tabindex="-1"])',
+        'textarea:not([disabled]):not([tabindex="-1"])',
+        'select:not([disabled]):not([tabindex="-1"])',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(', '),
     ),
   );
+}
+
+/** Ties the footer's commit note to the submit button via `aria-describedby`. */
+const COMMIT_NOTE_ID = 'new-project-commit-note';
+
+/**
+ * The footer's reassurance line (#3130), replacing the design handoff's "Nothing is
+ * created until you open the designer".
+ *
+ * That sentence describes the create-as-draft path, which this sheet deliberately
+ * does not have and will not have before #3129 (see the component docblock and
+ * `docs/design/handoff/2026-08-v4-beta1-review/README.md` §5). Shipping it would
+ * assert a capability no code delivers — the rule-308 class — so the line states
+ * what *is* true of the sheet as built: `handleSubmit` is the only caller of
+ * `useCreateProject`, so nothing is written before the press.
+ *
+ * It deliberately stops there. An earlier draft added "Closing this sheet discards
+ * what you have entered" — true today, but rule 217 requires an unsaved-changes
+ * guard on a dirty dismiss, and this sheet has none on any of its four dismiss
+ * paths (Escape, backdrop, compact ×, Cancel). Stating the silent discard as
+ * reassurance would ship a rule-217 gap as though it were the intended contract,
+ * in a place where the user cannot act on the warning. The gap is real and stays
+ * open; this line is not the place to declare it settled.
+ *
+ * `commitLabel` is passed in rather than hard-coded because the button renames
+ * itself on the Import way — a note naming a button that is not on screen is the
+ * same class of wrong sentence, one step removed (rule 316).
+ */
+function commitNote(commitLabel: string): string {
+  return `Nothing is created until you press ${commitLabel}.`;
 }
 
 const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: string }> = {
@@ -112,10 +161,15 @@ const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: stri
 /**
  * The Start sheet — one screen for creating a project (#2728), replacing the old
  * 3-step modal (name+description → schedule → template/methodology). Collects only
- * what changes what happens next: name, program, start date, and working calendar,
- * then one choice among three peer ways in (Template / Blank / Import — a fourth,
- * "Seed from a brief", is cut; ADR-0913 records the zero-egress and ordering
- * constraints that gate its return). Methodology is derived
+ * what changes what happens next, in the order the design handoff's case 01 puts
+ * them (#3130): the body leads with the **way in** — one choice among three peer
+ * ways (Template / Blank / Import; a fourth, "Seed from a brief", is cut, and
+ * ADR-0913 records the zero-egress and ordering constraints that gate its return)
+ * — and then the project's own fields, name / program / start date. The **working
+ * calendar sits in the footer** beside the actions rather than mid-body: it is the
+ * one field whose default is already resolved and correct for most projects
+ * (ADR-0441), so it belongs next to the commit, not between the fields and the
+ * choice that drives them. Methodology is derived
  * from that choice and shown read-only; it is never asked and never enforced
  * (ADR-0041), and stays changeable afterward in project settings — same as the
  * fields #2728 cut entirely from this screen (description, "copy settings from",
@@ -138,8 +192,18 @@ const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: stri
  * row — but it is a different interaction and owes a `ux-design` pass and rule 217
  * first.
  *
+ * That is also why the footer's commit note is worded to the create-on-submit
+ * behavior rather than the handoff's "Nothing is created until you open the
+ * designer" (#3130): while this sheet creates a real, `ACTIVE` project the moment
+ * Create is pressed, the handoff's sentence would be a false capability claim of
+ * the rule-308 class. `commitNote()` therefore states the one thing that does hold
+ * — nothing is written before the press — and takes the button's own `commitLabel`
+ * so the sentence and the control cannot drift (rule 316). It deliberately stops
+ * short of the discard half; `commitNote()`'s docblock says why.
+ *
  * Below 900px (`useStartSheetCompact`) this becomes a full-screen surface with the
- * same field order and the way cards stacked 2×2 instead of one row of three.
+ * same order and the way cards laid out two per row — 2 + 1 for today's three ways
+ * — instead of one row of three.
  *
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
@@ -215,7 +279,13 @@ export function NewProjectModal({
   // Capture trigger before the sheet opens; restore focus on unmount.
   useEffect(() => {
     triggerRef.current = document.activeElement;
-    nameRef.current?.focus();
+    // `preventScroll` because Name is no longer the sheet's first control (#3130):
+    // the default `focus()` scrolls every scrollable ancestor until the target is
+    // visible, which on a short viewport would scroll the way cards — the thing
+    // the reorder exists to lead with — off the top of the body before the user
+    // has read them. Focus still lands on Name (the one field that starts empty
+    // and blocks Create); only the scroll side effect is suppressed.
+    nameRef.current?.focus({ preventScroll: true });
     return () => {
       if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
     };
@@ -264,6 +334,16 @@ export function NewProjectModal({
 
   const canSubmit =
     name.trim().length > 0 && startDate.length > 0 && (way !== 'template' || template !== null);
+
+  // Single source for what the commit is called — the button renders it, and the
+  // footer's commit note names it. Two hand-kept copies of a control's label is
+  // how a note ends up naming a button that is not on screen (rule 316). The
+  // pending branch is derived here rather than in the button's JSX for the same
+  // reason: a `isPending ? 'Creating…' : label` ternary applied only at the button
+  // is a second source, and it is the branch that would make the note name a
+  // button nobody can see — while denying a create that is already in flight.
+  const commitLabel = way === 'import' ? 'Create & import spreadsheet' : 'Create project';
+  const submitLabel = createProject.isPending ? 'Creating…' : commitLabel;
 
   /**
    * What the user asked for at the moment of commitment (#2710) — fully determined
@@ -387,9 +467,63 @@ export function NewProjectModal({
           </div>
 
           {/* Body — the only scrollable region. The footer stays pinned and
-              reachable regardless of how tall the Template list gets. */}
+              reachable regardless of how tall the Template list gets.
+
+              Order (#3130, design handoff case 01): the way in first, the
+              project's own fields after it. The way drives the derived
+              methodology, the detail panel and the submit button's label, so it
+              reads as the decision the rest of the sheet follows from rather than
+              a fourth field below three. Name still takes focus on mount — the
+              way cards always open on a valid selection, so the only thing that
+              blocks Create is the one field that starts empty. */}
           <div className="flex-1 overflow-y-auto min-h-0">
             <form id="new-project-form" onSubmit={handleSubmit} className="flex flex-col gap-4 px-6 pb-4">
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-neutral-text-secondary">Start from</span>
+                <StartWayCards value={way} onChange={setWay} compact={compact} />
+
+                {/* Methodology is derived, not asked (ADR-0041) — states which
+                    views this project will carry as a consequence of the way
+                    chosen above. Never enforces anything and stays changeable in
+                    project settings afterward. */}
+                <p className="text-xs text-neutral-text-secondary">
+                  <span className="font-medium text-neutral-text-primary">Views: </span>
+                  {derived.caption}
+                </p>
+
+                {/* Detail panel — swaps by way without changing the sheet's height
+                    class (a fixed min-height keeps Template's list from growing
+                    the dialog while Blank/Import's shorter copy sits inside it). */}
+                <div className="min-h-[9rem]">
+                  {way === 'template' ? (
+                    <TemplateGallery
+                      programId={selectedProgramId}
+                      selectedId={template?.id ?? null}
+                      onSelect={setTemplate}
+                      // Gives the never-published empty state a route to name
+                      // instead of prose (#2909). Any project the reader can see
+                      // will do: the Settings page states the Project-Manager
+                      // gate itself, so a Member who follows the link is told the
+                      // rule rather than shown a control that cannot be pressed.
+                      publishFrom={publishFrom}
+                    />
+                  ) : (
+                    <div className="flex flex-col gap-1 rounded-card border border-neutral-border p-3">
+                      <span className="text-sm font-medium text-neutral-text-primary">
+                        {WAY_DETAIL[way].title}
+                      </span>
+                      <span className="text-xs text-neutral-text-secondary">
+                        {WAY_DETAIL[way].body}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* The project's own fields, below the way in. Grouped so the rule
+                  divides the two halves of the body rather than hanging off the
+                  first <label>, and so the spacing above and below it matches. */}
+              <div className="flex flex-col gap-4 pt-4 border-t border-neutral-border">
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-neutral-text-secondary">
                   Name <span aria-hidden="true">*</span>
@@ -460,53 +594,6 @@ export function NewProjectModal({
                     focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 />
               </label>
-
-              <StartCalendarPicker
-                value={calendarOverride}
-                onChange={setCalendarOverride}
-                inherited={inheritedCalendar}
-              />
-
-              <div className="flex flex-col gap-2 pt-2 mt-1 border-t border-neutral-border">
-                <span className="text-xs font-medium text-neutral-text-secondary">Start from</span>
-                <StartWayCards value={way} onChange={setWay} compact={compact} />
-
-                {/* Methodology is derived, not asked (ADR-0041) — states which
-                    views this project will carry as a consequence of the way
-                    chosen above. Never enforces anything and stays changeable in
-                    project settings afterward. */}
-                <p className="text-xs text-neutral-text-secondary">
-                  <span className="font-medium text-neutral-text-primary">Views: </span>
-                  {derived.caption}
-                </p>
-
-                {/* Detail panel — swaps by way without changing the sheet's height
-                    class (a fixed min-height keeps Template's list from growing
-                    the dialog while Blank/Import's shorter copy sits inside it). */}
-                <div className="min-h-[9rem]">
-                  {way === 'template' ? (
-                    <TemplateGallery
-                      programId={selectedProgramId}
-                      selectedId={template?.id ?? null}
-                      onSelect={setTemplate}
-                      // Gives the never-published empty state a route to name
-                      // instead of prose (#2909). Any project the reader can see
-                      // will do: the Settings page states the Project-Manager
-                      // gate itself, so a Member who follows the link is told the
-                      // rule rather than shown a control that cannot be pressed.
-                      publishFrom={publishFrom}
-                    />
-                  ) : (
-                    <div className="flex flex-col gap-1 rounded-card border border-neutral-border p-3">
-                      <span className="text-sm font-medium text-neutral-text-primary">
-                        {WAY_DETAIL[way].title}
-                      </span>
-                      <span className="text-xs text-neutral-text-secondary">
-                        {WAY_DETAIL[way].body}
-                      </span>
-                    </div>
-                  )}
-                </div>
               </div>
 
               {createProject.isError && (
@@ -517,35 +604,71 @@ export function NewProjectModal({
             </form>
           </div>
 
-          {/* Actions — pinned below the scroller. The submit button is outside the
-              <form> DOM subtree but still participates in it via the `form`
-              attribute, so Enter-to-submit and the Create click both work. */}
-          <div className="flex items-center justify-between gap-2 px-6 pb-6 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={createProject.isPending}
-              className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
-                text-neutral-text-secondary hover:text-neutral-text-primary
-                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              form="new-project-form"
-              disabled={!canSubmit || createProject.isPending}
-              className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
-                disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                focus:outline-none focus:ring-2 focus:ring-white
-                focus:ring-offset-2 focus:ring-offset-brand-primary"
-            >
-              {createProject.isPending
-                ? 'Creating…'
-                : way === 'import'
-                  ? 'Create & import spreadsheet'
-                  : 'Create project'}
-            </button>
+          {/* Footer — pinned below the scroller, and the home of the working
+              calendar (#3130, design handoff case 01: "template / blank / import,
+              calendar in the footer"). Both the calendar and the commit note stay
+              on screen however tall the Template list grows, which is the point of
+              pinning them rather than letting them scroll away above it.
+
+              The submit button is outside the <form> DOM subtree but still
+              participates in it via the `form` attribute, so Enter-to-submit and
+              the Create click both work. The calendar select sits outside the form
+              too and is unaffected: it is controlled React state read straight out
+              of `calendarOverride` at submit, never a form field. */}
+          <div className="flex flex-col gap-3 border-t border-neutral-border px-6 pb-6 pt-4">
+            <StartCalendarPicker
+              value={calendarOverride}
+              onChange={setCalendarOverride}
+              inherited={inheritedCalendar}
+              // Keeps implicit submission alive now that this field sits outside
+              // the <form> subtree — without it, Enter submits from Name, Program
+              // and Start date but silently does nothing from here, which is the
+              // kind of inconsistency a keyboard user reads as a broken field.
+              formId="new-project-form"
+            />
+
+            {/* States what pressing Create actually does. Read the `commitNote`
+                docblock before rewording it — the handoff's version of this line
+                describes a draft lifecycle the sheet does not have.
+
+                Suppressed while the create is in flight: at that point the
+                sentence is simply false, and rule 316 prefers rendering nothing
+                to rendering a confident wrong one. The button is disabled and
+                reads "Creating…" throughout that window, so nothing is left
+                unexplained. */}
+            {!createProject.isPending && (
+              <p id={COMMIT_NOTE_ID} className="text-xs text-neutral-text-secondary">
+                {commitNote(commitLabel)}
+              </p>
+            )}
+
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={createProject.isPending}
+                className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
+                  text-neutral-text-secondary hover:text-neutral-text-primary
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="new-project-form"
+                disabled={!canSubmit || createProject.isPending}
+                // Announced on focus, when the user is about to commit — the note
+                // is the answer to "what does this button do?", so it belongs in
+                // the description rather than in the accessible name (rule 316).
+                aria-describedby={COMMIT_NOTE_ID}
+                className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
+                  disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                  focus:outline-none focus:ring-2 focus:ring-white
+                  focus:ring-offset-2 focus:ring-offset-brand-primary"
+              >
+                {createProject.isPending ? 'Creating…' : submitLabel}
+              </button>
+            </div>
           </div>
         </div>
       </div>
