@@ -49,16 +49,24 @@ prompt to think about existing rows at all.
 
 Usage:
     python3 scripts/check-migration-constraint-safety.py [--list] [--root DIR]
+    python3 scripts/check-migration-constraint-safety.py --self-test
 
 ``--root`` points the scan at another tree; it exists so the test suite can stage
-throwaway migrations and prove the gate actually fails on them.
+throwaway migrations and prove the gate actually fails on them. ``--self-test``
+does that from inside this script, over the fixture shapes in ``_self_test_cases``
+— see that function for why the proof has to run here and not only in
+``scripts/tests/check-migration-constraint-safety.test.sh`` (#3194, #3195).
 """
 
 from __future__ import annotations
 
 import ast
+import contextlib
+import io
 import sys
+import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _API_SRC = _REPO_ROOT / "packages/api/src/trueppm_api/apps"
@@ -218,8 +226,275 @@ def _rel(path: Path) -> str:
     return str(path.relative_to(_REPO_ROOT))
 
 
+class _Case(NamedTuple):
+    """One fixture tree: a single migration, and the verdict the gate must reach."""
+
+    name: str
+    expect: int  # the exit code the gate must return: 0 accepted, 1 rejected
+    operations: str  # the body of the migration's `operations` list, indented 8
+    prelude: str = ""  # module-level defs the operations reference
+    replaces: str = ""  # a `replaces = [...]` class attribute, if the case needs one
+    mentions: tuple[str, ...] = ()  # substrings a rejection must name
+
+
+def _fixture(case: _Case) -> str:
+    """Assemble a throwaway migration file around ``case.operations``.
+
+    Only the wrapper is generated. The ``operations`` list is written out
+    literally in each case, because that list *is* the shape the rule reads —
+    generating it would put a second description of the rule in this file, which
+    is the thing a self-test must not do.
+    """
+    return (
+        "from django.db import migrations, models\n\n\n"
+        f"{case.prelude}"
+        "class Migration(migrations.Migration):\n"
+        f"{case.replaces}"
+        '    dependencies = [("projects", "0001_initial")]\n'
+        "    operations = [\n"
+        f"{case.operations}"
+        "    ]\n"
+    )
+
+
+_REPAIR_DEF = "def _repair(apps, schema_editor):\n    pass\n\n\n"
+
+
+def _self_test_cases() -> list[_Case]:
+    """The fixture shapes, one per branch of the rule.
+
+    These are the shapes already used by
+    ``scripts/tests/check-migration-constraint-safety.test.sh``, on purpose. That
+    suite stays and remains the fuller matrix — marker placement inside vs above
+    the call, marker carry-over between adjacent constraints, the real tree's
+    site count. This is the subset that has to run in the gate's OWN CI job.
+
+    Same job is the only way to say "same image" in GitLab CI, and the image is
+    what differed in #3172: ``check-enterprise-imports.test.sh`` passed on
+    python:3.11-slim for the entire life of a gate that, on alpine, could not
+    detect anything at all. A suite that runs elsewhere is evidence about
+    elsewhere.
+
+    Both directions are covered because only one of them is optional-looking. A
+    gate that has only ever been watched passing on a clean tree is
+    indistinguishable from one with a typo in its pattern; a gate that rejects
+    the four legitimately-safe shapes gets papered over with blanket
+    ``# safe-constraint:`` comments within a day, which takes the real
+    protection with it.
+    """
+    return [
+        # --- REJECT: the #3068 shape itself. ------------------------------
+        _Case(
+            name="an unguarded AddConstraint on a pre-existing table",
+            expect=1,
+            operations=(
+                "        migrations.AddConstraint(\n"
+                '            model_name="task",\n'
+                "            constraint=models.UniqueConstraint(\n"
+                '                fields=["project", "wbs_path"], name="uniq"\n'
+                "            ),\n"
+                "        ),\n"
+            ),
+            mentions=("0002_thing.py", "(task)"),
+        ),
+        # --- ACCEPT: safe shape 4, a RunPython repair precedes it. --------
+        _Case(
+            name="a preceding RunPython repair",
+            expect=0,
+            prelude=_REPAIR_DEF,
+            operations=(
+                "        migrations.RunPython(_repair, migrations.RunPython.noop),\n"
+                "        migrations.AddConstraint(\n"
+                '            model_name="task",\n'
+                "            constraint=models.UniqueConstraint(\n"
+                '                fields=["project", "wbs_path"], name="uniq"\n'
+                "            ),\n"
+                "        ),\n"
+            ),
+        ),
+        # --- REJECT: the repair must come FIRST; order is the whole point. -
+        _Case(
+            name="a RunPython that runs AFTER the constraint",
+            expect=1,
+            prelude=_REPAIR_DEF,
+            operations=(
+                "        migrations.AddConstraint(\n"
+                '            model_name="task",\n'
+                '            constraint=models.UniqueConstraint(fields=["a"], name="uniq"),\n'
+                "        ),\n"
+                "        migrations.RunPython(_repair, migrations.RunPython.noop),\n"
+            ),
+        ),
+        # --- ACCEPT: safe shape 1, the table is created here and is empty. -
+        _Case(
+            name="the model created by CreateModel in the same migration",
+            expect=0,
+            operations=(
+                '        migrations.CreateModel(name="Thing", fields=[]),\n'
+                "        migrations.AddConstraint(\n"
+                '            model_name="thing",\n'
+                '            constraint=models.UniqueConstraint(fields=["a"], name="uniq"),\n'
+                "        ),\n"
+            ),
+        ),
+        # --- REJECT: a CreateModel for ANOTHER model launders nothing. ----
+        _Case(
+            name="a CreateModel for a different model",
+            expect=1,
+            operations=(
+                '        migrations.CreateModel(name="Unrelated", fields=[]),\n'
+                "        migrations.AddConstraint(\n"
+                '            model_name="task",\n'
+                '            constraint=models.UniqueConstraint(fields=["a"], name="uniq"),\n'
+                "        ),\n"
+            ),
+        ),
+        # --- ACCEPT: safe shape 3, unique_together → UniqueConstraint. ----
+        _Case(
+            name="an AlterUniqueTogether conversion for the same model",
+            expect=0,
+            operations=(
+                "        migrations.AlterUniqueTogether(\n"
+                '            name="taskresource", unique_together=set()\n'
+                "        ),\n"
+                "        migrations.AddConstraint(\n"
+                '            model_name="taskresource",\n'
+                "            constraint=models.UniqueConstraint(\n"
+                '                fields=["task", "resource"], name="uniq"\n'
+                "            ),\n"
+                "        ),\n"
+            ),
+        ),
+        # --- ACCEPT: safe shape 2, a squash re-states validated constraints.
+        _Case(
+            name="a replaces= squash migration",
+            expect=0,
+            replaces=(
+                "    replaces = ["
+                '("projects", "0001_initial"), ("projects", "0002_thing")]\n'
+            ),
+            operations=(
+                "        migrations.AddConstraint(\n"
+                '            model_name="task",\n'
+                '            constraint=models.UniqueConstraint(fields=["a"], name="uniq"),\n'
+                "        ),\n"
+            ),
+        ),
+        # --- ACCEPT: the explicit opt-out.
+        #
+        # Be honest about what this branch is. `# safe-constraint:` is a rubber
+        # stamp, the same shape as `--update-baseline` on the docs gate: it
+        # cannot stop a wrong answer, and nothing here or anywhere else reads
+        # the reason the author typed. What it removes is the SILENCE — before
+        # this gate, adding a constraint to a populated table produced no signal
+        # in the pipeline at all, and the author was never prompted to think
+        # about the rows already in the table. The case below proves the escape
+        # hatch still opens; it does not, and cannot, prove any use of it right.
+        _Case(
+            name="an explicit # safe-constraint: opt-out",
+            expect=0,
+            operations=(
+                "        # safe-constraint: both columns are added by this migration, so\n"
+                "        # every existing row holds NULL and Postgres treats NULLs as distinct.\n"
+                "        migrations.AddConstraint(\n"
+                '            model_name="task",\n'
+                "            constraint=models.UniqueConstraint(\n"
+                '                fields=["a", "b"], name="uniq"\n'
+                "            ),\n"
+                "        ),\n"
+            ),
+        ),
+        # --- REJECT: a comment that merely reads safe is not the marker. --
+        _Case(
+            name="a comment missing the marker's colon form",
+            expect=1,
+            operations=(
+                "        # safe constraint, honest\n"
+                "        migrations.AddConstraint(\n"
+                '            model_name="task",\n'
+                '            constraint=models.UniqueConstraint(fields=["a"], name="uniq"),\n'
+                "        ),\n"
+            ),
+        ),
+    ]
+
+
+def _run_case(case: _Case, tree: Path) -> str | None:
+    """Run the REAL gate over a one-migration tree. Returns a failure line, or None."""
+    global _REPO_ROOT
+
+    source = _fixture(case)
+    try:
+        # A fixture with a typo in it parses nowhere, and _scan reports that as a
+        # violation — so every REJECT case would keep passing while proving
+        # nothing about the rule. Fail on the broken fixture instead.
+        ast.parse(source)
+    except SyntaxError as exc:
+        return f"{case.name}: fixture is not valid Python ({exc})"
+
+    migrations_dir = tree / "packages/api/src/trueppm_api/apps/projects/migrations"
+    migrations_dir.mkdir(parents=True)
+    (migrations_dir / "0002_thing.py").write_text(source, encoding="utf-8")
+
+    saved_root = _REPO_ROOT
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            code = main(["--root", str(tree)])
+    finally:
+        # main() rebinds the module-global root. Restore it, so that a real scan
+        # later in the same process still points at this repo.
+        _REPO_ROOT = saved_root
+
+    if code != case.expect:
+        got = "accepted" if code == 0 else "rejected"
+        return f"{case.name}: gate {got} it (exit {code}), expected exit {case.expect}"
+    output = captured.getvalue()
+    for needle in case.mentions:
+        if needle not in output:
+            # A rejection that cannot say which file and which model is a
+            # rejection an author cannot act on.
+            return f"{case.name}: rejection never names {needle!r}"
+    return None
+
+
+def _self_test() -> int:
+    """Prove this gate still rejects #3068's shape and still accepts the safe four.
+
+    Every case runs the real ``main()`` against a fixture root, so there is no
+    second copy of the rule in this file to drift away from the one above.
+    """
+    cases = _self_test_cases()
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for index, case in enumerate(cases):
+            failure = _run_case(case, Path(tmp) / f"case{index:02d}")
+            if failure is None:
+                verdict = "accepted" if case.expect == 0 else "rejected"
+                print(f"SELF-TEST OK: {case.name} — correctly {verdict}.")
+            else:
+                # Per-case lines all go to stdout: the two streams are buffered
+                # independently in a CI log, and a FAIL printed out of order
+                # next to the OK lines is harder to read than it is worth.
+                failures.append(failure)
+                print(f"SELF-TEST FAIL: {failure}")
+
+    if failures:
+        sys.stdout.flush()
+        print(
+            f"\nSELF-TEST: {len(failures)} of {len(cases)} cases failed — this gate "
+            "is not detecting what it claims to.",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"\nSELF-TEST: all {len(cases)} cases passed.")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     global _REPO_ROOT
+    if "--self-test" in argv:
+        return _self_test()
     if "--root" in argv:
         _REPO_ROOT = Path(argv[argv.index("--root") + 1]).resolve()
     api_src = _REPO_ROOT / "packages/api/src/trueppm_api/apps"

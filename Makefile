@@ -130,6 +130,7 @@ migrations-constraint-safety: ## Detect an AddConstraint on a table that may alr
 	@# on container start — so a violating row is an upgrade crash-loop, not a failed
 	@# deploy (#3068). makemigrations --check never opens a database, so this class had
 	@# no gate at all. Pure static analysis: no Django, no DB, no fetch.
+	@python3 scripts/check-migration-constraint-safety.py --self-test
 	@python3 scripts/check-migration-constraint-safety.py
 
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
@@ -406,6 +407,7 @@ prepush-parity-check: ## Fail if a CI check script has no pre-push mirror and no
 	@# The durable half of #2941. The pre-push list was a historical accretion —
 	@# each gate added by hand as it was written, and nothing checking the list
 	@# stayed complete. This derives the CI set instead of restating it.
+	@bash scripts/check-prepush-parity.sh --self-test
 	@bash scripts/check-prepush-parity.sh
 
 nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening baseline (#2849)

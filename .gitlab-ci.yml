@@ -850,6 +850,10 @@ ci:prepush-parity:
   before_script:
     - apk add --no-cache bash git grep sed
   script:
+    # Self-test FIRST: the real tree is compliant, so the detection path never
+    # runs — a disarmed version of this gate prints byte-identical output and
+    # exit 0 until the day someone adds an unmirrored gate (#3195).
+    - bash scripts/check-prepush-parity.sh --self-test
     - bash scripts/check-prepush-parity.sh
 
 lint:design-system-v2:
@@ -972,6 +976,10 @@ lint:package-licenses:
   before_script:
     - apk add --no-cache bash diffutils
   script:
+    # Self-test FIRST: Apache-2.0 §4(a) requires the license to travel with each
+    # separately distributed package; a blind gate here is a licensing defect,
+    # not a lint failure (#3195).
+    - bash scripts/check-package-licenses.sh --self-test
     - bash scripts/check-package-licenses.sh
 
 docs:version-accuracy:
@@ -1847,6 +1855,10 @@ helm:template:
     # -ignore-missing-schemas: PrometheusRule is a CRD with no upstream schema; all
     # core kinds (Deployment/Service/Secret/NetworkPolicy/...) are still validated.
     - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered.yaml
+    # Self-test FIRST: covers section 5 (the NetworkPolicy datastore-client
+    # allow-list) including yq-version independence of the parse — the #3147
+    # regression was latent on the pinned yq and found by hand (#3195).
+    - bash scripts/helm-structure-check.sh --self-test
     - bash scripts/helm-structure-check.sh packages/helm
     # Demo mode (#2440, ADR-0658) is gated behind demo.enabled, so the default
     # render above never reaches templates/demo-seed-job.yaml or the demo branch of
@@ -2643,6 +2655,10 @@ api:migration-constraint-safety:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script: []
   script:
+    # Self-test FIRST: an unguarded AddConstraint on a populated table is an
+    # upgrade crash-loop, not a rollback-able failed deploy (#3068). Prove the
+    # gate still rejects one, and that all four safe shapes still pass (#3195).
+    - python3 scripts/check-migration-constraint-safety.py --self-test
     - python3 scripts/check-migration-constraint-safety.py
 
 api:openapi-check:
@@ -2828,6 +2844,9 @@ wasm:build:
     # package, renaming becomes a permanent breaking change. Gate it while it is
     # still free (#2602). Only runs where the .d.ts exists, i.e. right here after
     # wasm-pack; the Rust-side names are unaffected.
+    # Self-test FIRST, before the ~40s wasm build, so a disarmed gate reds in
+    # seconds (#3195).
+    - ./scripts/check-dts-camelcase.sh --self-test
     - ./scripts/check-dts-camelcase.sh
 
 web:build:
@@ -3045,6 +3064,10 @@ scheduler:mutation:
     - mutmut run || true          # a non-zero exit just means survivors exist
     - mutmut results || true
     - mutmut export-cicd-stats
+    # Self-test FIRST: this job pins MUTATION_MIN=0, so the real invocation
+    # cannot fail by construction — the self-test is the ONLY thing here that
+    # can (#3195).
+    - python scripts/check_mutation_score.py --self-test
     - python scripts/check_mutation_score.py mutants/mutmut-cicd-stats.json
   artifacts:
     paths:
