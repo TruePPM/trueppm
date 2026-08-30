@@ -1678,6 +1678,41 @@ web:rule-numbers:
     - bash scripts/check-web-rule-numbers.sh --self-test
     - bash scripts/check-web-rule-numbers.sh
 
+compose:image-pins:
+  extends: .fast-job
+  # Every third-party image in a shipped compose file carries a version tag (#3228).
+  #
+  # `certbot/certbot` shipped untagged in docker-compose.prod.yml — the only
+  # unpinned image in the production stack, and the one component that owns TLS
+  # issuance and renewal. It resolved to `latest` on every `compose pull`, so
+  # the version moved under a running install with no diff and no pipeline
+  # event.
+  #
+  # It is a CI job rather than a review habit because it already survived one
+  # deliberate hardening pass (#3189): an `image:` line with no tag reads as an
+  # `image:` line with one unless you go looking for the colon, and reviewers
+  # reliably look past it.
+  #
+  # First-party `${APP_VERSION:-latest}` references are deliberately out of
+  # scope — whether that default should be `latest` is a separate settled
+  # question (#3189 §12); see the SCOPE note in the script.
+  #
+  # Runs in the lint stage: no install, no build, no network. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    # BusyBox grep rejects the GNU-only options this gate does not use, but bash
+    # is not in the base image and the script is bash, not sh (#3194).
+    - apk add --no-cache bash grep
+  script:
+    # Self-test first: a passing run looks the same whether the gate works or
+    # its pattern has drifted to match nothing.
+    - bash scripts/check-compose-image-pins.sh --self-test
+    - bash scripts/check-compose-image-pins.sh
+
 helm:metric-names:
   extends: .fast-job
   # The chart's PromQL must only name series the application emits (#2805).
