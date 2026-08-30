@@ -109,9 +109,17 @@ COPY LICENSE /app/LICENSE
 #                       avoid — while the documented
 #                       `docker compose exec api cat /run/trueppm/admin_password`
 #                       could never succeed.
+# /var/lib/trueppm/media is settings.base's MEDIA_ROOT default (#3184) — where
+# task attachments and the workspace logo land on local-disk storage. Created
+# and chowned here for the same reason /app/staticfiles is: the container runs
+# as uid 1000, which cannot mkdir under /var/lib at runtime. Baking it also
+# sharpens the boot guard's answer — on a writable root filesystem the path
+# exists and the deploy starts; on readOnlyRootFilesystem it exists and is
+# unwritable, so the guard refuses the deploy instead of letting the first
+# upload EROFS. Mount a volume here to make uploads durable.
 RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm && \
-    mkdir -p /app/staticfiles /run/trueppm && \
-    chown trueppm /app/staticfiles /run/trueppm
+    mkdir -p /app/staticfiles /run/trueppm /var/lib/trueppm/media && \
+    chown trueppm /app/staticfiles /run/trueppm /var/lib/trueppm/media
 
 ENV PATH="/venv/bin:$PATH"
 

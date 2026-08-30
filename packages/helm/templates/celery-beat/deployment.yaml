@@ -34,6 +34,12 @@ spec:
         # lose on reschedule.
         - name: tmp
           emptyDir: {}
+        # Beat schedules no attachment work, but it imports settings.prod, whose
+        # MEDIA_ROOT writability guard runs at import (#3184) — so it mounts the
+        # claim for the same reason the migrate init container does.
+        {{- with (include "trueppm.mediaVolume" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
       containers:
         - name: celery-beat
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
@@ -59,6 +65,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- with (include "trueppm.mediaVolumeMount" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
           {{- if .Values.probes.beat.enabled }}
           # Beat runs no worker control plane of its own, so the ping targets the
           # fleet: it asserts the beat pod can reach the broker and that at least

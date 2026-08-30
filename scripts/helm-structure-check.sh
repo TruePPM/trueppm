@@ -667,6 +667,63 @@ api_static_mount="$(echo "$DEP" | yq '.spec.template.spec.containers[0].volumeMo
 [ "$api_static_mount" = "$static_root" ] \
   || fail "the api container mounts staticfiles at '$api_static_mount' but STATIC_ROOT is '$static_root' — WhiteNoise would serve an empty directory (#3183)"
 
+# N+2. Media volume / TRUEPPM_MEDIA_ROOT lockstep (#3184).
+#      settings.prod probes MEDIA_ROOT for writability at IMPORT time, so a
+#      container that mounts the media claim but never receives the env var (or
+#      the reverse) either probes the wrong path or has no path to probe — and
+#      because migrate/bootstrap/collectstatic import the same settings, that
+#      crash-loops the api pod before the api container is ever created. This
+#      exact drift happened during the fix: all three init containers had the
+#      mount and none had the env, and nothing in the render said so.
+#
+#      The check is written against the CLASS, not the four containers that
+#      exist today: it walks every container in every workload of the rendered
+#      release and requires mount and env to agree, so a workload added later
+#      is covered without editing this script. The non-default mountPath is
+#      deliberate — the default happens to equal settings/base.py's own default,
+#      so a render that never set the env var would still look correct.
+MEDIA_PATH="/srv/trueppm-media-probe"
+MEDIA_RENDER="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set persistence.media.enabled=true \
+  --set "persistence.media.mountPath=$MEDIA_PATH" 2>&1)" \
+  || fail "chart failed to render with persistence.media.enabled=true (#3184)"
+
+media_report="$(echo "$MEDIA_RENDER" | yq eval-all '
+  select(.kind == "Deployment") as $d
+  | $d.metadata.name as $n
+  | ($d.spec.template.spec.initContainers // []) + $d.spec.template.spec.containers
+  | .[]
+  | ($n + "/" + .name)
+    + " mount=" + (([.volumeMounts[]? | select(.name == "media") | .mountPath] | .[0]) // "-")
+    + " env=" + (([.env[]? | select(.name == "TRUEPPM_MEDIA_ROOT") | .value] | .[0]) // "-")
+' - | grep ' mount=')"
+[ -n "$media_report" ] || fail "no containers found in the persistence.media render (#3184)"
+
+media_checked=0
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  c_mount="${line##* mount=}"; c_mount="${c_mount%% env=*}"
+  c_env="${line##* env=}"
+  c_name="${line%% mount=*}"
+  case "$c_name" in
+    */web) continue ;;   # nginx imports no Django settings and needs neither
+  esac
+  media_checked=$((media_checked + 1))
+  [ "$c_mount" = "$MEDIA_PATH" ] \
+    || fail "$c_name mounts the media claim at '$c_mount', expected '$MEDIA_PATH' — a container that imports settings.prod without the claim crash-loops on the MEDIA_ROOT probe (#3184)"
+  [ "$c_env" = "$MEDIA_PATH" ] \
+    || fail "$c_name has TRUEPPM_MEDIA_ROOT='$c_env' but mounts the claim at '$MEDIA_PATH' — the boot probe would test a path nothing is mounted at (#3184)"
+done <<EOF
+$media_report
+EOF
+
+# And the access-mode guard must actually refuse, not merely warn.
+if helm template trueppm "$CHART" --set image.tag=latest \
+     --set persistence.media.enabled=true \
+     --set persistence.media.accessMode=ReadWriteOnce \
+     --set replicaCount=2 >/dev/null 2>&1; then
+  fail "a ReadWriteOnce media claim rendered alongside replicaCount=2 — an upload accepted by one api pod would 404 from the other (#3184)"
+fi
 # N+3. A backup must have somewhere durable to land (#3185).
 #      backup.enabled with no destination rendered a CronJob whose `backups`
 #      volume was an emptyDir: the Job dumped, exited 0, the artifact died with
@@ -737,4 +794,5 @@ echo "  - NOTES.txt names each trusted envFrom source and says the list is repla
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
 echo "  - both api probes send Host: $ing_host (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
+echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"

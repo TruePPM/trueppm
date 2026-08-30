@@ -405,9 +405,28 @@ pod (`app.kubernetes.io/component: backup`) to reach your object store, or the
 upload will time out.
 :::
 
-To include local-disk media in the scheduled artifact, set `backup.mediaDir` and
-mount your media claim read-only via `backup.extraVolumes` /
-`backup.extraVolumeMounts`.
+To include local-disk media in the scheduled artifact, set `backup.mediaDir` to
+`persistence.media.mountPath` (`/var/lib/trueppm/media` by default) and mount the
+same claim read-only via `backup.extraVolumes` / `backup.extraVolumeMounts`:
+
+```yaml
+backup:
+  mediaDir: /var/lib/trueppm/media
+  extraVolumes:
+    - name: media
+      persistentVolumeClaim:
+        claimName: trueppm-media   # or your persistence.media.existingClaim
+        readOnly: true
+  extraVolumeMounts:
+    - name: media
+      mountPath: /var/lib/trueppm/media
+      readOnly: true
+```
+
+A `ReadWriteOnce` media claim cannot be read here while the api pod holds it
+unless the backup Job happens to land on the same node — which is one of the
+reasons `persistence.media.accessMode` defaults to `ReadWriteMany`. See
+[attachment storage](/administration/helm-values/#attachment-storage-persistencemedia).
 
 :::caution[Retention is local-only]
 **Neither `keepDaily` nor `keepWeekly` ever deletes anything from your bucket.**

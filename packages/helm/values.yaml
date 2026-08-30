@@ -745,6 +745,57 @@ env:
 #         name: trueppm-env
 envFrom: []
 
+# Persistent storage the APPLICATION writes to (#3184). Distinct from
+# backup.persistence further down, which is the backup CronJob's output volume.
+persistence:
+  # Attachment / media volume, mounted at TRUEPPM_MEDIA_ROOT on every pod that
+  # imports Django settings: the api pod (including its migrate/bootstrap/
+  # collectstatic init containers, which run the same boot guards), the Celery
+  # worker, and Celery beat.
+  #
+  # REQUIRED whenever attachments live on local disk — that is, whenever you set
+  # TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true instead of pointing
+  # TRUEPPM_DEFAULT_FILE_STORAGE at object storage. containerSecurityContext sets
+  # readOnlyRootFilesystem: true, so with no claim there is nowhere for an upload
+  # to land; before #3184 that surfaced as an EROFS on the first upload of an
+  # install the boot guard had reported healthy. It now fails at boot instead.
+  #
+  # SIX write paths land here, not just attachments — everything that goes
+  # through Django's default storage: task attachments, the workspace logo,
+  # seed-import payloads, and the project / program / workspace export bundles.
+  # The export bundles are written by the CELERY WORKER and downloaded through
+  # the API, and the API writes a seed-import payload a worker task opens back.
+  # So this is shared state between tiers, not per-pod scratch, and an access
+  # mode that cannot span pods breaks those features rather than merely costing
+  # redundancy. Size the claim for the exports too — they are pruned by the
+  # drain/purge beat jobs, not kept forever, but they are far larger than a
+  # typical attachment.
+  #
+  # ACCESS MODE IS LOAD-BEARING. ReadWriteOnce binds the claim to ONE NODE:
+  #   * above one API replica, pod A's upload is a 404 from pod B — the chart
+  #     REFUSES to render this combination rather than ship the 404;
+  #   * even at one replica, api / celery-worker / celery-beat are three separate
+  #     Deployments, so an RWO claim only works if all three land on the same
+  #     node. That holds on single-node k3s/minikube and is not guaranteed
+  #     anywhere else.
+  # Hence the ReadWriteMany default (CephFS, NFS, Azure Files, EFS, Longhorn-RWX).
+  # For anything beyond a single node the better answer is object storage:
+  # TRUEPPM_DEFAULT_FILE_STORAGE + TRUEPPM_S3_BUCKET_NAME, and leave this off.
+  media:
+    enabled: false
+    # Reuse a claim you already manage instead of letting the chart create one.
+    # The access-mode guard cannot inspect an existing claim, so it is skipped —
+    # the mode is yours to get right.
+    existingClaim: ""
+    storageClass: ""
+    accessMode: ReadWriteMany
+    size: 20Gi
+    # Mount path inside the containers. The chart sets TRUEPPM_MEDIA_ROOT from
+    # this value, so the app and the volume can never disagree. An explicit
+    # env.TRUEPPM_MEDIA_ROOT still wins, for an operator mounting media through
+    # some other mechanism.
+    mountPath: /var/lib/trueppm/media
+
 # OpenTelemetry observability (ADR-0223, #708). OPT-IN with NO default endpoint:
 # leave observability.otlp.endpoint empty (the default) and the API installs no
 # telemetry provider at all — a strict no-op with zero per-request cost. Set the
@@ -963,7 +1014,9 @@ backup:
   # Include the local media/attachment directory in the artifact. Only relevant
   # when attachments are on a local PVC (TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE);
   # with object storage (S3/MinIO) the bucket is backed up by the object store and
-  # this should stay empty. Set to the in-container media path to include it.
+  # this should stay empty. Set it to persistence.media.mountPath (default
+  # /var/lib/trueppm/media) and mount that same claim read-only through
+  # extraVolumes / extraVolumeMounts below.
   mediaDir: ""
   # Retention. keepDaily prunes the LOCAL output directory to the N newest
   # artifacts after each run. It is local-only by design and NEVER deletes from
@@ -1038,8 +1091,22 @@ backup:
       tag: "2.17.0"
       pullPolicy: IfNotPresent
   # Extra volumes / mounts for the backup job — the supported way to give the job
-  # read access to your media PVC when mediaDir is set (mount the same claim the
-  # API uses at the mediaDir path, read-only). Ignored unless mediaDir is set.
+  # read access to your media PVC when mediaDir is set. Ignored unless mediaDir
+  # is set. Mount the claim persistence.media creates (default name
+  # <release>-trueppm-media, or your persistence.media.existingClaim) read-only
+  # at the same path:
+  #   extraVolumes:
+  #     - name: media
+  #       persistentVolumeClaim:
+  #         claimName: trueppm-media
+  #         readOnly: true
+  #   extraVolumeMounts:
+  #     - name: media
+  #       mountPath: /var/lib/trueppm/media
+  #       readOnly: true
+  # An RWO media claim cannot be read here while the api pod holds it unless the
+  # backup Job lands on the same node — another reason persistence.media
+  # defaults to ReadWriteMany.
   extraVolumes: []
   extraVolumeMounts: []
   # Resource requests/limits for the backup job container.

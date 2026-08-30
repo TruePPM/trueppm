@@ -378,6 +378,62 @@ alone, at boot.
 | `tests.image.repository` / `tag` | `curlimages/curl` / `8.11.1` | Image for the `helm test` connection-check Job. Only pulled when you run `helm test <release>`, never during a normal install/upgrade. Runs under the same restricted `securityContext` as the app containers. |
 | `tests.probeReadyz` | `true` | Whether the connection check also probes `/api/v1/readyz` in addition to `/api/v1/health/`. Set `false` only when testing this chart against an app image that predates `readyz` (e.g. a CI drill pinned to the last released image while the chart is ahead of it) — otherwise the probe 404s on an endpoint that image doesn't have yet. |
 
+## Attachment storage (`persistence.media`)
+
+Required whenever attachments live on local disk — that is, whenever you set
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` instead of pointing
+`TRUEPPM_DEFAULT_FILE_STORAGE` at object storage. Ships in 0.4.
+
+The pods run with `readOnlyRootFilesystem: true`, so without this claim there is
+no writable path for an upload to land in, and the API **refuses to start**
+rather than accept uploads it cannot keep. The chart mounts the claim on every
+container that imports Django settings — the api container and its
+migrate/bootstrap/collectstatic init containers, the Celery worker, and Celery
+beat — and sets `TRUEPPM_MEDIA_ROOT` from `mountPath` so the app and the volume
+cannot disagree.
+
+"Media" is broader than attachments. Everything Django's default storage writes
+lands here: task attachments, the workspace logo, seed-import payloads, and the
+**project, program, and workspace export bundles**. The export bundles are
+written by the Celery worker and served back through the API, which is why the
+worker mounts the same claim rather than its own scratch volume. Size the claim
+with those in mind — the drain and purge beat jobs prune them, but a bundle is
+much larger than a typical attachment.
+
+| Key | Default | What it does |
+|---|---|---|
+| `persistence.media.enabled` | `false` | Create and mount the attachment/media claim. |
+| `persistence.media.existingClaim` | `""` | Use a claim you already manage. The access-mode guard below is skipped for it — the chart cannot read an existing claim's mode at render time. |
+| `persistence.media.storageClass` | `""` | Storage class for the chart-created claim; empty uses the cluster default. |
+| `persistence.media.accessMode` | `ReadWriteMany` | See below. `ReadWriteOnce` is rejected above one API replica. |
+| `persistence.media.size` | `20Gi` | Claim size. |
+| `persistence.media.mountPath` | `/var/lib/trueppm/media` | Mount path, and the value `TRUEPPM_MEDIA_ROOT` is set to. |
+
+### Why the access mode is load-bearing
+
+`ReadWriteOnce` binds a claim to a single node, and two independent things need
+the same files:
+
+- **Across API replicas.** An upload accepted by pod A is a `404` from pod B.
+  The chart **refuses to render** `ReadWriteOnce` together with
+  `replicaCount > 1` or `autoscaling.enabled` rather than ship that 404.
+- **Across tiers.** api, celery-worker, and celery-beat are three separate
+  Deployments that all mount the claim, and the API writes a seed-import payload
+  through storage that a Celery task opens back. With `ReadWriteOnce` those pods
+  must land on the same node or the later ones stay `Pending` with a
+  multi-attach error. That holds on single-node k3s or kind and is not
+  guaranteed anywhere else.
+
+So `ReadWriteOnce` is a single-node evaluation setting. Beyond one node, use a
+`ReadWriteMany` storage class (CephFS, NFS, Azure Files, EFS, Longhorn-RWX) — or
+skip local storage entirely and set `TRUEPPM_DEFAULT_FILE_STORAGE` +
+`TRUEPPM_S3_BUCKET_NAME`, which is the better answer for any multi-node cluster.
+
+Include the claim in backups by setting `backup.mediaDir` to the same
+`mountPath` and mounting it read-only through `backup.extraVolumes` — see
+[Scheduled backups](#scheduled-backups) below and
+[Backup & restore](/administration/backup-restore/).
+
 ## Scheduled backups
 
 Off by default — a backup CronJob needs a durable destination, so you turn it on
@@ -410,11 +466,11 @@ silent failure one step later.
 | `backup.schedule` | `"0 2 * * *"` | Cron schedule (cluster timezone). |
 | `backup.image` | `postgres:16-alpine` | Client-capable image carrying `pg_dump`/`psql` (the lean app image has no client binaries). |
 | `backup.outputDir` | `/backups` | In-container artifact path (the mounted volume when persistence is on). |
-| `backup.mediaDir` | `""` | Include a local media/attachment PVC in the artifact. Leave empty when attachments live in object storage. |
+| `backup.mediaDir` | `""` | Include a local media/attachment PVC in the artifact. Set it to `persistence.media.mountPath` and mount the same claim through `extraVolumes` below. Leave empty when attachments live in object storage. |
 | `backup.keepDaily` / `keepWeekly` | `7` / `4` | `keepDaily` is enforced in-job. **`keepWeekly` is read by no template** — nothing promotes dailies to weeklies. It exists as the documented place to record the weekly retention your object store's lifecycle policy enforces, next to the schedule it belongs to; changing it changes nothing on the cluster. |
 | `backup.persistence.*` | disabled, `10Gi` RWO | Chart-managed PVC destination. |
 | `backup.s3.*` | disabled | S3-compatible off-cluster destination; the secret **must** come from a Kubernetes Secret via `existingSecret`. |
-| `backup.extraVolumes` / `extraVolumeMounts` | `[]` | Mount your media PVC read-only when `mediaDir` is set. |
+| `backup.extraVolumes` / `extraVolumeMounts` | `[]` | Mount the media claim (`<release>-trueppm-media`, or your `persistence.media.existingClaim`) read-only when `mediaDir` is set. `values.yaml` carries a copy-pasteable pair. An RWO media claim is unreadable here while the api pod holds it unless the Job lands on the same node — one more reason `persistence.media.accessMode` defaults to `ReadWriteMany`. |
 | `backup.resources` | `100m/256Mi` → `1/512Mi` | Backup job container resources. |
 
 ## Admin bootstrap

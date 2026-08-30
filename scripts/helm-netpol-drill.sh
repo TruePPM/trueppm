@@ -234,10 +234,18 @@ for img in "$API_IMAGE" "$WEB_IMAGE" "$PROBE_IMAGE"; do
   kind load docker-image "$img" --name "$CLUSTER"
 done
 
+# persistence.media is enabled deliberately (#3184): the chart's pods run with
+# readOnlyRootFilesystem, so a local-attachment-storage install has nowhere to
+# write without this claim and the boot guard now refuses to start rather than
+# accept uploads it would lose. ReadWriteOnce is correct on this single-node kind
+# cluster — the guard only rejects RWO above one replica, where it would mean an
+# upload accepted by one pod 404s from another.
 log "helm install ${RELEASE} with networkPolicy.enabled=true"
 helm install "$RELEASE" "$CHART" \
   --set image.tag="$RELEASE_IMAGE_TAG" \
   --set networkPolicy.enabled=true \
+  --set persistence.media.enabled=true \
+  --set persistence.media.accessMode=ReadWriteOnce \
   --set 'envFrom[0].secretRef.name=trueppm-env' \
   --wait --timeout "$INSTALL_TIMEOUT"
 log "rollout complete under an enforcing CNI"

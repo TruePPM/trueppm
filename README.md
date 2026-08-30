@@ -183,14 +183,18 @@ kubectl create secret generic trueppm-env --namespace trueppm \
 
 helm install trueppm packages/helm \
   --namespace trueppm \
-  --set 'envFrom[0].secretRef.name=trueppm-env'
+  --set 'envFrom[0].secretRef.name=trueppm-env' \
+  --set persistence.media.enabled=true \
+  --set persistence.media.accessMode=ReadWriteOnce
 ```
 
 That gets you a running instance on the bundled PostgreSQL and Valkey, with
-attachments on ephemeral disk (`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`) —
-fine to evaluate, not to keep data in. For managed datastores, object storage, and
-Ingress, add a values file (`-f my-values.yaml`) as described in the installation
-guide.
+attachments on a local claim (`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` plus
+`persistence.media`) — fine to evaluate, not to keep data in. `ReadWriteOnce` is
+correct only on a single-node cluster; see the
+[chart README](packages/helm/README.md) for why, and for the ReadWriteMany /
+object-storage alternatives. For managed datastores, object storage, and Ingress,
+add a values file (`-f my-values.yaml`) as described in the installation guide.
 
 Once the chart is published to a public OCI registry, the same install will work with
 `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
