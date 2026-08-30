@@ -75,6 +75,19 @@ export interface StatusSummaryFixture {
   recalculated_at: string | null;
 }
 
+/**
+ * Server-side `Role(n).label` copy, mirrored so a spec that overrides `selfRole`
+ * still gets the role line the rail identity block renders (#1919). The server
+ * owns this copy — never reformat the ordinal client-side.
+ */
+const SELF_ROLE_LABEL: Record<number, string> = {
+  1: 'Viewer',
+  100: 'Member',
+  200: 'Scheduler',
+  300: 'Project Manager',
+  400: 'Owner',
+};
+
 export interface ApiMockOptions {
   /** Project list returned by GET /projects/. Defaults to a single generic project. */
   projects?: ProjectFixture[];
@@ -86,6 +99,19 @@ export interface ApiMockOptions {
   dependencies?: unknown[];
   /** Project members returned by GET /projects/{id}/members/. Defaults to a single Admin row. */
   members?: unknown[];
+  /**
+   * The caller's OWN role, as served to `?self=true` — i.e. the one input every
+   * client-side role gate reads (`useCurrentUserRole`). Defaults to 300 (Admin).
+   *
+   * This is deliberately separate from `members` above. The `?self=true` branch
+   * used to return a hardcoded Admin row and ignore `members` entirely, so every
+   * role-gated control in the app rendered at Admin in every spec and a
+   * "a Viewer cannot do X" assertion was not expressible end-to-end (found
+   * while writing the #3143 spec). Defaulting to 300 keeps all existing specs
+   * on exactly the behaviour they were written against; only a spec that opts
+   * in by passing `selfRole` sees anything different.
+   */
+  selfRole?: number;
   /** Risks returned by GET /projects/{id}/risks/. Defaults to []. */
   risks?: Record<string, unknown>[];
   /** Board column config returned by GET /projects/{id}/board-config/. Defaults to the canonical 5-column set. */
@@ -471,9 +497,15 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
       // ("Project Manager") — the rail identity block's role line reads it off
       // this same row (#1919).
       if (url.searchParams.get('self') === 'true') {
+        const selfRole = opts.selfRole ?? 300;
         return route.fulfill(
           jsonResponse([
-            { id: 'mem-admin', role: 300, role_label: 'Project Manager', user_id: user.id },
+            {
+              id: 'mem-self',
+              role: selfRole,
+              role_label: SELF_ROLE_LABEL[selfRole] ?? 'Project Manager',
+              user_id: user.id,
+            },
           ]),
         );
       }

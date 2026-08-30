@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
-import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
+import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN, canAuthorDependencies } from '@/lib/roles';
 import { Button } from '@/components/Button';
 import { FieldHelp } from '@/components/FieldHelp';
 import { toast } from '@/components/Toast';
@@ -573,7 +573,7 @@ export function TaskFormModal({
   }, [mode, projectDetail]);
 
   const itl = useIterationLabel(projectId);
-  const { role } = useCurrentUserRole(projectId);
+  const { role, isError: roleError } = useCurrentUserRole(projectId);
   const { data: resourcePool } = useProjectResourcePool(projectId);
   const {
     predecessors: serverPredecessors,
@@ -663,6 +663,22 @@ export function TaskFormModal({
   // takes the safe-narrow path of role >= PROJECT_MANAGER (3).
   const canDelete = isEdit && role !== null && role >= ROLE_ADMIN;
   const isViewer = role !== null && role === ROLE_VIEWER;
+
+  /**
+   * May this reader author dependency edges? (#3143)
+   *
+   * Deliberately NOT `isReadOnly`. Edges are `IsProjectScheduler` and task
+   * content is `IsProjectPlanAuthor` (ADR-0773 §7) — neither band contains the
+   * other, so one flag cannot answer both questions. `isReadOnly` below is also
+   * built on a predicate that never reads the current user, which made this
+   * editor's gate vacuous rather than merely wrong; that half is #3193.
+   *
+   * A failed role read is OR'd back in as rights: `retry: false` makes one
+   * dropped request terminal, and the server enforces regardless. Same rule as
+   * the drawer's `DependenciesSection`, which is the point — the two surfaces
+   * edit the same edges and must agree.
+   */
+  const canWriteDependencies = (roleError ?? false) || canAuthorDependencies(role);
   const isReadOnly = isViewer || (mode === 'edit' && role === ROLE_MEMBER && task?.assignees.every(
     // Member without ownership has read-only view (best-effort heuristic;
     // server is the source of truth — if PATCH fails with 403 we surface it).
@@ -1350,6 +1366,7 @@ export function TaskFormModal({
             allTasks={allTasks ?? []}
             currentTaskId={task?.id ?? null}
             disabled={isReadOnly}
+            canWrite={canWriteDependencies}
             onAdd={(t) =>
               setForm((s) => ({
                 ...s,

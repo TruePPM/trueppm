@@ -12,7 +12,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bound to LOOPBACK (#3189). `"5432:5432"` publishes on 0.0.0.0, so this
+      # database — with the hardcoded password three lines up — was reachable
+      # from the network on any machine running this stack. Docker's published
+      # ports also bypass most host firewalls, because the DOCKER chain is
+      # consulted before INPUT. The port is still here for psql/pgAdmin from the
+      # same machine; delete the mapping entirely if you do not need that.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U trueppm"]
       interval: 5s

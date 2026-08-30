@@ -1,3 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LOCAL DEVELOPMENT ONLY. Never run this overlay on a shared or internet-facing
+# host (#3189).
+#
+# Grafana ships with admin/admin and anonymous Viewer access enabled, Prometheus
+# has no authentication at all, and the OTLP collector accepts unauthenticated
+# telemetry on 4317/4318. Every port below is therefore bound to 127.0.0.1 —
+# they were on 0.0.0.0, which on a machine with a routable address published an
+# unauthenticated metrics stack to the network. Docker's published ports also
+# bypass most host firewalls, since the DOCKER chain is consulted before INPUT.
+#
+# Usage:  docker compose -f docker-compose.yml -f docker-compose.o11y.yml up -d
+# See:    https://docs.trueppm.com/administration/observability/
+# ─────────────────────────────────────────────────────────────────────────────
 # Local-dev observability overlay (#1905).
 #
 # Adds an OpenTelemetry Collector + Prometheus + Grafana so you can see TruePPM's
@@ -41,9 +55,9 @@ services:
     volumes:
       - ./o11y/otel-collector-config.yaml:/etc/otel/config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8889:8889"   # Prometheus exporter (scraped by prometheus)
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+      - "127.0.0.1:8889:8889"   # Prometheus exporter (scraped by prometheus)
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -53,7 +67,7 @@ services:
     volumes:
       - ./o11y/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     depends_on:
       - otel-collector
 
@@ -70,6 +84,6 @@ services:
       # Reuse the exact dashboard the Helm chart ships.
       - ./packages/helm/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus

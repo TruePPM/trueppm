@@ -4,6 +4,20 @@ description: Preliminary hardware sizing best-guesses for 50, 100, and 200 concu
 documentedFor: "0.4"
 ---
 
+:::note[Ships in 0.4]
+This page is written against **TruePPM 0.4**, the first beta, and parts of it are
+**not** in `v0.3.0-alpha.3`, the latest release:
+
+- **The tested envelope** was measured against a pre-release build ahead of the
+  0.4 tag, not against 0.3.
+- **The chart values it names** — `web.replicaCount`, `autoscaling.*`,
+  `podDisruptionBudget.*`, `celeryWorker.concurrency` — ship in 0.4. On 0.3 the
+  chart has none of them, and `replicaCount` is the only scaling knob.
+
+The bottleneck analysis, the concurrency arithmetic, and the PgBouncer guidance
+apply to 0.3 as well.
+:::
+
 :::caution[Hardware sizing below is still a best-guess]
 The **[Tested envelope](#tested-envelope)** section immediately below reports *measured* data-shape limits. Everything after it — the CPU/RAM/replica tiers — remains a **preliminary best-guess, not a benchmarked guarantee.** Large-scale hardening is on the pre-1.0 roadmap. Treat every hardware figure on this page as a starting point to **load-test against your own workload** before committing budget.
 :::
@@ -98,11 +112,12 @@ Throughout this page, **users** means *concurrent active* users, not named seats
 
 The Helm chart (`packages/helm/values.yaml`) ships these defaults:
 
-- **API pod** (Django + uvicorn) and **Celery worker** each request `250m CPU / 512Mi` and limit at `1 CPU / 2Gi`. The production overlay runs **2 API replicas**.
+- **API pod** (Django + uvicorn) and **Celery worker** each request `250m CPU / 512Mi` and limit at `1 CPU / 2Gi`. Both are driven by the **same** `replicaCount` key — there is no separate `celeryWorker.replicaCount` — and the production overlay sets it to `2`.
+- **Web tier** (nginx + the compiled SPA) runs **one** replica. `web.replicaCount` does *not* inherit the top-level `replicaCount`, so `values-prod.yaml` leaves it at 1; set it explicitly.
 - **Bundled PostgreSQL** requests `250m / 1Gi`, limits `2 CPU / 4Gi`, with an 8Gi PVC.
-- **Bundled Valkey** requests `100m / 256Mi`, limits `1 CPU / 1Gi`, with a 2Gi PVC.
+- **Bundled Valkey** requests `100m / 256Mi`, limits `1 CPU / 1Gi`, with a 2Gi PVC and **AOF persistence enabled** (`valkey-server --appendonly yes`).
 
-The key constraint to understand: uvicorn runs a **single worker per pod** (`packages/api/Dockerfile`, no `--workers` flag), so request throughput scales by **replica count**. Celery concurrency is pinned by the chart at `celeryWorker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
+The key constraint to understand: uvicorn runs a **single worker per pod** — `packages/api/Dockerfile` sets `CMD ["uvicorn", …]` with no `--workers` flag and the chart does not override it — so on Kubernetes request throughput scales by **replica count and nothing else**. Celery concurrency is pinned by the chart at `celeryWorker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
 
 ## Sizing tiers
 
@@ -133,7 +148,7 @@ Postgres and managed Valkey are inexpensive at this size.
 
 | Component | Replicas | Requests (CPU / mem) | Limits (CPU / mem) |
 |---|---|---|---|
-| API (uvicorn, 2 workers/pod) | 2 | `250m / 512Mi` | `1 / 1Gi` |
+| API (uvicorn, 2 workers/pod — [non-default](#raising-the-uvicorn-worker-count)) | 2 | `250m / 512Mi` | `1 / 1Gi` |
 | Celery worker (`--concurrency 2`) | 1 | `250m / 512Mi` | `1 / 2Gi` |
 | PostgreSQL (managed) | 1 | `1 vCPU / 2Gi` | `2 / 4Gi` |
 | Valkey / Redis (managed) | 1 | `250m / 512Mi` | `1 / 1Gi` |
@@ -141,7 +156,10 @@ Postgres and managed Valkey are inexpensive at this size.
 - **Cluster total (with headroom):** ~4 vCPU / 8 GB, **1 node**, ~20Gi Postgres disk.
 - **PgBouncer:** not needed — connection count stays well under `max_connections=100`.
 - **API workers:** the single most important non-default change is `--workers 2`
-  on the API pods; at 2 replicas that is 4 request workers, ample for ~10 concurrent.
+  on the API pods; at 2 replicas that is 4 request workers, ample for ~10
+  concurrent. It is genuinely non-default — see
+  [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count) for what
+  it takes on each deployment path.
 
 ### Profile B — team of 250 (large program, dedicated pools)
 
@@ -153,7 +171,7 @@ own pool and PgBouncer is mandatory.
 
 | Component | Replicas | Requests (CPU / mem) | Limits (CPU / mem) |
 |---|---|---|---|
-| API (uvicorn, 2–3 workers/pod) | 4–6 | `500m / 1Gi` | `1 / 2Gi` |
+| API (uvicorn, 2–3 workers/pod — [non-default](#raising-the-uvicorn-worker-count)) | 4–6 | `500m / 1Gi` | `1 / 2Gi` |
 | Celery worker (`--concurrency 4`, pinned) | 3–4 | `500m / 1Gi` | `2 / 4Gi` |
 | PostgreSQL (managed) | 1 (+ replica optional) | `4 vCPU / 16Gi` | `4 / 16Gi` |
 | PgBouncer | 2 | `100m / 128Mi` | `500m / 256Mi` |
@@ -175,6 +193,26 @@ Both profiles slot into the [values reference](/administration/helm-values/) —
 set `replicaCount` / `web.replicaCount`, `resources.*`, the managed-datastore
 `env.DATABASE_URL` / `env.REDIS_URL`, and (for Profile B) `celeryWorker.concurrency`.
 
+### Raising the uvicorn worker count
+
+Both profiles above assume more than one uvicorn worker per API pod. **That is not
+what the shipped image does**, and the two figures are not in conflict — one
+describes the default, the other describes the change you should make.
+
+The image's `CMD` is `uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port
+8000`, with no `--workers`. How you change it depends on the path:
+
+| Path | How |
+|---|---|
+| **Docker Compose** | Override the `api` service's `command` in `docker-compose.override.yml`, appending `--workers 2`. |
+| **Single server with systemd** | Add `--workers N` to the `ExecStart` line. |
+| **Helm** | **There is no chart value for this.** The chart renders no `command` or `args` for the `api` container and exposes no `extraArgs` on it (unlike `celeryWorker.extraArgs`). Scale the API tier with `replicaCount` instead, or supply the flag with a post-render patch or a derived image. |
+
+On Kubernetes, `replicaCount` and multi-worker pods buy the same throughput; a
+replica additionally buys you redundancy, which a second worker in the same pod
+does not. Prefer replicas there. See [Durability &
+Redundancy](/administration/durability/#the-step-up-ladder) for what that costs.
+
 ## Bottlenecks, in the order they bite
 
 1. **Celery / Monte Carlo CPU.** The scheduler is the heavy part. A portfolio reforecast or a Monte Carlo run (P50/P80/P95) is a CPU-bound burst. At 100+ concurrent users triggering recalculations, this is the first wall you hit. Scale Celery replicas, and raise `celeryWorker.concurrency` to match the pod's CPU limit. The chart pins this at `2` by default precisely so it never falls back to Celery's `cpu_count()` auto-detection, which reads the node's cores rather than the cgroup limit, over-allocates, and gets OOM-killed (the dev compose file caps it at 2 for the same reason).
@@ -194,7 +232,7 @@ section describes the current release.
 
 These defaults are tuned for evaluation, not scale. At every tier above:
 
-- The **bundled PostgreSQL and Valkey sub-charts are dev/demo only** — single replica, small PVCs, and a non-persistent Valkey that loses in-flight Celery tasks on restart. Use a **managed PostgreSQL** (RDS, CloudSQL, etc.) and **managed Valkey** (ElastiCache for Valkey, Memorystore for Valkey, etc.) instead. See [Valkey High Availability](/administration/valkey-ha/) for which topologies are supported.
+- The **bundled PostgreSQL and Valkey sub-charts are dev/demo only** — single replica, small PVCs, and **no replication or failover on either**. Both *do* persist: PostgreSQL on an 8Gi PVC and Valkey with AOF on a 2Gi PVC (`--appendonly yes`, default `appendfsync everysec` → roughly a 1 s broker RPO). What they cannot do is survive the loss of their one pod — and because `/api/v1/readyz` gates on a live cache round-trip, losing the Valkey pod marks every API pod `NotReady` and returns 503 for the whole application. Use a **managed PostgreSQL** (RDS, CloudSQL, etc.) and **managed Valkey** (ElastiCache for Valkey, Memorystore for Valkey, etc.) instead. See [Valkey High Availability](/administration/valkey-ha/) for which topologies are supported, and [Durability & Redundancy](/administration/durability/#broker-persistence-per-artifact) for how the Compose stacks differ — `docker-compose.prod.yml` runs Valkey on a `tmpfs` with **no** persistence at all.
 - **File attachments default to the local filesystem**, which is not durable and — above one replica — not even correct. From 0.4 the chart can back local storage with a claim (`persistence.media`), but a `ReadWriteOnce` claim binds to one node, so an upload accepted by one API pod is a `404` from the next; the chart refuses to render that combination. Every tier on this page runs the API at 2+ replicas, so at these sizes **object storage is a requirement, not a durability nicety**: set `TRUEPPM_DEFAULT_FILE_STORAGE` to an S3-compatible or MinIO backend together with `TRUEPPM_S3_BUCKET_NAME` — see [object storage](/administration/configuration/#object-storage-s3--minio). If you must stay on local disk, the claim needs a `ReadWriteMany` storage class (CephFS, NFS, Azure Files, EFS); see [attachment storage](/administration/helm-values/#attachment-storage-persistencemedia).
 - The **Horizontal Pod Autoscaler is off by default**, not absent. The chart ships an `autoscaling/v2` HPA for the API tier (and optionally the worker tier) behind `autoscaling.enabled`; the defaults scale the API between 2 and 6 replicas at 75% CPU utilization. It is opt-in because an HPA overrides the static `replicaCount` and **requires `metrics-server`** (or a custom metrics adapter) to be installed in the cluster. Without it, scale replicas manually. See the [values reference](/administration/helm-values/) for the full key list.
 - **Autoscale the API tier; keep the worker tier on fixed replicas.** The `celeryWorker.concurrency` pinning advice above and a CPU-utilization HPA are two different answers to the same load, and following both naively double-counts: the HPA adds worker pods while each pod's concurrency is already pinned to its CPU limit, so a Monte Carlo burst can multiply total in-flight tasks well past what the database connection ceiling tolerates. Until worker autoscaling keys off queue depth rather than CPU, the safe posture is `autoscaling.enabled=true` with `autoscaling.worker.enabled=false` — HPA for request-serving traffic, fixed replicas plus pinned concurrency for the CPU-bound queue.

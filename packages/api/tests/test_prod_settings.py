@@ -21,7 +21,7 @@ from unittest import mock
 
 import pytest
 
-from trueppm_api.core.security_checks import MIN_SERVICE_PASSWORD_LENGTH
+from trueppm_api.core.security_checks import MIN_SERVICE_PASSWORD_LENGTH, validate_secret_key
 from trueppm_api.settings import base
 
 # Repo root holds the install artifact operators copy to .env. From
@@ -401,6 +401,41 @@ def test_env_example_documents_every_boot_guard_key() -> None:
     assert any(key in text for key in _STORAGE_CHOICE_KEYS), (
         "no attachment-storage choice documented in .env.example"
     )
+
+
+def test_env_example_ships_no_usable_secret_material() -> None:
+    """No shipped secret may be a value a deploy could boot on (#3187).
+
+    Asserted over EVERY secret in the file, not just SECRET_KEY: the failure was
+    that one of four secrets shipped a passing value while the other three
+    shipped empty, and nothing compared them. `cp .env.example .env` then gave a
+    production install whose JWT signing key was published in this repository,
+    because JWT_SIGNING_KEY defaults to SECRET_KEY.
+
+    Empty is the only acceptable shipped value — init-prod.sh generates
+    SECRET_KEY and refuses a placeholder in any of them. A non-empty value here
+    must at minimum be one the validator rejects.
+    """
+    active = _parse_env_example()
+
+    # SECRET_KEY must be EMPTY, not merely rejectable. init-prod.sh generates it
+    # when empty, so shipping anything at all only trades a working first run for
+    # a crash the operator has to diagnose — and a shipped value is one edit away
+    # from being a passing one again.
+    assert active.get("SECRET_KEY", "") == "", (
+        ".env.example ships a non-empty SECRET_KEY; it must ship empty so "
+        "init-prod.sh generates one (#3187)"
+    )
+
+    # The rest must at least be values the app refuses to boot on.
+    for key in ("JWT_SIGNING_KEY", "DB_PASSWORD", "REDIS_PASSWORD"):
+        value = active.get(key, "")
+        if not value:
+            continue
+        assert validate_secret_key(value, debug=False), (
+            f".env.example ships a non-empty {key}={value!r} that passes validation — "
+            "a verbatim copy would deploy on a credential published in this repo"
+        )
 
 
 def test_env_example_derived_prod_config_boots() -> None:

@@ -872,10 +872,16 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         instance = serializer.save()
 
         if instance.working_days != old_working_days or instance.hours_per_day != old_hours_per_day:
-            _recalc_projects_for_calendar(instance.pk)
+            _recalc_projects_for_calendar(instance.pk, actor=self.request.user)
 
 
-def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
+def _enqueue_calendar_recalc(
+    project_ids: Sequence[uuid.UUID | str],
+    *,
+    actor: Any = None,
+    calendar_label: str = "",
+    calendar_id: Any = None,
+) -> None:
     """Defer a CALENDAR_CHANGE recompute for each project to ``transaction.on_commit``.
 
     Routed through the scheduling outbox (ADR-0027) so a broker outage cannot drop the
@@ -899,12 +905,52 @@ def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
     — its effective working-time calendar — because that is invariant across all
     three triggers (a Calendar row edit, an exception edit, or an upstream FK
     reassignment), and it is the one thing the client needs in order to re-read.
+
+    **Attribution (#3174).** This is also the single place that can name *who* moved
+    those dates. Calendars are gated on ``IsOrgAdmin``, which passes anyone holding
+    ADMIN on at least one project — so a PM on one small project can shift finish
+    dates across every project bound to a shared calendar, including projects they
+    are not a member of. Whether that permission is right is a separate, open
+    question; what is not defensible either way is the movement being anonymous. One
+    ``CALENDAR_CHANGED`` audit row records the actor and the affected set, and the
+    broadcast carries the actor label so an owner watching a project sees a name
+    rather than dates moving by themselves.
+
+    The audit row is written here, synchronously, rather than in the callback: it
+    must roll back with a failed edit (``record_audit_event``'s contract), and the
+    ``on_commit`` callback runs after the point where that is still possible.
     """
     if not project_ids:
         return
 
     # Snapshot to plain strings before the closure (broadcast-check H-1).
     project_id_strs = [str(pid) for pid in project_ids]
+
+    actor_label = ""
+    if actor is not None and getattr(actor, "is_authenticated", False):
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        # Same label the audit row denormalizes, so the live toast and the log entry
+        # a reader finds afterwards name the person identically.
+        actor_label = _actor_label(actor)
+
+        record_audit_event(
+            event_type=AuditEventType.CALENDAR_CHANGED,
+            actor=actor,
+            target_type="calendar",
+            target_id=calendar_id,
+            target_label=calendar_label,
+            metadata={
+                # The count is the number that matters for blast radius and is safe to
+                # read at a glance; the ids are capped so one workspace-calendar edit
+                # touching every project cannot write an unbounded JSON blob into the
+                # audit row.
+                "affected_project_count": len(project_id_strs),
+                "affected_project_ids": project_id_strs[:50],
+                "affected_project_ids_truncated": len(project_id_strs) > 50,
+            },
+        )
 
     def _dispatch() -> None:
         # Imported inside the callback, as every other broadcast site in this module
@@ -913,12 +959,16 @@ def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
 
         for pid in project_id_strs:
             _enqueue_recalculate(pid, reason=ScheduleRequestReason.CALENDAR_CHANGE)
-            broadcast_board_event(pid, "project_calendar_changed", {"id": pid})
+            broadcast_board_event(
+                pid,
+                "project_calendar_changed",
+                {"id": pid, "actor": actor_label},
+            )
 
     transaction.on_commit(_dispatch)
 
 
-def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
+def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str, *, actor: Any = None) -> None:
     """Enqueue a CPM recompute for every live project this calendar's edit affects.
 
     Calendar (and calendar-exception) edits are org-admin writes that may touch
@@ -956,10 +1006,18 @@ def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
     project_ids = list(
         Project.objects.filter(selector, is_deleted=False).distinct().values_list("id", flat=True)
     )
-    _enqueue_calendar_recalc(project_ids)
+    calendar = Calendar.objects.filter(pk=calendar_id).first()
+    _enqueue_calendar_recalc(
+        project_ids,
+        actor=actor,
+        calendar_label=calendar.name if calendar else "",
+        calendar_id=calendar_id,
+    )
 
 
-def _recalc_projects_for_program_calendar(program_id: uuid.UUID | str) -> None:
+def _recalc_projects_for_program_calendar(
+    program_id: uuid.UUID | str, *, actor: Any = None
+) -> None:
     """Recompute a program's projects that inherit its calendar (ADR-0441).
 
     Called when a program's ``calendar`` FK is reassigned (a different default, or
@@ -972,10 +1030,15 @@ def _recalc_projects_for_program_calendar(program_id: uuid.UUID | str) -> None:
             program_id=program_id, calendar__isnull=True, is_deleted=False
         ).values_list("id", flat=True)
     )
-    _enqueue_calendar_recalc(project_ids)
+    _enqueue_calendar_recalc(
+        project_ids,
+        actor=actor,
+        calendar_label="Program default calendar",
+        calendar_id=program_id,
+    )
 
 
-def _recalc_projects_for_workspace_calendar() -> None:
+def _recalc_projects_for_workspace_calendar(*, actor: Any = None) -> None:
     """Recompute every project that inherits the workspace calendar (ADR-0441).
 
     Called when the workspace ``calendar`` FK (or its override policy) is reassigned —
@@ -996,7 +1059,11 @@ def _recalc_projects_for_workspace_calendar() -> None:
     project_ids = list(
         Project.objects.filter(selector, is_deleted=False).distinct().values_list("id", flat=True)
     )
-    _enqueue_calendar_recalc(project_ids)
+    _enqueue_calendar_recalc(
+        project_ids,
+        actor=actor,
+        calendar_label="Workspace default calendar",
+    )
 
 
 class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarException]):
@@ -1031,9 +1098,11 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
 
     def _touch(self, calendar: Calendar) -> None:
         # Bump the aggregate root so the mutation propagates through the calendar
-        # sync delta, then recompute dependent projects.
+        # sync delta, then recompute dependent projects. The actor rides along so the
+        # fan-out can attribute itself (#3174) — one holiday here moves finish dates on
+        # every project bound to this calendar, including ones the caller cannot see.
         calendar.save()
-        _recalc_projects_for_calendar(calendar.pk)
+        _recalc_projects_for_calendar(calendar.pk, actor=self.request.user)
 
     def perform_create(self, serializer: BaseSerializer[CalendarException]) -> None:
         calendar = self._calendar()
@@ -3849,17 +3918,20 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
 def _collapse_trashed_subtrees(tasks: list[Task]) -> list[tuple[Task, int]]:
     """Reduce a flat list of tombstoned tasks to its restore *roots* (#2494, ADR-0689).
 
-    ``Task.soft_delete`` tombstones the task's ``is_subtask=True`` subtree, and
+    ``Task.soft_delete`` tombstones the task's whole ``wbs_path`` subtree, and
     ``cascade_task_children_restore`` brings that whole subtree back from one POST. So a
     trash list that showed every tombstoned row would present N entries for a single
     delete, N-1 of which restore nothing the first one didn't already.
 
-    A task is dropped when it is ``is_subtask`` **and** some other task in ``tasks`` is a
-    strict ``wbs_path`` ancestor of it — that ancestor's restore will resurrect it. The
-    ``is_subtask`` condition is not decoration: the delete cascade only tombstones subtask
-    descendants, so a tombstoned *WBS-structure* child under a tombstoned parent was
-    deleted separately and stays its own independently restorable row (the restore cascade
-    will not touch it).
+    A task is dropped when some other task in ``tasks`` is a strict ``wbs_path`` ancestor
+    of it — that ancestor's restore will resurrect it.
+
+    This used to additionally require ``is_subtask``, because the delete cascade reached
+    only drawer subtasks and a tombstoned *structural* child under a tombstoned parent
+    really had been deleted separately. #3173 widened the delete (and restore) cascade to
+    the full subtree, so that condition would now hide nothing and split one delete back
+    into N trash rows. The two must move together: this predicate is only correct while it
+    mirrors exactly what :func:`cascade_task_children_restore` will resurrect.
 
     Returns ``(root, subtree_count)`` pairs preserving input order, where ``subtree_count``
     is how many tombstoned descendants come back with the root.
@@ -3867,7 +3939,7 @@ def _collapse_trashed_subtrees(tasks: list[Task]) -> list[tuple[Task, int]]:
     paths = [(t, str(t.wbs_path) if t.wbs_path else "") for t in tasks]
     roots: list[tuple[Task, int]] = []
     for task, path in paths:
-        if task.is_subtask and path:
+        if path:
             covered_by_other = any(
                 other is not task and other_path and path.startswith(other_path + ".")
                 for other, other_path in paths
@@ -3878,10 +3950,7 @@ def _collapse_trashed_subtrees(tasks: list[Task]) -> list[tuple[Task, int]]:
             sum(
                 1
                 for other, other_path in paths
-                if other is not task
-                and other.is_subtask
-                and other_path
-                and other_path.startswith(path + ".")
+                if other is not task and other_path and other_path.startswith(path + ".")
             )
             if path
             else 0
@@ -5760,12 +5829,12 @@ class TaskViewSet(
         membership-scoped, so a foreign id simply matches nothing and never confirms the
         project exists.
 
-        **Restore roots only.** Deleting a parent tombstones its ``is_subtask`` subtree and
-        ``cascade_task_children_restore`` brings the whole subtree back, so listing every
-        descendant would show N rows for one delete, N-1 of them no-ops. A row is dropped
-        when it is ``is_subtask`` *and* another tombstoned row in the same set is a strict
-        ``wbs_path`` ancestor; the survivor carries ``subtree_count`` so the user can see
-        what returns with it.
+        **Restore roots only.** Deleting a parent tombstones its whole ``wbs_path`` subtree
+        and ``cascade_task_children_restore`` brings the whole subtree back, so listing
+        every descendant would show N rows for one delete, N-1 of them no-ops. A row is
+        dropped when another tombstoned row in the same set is a strict ``wbs_path``
+        ancestor; the survivor carries ``subtree_count`` so the user can see what returns
+        with it.
 
         The window is ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` read straight from settings —
         deliberately NOT via the ADR-0173 ``resolve_retention`` coordinator, because the
@@ -12924,9 +12993,18 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     endpoint (ADR-0046); this viewset does not expose its own reorder action
     to avoid drift.
 
-    Destroy refuses (409) when the phase has any descendant tasks — silently
+    Destroy refuses (400) when the phase has any descendant tasks — silently
     cascading 36 tasks would surprise a PM. The client should move or delete
     the children first.
+
+    **Deliberately stricter than ``DELETE /tasks/{id}/``** (#3173). Since that fix the
+    task endpoint *does* cascade the subtree, because the surface that calls it — the
+    Schedule — raises a confirm dialog naming the descendant count and backs it with a
+    faithful Undo. The Workflow settings page that calls *this* endpoint has neither: it
+    fires ``remove.mutate(phase.id)`` straight from the row and renders the refusal
+    inline. A cascade here would be the unannounced 36-task delete this guard was written
+    to prevent. Give this endpoint a confirm affordance before relaxing it — the two
+    differ because the surfaces differ, not because one of them is out of date.
     """
 
     serializer_class = PhaseSerializer

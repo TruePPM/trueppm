@@ -40,20 +40,35 @@ GUARDED_FILES=(
   "packages/helm/templates/demo-seed-job.yaml"
 )
 
-FLAG="--with-personas"
+# Two patterns, one posture. `--with-personas` creates login-capable persona
+# accounts; `create_admin` creates a superuser (#3187). Either one alone makes
+# the demo's baked, public SECRET_KEY a forgeable token for a real account, so
+# the guard has to cover both — it previously covered only the first, while
+# docker-compose.demo.yml ran create_admin and three of its own comments claimed
+# it did not.
+BANNED_PATTERNS=(
+  "--with-personas"
+  "create_admin"
+)
 
-# Strip comments, then look for the flag. A YAML comment starts at an unquoted
-# `#`; for these two files (no `#` inside any command string) trimming from the
-# first `#` is sufficient and keeps the check readable.
+# Strip comments, then look for the patterns. A YAML comment starts at an
+# unquoted `#`; for these files (no `#` inside any command string) trimming from
+# the first `#` is sufficient and keeps the check readable. Comments that NAME a
+# pattern to explain why it is absent are load-bearing documentation and must
+# keep passing — the check matches command position only.
 scan_file() {
-  local file="$1" hits
-  hits="$(sed 's/#.*//' "$file" | grep -n -- "$FLAG" || true)"
-  if [ -n "$hits" ]; then
-    echo "VIOLATION: $file carries $FLAG outside a comment:"
-    echo "$hits" | sed 's/^/    /'
-    return 1
-  fi
-  return 0
+  local file="$1" pattern hits rc=0
+  local stripped
+  stripped="$(sed 's/#.*//' "$file")"
+  for pattern in "${BANNED_PATTERNS[@]}"; do
+    hits="$(printf '%s\n' "$stripped" | grep -n -- "$pattern" || true)"
+    if [ -n "$hits" ]; then
+      echo "VIOLATION: $file carries $pattern outside a comment:"
+      echo "$hits" | sed 's/^/    /'
+      rc=1
+    fi
+  done
+  return "$rc"
 }
 
 run_check() {
@@ -74,20 +89,27 @@ run_check() {
 ERROR: the hosted demo's read-only posture has been inverted.
 
 `--with-personas` creates six login-capable accounts with a shared password.
-On the public demo that turns a zero-account, no-auth-write-path instance into
-one where a visitor can log in and reach the write surface — including the
-ungoverned `legacy:full` token path (#2749).
+`create_admin` creates a superuser. On the public demo either one turns a
+zero-account, no-auth-write-path instance into one where an account can log in
+and reach the write surface — including the ungoverned `legacy:full` token path
+(#2749).
 
-If you need personas for a walkthrough, run a private instance. If this flag is
-genuinely required on the public demo, that is a security decision that needs an
-ADR, not a manifest edit.
+It is worse than it looks on this stack specifically: docker-compose.demo.yml
+bakes a PUBLIC SECRET_KEY, and JWT_SIGNING_KEY derives from it, so any
+login-capable account is one whose tokens anyone can forge from a value printed
+in this repository. The only thing between that and the internet is the `/api/`
+allowlist in nginx/demo.conf.template — one config line, no defense behind it.
 
-See: packages/api/tests/apps/projects/test_demo_readonly_posture.py (#2773)
+If you need personas for a walkthrough, run a private instance. If either is
+genuinely required on the public demo, the baked keys must go first, and that is
+a security decision that needs an ADR, not a manifest edit.
+
+See: packages/api/tests/apps/projects/test_demo_readonly_posture.py (#2773, #3187)
 MSG
     return 1
   fi
 
-  echo "OK: no demo manifest enables persona logins (${#GUARDED_FILES[@]} file(s) checked)."
+  echo "OK: no demo manifest enables persona logins or bootstraps a superuser (${#GUARDED_FILES[@]} file(s) x ${#BANNED_PATTERNS[@]} pattern(s))."
   return 0
 }
 
@@ -123,6 +145,30 @@ self_test() {
     return 1
   fi
 
+  # Case 2b: the #3187 drift — create_admin in command position. Must fail.
+  printf 'command: >\n  sh -c "python manage.py migrate && python manage.py create_admin"\n' \
+    > "$tmp/docker-compose.demo.yml"
+  status=0
+  run_check "$tmp" >/dev/null 2>&1 || status=$?
+  if [ "$status" -ne 1 ]; then
+    echo "SELF-TEST FAIL: create_admin in command position was not caught (exit $status)" >&2
+    return 1
+  fi
+
+  # Case 2c: create_admin named only in a comment must still pass — the demo
+  # manifests explain at length why they do NOT run it, and that prose has to
+  # survive the guard.
+  printf 'command: >\n  sh -c "python manage.py migrate"\n# deliberately no create_admin here\n' \
+    > "$tmp/docker-compose.demo.yml"
+  printf '# and no create_admin here either\ncommand:\n  - python manage.py load_sample_project\n' \
+    > "$tmp/packages/helm/templates/demo-seed-job.yaml"
+  status=0
+  run_check "$tmp" >/dev/null 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "SELF-TEST FAIL: a comment mentioning create_admin was treated as a violation" >&2
+    return 1
+  fi
+
   # Case 3: a guarded file that has moved must error, not silently pass.
   rm "$tmp/docker-compose.demo.yml"
   status=0
@@ -132,7 +178,7 @@ self_test() {
     return 1
   fi
 
-  echo "SELF-TEST OK: comment ignored, command-position flag caught, missing file errors."
+  echo "SELF-TEST OK: comments ignored, both command-position patterns caught, missing file errors."
   return 0
 }
 

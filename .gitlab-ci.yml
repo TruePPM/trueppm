@@ -1856,13 +1856,18 @@ helm:template:
     # against app caps of 10-50 MB: every import above 1 MB failed at the edge
     # with a bare 413 and the app never saw the request. Assert both, because a
     # values-file tidy-up is exactly how the empty map came back.
+    #
+    # Both are 110M/110m since #3189, sized against the largest cap — attachments
+    # at 100 MB — plus 10 MB of multipart framing headroom. The ingress one is
+    # the load-bearing assertion: /api goes straight to the API Service, so it is
+    # the only limit an attachment upload meets on a default install.
     - |
-      grep -q 'client_max_body_size 50M;' /tmp/rendered.yaml \
-        || { echo "PROD REGRESSION: web nginx no longer clears the 50 MB app upload cap (#2604)"; exit 1; }
+      grep -q 'client_max_body_size 110M;' /tmp/rendered.yaml \
+        || { echo "PROD REGRESSION: web nginx no longer clears the 100 MB attachment cap (#2604, #3189)"; exit 1; }
     - |
       helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
-        | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 50m' \
-        || { echo "PROD REGRESSION: ingress no longer raises proxy-body-size — a default install 413s every import >1 MB (#2604)"; exit 1; }
+        | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 110m' \
+        || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >50 MB (#2604, #3189)"; exit 1; }
     # The demo keeps its own 1M ceiling: it is read-only and imports nothing. If
     # web.maxBodySize ever leaks into the demo branch, the demo has silently
     # gained a 50 MB upload surface.
@@ -2204,6 +2209,10 @@ backup:restore-drill:
     # switch the local leg of the drill into upload mode too.
     DRILL_S3_ENDPOINT: "http://minio:9000"
     DRILL_S3_BUCKET: trueppm-drill
+    # For the chart leg (#3185) — helm renders the CronJob, yq extracts its
+    # inline command. Pinned like every other tool version in this file.
+    HELM_VERSION: "3.16.3"
+    YQ_VERSION: "4.44.3"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -2275,7 +2284,10 @@ backup:restore-drill:
     # AWS secret key is base64 and routinely does. Credential handling that
     # round-trips through a URL corrupts exactly these characters, so a plain
     # alphanumeric secret would let that regression through.
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends awscli
+    # One apt transaction for both remaining legs: awscli here, and curl +
+    # ca-certificates for the chart leg's helm/yq downloads below. postgres:16
+    # ships none of the three.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends awscli curl ca-certificates
     - export AWS_ACCESS_KEY_ID=drillkey AWS_SECRET_ACCESS_KEY='dr/ill+sec:ret12345' AWS_DEFAULT_REGION=us-east-1
     - echo "waiting for the minio service..."
     - |
@@ -2310,6 +2322,90 @@ backup:restore-drill:
         exit 1
       fi
     - echo "S3 round-trip drill GREEN — artifact uploaded, local copies removed, restored from the bucket"
+    # ---- 6. the CHART's backup command, round-tripped (#3185) --------------
+    # Everything above exercises scripts/backup.sh. The chart does NOT run that
+    # script — it runs an inlined command in the PostgreSQL client image — and
+    # this job already *triggered* on changes to cronjob-backup.yaml while never
+    # running a line of it. So the chart's backup path was the one path with no
+    # standing evidence, which is how its `tar ... || true` and its two-field
+    # MANIFEST diverged from the script's without anything noticing.
+    #
+    # Extract the rendered command and run it here, against the same database
+    # and the same restore.sh. No cluster needed: the command is a POSIX shell
+    # script whose only inputs are env vars, and this job's image is the same
+    # postgres:16 family the CronJob uses.
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - curl -sSL -o /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64" && chmod +x /usr/local/bin/yq
+    # Assert both landed, on their own lines. `set -e` exempts a command that
+    # is not the last in an `&&` list, so a failed fetch above does not stop
+    # the script — it surfaces further down as a `command not found` naming a
+    # tool nobody asked about. These two put the error back at its cause.
+    - helm version --short
+    - yq --version
+    - mkdir -p "$CI_PROJECT_DIR/chart-backups" "$CI_PROJECT_DIR/chart-media/sub"
+    - echo "attachment-bytes" > "$CI_PROJECT_DIR/chart-media/sub/attachment.bin"
+    # s3 stays OFF so the dump container is the sole container; with s3 on it is
+    # an initContainer instead, and this leg is about the dump, not the upload
+    # (leg 5 already proves the upload).
+    - |
+      helm template drill packages/helm \
+        --set backup.enabled=true \
+        --set backup.persistence.enabled=true \
+        --set backup.mediaDir="$CI_PROJECT_DIR/chart-media" \
+        --show-only templates/cronjob-backup.yaml \
+        | yq eval-all 'select(.kind == "CronJob") | .spec.jobTemplate.spec.template.spec.containers[0].command[2]' - \
+        > /tmp/chart-dump.sh
+    # eval-all + select, not a bare path: --show-only still emits the PVC
+    # document from the same file, and a bare path yields `null` for it — which
+    # lands as the first line of the extracted script and aborts it under set -e
+    # with a command-not-found that names nothing useful.
+    - sh -n /tmp/chart-dump.sh
+    - test -s /tmp/chart-dump.sh || { echo "could not extract the CronJob dump command" >&2; exit 1; }
+    - echo "--- rendered CronJob dump command ---"; cat /tmp/chart-dump.sh
+    - |
+      OUTPUT_DIR="$CI_PROJECT_DIR/chart-backups" \
+      KEEP_DAILY=7 \
+      MEDIA_DIR="$CI_PROJECT_DIR/chart-media" \
+      S3_BUCKET="" \
+      DATABASE_URL="$DATABASE_URL" \
+        sh -e /tmp/chart-dump.sh
+    - CHART_ARTIFACT=$(ls -1 "$CI_PROJECT_DIR"/chart-backups/trueppm-backup-*.tar.gz | head -n1)
+    - |
+      test -n "$CHART_ARTIFACT" || { echo "CHART DRILL FAILED: the CronJob command wrote no artifact" >&2; exit 1; }
+    - |
+      echo "chart artifact=$CHART_ARTIFACT"
+    # The MANIFEST must answer the questions a restorer actually asks. Before
+    # #3185 it carried only created_utc and pg_dump_version, so an artifact
+    # could not tell you whether media was inside it.
+    - tar -xzOf "$CHART_ARTIFACT" ./MANIFEST > /tmp/chart-manifest.txt
+    - echo "--- chart MANIFEST ---"; cat /tmp/chart-manifest.txt
+    - |
+      for field in created_utc run_context pg_dump_version db_included media_included redis_included s3_destination; do
+        grep -q "^${field}:" /tmp/chart-manifest.txt \
+          || { echo "CHART DRILL FAILED: MANIFEST is missing '${field}' — scripts/backup.sh writes it and the two producers must agree (#3185)" >&2; exit 1; }
+      done
+    # Block scalars, not plain ones: the strings below contain ": ", which YAML
+    # reads as a mapping key in a plain scalar.
+    - |
+      grep -q "^media_included: yes" /tmp/chart-manifest.txt \
+        || { echo "CHART DRILL FAILED: mediaDir was set and non-empty but the MANIFEST does not record media" >&2; exit 1; }
+    - |
+      tar -tzf "$CHART_ARTIFACT" | grep -q 'media.tar.gz' \
+        || { echo "CHART DRILL FAILED: MANIFEST claims media but the artifact has no media.tar.gz" >&2; exit 1; }
+    # And restore.sh must consume the chart's artifact, not only the script's.
+    - psql -h postgres -U trueppm -d trueppm_test -c "DROP DATABASE drilldb WITH (FORCE);"
+    - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
+    - ./scripts/restore.sh --artifact "$CHART_ARTIFACT" --yes
+    - CHART_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
+    - CHART_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
+    - |
+      if [ "$CHART_PROJECTS" != "$BEFORE_PROJECTS" ] || [ "$CHART_TASKS" != "$BEFORE_TASKS" ]; then
+        echo "CHART DRILL FAILED: row counts differ after restoring the CronJob's artifact" >&2
+        echo "  projects: before=$BEFORE_PROJECTS after=$CHART_PROJECTS" >&2
+        echo "  tasks:    before=$BEFORE_TASKS after=$CHART_TASKS" >&2
+        exit 1
+      fi
+    - echo "chart drill GREEN — the CronJob's own command produces a restorable artifact with a script-compatible MANIFEST"
 
 mcp:lint:
   extends: .fast-job

@@ -36,6 +36,25 @@ MIN_SECRET_KEY_LENGTH = 32
 
 INSECURE_PREFIX = "django-insecure-"
 
+#: Prefixes of documented placeholder keys, matched case-insensitively (#3187).
+#:
+#: Length and the ``django-insecure-`` prefix were the only two things
+#: ``validate_secret_key`` looked at, and the placeholder ``.env.example`` shipped
+#: — ``REPLACE-WITH-A-LONG-RANDOM-STRING-AT-LEAST-32-CHARS-LONG`` — satisfied
+#: both: 56 characters, no Django prefix. It therefore cleared this validator AND
+#: ``validate_signing_key``, and because ``JWT_SIGNING_KEY`` defaults to
+#: ``SECRET_KEY``, a verbatim ``cp .env.example .env`` (which the README and the
+#: deployment guide both instruct) yielded a production install whose
+#: token-signing key was published in this repository.
+#:
+#: The real fix is that the key now ships empty and ``init-prod.sh`` generates it;
+#: this list is the backstop for an operator who reaches a deploy some other way,
+#: and for the docs' own strings if they are ever copied verbatim again. Kept
+#: deliberately short and prefix-matched, for the same reason
+#: ``PLACEHOLDER_SERVICE_PASSWORDS`` is: a denylist that tries to be a
+#: password-strength oracle produces false failures on legitimate secrets.
+PLACEHOLDER_SECRET_KEY_PREFIXES = ("replace-with", "change-me", "changeme", "your-secret")
+
 # Remediation commands, extracted so the same generator isn't duplicated across every
 # ``Error`` hint (SonarCloud S1192). The secrets variant seeds ``SECRET_KEY`` and the
 # JWT signing key; the Fernet variant seeds the integration-credential encryption key.
@@ -45,6 +64,12 @@ _FERNET_KEY_CMD = (
     'python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
 )
 _FERNET_KEY_HINT = f"Generate one with: {_FERNET_KEY_CMD}"
+
+
+def _is_placeholder_key(key: str) -> bool:
+    """True when ``key`` starts with a documented placeholder prefix (#3187)."""
+    lowered = key.lower()
+    return any(lowered.startswith(prefix) for prefix in PLACEHOLDER_SECRET_KEY_PREFIXES)
 
 
 def validate_secret_key(secret_key: str | None, *, debug: bool) -> list[CheckMessage]:
@@ -73,6 +98,17 @@ def validate_secret_key(secret_key: str | None, *, debug: bool) -> list[CheckMes
             Error(
                 f"SECRET_KEY starts with {INSECURE_PREFIX!r} — this is the "
                 "Django placeholder and must not be used outside DEBUG.",
+                hint=_TOKEN_URLSAFE_HINT,
+                id="trueppm.E002",
+            )
+        )
+
+    if _is_placeholder_key(secret_key):
+        errors.append(
+            Error(
+                f"SECRET_KEY is a documented placeholder ({secret_key!r}) — it is "
+                "published in this repository, so JWTs signed with it can be "
+                "forged by anyone.",
                 hint=_TOKEN_URLSAFE_HINT,
                 id="trueppm.E002",
             )
@@ -233,6 +269,17 @@ def validate_signing_key(
             Error(
                 f"JWT_SIGNING_KEY starts with {INSECURE_PREFIX!r} — this is the "
                 "Django placeholder and must not be used to sign tokens.",
+                hint=_TOKEN_URLSAFE_HINT,
+                id="trueppm.E004",
+            )
+        )
+
+    if _is_placeholder_key(signing_key):
+        errors.append(
+            Error(
+                f"JWT_SIGNING_KEY is a documented placeholder ({signing_key!r}) — "
+                "it is published in this repository, so tokens signed with it can "
+                "be forged by anyone.",
                 hint=_TOKEN_URLSAFE_HINT,
                 id="trueppm.E004",
             )

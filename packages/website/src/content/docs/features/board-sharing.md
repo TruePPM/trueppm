@@ -79,6 +79,17 @@ immediately: the link stops resolving and anyone who opens it sees a *"This link
 longer active"* page. The same page appears once a link's expiry passes. A revoked or
 expired link can never be reactivated — create a new one instead.
 
+### Links created through the API
+
+A link minted through the REST API without an `expires_at` field gets the instance
+default — **90 days** — rather than lasting forever. This is the path integrations,
+scripts, and MCP clients take; the in-app dialog always sends an explicit choice, so
+what you pick there is what you get.
+
+To mint a link with no expiry, send `expires_at: null` explicitly. Operators can change
+the window with `TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS`, or set it to `0` to restore the
+previous behavior in which an omitted expiry meant never.
+
 **Moving the project to Trash also stops every link resolving.** Anyone who opens one
 sees the same *"no longer active"* page. Unlike revocation this is not permanent:
 restoring the project from Trash brings its links back exactly as they were, so a link

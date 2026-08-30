@@ -91,7 +91,17 @@ web:
   # Set >= the largest application upload cap, same rule as the ingress
   # annotation. The demo overlay deliberately ignores this and pins 1M: a
   # read-only demo has no legitimate large upload.
-  maxBodySize: 50M
+  #
+  # 110M, raised from 50M in #3189. The largest application cap is the
+  # ATTACHMENT one — serializers.py's MAX_ATTACHMENT_SIZE_BYTES and
+  # settings/base.py's DATA_UPLOAD_MAX_MEMORY_SIZE are both 100 MB, and that
+  # setting's own comment instructs operators to set nginx to 100m. At 50M every
+  # attachment between 50 and 100 MB got a bare 413 at the edge, on every
+  # deployment path. The extra 10M covers multipart framing: at exactly 100M a
+  # legal 100 MB upload still 413s. `ingress.annotations` proxy-body-size below
+  # is raised to 110m in step with this — that one, not this, is what binds on
+  # the default topology.
+  maxBodySize: 110M
   # Security response headers on everything the web tier serves (#2849).
   #
   # These are NOT redundant with Django's XFrameOptionsMiddleware,
@@ -153,11 +163,21 @@ ingress:
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
   #
   # proxy-body-size (#2604): the transport limit must be >= the largest
-  # application upload cap, or the import fails at the edge with a bare 413 and
-  # the app never sees the request. 50m matches MSPROJECT_MAX_UPLOAD_MB, the
-  # largest of the four caps (MS Project 50 / Jira 25 / CSV 10 / seed 5). Without
-  # it, ingress-nginx applies its own 1m default and **every import above 1 MB
-  # fails on a default install** — which is how this shipped before 0.4.
+  # application upload cap, or the upload fails at the edge with a bare 413 and
+  # the app never sees the request. Without it, ingress-nginx applies its own 1m
+  # default and **every import above 1 MB fails on a default install** — which is
+  # how this shipped before 0.4.
+  #
+  # 110m, raised from 50m in #3189. This is the knob that BINDS on the default
+  # topology: the Ingress routes /api straight to the API Service, so attachment
+  # and import uploads never traverse the web tier's nginx and never see
+  # web.maxBodySize. 50m was chosen against MSPROJECT_MAX_UPLOAD_MB (MS Project
+  # 50 / Jira 25 / CSV 10 / seed 5), which overlooked the largest cap of all:
+  # attachments at 100 MB (serializers.py MAX_ATTACHMENT_SIZE_BYTES and
+  # settings/base.py DATA_UPLOAD_MAX_MEMORY_SIZE). Every attachment between 50
+  # and 100 MB was rejected at the edge on every Kubernetes install. The extra
+  # 10m covers multipart framing: at exactly 100m a legal 100 MB upload still
+  # 413s. Keep this in step with web.maxBodySize.
   #
   # The app cap, not this one, is what should reject an oversized file: it
   # returns a validation error naming the limit, where the edge returns an
@@ -169,7 +189,7 @@ ingress:
   # `haproxy.org/client-body-buffer-size`. Helm deep-merges this map, so adding
   # your own keys keeps this one unless you override it by name.
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
   # One or more virtual hosts. Each path routes to either the web SPA or the API,
   # selected by its `service:` key (`web` or `api`, default `api`). The default
   # below sends /api and /ws to the Django API Service and everything else (/) to
@@ -885,6 +905,28 @@ alerts:
     emailFailedFor: "10m"
     emailQueueAging: 0
     emailQueueAgingFor: "15m"
+    # Backup alerting (#3185). These read kube-state-metrics and kubelet series,
+    # not TruePPM's own instrumentation, so they need no extra scrape job — but
+    # they do need kube-state-metrics, which kube-prometheus-stack bundles. The
+    # backup rules render only when backup.enabled.
+    backup:
+      jobFailedFor: "5m"
+      # No successful backup within this many seconds fires TruePPMBackupStale.
+      # 172800 = 48h = 2x the default daily schedule, so one missed run is
+      # tolerated and two are not. RAISE THIS if you lengthen backup.schedule —
+      # a weekly schedule under a 48h window alerts every week by construction.
+      staleAfterSeconds: 172800
+      staleFor: "30m"
+      # TruePPMBackupNeverSucceeded is the separate "enabled but nothing has
+      # ever been produced" rule. It must exceed one full schedule period plus
+      # slack, or a fresh install alerts before its first scheduled run can
+      # happen. 26h suits the default daily schedule; raise it with the schedule.
+      neverSucceededFor: "26h"
+    # Free space below this percentage on ANY claim in the namespace (database,
+    # Valkey, backups, media) fires TruePPMVolumeFillingUp. A full PostgreSQL
+    # PVC is silent until it is an outage.
+    volumeAvailablePercent: 15
+    volumeAvailableFor: "15m"
 
 # OPTIONAL in-cluster OpenTelemetry Collector guidance (#1905). This chart does NOT
 # bundle a Collector subchart — running one is a deliberate operational choice with
@@ -906,10 +948,17 @@ otelCollector:
 # S3-compatible bucket), and enabling it silently would create a PVC the operator
 # never asked for. Turn it on deliberately once you have chosen a destination.
 #
-# The CronJob runs scripts/backup.sh inside the API image (which carries
-# postgresql-client + the script), dumps the database with pg_dump --format=custom,
-# and writes a single timestamped artifact. Restore is a manual, deliberate action
-# with scripts/restore.sh — see docs → Administration → Backup & Restore.
+# The CronJob runs an INLINE command in the PostgreSQL client image (see
+# backup.image below for why it is not the application image), dumping the
+# database with pg_dump --format=custom into a single timestamped artifact whose
+# MANIFEST carries the same fields scripts/backup.sh writes. Restore is a manual,
+# deliberate action with scripts/restore.sh, which consumes either producer's
+# artifact — see docs → Administration → Backup & Restore.
+#
+# REQUIRED once enabled: a destination. With none, the artifact lands in an
+# emptyDir and dies with the Job pod while the CronJob reports success — so the
+# chart REFUSES to render that combination rather than ship a backup that is not
+# one (#3185).
 #
 # This is LOGICAL backup only (pg_dump). Continuous archiving / point-in-time
 # recovery (WAL shipping), cross-region replication, and managed backup automation
@@ -946,7 +995,11 @@ backup:
   # artifacts after each run. It is local-only by design and NEVER deletes from
   # the bucket: a scheduled job that removes remote backups is the one component
   # whose bug destroys the thing it exists to protect. keepWeekly is likewise
-  # advisory metadata — the CronJob does not promote dailies to weeklies.
+  # advisory metadata — NO template reads keepWeekly, and the CronJob does not
+  # promote dailies to weeklies. It is kept as the documented place to record
+  # the weekly retention your object store's lifecycle policy enforces, so the
+  # intent lives next to the schedule it belongs to; changing it changes nothing
+  # on the cluster.
   # For an S3 destination, set retention with the bucket's own lifecycle policy
   # and document it alongside these values.
   keepDaily: 7
@@ -958,7 +1011,9 @@ backup:
   #                                the same job actually performs the upload)
   # With s3.enabled the local copy is still written to outputDir first, so a
   # PVC is worth keeping as a staging area even when the bucket is the target.
-  # Leave both off only if you are supplying your own volume via extraVolumes.
+  # Leave both off ONLY if you are supplying your own volume via extraVolumes —
+  # and note that extraVolumes is ignored unless mediaDir is also set, so the
+  # render accepts that fourth form only when both are present.
   persistence:
     enabled: false
     # Reuse an existing claim instead of creating one.

@@ -157,9 +157,9 @@ We would rather you find these here than forty minutes into an evaluation. This 
 ### Production (single server)
 
 ```bash
-cp .env.example .env   # fill in DOMAIN, SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD
+cp .env.example .env   # fill in DOMAIN, DB_PASSWORD, REDIS_PASSWORD
 chmod +x init-prod.sh
-./init-prod.sh         # obtains TLS cert, starts production stack
+./init-prod.sh         # generates SECRET_KEY, obtains TLS cert, starts the stack
 ```
 
 ### Helm / Kubernetes

@@ -1,7 +1,27 @@
 ---
 title: Valkey High Availability
 description: Why Valkey is load-bearing for real-time, async, and caching at once, which HA topologies TruePPM actually supports, and how to run it highly available without a commercial Redis license.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+Two things on this page are new in **TruePPM 0.4**, the first beta, and are **not**
+in `v0.3.0-alpha.3`, the latest release:
+
+- **Sentinel support** — the whole of [Configuring Sentinel](#configuring-sentinel),
+  the `TRUEPPM_VALKEY_*` settings, and the `valkey.sentinel` chart block. On 0.3
+  there is no Sentinel wiring and `REDIS_URL` is the only way to reach Valkey.
+- **The readiness coupling.** `/api/v1/readyz` and the chart's `probes` block ship
+  in 0.4, so the "every API pod goes NotReady" behavior described in the caution
+  below and in the [failure-mode
+  matrix](#failure-mode-matrix--what-happens-when-valkey-is-down) is 0.4 onward.
+  On 0.3 the chart wires no readiness probe, so a Valkey outage leaves the pods in
+  the Service and the failures surface per-subsystem instead.
+
+Everything else — the four load-bearing roles, the supported topologies, the
+cluster-mode prohibition, the bundled pod's AOF persistence, and the licensing
+discussion — applies to 0.3 as well.
+:::
 
 TruePPM uses **Valkey** — the BSD-3-Clause, Linux Foundation fork of Redis — for
 four distinct roles **at the same time**. A single Valkey outage therefore
@@ -15,11 +35,17 @@ the Redis names: the connection string is `REDIS_URL`, the scheme is `redis://`
 `channels-redis`. Any Redis-compatible server works. Valkey is what the chart and
 Compose files ship.
 
-:::caution[The bundled Valkey pod is a single point of failure]
+:::caution[The bundled Valkey pod is a whole-application single point of failure]
 The Valkey pod in the Helm chart is a **single node with no replication or
 failover**. It is fine for evaluation and small single-team installs, but it is
-**not** a production-HA configuration. If that one pod is lost, real-time
-collaboration, background jobs, and caching are all affected at once.
+**not** a production-HA configuration.
+
+Losing that one pod does not merely degrade real-time collaboration, background
+jobs, and caching. `/api/v1/readyz` — which the chart uses as the API's readiness
+probe — gates on a live cache round-trip, so a Valkey outage marks **every API pod
+`NotReady`**, empties the Service endpoints, and leaves the ingress returning
+**503** for the entire application. See the [failure-mode
+matrix](#failure-mode-matrix--what-happens-when-valkey-is-down) below.
 :::
 
 ## The dependency surface — one Valkey, four load-bearing roles
@@ -211,25 +237,49 @@ onto your HA Valkey at once.
 
 ## Failure-mode matrix — what happens when Valkey is down
 
-If Valkey becomes unavailable, the impact is **partial, not total** — the API does
-not simply go dark — but it is broad:
+If Valkey becomes unavailable, the impact on a Kubernetes deployment is **total,
+not partial**. The API does go dark, and the reason is worth understanding
+precisely, because it is a deliberate design choice rather than an accident:
 
 | Subsystem | Behavior when Valkey is unavailable |
 |-----------|-------------------------------------|
-| **API / REST reads** | Still serves database-backed reads and writes. Requests that hit the cache fall through to the database (slower, higher DB load) rather than failing. The core app stays reachable. |
-| **Real-time (Channels / WebSockets)** | **Disrupted.** WebSocket clients disconnect and live updates stop. Collaborators fall back to manual refresh; changes are not lost (they persist to the database) but are no longer pushed live. |
-| **Async (Celery broker)** | **Halted.** New tasks cannot be enqueued and queued work is not processed. Depending on broker persistence, in-flight or unacknowledged tasks may be **lost**; drains (CPM recalculation, imports, webhooks, notification email) stall until Valkey returns. |
-| **Cache** | **Cache misses fall through** to the source of truth. Read latency and database load rise, but responses remain correct. Throttle counters may reset, and in-flight SSO logins fail and must be retried. |
+| **API / REST reads and writes** | **Unreachable in the chart's default topology.** `/api/v1/readyz` performs a `set`-then-`get` round-trip against the cache (`_probe_cache`), and `probes.api.readinessPath` points at it, so every API pod is marked `NotReady`, the Service loses its endpoints, and the ingress returns **503**. Django itself would happily serve database-backed reads — the process stays up and `/api/v1/health/` still answers `200` — but nothing routes to it. |
+| **Real-time (Channels / WebSockets)** | **Disrupted.** WebSocket clients disconnect and live updates stop. This is the reason readiness gates on the cache at all: the same Valkey carries the Channels layer, so a pod that cannot reach it cannot serve real-time collaboration and should not claim to be ready. |
+| **Async (Celery broker)** | **Halted.** New tasks cannot be enqueued and queued work is not processed; drains (CPM recalculation, imports, webhooks, notification email) stall until Valkey returns. |
+| **Cache** | Cold on recovery. Throttle counters reset, and in-flight SSO logins fail and must be retried — the PKCE verifier and nonce live in the cache. |
 
-The takeaway: an outage does not corrupt committed data, but it **stops real-time
-collaboration and background processing**, and can **drop in-flight async work**.
-For production, that is why HA Valkey is treated as mandatory.
+**Queued work is delayed, not lost.** The Celery queue is not the record of what
+needs doing — PostgreSQL is. Fourteen outbox drains run every 30 seconds and
+re-dispatch pending and orphaned rows, and every task carries `acks_late=True`
+with `reject_on_worker_lost=True`. Within about 30 seconds of Valkey returning,
+outbox-backed work resumes on its own. What has no outbox row behind it — a
+fire-and-forget dispatch whose only record was the queue entry — is the part that
+can be lost. See [Why losing the broker does not lose the
+work](/administration/durability/#why-losing-the-broker-does-not-lose-the-work).
+
+**The bundled Valkey does persist**, which is a separate question from
+availability. `charts/valkey` runs `valkey-server --appendonly yes` against a 2Gi
+PVC, so AOF at the default `appendfsync everysec` puts roughly **one second** of
+appended commands at risk on an unclean stop. `docker-compose.prod.yml` is the
+opposite: `/data` is a `tmpfs` with no AOF, so a container restart drops the queue
+entirely. The [per-artifact
+table](/administration/durability/#broker-persistence-per-artifact) states all
+three shapes.
+
+The takeaway: an outage does not corrupt committed data, and it does not lose
+outbox-backed work — but on Kubernetes it **takes the entire application offline**,
+not just its real-time and async layers. For production, that is why HA Valkey is
+treated as mandatory.
 
 ## Related pages
 
 - [Deployment Sizing](/administration/sizing/) — resource guidance for the API,
   worker, and cache tiers.
-- [Beat Liveness & Durability](/administration/durability/) — how async work is
-  kept durable and how a dead Beat process is detected.
+- [Durability & Redundancy](/administration/durability/) — what is authoritative,
+  what is reconstructible, and the step-up ladder that ends at an HA broker.
+- [Beat Liveness](/administration/beat-liveness/) — how a dead Beat process is
+  detected.
+- [Troubleshooting](/administration/troubleshooting/) — diagnosing a live 503 and
+  telling a cache outage from a database one.
 - [System Health](/administration/system-health/) — the in-app health surface for
   operators.

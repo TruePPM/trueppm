@@ -309,7 +309,7 @@ ingress:
     cert-manager.io/cluster-issuer: letsencrypt-prod   # or letsencrypt-dns
     # Keep the chart's own default; Helm deep-merges this map, but naming the
     # key here replaces it, so restate it.
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
     # WebSocket lifetime — see the timeout table below.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"

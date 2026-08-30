@@ -705,7 +705,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         if instance.calendar_id != old_calendar_id:
             from trueppm_api.apps.projects.views import _recalc_projects_for_program_calendar
 
-            _recalc_projects_for_program_calendar(instance.pk)
+            _recalc_projects_for_program_calendar(instance.pk, actor=self.request.user)
 
     def get_queryset(self) -> QuerySet[Program]:
         """Programs visible to the current user (those they have membership on).
