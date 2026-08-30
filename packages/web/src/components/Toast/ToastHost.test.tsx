@@ -168,8 +168,13 @@ describe('ToastHost', () => {
         }
       });
       expect(screen.getAllByTestId('toast-pill')).toHaveLength(2);
+      // Passives replace in place, so the newest wins the transient slot.
       expect(screen.getByText('Saved 5')).toBeInTheDocument();
-      expect(screen.getByText('Deleted 5')).toBeInTheDocument();
+      // Actionables do NOT: none of these is trail-backed, so the first one holds
+      // the slot and the rest queue behind it rather than destroying each other's
+      // undo (#3149 D6). The cap is what this test is for, and it still holds.
+      expect(screen.getByText('Deleted 0')).toBeInTheDocument();
+      expect(screen.queryByText('Deleted 5')).not.toBeInTheDocument();
     });
 
     it('reserves no height for an empty slot — a lone toast is the only child', () => {
@@ -208,8 +213,16 @@ describe('ToastHost', () => {
   describe('focus retention (#3149 D8)', () => {
     it('focus inside a pill claims it in the store and blocks displacement', () => {
       render(<ToastHost />);
+      // BOTH are trail-backed, so displacement is otherwise permitted (#3149 D6) and
+      // focus is the only thing that can explain the incoming one waiting. Without
+      // this the test passes with the focus guard deleted, because an un-backed toast
+      // queues anyway — the assertion would be about D6, not D8.
       act(() => {
-        toast.action('Deleted, Cable plant install.', { label: 'Undo', onClick: vi.fn() });
+        toast.action(
+          'Deleted, Cable plant install.',
+          { label: 'Undo', onClick: vi.fn() },
+          { trailBacked: true },
+        );
       });
       const btn = screen.getByRole('button', { name: 'Undo' });
       act(() => {
@@ -219,7 +232,11 @@ describe('ToastHost', () => {
 
       // An incoming actionable waits rather than yanking the control away.
       act(() => {
-        toast.action('Deleted, Trenching.', { label: 'Undo', onClick: vi.fn() });
+        toast.action(
+          'Deleted, Trenching.',
+          { label: 'Undo', onClick: vi.fn() },
+          { trailBacked: true },
+        );
       });
       expect(screen.getByText('Deleted, Cable plant install.')).toBeInTheDocument();
       expect(screen.queryByText('Deleted, Trenching.')).not.toBeInTheDocument();

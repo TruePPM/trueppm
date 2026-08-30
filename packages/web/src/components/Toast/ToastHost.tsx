@@ -58,6 +58,17 @@ function ToastPill({ toast }: { toast: ToastItem }) {
   const [focused, setFocused] = useState(false);
   const paused = hovered || focused;
 
+  // No hover-state seeding on mount, deliberately. A pill that REPLACES another
+  // mounts under a cursor that never moved, which looks like it should lose the
+  // hover pause — `mouseenter` fires on a crossing, and the pointer did not cross.
+  // The browser closes that gap itself: Chromium re-runs hit-testing after the
+  // layout change and dispatches `mouseover`/`mouseenter` to the element that is now
+  // under the pointer, so React's handler above fires and the pause carries over.
+  // `element.matches(':hover')` is NOT a usable fallback here — it still reads
+  // `false` on the replacement a full second after the swap, so seeding from it
+  // would be inert code with a comment claiming a guard it does not provide. The
+  // behavior this paragraph is about is pinned in `e2e/toast-host.spec.ts`.
+
   useEffect(() => {
     if (paused) return;
     // Leaving restarts the full duration (a fresh, honest window) rather than

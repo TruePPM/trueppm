@@ -9,6 +9,8 @@ import {
 
 const store = () => useToastStore.getState();
 const undoable = (onClick = vi.fn()) => ({ label: 'Undo', onClick });
+/** An actionable whose undo is also recorded somewhere durable, so it may be displaced. */
+const backed = { trailBacked: true };
 
 describe('toastStore', () => {
   beforeEach(() => {
@@ -116,7 +118,7 @@ describe('toastStore', () => {
     it('caps at two however many arrive — the cap is structural, not a loop', () => {
       for (let i = 0; i < 10; i += 1) {
         store().push({ message: `passive ${i}` });
-        store().push({ message: `action ${i}`, action: undoable() });
+        store().push({ message: `action ${i}`, action: undoable(), ...backed });
       }
       const rendered = [store().transient, store().action].filter(Boolean);
       expect(rendered).toHaveLength(2);
@@ -129,8 +131,13 @@ describe('toastStore', () => {
       const displaced = store().push({
         message: 'Deleted — Cable plant',
         action: undoable(firstUndo),
+        ...backed,
       });
-      const incoming = store().push({ message: 'Deleted — Trenching', action: undoable() });
+      const incoming = store().push({
+        message: 'Deleted — Trenching',
+        action: undoable(),
+        ...backed,
+      });
 
       expect(store().action?.id).toBe(incoming);
       expect(store().trail).toHaveLength(1);
@@ -140,9 +147,40 @@ describe('toastStore', () => {
       expect(firstUndo).toHaveBeenCalledOnce();
     });
 
+    it('a NON-trail-backed action toast is never displaced — the incoming queues instead', () => {
+      // D6 only permits eviction where the loser's undo survives the pill. Default
+      // is not-backed, which is every global action toast in the tree today.
+      const onScreen = store().push({ message: 'Deleted — Cable plant', action: undoable() });
+      const incoming = store().push({ message: 'Deleted — Trenching', action: undoable() });
+
+      expect(store().action?.id).toBe(onScreen);
+      expect(store().pending?.id).toBe(incoming);
+      // Nothing was evicted, so nothing was stranded in the inert trail either.
+      expect(store().trail).toHaveLength(0);
+    });
+
+    it('the queued toast lands once the un-backed one on screen is dismissed', () => {
+      const onScreen = store().push({ message: 'Deleted — Cable plant', action: undoable() });
+      const incoming = store().push({ message: 'Deleted — Trenching', action: undoable() });
+
+      store().dismiss(onScreen);
+      expect(store().action?.id).toBe(incoming);
+      expect(store().pending).toBeNull();
+    });
+
+    it('trail-backing is read off the toast being displaced, not the incoming one', () => {
+      // The question D6 asks is "will the loser's undo survive?", so it is the
+      // outgoing toast's property that decides — an incoming backed toast must not
+      // license the eviction of an unbacked one.
+      const unbacked = store().push({ message: 'Unbacked', action: undoable() });
+      store().push({ message: 'Backed incoming', action: undoable(), ...backed });
+      expect(store().action?.id).toBe(unbacked);
+      expect(store().pending?.message).toBe('Backed incoming');
+    });
+
     it('the demotion trail is capped, oldest first off the end', () => {
       for (let i = 0; i < TOAST_TRAIL_CAP + 4; i += 1) {
-        store().push({ message: `action ${i}`, action: undoable() });
+        store().push({ message: `action ${i}`, action: undoable(), ...backed });
       }
       expect(store().trail).toHaveLength(TOAST_TRAIL_CAP);
       // 14 pushed, the newest holds the slot, so 13 demoted and the first 3 fell off.
@@ -153,9 +191,17 @@ describe('toastStore', () => {
 
   describe('focus protection (#3149 D8)', () => {
     it('a toast with focus inside it is NOT displaced — the incoming waits', () => {
-      const held = store().push({ message: 'Deleted — Cable plant', action: undoable() });
+      const held = store().push({
+        message: 'Deleted — Cable plant',
+        action: undoable(),
+        ...backed,
+      });
       store().setFocusWithin(held, true);
-      const incoming = store().push({ message: 'Deleted — Trenching', action: undoable() });
+      const incoming = store().push({
+        message: 'Deleted — Trenching',
+        action: undoable(),
+        ...backed,
+      });
 
       expect(store().action?.id).toBe(held);
       expect(store().pending?.id).toBe(incoming);
@@ -164,10 +210,10 @@ describe('toastStore', () => {
     });
 
     it('the queue is depth one — a second arrival replaces the waiting one, which demotes', () => {
-      const held = store().push({ message: 'Held', action: undoable() });
+      const held = store().push({ message: 'Held', action: undoable(), ...backed });
       store().setFocusWithin(held, true);
-      const firstWaiter = store().push({ message: 'Waiter one', action: undoable() });
-      const secondWaiter = store().push({ message: 'Waiter two', action: undoable() });
+      const firstWaiter = store().push({ message: 'Waiter one', action: undoable(), ...backed });
+      const secondWaiter = store().push({ message: 'Waiter two', action: undoable(), ...backed });
 
       expect(store().action?.id).toBe(held);
       expect(store().pending?.id).toBe(secondWaiter);
@@ -176,9 +222,9 @@ describe('toastStore', () => {
     });
 
     it('releases the queued toast when focus leaves, demoting the one it waited on', () => {
-      const held = store().push({ message: 'Held', action: undoable() });
+      const held = store().push({ message: 'Held', action: undoable(), ...backed });
       store().setFocusWithin(held, true);
-      const waiter = store().push({ message: 'Waiter', action: undoable() });
+      const waiter = store().push({ message: 'Waiter', action: undoable(), ...backed });
 
       store().setFocusWithin(held, false);
       expect(store().action?.id).toBe(waiter);
@@ -188,9 +234,9 @@ describe('toastStore', () => {
     });
 
     it('releases the queued toast when the held one is dismissed (Undo pressed)', () => {
-      const held = store().push({ message: 'Held', action: undoable() });
+      const held = store().push({ message: 'Held', action: undoable(), ...backed });
       store().setFocusWithin(held, true);
-      const waiter = store().push({ message: 'Waiter', action: undoable() });
+      const waiter = store().push({ message: 'Waiter', action: undoable(), ...backed });
 
       store().dismiss(held);
       expect(store().action?.id).toBe(waiter);
@@ -199,9 +245,9 @@ describe('toastStore', () => {
     });
 
     it('dismissing the queued toast clears it and normalizes the focus claim', () => {
-      const held = store().push({ message: 'Held', action: undoable() });
+      const held = store().push({ message: 'Held', action: undoable(), ...backed });
       store().setFocusWithin(held, true);
-      const waiter = store().push({ message: 'Waiter', action: undoable() });
+      const waiter = store().push({ message: 'Waiter', action: undoable(), ...backed });
 
       store().dismiss(waiter);
       expect(store().pending).toBeNull();
@@ -211,8 +257,23 @@ describe('toastStore', () => {
       expect(store().focusedId).toBe(held);
     });
 
+    it('blur does NOT release the queue when the toast on screen is un-backed', () => {
+      // Losing focus removes the D8 reason to wait; it does not create a durable
+      // home for an undo that never had one. Promoting here would perform exactly
+      // the eviction the push path refused.
+      const held = store().push({ message: 'Un-backed', action: undoable() });
+      store().setFocusWithin(held, true);
+      store().push({ message: 'Waiter', action: undoable() });
+
+      store().setFocusWithin(held, false);
+      expect(store().action?.id).toBe(held);
+      expect(store().pending?.message).toBe('Waiter');
+      expect(store().trail).toHaveLength(0);
+      expect(store().focusedId).toBeNull();
+    });
+
     it('focus leaving a toast that never held the claim changes nothing', () => {
-      const held = store().push({ message: 'Held', action: undoable() });
+      const held = store().push({ message: 'Held', action: undoable(), ...backed });
       store().setFocusWithin(held, true);
       store().setFocusWithin('toast-does-not-exist', false);
       expect(store().focusedId).toBe(held);
@@ -282,16 +343,24 @@ describe('toastStore', () => {
     });
 
     it('dismissing an id that no longer holds a slot is a no-op', () => {
-      const displaced = store().push({ message: 'Deleted — Cable plant', action: undoable() });
-      const current = store().push({ message: 'Deleted — Trenching', action: undoable() });
+      const displaced = store().push({
+        message: 'Deleted — Cable plant',
+        action: undoable(),
+        ...backed,
+      });
+      const current = store().push({
+        message: 'Deleted — Trenching',
+        action: undoable(),
+        ...backed,
+      });
       store().dismiss(displaced);
       expect(store().action?.id).toBe(current);
     });
 
     it('clear empties both slots, the queue and the trail', () => {
       store().push({ message: 'A' });
-      store().push({ message: 'Deleted', action: undoable() });
-      store().push({ message: 'Deleted again', action: undoable() });
+      store().push({ message: 'Deleted', action: undoable(), ...backed });
+      store().push({ message: 'Deleted again', action: undoable(), ...backed });
       store().clear();
       expect(store().transient).toBeNull();
       expect(store().action).toBeNull();

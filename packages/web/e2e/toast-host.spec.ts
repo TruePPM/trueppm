@@ -229,7 +229,7 @@ test.describe('toast slots (#3149)', () => {
     }
   });
 
-  test('a toast with focus inside it is neither timed out nor displaced (D8)', async ({ page }) => {
+  test('a focused toast is never timed out, and the incoming one waits (D8)', async ({ page }) => {
     test.slow(); // deliberately outlives the pin toast's own dwell.
     await setupAuth(page);
     await setupCatchAll(page);
@@ -271,15 +271,102 @@ test.describe('toast slots (#3149)', () => {
     await refusal;
 
     // Never timed out: the pin toast's own dwell is 6s and more than that has now
-    // elapsed. Never displaced: the incoming actionable waits at depth one. Both are
-    // asserted off the *response landing* rather than a poll for a count of zero — a
-    // poll matches on its first sample and would pass against a build with no queue.
+    // elapsed with focus holding it open. This is the half a real browser is needed
+    // for — a real clock and real focus, which is why it lives here.
     await expect(undo).toBeVisible();
     await expect(undo).toBeFocused();
+
+    // The incoming actionable waits rather than appearing. Asserted off the *response
+    // landing* rather than a poll for a count of zero — a poll matches on its first
+    // sample and would pass against a build with no queue at all.
+    //
+    // Be honest about what this proves: since #3149 gated eviction on `trailBacked`
+    // and no production caller sets it, this toast would queue for the D6 reason even
+    // with the D8 focus guard deleted. Focus-gated *displacement* is therefore
+    // isolated in `toastStore.test.ts`, where both toasts can be made trail-backed so
+    // focus is the only remaining explanation. What this assertion still earns is that
+    // the two rules compose in the real shell rather than fighting.
     await expect(page.getByText(/Couldn't pin Capped Project One/i)).toHaveCount(0);
 
-    // Leaving is the only way to lose it — and that is when the queued one lands.
-    await rail.getByRole('button', { name: 'Browse projects and programs' }).focus();
+    // Dismissing the toast on screen is what frees the slot, and the queued one lands.
+    await undo.click();
     await expect(page.getByText(/Couldn't pin Capped Project One/i)).toBeVisible();
+  });
+
+  test('a replacement that mounts under a stationary cursor keeps the hover pause', async ({
+    page,
+  }) => {
+    test.slow(); // outlives two passive dwells back to back.
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
+    // Both refuse with the cap message (passive). The second is held back so it
+    // lands while the cursor is already parked on the first pill.
+    //
+    // What this locks in: a toast swapped in under a motionless pointer keeps the
+    // WCAG 2.2.1 hover pause. Be precise about the mechanism (rule 300) — the
+    // protection is the *browser's*, not ours. `mouseenter` fires on a crossing and
+    // the pointer never crossed, but Chromium re-runs hit-testing after the layout
+    // change and dispatches the boundary events to whatever is now under the cursor,
+    // so React's `onMouseEnter` fires on the replacement. This spec therefore does
+    // NOT isolate any code in `ToastHost`; it passes with the component's hover
+    // handling reduced to that single handler, and it is here to catch the day a
+    // refactor (a portal, a keyed wrapper, a manual `pointer-events` toggle) stops
+    // the replacement from receiving those events. A `matches(':hover')` seed was
+    // tried and removed: it reads `false` on the replacement a second after the swap,
+    // so it guarded nothing.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/pin/`, (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify(pinCapReached),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${CAPPED_ID}/pin/`, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify(pinCapReached),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const rail = await openBrowse(page);
+
+    // Fire the slow one FIRST: every click moves the pointer to the rail, so the
+    // hover has to be the last mouse action in the test.
+    const second = page.waitForResponse(
+      (r) => r.url().includes(`/projects/${CAPPED_ID}/pin/`) && r.request().method() === 'POST',
+    );
+    await rail.getByRole('button', { name: 'Pin Capped Project One' }).click();
+    await rail.getByRole('button', { name: 'Pin Toast Demo Project' }).click();
+
+    const pill = page.getByTestId('toast-pill');
+    await expect(pill).toContainText(PIN_CAP_MESSAGE);
+
+    // Park the cursor on the pill and never move it again. This also pauses the
+    // first pill, so it survives until the replacement arrives.
+    await pill.hover();
+    const firstNode = await pill.elementHandle();
+
+    await second;
+    // 3s > the 600ms coalescing window, so this is a genuine new pill rather than a
+    // count bump — assert the remount rather than assuming it.
+    await expect
+      .poll(async () => (firstNode ? await firstNode.evaluate((n) => n.isConnected) : true))
+      .toBe(false);
+
+    // The replacement mounted under the motionless cursor. Its 2.6s dwell must be
+    // paused by that hover; unpaused it would be gone well inside this wait.
+    // (Verified by removing the pause entirely, not by trusting the wait.)
+    await page.waitForTimeout(4_000);
+    await expect(page.getByTestId('toast-pill')).toHaveCount(1);
+    await expect(page.getByTestId('toast-pill')).toContainText(PIN_CAP_MESSAGE);
+
+    // And moving away releases it, proving the pause was real rather than a stuck
+    // timer that never started.
+    await page.mouse.move(5, 5);
+    await expect(page.getByTestId('toast-pill')).toHaveCount(0, { timeout: 10_000 });
   });
 });

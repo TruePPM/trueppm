@@ -30,6 +30,12 @@ import { create } from 'zustand';
  * A passive toast can never displace an action toast, because they do not
  * compete for the same slot. The cap is two, and it is structural: there is
  * nowhere for a third to go.
+ *
+ * Two actionables *can* evict each other — but only where the loser's undo
+ * survives the pill. That is what `ToastItem.trailBacked` gates: absent a
+ * durable home for the displaced action, an incoming actionable queues at depth
+ * one instead of displacing, so D6's "eviction may cost convenience, never
+ * capability" is true by construction rather than by assumption.
  */
 export type ToastVariant = 'success' | 'info' | 'error';
 
@@ -73,6 +79,17 @@ export interface ToastItem {
   revision: number;
   /** `Date.now()` of the push that last touched this toast — the coalescing window. */
   pushedAt: number;
+  /**
+   * Whether this toast's `action` is ALSO recorded somewhere durable that outlives
+   * the pill — a session trail, a server ledger — so that losing the pill costs the
+   * user a shortcut rather than the capability itself.
+   *
+   * This is what decides whether an incoming actionable may **displace** this one
+   * (see the `push` action branch). It defaults to `false`, which is the safe
+   * reading: a caller that has not said its undo is recorded elsewhere is assumed to
+   * be the only place that undo exists.
+   */
+  trailBacked: boolean;
 }
 
 export interface ToastInput {
@@ -80,6 +97,8 @@ export interface ToastInput {
   variant?: ToastVariant;
   durationMs?: number;
   action?: ToastAction;
+  /** See `ToastItem.trailBacked`. Defaults to `false`. */
+  trailBacked?: boolean;
 }
 
 /** Default auto-dismiss — the prototype toast lingers ~2.6s. */
@@ -162,7 +181,7 @@ export const useToastStore = create<ToastState>((set) => ({
   pending: null,
   trail: [],
   focusedId: null,
-  push: ({ message, variant = 'info', durationMs, action }) => {
+  push: ({ message, variant = 'info', durationMs, action, trailBacked = false }) => {
     const slot: ToastSlot = action ? 'action' : 'transient';
     const dwell = durationMs ?? (action ? TOAST_ACTION_DURATION_MS : TOAST_DEFAULT_DURATION_MS);
     const now = Date.now();
@@ -230,6 +249,7 @@ export const useToastStore = create<ToastState>((set) => ({
             count: 1,
             revision: 0,
             pushedAt: now,
+            trailBacked,
           },
         };
       }
@@ -245,14 +265,34 @@ export const useToastStore = create<ToastState>((set) => ({
         count: 1,
         revision: 0,
         pushedAt: now,
+        trailBacked,
       };
       const current = s.action;
 
-      if (current && s.focusedId === current.id) {
-        // D8: a toast with focus inside it is never displaced. The only way a
-        // keyboard user loses the control is by leaving it. The incoming one waits;
-        // whatever was already waiting demotes rather than evaporating, so its undo
-        // survives even though it never painted.
+      if (current && (s.focusedId === current.id || !current.trailBacked)) {
+        // Two reasons to hold the incoming one back, one mechanism (#3149).
+        //
+        // D8 — focus is inside the toast on screen. A toast with focus inside it is
+        // never displaced; the only way a keyboard user loses the control is by
+        // leaving it.
+        //
+        // D6 — the toast on screen is not trail-backed, so displacing it would
+        // destroy the only undo the user has. D6's claim is that eviction may cost
+        // convenience but never capability, and that claim rests entirely on the
+        // displaced toast demoting somewhere durable. Where no such place exists for
+        // the raising surface, the honest move is not to evict at all.
+        //
+        // **Today that is every global action toast.** The one surface with a
+        // session trail is the Schedule, and it does not use this host — it renders
+        // its own `schedule-action-toast` (see `ScheduleView`). So the eviction
+        // branch below is currently unreachable in production and exists for the
+        // first trail-backed caller, which will opt in by passing `trailBacked`.
+        // This asymmetry is deliberate: it is a contract keyed on where an undo is
+        // durably recorded, not an inconsistency to be smoothed over by letting
+        // every surface evict.
+        //
+        // Either way the incoming one waits at depth one, and whatever was already
+        // waiting demotes rather than evaporating.
         return { pending: incoming, trail: s.pending ? demote(s.trail, s.pending) : s.trail };
       }
       return { action: incoming, trail: current ? demote(s.trail, current) : s.trail };
@@ -281,9 +321,15 @@ export const useToastStore = create<ToastState>((set) => ({
     set((s) => {
       if (within) return s.focusedId === id ? {} : { focusedId: id };
       if (s.focusedId !== id) return {};
-      if (s.pending && s.action?.id === id) {
+      if (s.pending && s.action?.id === id && s.action.trailBacked) {
         // Focus left the protected toast: release the queued one and demote the one
         // it was waiting on, exactly as an unprotected displacement would have.
+        //
+        // `trailBacked` is re-checked here and not just in `push`. Losing focus
+        // removes the D8 reason to wait, but it does not create a durable home for
+        // an undo that never had one — so an un-backed toast keeps its slot and the
+        // queued one goes on waiting for a dismissal. Without this check, blurring
+        // would quietly perform exactly the eviction the push path had refused.
         return {
           focusedId: null,
           action: s.pending,
