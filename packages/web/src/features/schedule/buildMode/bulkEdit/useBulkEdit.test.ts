@@ -54,6 +54,7 @@ function makeFocus(over: Partial<UseScheduleFocusReturn['state']> = {}): UseSche
     },
     selectIds: vi.fn(),
     focusRow: vi.fn(),
+    clear: vi.fn(),
   } as unknown as UseScheduleFocusReturn;
 }
 
@@ -145,7 +146,7 @@ describe('useBulkEdit — apply', () => {
       capabilities_denied: [],
       operation_id: null,
     });
-    expect(result.current.skippedLocallyCount).toBe(1);
+    expect(result.current.skippedLocallyIds).toEqual(['sum']);
   });
 
   it('surfaces a transport failure as an inline error, keeping the sheet open', () => {
@@ -175,6 +176,44 @@ describe('useBulkEdit — apply', () => {
     act(() => result.current.open());
     act(() => result.current.apply({ ...EMPTY_BULK_EDIT_SPEC, deliveryMode: 'scrum' }));
     expect(result.current.result).toEqual(body);
+  });
+});
+
+describe('useBulkEdit — done (S20)', () => {
+  it('clears the selection on a CLEAN result — the act is over', () => {
+    // Leaving fifteen rows highlighted after a clean batch invites a second,
+    // accidental pass over the same selection.
+    const focus = makeFocus({ selectedIds: new Set(['t1']), rowId: 't1' });
+    const { result } = renderHook(() =>
+      useBulkEdit({
+        projectId: 'p1',
+        focus,
+        visibleTasks: [task('t1')],
+        readOnly: false,
+        focusRowById: vi.fn(),
+      }),
+    );
+    act(() => result.current.open());
+    act(() => result.current.done(true));
+    expect(focus.clear).toHaveBeenCalled();
+    expect(result.current.isOpen).toBe(false);
+  });
+
+  it('KEEPS the selection on a partial result, so ⌘⇧K is the retry', () => {
+    const focus = makeFocus({ selectedIds: new Set(['t1']), rowId: 't1' });
+    const { result } = renderHook(() =>
+      useBulkEdit({
+        projectId: 'p1',
+        focus,
+        visibleTasks: [task('t1')],
+        readOnly: false,
+        focusRowById: vi.fn(),
+      }),
+    );
+    act(() => result.current.open());
+    act(() => result.current.done(false));
+    expect(focus.clear).not.toHaveBeenCalled();
+    expect(result.current.isOpen).toBe(false);
   });
 });
 

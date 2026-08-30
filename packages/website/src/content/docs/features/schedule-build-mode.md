@@ -460,38 +460,98 @@ The bulk-edit sheet lands in **TruePPM 0.4**. In the current release, edit each 
 individually from the outline or the task drawer.
 :::
 
-`⌘ ⇧ K` (`Ctrl + Shift + K`) opens a sheet that applies one change to every selected row
-at once. With no selection, it acts on the focused row alone — the same rule `Delete`
-uses.
+`⌘ ⇧ K` (`Ctrl + Shift + K`) opens a sheet that applies one change to every selected item
+at once. With no selection, it acts on the focused item alone — the same rule `Delete`
+uses. With a selection active you can also click **Edit N items** in the build-mode strip
+at the foot of the Schedule, or **Edit selected items…** in the toolbar's `···` menu.
 
-**It acts on exactly the rows you selected, and never their children.** To change a whole
+**It acts on exactly the items you selected, and never their children.** To change a whole
 subtree including descendants, use [`⌘ ⇧ M`](/features/task-classification/) instead — the
 two shortcuts differ in scope, not in what they can set.
 
-Every field starts on **Leave unchanged**, so a field you don't touch is never written.
-Where the selected rows disagree, the option reads "Leave — Mixed" rather than showing a
-single value the selection doesn't actually have.
+Every field starts on **Leave**, so a field you don't touch is never written. Where the
+selected items disagree, the option reads "Leave — Mixed" rather than showing a single
+value the selection doesn't actually have.
 
-| Field | What it does |
-|---|---|
-| **Add owner** | Assigns a person from the project roster, with an allocation percent |
-| **Governed by** / **Progress from** | The two classification axes — the same pair `⌘ ⇧ M` sets, applied to just these rows |
-| **Planned start** / **Planned finish** | Set a committed date, or clear one |
+| Group | Field | What it does |
+|---|---|---|
+| Plan | **Planned start** / **Planned finish** | Set a committed date, or clear one |
+| Plan | **Duration** | Set an absolute number of working days, or increase / reduce every item by an amount |
+| Plan | **Percent complete** | Set an absolute percentage, or increase / reduce every item by an amount |
+| Placement & policy | **Sprint** | Move the selection into a planned or running sprint, or take it out of its sprint |
+| Placement & policy | **Governed by** / **Progress from** | The two classification axes — the same pair `⌘ ⇧ M` sets, applied to just these items |
+| People | **Owner** | Add a person from the project roster, with an allocation percent |
 
-**Adding an owner adds a co-owner — it never replaces one.** A row that already has
-somebody keeps them and gains the person you picked. Removing an assignment stays on the
-row itself, in the task drawer's Assignees editor. Summary rows cannot take an owner at
-all; the sheet says how many of your selected rows that affects before you apply, and
-their other changes still land.
+### Relative changes to duration and progress
 
-**Rows are applied independently, and the sheet reports what happened.** If you can't
-edit some of the selection, the rest still goes through — you get "12 of 15 rows updated"
-plus the reason the others didn't, and **Review the 3** turns exactly those rows into your
-new selection so you can deal with them without hunting for them in a long outline.
+Duration and percent complete are the two fields a weekly re-plan actually moves, so they
+take a **relative** change as well as an absolute one. Pick **Set to**, **Increase by** or
+**Reduce by** — or just type `+2` or `-2` in the amount, which flips the operator for you.
+The worded control is always there, so you never have to know the shortcut.
+
+Three rules keep a relative change honest:
+
+- **An item with no current value is left alone.** "Increase by 2 days" has no meaning on
+  an item that has no duration, so the sheet skips it and tells you how many before you
+  apply — it never starts a value from nothing. **Set to** still writes, because it names
+  the value outright.
+- **Results clamp; they never wrap.** Percent complete stops at 0 and 100, and duration
+  stops at one working day. An item at 90% asked to go up 30 lands on 100, not on 20, and
+  the sheet counts how many items a limit moved before you apply.
+- **Dates stay absolute.** There is no "shift everything a week" here — moving a plan in
+  time is a reschedule, and it belongs to the scheduling engine rather than to a field
+  write.
+
+Summary rows roll their estimate up from their children and milestones have no duration,
+so a duration change leaves both alone. Setting an item to 100% also promotes its status,
+exactly as it does one row at a time — the sheet says how many items that affects, and
+which status they will move to, before you apply.
+
+### Moving a batch into a sprint
+
+Adding items to a **running** sprint is an injection, and it is recorded like every other
+one: the items appear in the sprint but are held **pending** until someone accepts them,
+and they stay out of the burndown until that happens. The sheet says so before you apply.
+Moving into a *planned* sprint has nothing to protect and is written straight through.
+
+### The owner field
+
+Owner offers four arms — **Leave**, **Add**, **Remove** and **Replace**. **Add** is the
+one that writes today; **Remove** and **Replace** are visible, labelled and reachable but
+carry a `0.5` badge, because removal goes through a different endpoint that has not been
+opened to a batch yet. They are laid out at their final size now so that when removal
+lands nothing on this sheet moves.
+
+**Adding an owner is an upsert — it adds a co-owner and never replaces one.** An item that
+already has somebody keeps them and gains the person you picked; to reduce someone's
+allocation, add them again at a lower percent. Removing an assignment stays on the item
+itself, in the task drawer's Assignees editor. Summary rows cannot take an owner at all;
+the sheet says how many of your selected items that affects before you apply, and their
+other changes still land.
+
+### Reading the review, and the result
+
+Above **Apply** the sheet writes **one line per field**, each with its own count — how
+many items it will update, how many are already at that value, and how many it will leave
+alone. There is no single number at the top of the sheet, because most of these fields
+don't apply to every kind of item and no one number could be true about all of them. The
+header counts your **selection** instead.
+
+If any field is set to take something away — clearing a date, taking items out of a
+sprint — the first `⌘ ⏎` does not apply. It moves focus to **Apply** and reads the review
+back to you; press it again, or click Apply, to go ahead.
+
+**Items are applied independently, and the sheet reports what happened.** The result is
+the review in past tense: same fields, same order, same counts, now reading *updated*,
+*unchanged*, *left alone* and *refused* — and for each field those four always add up to
+your selection size, so nothing can be quietly dropped. The header counts **changes**, not
+items, because one item can be updated for one field and refused for another. **Retry the
+N** turns exactly the refused items into your new selection so you can deal with them
+without hunting for them in a long outline; a clean result clears the selection instead.
 
 Setting a planned start applies it as a *no-earlier-than* constraint to every selected
-row, not as a literal identical start date — the schedule engine still decides when each
-row actually starts. See [How dates work](/features/schedule/).
+item, not as a literal identical start date — the schedule engine still decides when each
+item actually starts. See [How dates work](/features/schedule/).
 
 ## Accessibility
 
@@ -529,8 +589,9 @@ never the only signal.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
 - **No fill-down.** Multi-row select and duplicate exist, and 0.4 adds [paste-many from a spreadsheet](#paste-rows-from-a-spreadsheet); a fill-down / fill-series gesture for extending a value down a column does not exist yet.
 - **No Enter-to-create on the Timeline.** Creating rows from the Timeline the way Enter does on the list is tracked separately, not in this release. (Multi-step undo itself *has* landed for structural changes — see [Undoing a structural change](#undoing-a-structural-change) — and a paste, a classification cascade and a spreadsheet import each still undo as one step: [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) above, [Classify a subtree](/features/task-classification/#undo-a-cascade), and [CSV/Excel import](/features/csv-import-export/#undo-an-import).)
-- **A bulk edit is not undoable with `⌘ Z`.** The [bulk-edit sheet](#edit-many-rows-at-once) ships in 0.4, but unlike a paste or a cascade it records no undo step — re-open the sheet and set the field back. Take particular care with **Add owner**, which the sheet cannot reverse at all: remove the assignment from the row's own Assignees editor.
-- **The bulk-edit sheet cannot move rows under a phase, or set a calendar.** Phase changes go one row at a time (drag, `Alt + →`, or the `[Phase name]` inline token); the working calendar is a project-level setting, not a per-task one, and lives in **Project settings → Schedule**. Shifting a selection's dates by a relative amount ("everything slips a week") is likewise not available — the sheet sets absolute dates only.
+- **A bulk edit is not undoable with `⌘ Z`.** The [bulk-edit sheet](#edit-many-rows-at-once) ships in 0.4, but unlike a paste or a cascade it records no undo step — re-open the sheet and set the field back. Take particular care with **Add owner**, which the sheet cannot reverse at all: remove the assignment from the item's own Assignees editor.
+- **The bulk-edit sheet cannot remove or replace an owner.** Both arms are present and labelled, badged `0.5`; removal goes through a different endpoint that has not been opened to a batch. Until then, remove an assignment from the item's own Assignees editor.
+- **The bulk-edit sheet cannot move rows under a phase, or set a calendar.** Phase changes go one row at a time (drag, `Alt + →`, or the `[Phase name]` inline token); the working calendar is a project-level setting, not a per-task one, and lives in **Project settings → Schedule**. Shifting a selection's *dates* by a relative amount ("everything slips a week") is likewise not available — a reschedule belongs to the scheduling engine, so the sheet sets absolute dates only. Duration and percent complete *do* take a relative change; see [Relative changes to duration and progress](#relative-changes-to-duration-and-progress).
 - **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.
 
 ## See also

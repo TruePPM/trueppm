@@ -2,7 +2,11 @@ import { useCallback, useMemo, useState } from 'react';
 import { useBulkUpdateTasks, type TaskBulkResponse } from '@/hooks/useTaskMutations';
 import type { Task } from '@/types';
 import type { UseScheduleFocusReturn } from '../useScheduleFocus';
-import { buildBulkEditOperations, type BulkEditSpec } from './bulkEditSpec';
+import {
+  buildBulkEditOperations,
+  type BulkEditSpec,
+  type ProjectionContext,
+} from './bulkEditSpec';
 
 /**
  * State and wiring for the ⌘⇧K bulk-edit sheet (#2756 pt.2, ADR-0810).
@@ -29,7 +33,8 @@ export interface UseBulkEditReturn {
   isPending: boolean;
   error: string | null;
   result: TaskBulkResponse | null;
-  skippedLocallyCount: number;
+  /** Ids the sheet dropped before sending — the result phase counts them as left alone. */
+  skippedLocallyIds: string[];
   /** ⌘⇧K. No-op when there is nothing to act on — never opens an empty sheet. */
   open: () => void;
   /**
@@ -44,8 +49,19 @@ export interface UseBulkEditReturn {
    */
   openForIds: (ids: string[]) => void;
   close: () => void;
-  apply: (spec: BulkEditSpec) => void;
+  /**
+   * `ctx` is the SAME projection context the sheet renders its review from.
+   * Threaded rather than defaulted: the payload and the review are one
+   * computation only if they are given one input, and a context field that
+   * later influences a value would otherwise make them disagree in silence.
+   */
+  apply: (spec: BulkEditSpec, ctx?: ProjectionContext) => void;
   reviewFailed: (taskIds: string[]) => void;
+  /**
+   * `S20` — a clean result clears the selection; a partial one leaves the
+   * refused items selected, so `⌘⇧K` *is* the retry.
+   */
+  done: (clean: boolean) => void;
 }
 
 export function useBulkEdit({
@@ -57,7 +73,7 @@ export function useBulkEdit({
 }: UseBulkEditOptions): UseBulkEditReturn {
   const [isOpen, setIsOpen] = useState(false);
   const [result, setResult] = useState<TaskBulkResponse | null>(null);
-  const [skippedLocallyCount, setSkippedLocallyCount] = useState(0);
+  const [skippedLocallyIds, setSkippedLocallyIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const mutation = useBulkUpdateTasks(projectId);
   const { mutate } = mutation;
@@ -89,7 +105,7 @@ export function useBulkEdit({
     if (!selectedIds?.size && !rowId) return;
     setResult(null);
     setError(null);
-    setSkippedLocallyCount(0);
+    setSkippedLocallyIds([]);
     setIsOpen(true);
   }, [readOnly, projectId, selectedIds, rowId]);
 
@@ -98,7 +114,7 @@ export function useBulkEdit({
       if (readOnly || !projectId || ids.length === 0) return;
       setResult(null);
       setError(null);
-      setSkippedLocallyCount(0);
+      setSkippedLocallyIds([]);
       setIsOpen(true);
     },
     [readOnly, projectId],
@@ -111,10 +127,10 @@ export function useBulkEdit({
   }, []);
 
   const apply = useCallback(
-    (spec: BulkEditSpec) => {
+    (spec: BulkEditSpec, ctx: ProjectionContext = {}) => {
       if (!projectId) return;
-      const { operations, skippedLocally } = buildBulkEditOperations(spec, selectedTasks);
-      setSkippedLocallyCount(skippedLocally.length);
+      const { operations, skippedLocally } = buildBulkEditOperations(spec, selectedTasks, ctx);
+      setSkippedLocallyIds(skippedLocally.map((s) => s.id));
       // Every selected row was dropped client-side (an owner-only edit over a
       // selection of nothing but summary rows). Report it as the result it is
       // rather than sending an empty `operations` array the server would reject.
@@ -156,17 +172,33 @@ export function useBulkEdit({
     [focus, focusRowById],
   );
 
+  /**
+   * Close after a result. A clean batch clears the selection — the act is over
+   * and leaving fifteen rows highlighted invites a second, accidental pass. A
+   * PARTIAL batch keeps it, because the refused rows are exactly what a retry
+   * needs selected and `reviewFailed` has already narrowed it to them.
+   */
+  const done = useCallback(
+    (clean: boolean) => {
+      if (clean) focus.clear();
+      setIsOpen(false);
+      setResult(null);
+    },
+    [focus],
+  );
+
   return {
     isOpen,
     selectedTasks,
     isPending: mutation.isPending,
     error,
     result,
-    skippedLocallyCount,
+    skippedLocallyIds,
     open,
     openForIds,
     close,
     apply,
     reviewFailed,
+    done,
   };
 }
