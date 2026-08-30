@@ -579,8 +579,9 @@ function ResultPhase({
         id={RESULT_PANEL_ID}
         role="status"
         aria-live="polite"
-        // A scroll container with NO focusable descendant is unreachable by
-        // keyboard: rule 335 puts the actions in the sibling footer on purpose,
+        // Rule 360. A scroll container with NO focusable descendant is
+        // unreachable by keyboard: rule 335 puts the actions in the sibling
+        // footer on purpose,
         // so nothing in here can seat focus and the arrow keys scroll nothing.
         // `aria-describedby` hides this from an AT pass — it reads the whole node
         // either way — so the gap is specifically a sighted keyboard one
@@ -662,12 +663,16 @@ function ResultPhase({
  * next release is worse than a dead one, and a dead one with no explanation is
  * worse than both. This picks the third thing — present, explained, and inert.
  *
- * They are `aria-disabled`, **never** `disabled` (`S12`), so each keeps its tab
- * stop and its accessible name and the refusal fires at the moment of the
- * attempt rather than silently at Apply. Their labels stay at secondary contrast
- * (`S25`): `neutral-text-disabled` marks the state, it never carries the
- * sentence — a person who cannot use a control still has to be able to read what
- * it is.
+ * **Rule 361** generalizes what this control does, and the five parts are all
+ * here: the at-rest sentence in the group note, the version badge on the arm at
+ * `text-xs` (rule 50's floor is not waived outside `features/settings/`),
+ * `aria-disabled` **never** `disabled` so each arm keeps its tab stop and its
+ * accessible name, an explicit `aria-label` on the input because the accname
+ * computation trims text nodes, and a refusal region mounted before it has
+ * anything to say (rule 335). The refusal therefore fires at the moment of the
+ * attempt rather than silently at Apply. Labels stay at secondary contrast
+ * (`S25`): the disabled token marks the state, it never carries the sentence — a
+ * person who cannot use a control still has to be able to read what it is.
  *
  * ## Why there is no reduced-permission view here (`S13`, countermanded)
  *
@@ -813,8 +818,9 @@ function OwnerField({
         )}
       </div>
 
-      {/* `S12` — the reason is stated AT REST, not only on the attempt. A
-          visibly inert control with no explanation is worse than an absent one. */}
+      {/* Rule 361(a) / `S12` — the reason is stated AT REST, not only on the
+          attempt. A visibly inert control with no explanation is worse than an
+          absent one. The version here is checked against the roadmap. */}
       <p className="text-neutral-text-secondary leading-snug">
         Add is an upsert — a lower percent is how you reduce someone. Remove and Replace ship in
         0.5; today removal stays on the item.
@@ -1242,13 +1248,13 @@ function Chip({
         checked={checked}
         disabled={disabled}
         aria-disabled={ariaDisabled || undefined}
-        // An explicit name, not the label's text. The accname computation TRIMS
+        // Rule 361(d): an explicit name, not the label's text. The accname TRIMS
         // each text node before joining, so `Remove` + an `sr-only` carrier
         // renders as "Removeships in 0.5" — the space between two sibling nodes
         // does not survive. One attribute states the whole name instead.
         aria-label={badge ? `${label} — ships in ${badge}` : undefined}
         data-testid={`${testId}-input`}
-        // `S12` — `preventDefault` on the click is what keeps an `aria-disabled`
+        // Rule 361(c) / `S12` — `preventDefault` on the click keeps an `aria-disabled`
         // radio inert WITHOUT `disabled`: the arm keeps its tab stop and its
         // accessible name, nothing is checked, and `onSelect` still runs so the
         // refusal is stated at the moment of the attempt. A prevented click
