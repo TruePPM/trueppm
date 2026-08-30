@@ -1747,8 +1747,9 @@ describe('BoardView', () => {
       ];
       renderBoard();
       // The project-node lane renders one progressbar; assert that
-      // the rollup reads 100%, not 50%.
-      const bar = screen.getByRole('progressbar', { name: /Phase progress 100 percent/i });
+      // the rollup reads 100%, not 50%. Since #3148 the label is where the
+      // percentage lives at all — the visible numeral is gone.
+      const bar = screen.getByRole('progressbar', { name: 'Phase progress: 100% complete' });
       expect(bar).toHaveAttribute('aria-valuenow', '100');
     });
 
@@ -1785,9 +1786,17 @@ describe('BoardView', () => {
         },
       ];
       renderBoard();
-      // No committed delivery → progressbar reads "No committed tasks", not
-      // a misleading "0%". The em-dash is in the visible label.
-      expect(screen.getByRole('progressbar', { name: /No committed tasks/i })).toBeInTheDocument();
+      // No committed delivery → no progressbar element at all (#3148). A bar
+      // labelled "No committed tasks" was still a bar, and an empty track and a
+      // 0% track are the same picture: both assert "measured, none done". The
+      // claim the lane actually makes is "not applicable", which is a different
+      // claim, so it is made in visually-hidden text beside an em-dash instead.
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('img', {
+          name: 'Phase progress: not applicable — no committed work in this phase',
+        }),
+      ).toBeInTheDocument();
     });
 
     it('reads the phase summary task percent_complete, not the leaf mean (#991/ADR-0115)', () => {
@@ -1838,7 +1847,7 @@ describe('BoardView', () => {
         },
       ];
       renderBoard();
-      const bar = screen.getByRole('progressbar', { name: /Phase progress 72 percent/i });
+      const bar = screen.getByRole('progressbar', { name: 'Phase progress: 72% complete' });
       expect(bar).toHaveAttribute('aria-valuenow', '72');
     });
   });
