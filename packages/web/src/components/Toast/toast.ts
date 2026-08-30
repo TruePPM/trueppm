@@ -24,17 +24,25 @@ export const toast = {
    * A toast carrying a single inline action button (issue 1113) — the "Deleted — Undo"
    * affordance. Dwells longer (`TOAST_ACTION_DURATION_MS`) so the user can reach the
    * button on a phone. Defaults to the neutral `info` tone; pass `variant` to override.
+   *
+   * Pass `trailBacked: true` **only** if this action is also recorded somewhere that
+   * outlives the pill — a session trail, a server ledger — so a user who loses the
+   * toast can still reach the undo. It governs whether a later actionable toast may
+   * displace this one (#3149 D6); left `false`, a later one queues behind it instead.
+   * No caller sets it today: the one surface with a session trail is the Schedule,
+   * and it renders its own toast rather than using this host.
    */
   action: (
     message: string,
     action: ToastAction,
-    opts?: { variant?: ToastVariant; durationMs?: number },
+    opts?: { variant?: ToastVariant; durationMs?: number; trailBacked?: boolean },
   ) =>
     useToastStore.getState().push({
       message,
       action,
       variant: opts?.variant ?? 'info',
       durationMs: opts?.durationMs ?? TOAST_ACTION_DURATION_MS,
+      trailBacked: opts?.trailBacked ?? false,
     }),
   dismiss: (id: string) => useToastStore.getState().dismiss(id),
 };
