@@ -36,6 +36,19 @@ MIN_SECRET_KEY_LENGTH = 32
 
 INSECURE_PREFIX = "django-insecure-"
 
+# Deploy-check ids are an operator-facing contract — they are what goes into
+# ``SILENCED_SYSTEM_CHECKS`` — so they are bound to constants rather than
+# repeated, and must not be renumbered once shipped.
+#
+# E004 is deliberately shared by two unrelated checks: an untrustworthy
+# JWT signing key and an unusable attachment-storage backend. That sharing
+# predates this constant and is asserted by tests in both
+# ``test_signing_key_check.py`` and ``test_secret_key_check.py``; naming it once
+# here does not change it. The cost is that an operator silencing E004 for one
+# also silences the other, which is worth splitting separately rather than as
+# part of a Sonar cleanup.
+_ID_UNTRUSTED_CONFIG = "trueppm.E004"
+
 #: Prefixes of documented placeholder keys, matched case-insensitively (#3187).
 #:
 #: Length and the ``django-insecure-`` prefix were the only two things
@@ -270,7 +283,7 @@ def validate_signing_key(
                 f"JWT_SIGNING_KEY starts with {INSECURE_PREFIX!r} — this is the "
                 "Django placeholder and must not be used to sign tokens.",
                 hint=_TOKEN_URLSAFE_HINT,
-                id="trueppm.E004",
+                id=_ID_UNTRUSTED_CONFIG,
             )
         )
 
@@ -281,7 +294,7 @@ def validate_signing_key(
                 "it is published in this repository, so tokens signed with it can "
                 "be forged by anyone.",
                 hint=_TOKEN_URLSAFE_HINT,
-                id="trueppm.E004",
+                id=_ID_UNTRUSTED_CONFIG,
             )
         )
 
@@ -414,7 +427,7 @@ def validate_attachment_storage(
                     "/var/lib/trueppm/media. Or drop the opt-in and point "
                     "TRUEPPM_DEFAULT_FILE_STORAGE at object storage."
                 ),
-                id="trueppm.E004",
+                id=_ID_UNTRUSTED_CONFIG,
             )
         ]
 
@@ -432,7 +445,7 @@ def validate_attachment_storage(
                     "backed by a persistent volume (and TRUEPPM_MEDIA_ROOT points at "
                     "that volume)."
                 ),
-                id="trueppm.E004",
+                id=_ID_UNTRUSTED_CONFIG,
             )
         ]
     return []
