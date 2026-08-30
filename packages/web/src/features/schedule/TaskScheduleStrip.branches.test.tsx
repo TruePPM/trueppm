@@ -294,12 +294,15 @@ describe('TaskScheduleStrip — DurationCell edit affordances', () => {
     await user.click(durationButton());
     await user.clear(durationInput());
     await user.type(durationInput(), '20{Enter}');
-    expect(durationButton().className).toContain('bg-semantic-on-track-bg');
+    // The flash tints the CELL (the grid item), not the inner value area — the
+    // cell is what the user perceives flashing, and since #3211 it also holds
+    // the unit picker row, which must flash with the rest of the cell.
+    const flashed = () => durationButton().parentElement!;
+    expect(flashed().className).toContain('bg-semantic-on-track-bg');
 
-    await waitFor(
-      () => expect(durationButton().className).not.toContain('bg-semantic-on-track-bg'),
-      { timeout: 3000 },
-    );
+    await waitFor(() => expect(flashed().className).not.toContain('bg-semantic-on-track-bg'), {
+      timeout: 3000,
+    });
   });
 
   it('flashes the error tint and then settles back', async () => {
@@ -309,7 +312,8 @@ describe('TaskScheduleStrip — DurationCell edit affordances', () => {
     await user.click(durationButton());
     await user.clear(durationInput());
     await user.type(durationInput(), 'abc{Enter}');
-    const cell = () => screen.getByRole('group', { name: 'Duration' });
+    // Same as above: the tint is on the cell wrapper, not the inner group.
+    const cell = () => screen.getByRole('group', { name: 'Duration' }).parentElement!;
     expect(cell().className).toContain('bg-semantic-critical-bg');
 
     await waitFor(() => expect(cell().className).not.toContain('bg-semantic-critical-bg'), {

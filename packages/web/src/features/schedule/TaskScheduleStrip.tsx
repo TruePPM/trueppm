@@ -233,7 +233,34 @@ function DurationCell({
     setEditing(false);
   };
 
-  const cellBase = 'px-3.5 py-2.5 border-r border-neutral-border min-h-11';
+  // The wrapper is the grid item and owns the cell's right divider; the inner
+  // value area owns the padding. Bottom padding is light because the picker row
+  // below supplies the cell's own `pb-2.5` (keeping both would double the gap).
+  const cellWrapper = 'flex flex-col min-w-0 border-r border-neutral-border';
+  const cellBase = 'px-3.5 pt-2.5 pb-1.5 min-h-11';
+
+  // Rendered by BOTH branches at the same child index, so React reconciles it to
+  // ONE persistent DOM node across the rest<->edit swap. That is load-bearing,
+  // not tidiness: the input's `onBlur` commits and leaves edit mode, and blur
+  // fires on mousedown — so a picker that unmounted with the branch would be
+  // torn out between mousedown and mouseup, no `click` would fire, and clicking
+  // `h` while editing would silently do nothing.
+  //
+  // Rendering it in edit mode is also what keeps the cell one height in both
+  // states. Stacked (#3211), an edit-mode cell without it collapsed the vitals
+  // strip by 35px and re-expanded on commit, jumping every section below.
+  const unitPickerRow = (
+    <div className="px-3.5 pb-2.5 flex flex-col gap-1 items-start min-w-0">
+      <DurationUnitPicker value={unit} onChange={onUnitChange} />
+      {roundingNote && (
+        // role=status, not an error: the value was accepted, it just is not the
+        // number that was typed, and the user is owed that fact.
+        <p role="status" className="text-xs text-neutral-text-secondary max-w-[210px]">
+          {roundingNote}
+        </p>
+      )}
+    </div>
+  );
   const flashClass =
     flash === 'commit'
       ? 'bg-semantic-on-track-bg'
@@ -243,51 +270,54 @@ function DurationCell({
 
   if (editing) {
     return (
-      <div role="group" aria-label="Duration" className={[cellBase, flashClass].join(' ')}>
-        <div className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
-          Duration
-        </div>
-        <div className="flex items-baseline gap-0.5">
-          <input
-            ref={inputRef}
-            value={draft}
-            inputMode="numeric"
-            aria-label="Duration in days"
-            className="tppm-mono text-sm font-semibold w-12 bg-neutral-surface text-neutral-text-primary
+      <div className={[cellWrapper, flashClass].join(' ')}>
+        <div role="group" aria-label="Duration" className={cellBase}>
+          <div className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
+            Duration
+          </div>
+          <div className="flex items-baseline gap-0.5">
+            <input
+              ref={inputRef}
+              value={draft}
+              inputMode="numeric"
+              aria-label={unit === 'hours' ? 'Duration in hours' : 'Duration in days'}
+              className="tppm-mono text-sm font-semibold w-12 bg-neutral-surface text-neutral-text-primary
               px-1 rounded-sm outline-none border border-brand-primary
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:ring-offset-neutral-surface"
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => {
-              if (skipNextBlurRef.current) {
-                skipNextBlurRef.current = false;
-                return;
-              }
-              commit(draft, true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                skipNextBlurRef.current = true;
-                focusButtonRef.current = true;
-                commit(draft, false);
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                skipNextBlurRef.current = true;
-                focusButtonRef.current = true;
-                onClearError();
-                setDraft(String(days));
-                setEditing(false);
-              }
-            }}
-          />
-          <span
-            className="tppm-mono text-sm font-semibold text-neutral-text-secondary"
-            aria-hidden="true"
-          >
-            d
-          </span>
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => {
+                if (skipNextBlurRef.current) {
+                  skipNextBlurRef.current = false;
+                  return;
+                }
+                commit(draft, true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  skipNextBlurRef.current = true;
+                  focusButtonRef.current = true;
+                  commit(draft, false);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  skipNextBlurRef.current = true;
+                  focusButtonRef.current = true;
+                  onClearError();
+                  setDraft(String(days));
+                  setEditing(false);
+                }
+              }}
+            />
+            <span
+              className="tppm-mono text-sm font-semibold text-neutral-text-secondary"
+              aria-hidden="true"
+            >
+              {unit === 'hours' ? 'h' : 'd'}
+            </span>
+          </div>
         </div>
+        {unitPickerRow}
       </div>
     );
   }
@@ -307,70 +337,70 @@ function DurationCell({
     remainingDays !== null ? `, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left` : '';
 
   return (
-    <div className="flex items-start gap-2">
-    <button
-      ref={buttonRef}
-      type="button"
-      aria-label={`Duration, ${spellDuration(days, unit, hoursPerDay)}${remainingSuffix}. Edit.`}
-      className={[
-        'group relative flex flex-col items-start text-left w-full cursor-text',
-        'transition-colors hover:bg-neutral-surface-sunken',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
-        'focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface',
-        cellBase,
-        flashClass,
-      ].join(' ')}
-      onClick={startEdit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ' || e.key === 'F2') {
-          e.preventDefault();
-          startEdit();
-        }
-      }}
-    >
-      <span className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
-        Duration
-      </span>
-      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-        <span
-          className="tppm-mono text-sm font-semibold text-neutral-text-primary
-            border-b border-dashed border-neutral-border group-hover:border-brand-primary"
-        >
-          {formatDuration(days, unit, hoursPerDay)}
-        </span>
-        {remainingDays !== null && (
-          <span
-            aria-hidden="true"
-            title={`${remainingDays} working ${remainingDays === 1 ? 'day' : 'days'} of work remaining, of the estimate shown`}
-            className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
-          >
-            {remainingDays}d left
-          </span>
-        )}
-      </span>
-      <PencilIcon
-        aria-hidden="true"
+    // The unit picker stacks BELOW the value, never beside it (#3211). This
+    // wrapper is the grid item, and Tailwind's `grid-cols-4` sizes the *track*
+    // `minmax(0, 1fr)` while the item keeps `min-width: auto` — so an item wider
+    // than its track overflows into the next cell instead of shrinking, with no
+    // clipping to make it visible. Side by side, this cell's min-content was the
+    // button (95.6px: the "Duration" label plus `px-3.5`) + `gap-2` + the
+    // `shrink-0` 66px picker = 169.6px against a 126.25px track in the 540px
+    // drawer, and the 43px of overflow painted straight over the Float cell's
+    // label and value. Stacked, the cell's min-content is just the button, which
+    // fits at every width the strip is rendered at.
+    <div className={[cellWrapper, flashClass].join(' ')}>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={`Duration, ${spellDuration(days, unit, hoursPerDay)}${remainingSuffix}. Edit.`}
         className={[
-          'absolute top-2 right-2 h-3 w-3 text-neutral-text-secondary transition-opacity',
-          // Faintly persistent at rest so a mouse user sees the cell is editable
-          // without hovering (the whole point of #2106); full-strength on
-          // hover/focus, and always-on for touch (no hover to reveal it).
-          showPencilAlways
-            ? 'opacity-100'
-            : 'opacity-40 group-hover:opacity-100 group-focus-visible:opacity-100',
+          'group relative flex flex-col items-start text-left w-full cursor-text',
+          'transition-colors hover:bg-neutral-surface-sunken',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+          'focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface',
+          cellBase,
         ].join(' ')}
-      />
-    </button>
-    <div className="pt-4 flex flex-col gap-1 items-start">
-      <DurationUnitPicker value={unit} onChange={onUnitChange} />
-      {roundingNote && (
-        // role=status, not an error: the value was accepted, it just is not the
-        // number that was typed, and the user is owed that fact.
-        <p role="status" className="text-xs text-neutral-text-secondary max-w-[210px]">
-          {roundingNote}
-        </p>
-      )}
-    </div>
+        onClick={startEdit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ' || e.key === 'F2') {
+            e.preventDefault();
+            startEdit();
+          }
+        }}
+      >
+        <span className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
+          Duration
+        </span>
+        <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <span
+            className="tppm-mono text-sm font-semibold text-neutral-text-primary
+            border-b border-dashed border-neutral-border group-hover:border-brand-primary"
+          >
+            {formatDuration(days, unit, hoursPerDay)}
+          </span>
+          {remainingDays !== null && (
+            <span
+              aria-hidden="true"
+              title={`${remainingDays} working ${remainingDays === 1 ? 'day' : 'days'} of work remaining, of the estimate shown`}
+              className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
+            >
+              {remainingDays}d left
+            </span>
+          )}
+        </span>
+        <PencilIcon
+          aria-hidden="true"
+          className={[
+            'absolute top-2 right-2 h-3 w-3 text-neutral-text-secondary transition-opacity',
+            // Faintly persistent at rest so a mouse user sees the cell is editable
+            // without hovering (the whole point of #2106); full-strength on
+            // hover/focus, and always-on for touch (no hover to reveal it).
+            showPencilAlways
+              ? 'opacity-100'
+              : 'opacity-40 group-hover:opacity-100 group-focus-visible:opacity-100',
+          ].join(' ')}
+        />
+      </button>
+      {unitPickerRow}
     </div>
   );
 }
@@ -441,7 +471,10 @@ function RemainingDurationChip({ remaining }: { remaining: number }) {
           {remaining}d left
         </span>
       </Tooltip>
-      <span className="sr-only"> ({remaining} {unit} of work remaining)</span>
+      <span className="sr-only">
+        {' '}
+        ({remaining} {unit} of work remaining)
+      </span>
     </>
   );
 }
@@ -834,7 +867,9 @@ function EditableStrip({
         durationCell={
           <DurationCell
             days={task.duration}
-            remainingDays={shouldShowRemainingChip(task) ? (task.remainingDuration as number) : null}
+            remainingDays={
+              shouldShowRemainingChip(task) ? (task.remainingDuration as number) : null
+            }
             showPencilAlways={isCoarse}
             onCommit={commitDuration}
             onParseError={() => setError('Enter a whole number of days (e.g. 10).')}
