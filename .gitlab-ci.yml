@@ -1023,6 +1023,14 @@ docs:version-accuracy:
   # nothing but a comment. The reverse branch is the one that earns its keep: it
   # reds on the release that ships 0.X, forcing the badge off with the callout
   # instead of leaving the nav understating the product.
+  #
+  # Finally, self-tests scripts/check-early-promotion.sh (#2824) — the guard on
+  # the roadmap edit that *triggers* the callout removal. Promoting 0.X into
+  # "## Shipped" is what licenses release.sh to delete every "Ships in 0.X"
+  # callout (131 blocks / 78 pages for 0.4), and nothing used to state when that
+  # edit is correct. The guard refuses an ALPHA cut against an already-promoted
+  # version whose callouts are still live. It runs only at release time, so this
+  # self-test is the only pre-merge signal that it still works — keep it here.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
@@ -1034,6 +1042,7 @@ docs:version-accuracy:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
     - bash scripts/remove-ships-in-callouts.sh --self-test
+    - bash scripts/check-early-promotion.sh --self-test
 
 docs:config-links:
   # Every https://docs.trueppm.com link in the two files an operator actually

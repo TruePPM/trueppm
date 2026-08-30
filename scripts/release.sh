@@ -32,6 +32,16 @@
 #   RELEASE_ASSUME_YES=1) to accept the computed version non-interactively;
 #   without it, a non-TTY run fails closed rather than auto-cutting a tag.
 #
+# Early-promotion guard (#2824):
+#   Cutting a tag runs scripts/remove-ships-in-callouts.sh --apply, which
+#   deletes every "Ships in 0.X" / "Coming in 0.X" docs callout once 0.X sits
+#   under the roadmap's "## Shipped" heading. Before any manifest is touched,
+#   scripts/check-early-promotion.sh refuses an ALPHA cut against a version
+#   that has already been promoted while its callouts are still live — the
+#   early-promotion mistake, which is otherwise silent and destructive.
+#   Override with --allow-early-promotion (or RELEASE_ALLOW_EARLY_PROMOTION=1)
+#   when a version's promised maturity genuinely is alpha.
+#
 # CHANGELOG behaviour:
 #   Every release — alpha/beta/rc and stable — rotates [Unreleased] into a dated
 #   section, so the changelog the team ships always has a human-readable entry
@@ -337,11 +347,20 @@ ASSUME_YES=false
 # is the non-interactive fallback; the flag wins over it.
 RELEASE_SUMMARY_ARG=""
 EXPECT_SUMMARY=false
+# Override for the early-promotion guard (#2824). Off by default: the guard
+# only fires on an ALPHA cut against a version already promoted to the
+# roadmap's "## Shipped" section with callouts still live, which is the
+# early-promotion mistake. Passing this says the promotion is deliberate —
+# i.e. this version's promised maturity genuinely IS alpha (the 0.1-0.3
+# shape) — and accepts that the surviving callouts will be deleted.
+ALLOW_EARLY_PROMOTION=false
+[[ "${RELEASE_ALLOW_EARLY_PROMOTION:-0}" == "1" ]] && ALLOW_EARLY_PROMOTION=true
 REST=""
 for arg in "$@"; do
   if $EXPECT_SUMMARY; then RELEASE_SUMMARY_ARG="$arg"; EXPECT_SUMMARY=false; continue; fi
   case "$arg" in
     -y|--yes) ASSUME_YES=true ;;
+    --allow-early-promotion) ALLOW_EARLY_PROMOTION=true ;;
     --summary) EXPECT_SUMMARY=true ;;
     *) REST="$REST $arg" ;;
   esac
@@ -413,6 +432,46 @@ IS_PRERELEASE=false
 
 echo "Releasing: $CURRENT_VERSION → $NEW_VERSION"
 $IS_PRERELEASE && echo "  (pre-release)"
+
+# ---------------------------------------------------------------------------
+# Early-promotion guard (#2824)
+# ---------------------------------------------------------------------------
+#
+# The callout removal further down (see "Remove stale 'Ships in 0.X' callouts")
+# keys entirely on ONE hand edit: whether "0.X" sits under the roadmap's
+# "## Shipped" heading. Nothing used to state when that edit is correct, so the
+# whole safety net was an undocumented judgment call — and getting it wrong is
+# silent and destructive. Promote 0.4 early to cut an alpha and this script
+# deletes every 0.4 callout in the docs tree (131 blocks across 78 pages as
+# measured on 2026-08-30) inside the release commit, publishing unshipped
+# features as available. check-version-status.sh then PASSES, because it
+# polices the reverse direction. Nothing downstream catches it.
+#
+# The rule (CLAUDE.md "Version-status tense", roadmap "## Shipped" header):
+# 0.X is promoted when the release line reaches the maturity that version
+# promises — for 0.4, the first `beta` tag — and alpha prereleases on the way
+# to that milestone do not promote it. The guard enforces the alpha half of
+# that, which is the rung the 0.1/0.2/0.3 precedent teaches people to get
+# wrong. Beta/rc/stable cuts against a promoted roadmap are the CORRECT state
+# and are deliberately not gated — see the script header for why gating them
+# too would turn the override into a rubber stamp.
+#
+# Runs BEFORE preflight_image_scan and before any manifest is bumped, so
+# firing it costs nothing and leaves the tree untouched.
+if [[ "$ALLOW_EARLY_PROMOTION" == true ]]; then
+  echo "  ! Skipping the early-promotion guard (--allow-early-promotion)." >&2
+  echo "    Any surviving 'Ships in'/'Coming in' callouts for this version WILL be deleted." >&2
+else
+  set +e
+  bash scripts/check-early-promotion.sh "$NEW_VERSION"
+  EARLY_PROMOTION_STATUS=$?
+  set -e
+  case "$EARLY_PROMOTION_STATUS" in
+    0) ;;
+    2) die "Refusing to cut v${NEW_VERSION} — see above. Demote the roadmap entry, or re-run with --allow-early-promotion." ;;
+    *) die "scripts/check-early-promotion.sh failed (exit $EARLY_PROMOTION_STATUS) — fix before releasing." ;;
+  esac
+fi
 
 TODAY="$(date +%Y-%m-%d)"
 TAG="v${NEW_VERSION}"
@@ -690,7 +749,14 @@ bash scripts/rotate-scheduler-changelog.sh "$NEW_PEP440" "$CURRENT_PEP440" "$TOD
 #
 # Scoped to MAJOR.MINOR (the roadmap's "### 0.X" grain), not the full semver
 # just bumped — a 0.4.0-beta.2 release and the eventual 0.4.0 stable release
-# share the same "0.4" callouts. scripts/remove-ships-in-callouts.sh's own
+# share the same "0.4" callouts. That grain is deliberately coarse and it has a
+# known consequence: the sweep is all-or-nothing at whichever tag first finds
+# 0.X promoted, so a first beta strips callouts for 0.X features still in
+# flight. Making the callouts (and this sweep) prerelease-aware is tracked in
+# #3229 — it is an editorial migration across 131 blocks on 78 pages plus
+# lockstep changes to four docs gates, not a scoping tweak. The early-promotion
+# guard above (#2824) closes the destructive half of the problem meanwhile.
+# scripts/remove-ships-in-callouts.sh's own
 # safety gate refuses (exit 2) unless "0.4" already appears under the
 # roadmap's "## Shipped" heading, which is a human docs edit this version
 # bump does not imply — so on every pre-1.0 alpha/beta/rc cut before that
