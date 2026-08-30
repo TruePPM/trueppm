@@ -206,7 +206,12 @@ set_env TLS_MODE "${TLS_MODE}"
 # ALLOWED_HOSTS carries every name the probes and the nginx proxy_set_header Host
 # can present. A miss here is a 400 from Django that reads like a routing bug.
 set_env ALLOWED_HOSTS "${PROBE_HOST},localhost,127.0.0.1"
-set_env SECRET_KEY "$(gen_secret)"
+# SECRET_KEY is deliberately NOT set here (#3187). It ships EMPTY in
+# .env.example and init-prod.sh generates it, so overwriting it — which this
+# drill used to do — meant the one path an operator actually takes was the one
+# path CI never ran. That is how a placeholder which passed every guard shipped
+# for as long as it did. Leaving it empty makes this drill exercise the
+# generation, and the assertion after init-prod runs proves it happened.
 set_env DB_PASSWORD "$(gen_secret)"
 set_env REDIS_PASSWORD "$(gen_secret)"
 set_env INTEGRATION_ENCRYPTION_KEY "$(gen_fernet)"
@@ -292,10 +297,41 @@ sync_checkout_to_daemon
 log "booting the stack via init-prod.sh (TLS_MODE=${TLS_MODE})"
 bash init-prod.sh
 
+# ---- SECRET_KEY was generated, not left empty and not a placeholder (#3187) --
+# The whole point of leaving it unset above. Asserted on the FILE rather than on
+# a variable, because what matters is that the operator's .env now holds a real
+# key that survives the next `docker compose up`.
+drill_secret="$(grep -E '^SECRET_KEY=' .env | tail -n 1 | cut -d= -f2-)"
+[ -n "${drill_secret}" ] \
+  || fail "init-prod.sh left SECRET_KEY empty in .env — it must generate one (#3187)"
+[ "${#drill_secret}" -ge 32 ] \
+  || fail "init-prod.sh wrote a ${#drill_secret}-character SECRET_KEY; minimum is 32 (#3187)"
+case "$(printf '%s' "${drill_secret}" | tr '[:upper:]' '[:lower:]')" in
+  replace-with*|change-me*|django-insecure-*)
+    fail "init-prod.sh accepted a placeholder SECRET_KEY ('${drill_secret}') (#3187)"
+    ;;
+esac
+log "init-prod.sh generated a ${#drill_secret}-character SECRET_KEY into .env"
+
 # init-prod.sh rendered nginx/active.conf.template on THIS filesystem; the daemon
 # still has the pre-render tree, so nginx is currently bound to a stale or absent
 # source. Re-sync and recreate it.
 log "re-syncing the rendered nginx template and recreating nginx"
+# Stop nginx BEFORE the sync, not just recreate it after.
+#
+# By this point nginx is crash-looping: its first boot bound a bind source the
+# daemon did not have, so Docker created a DIRECTORY there and envsubst dies on
+# it. `restart: unless-stopped` means Docker keeps restarting it — and every
+# restart re-creates that directory. The sync's `rm -rf` therefore closes only
+# half the race: it clears the directory, and a restart landing in the window
+# before `tar -x` writes the member puts it straight back, which fails the
+# extraction with
+#   tar: can't remove old file nginx/active.conf.template: Is a directory
+# and takes the drill down with it. The window is small and the restart backoff
+# grows, so this fires intermittently rather than every run — it is a race, not
+# a constant, and no amount of `rm -rf` can win it while the writer is live.
+# Stopping the only process that recreates the path is what actually closes it.
+compose stop nginx >/dev/null 2>&1 || true
 sync_checkout_to_daemon
 assert_template_on_daemon
 # --no-deps is essential: without it compose recreates nginx's dependency chain

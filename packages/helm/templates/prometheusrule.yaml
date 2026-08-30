@@ -11,7 +11,8 @@ Signals:
   - outbox depth rising — trueppm.outbox.depth backlog above threshold;
   - outbox oldest age rising — trueppm.outbox.oldest_age_seconds above threshold;
   - dead-letter present — any dead-lettered task parked;
-  - outbound email failing / queue aging / credential unusable (#2886).
+  - outbound email failing / queue aging / credential unusable (#2886);
+  - backup CronJob failing or not completing, and PVC capacity (#3185).
 
 The three email rules read gauges served as Prometheus text exposition by
 /api/v1/health/email/, so they need that endpoint added to a scrape job the same
@@ -19,6 +20,14 @@ way the dead-letter rule does — see docs -> Administration -> Observability.
 Before #2886 not one rule in this file mentioned email, so a dead SMTP relay
 raised no alert anywhere; the System Health card that was supposed to cover it
 could not fire either.
+
+The backup and capacity rules (#3185) read kube-state-metrics and kubelet
+series, not TruePPM's own instrumentation, so they need no extra scrape job —
+but they DO need kube-state-metrics installed, which kube-prometheus-stack
+bundles. The backup group renders only when backup.enabled, because a rule
+alerting on a CronJob that does not exist would fire on `absent()` forever.
+cronjob-backup.yaml's own comment said a failed backup "becomes a failed Job the
+operator can alert on" while nothing shipped to do that; these are that.
 */}}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -113,4 +122,72 @@ spec:
           annotations:
             summary: "TruePPM email queue is not draining"
             description: "Notification emails have been queued for more than an hour for over {{ .Values.alerts.thresholds.emailQueueAgingFor | default "15m" }} — the drain is not completing rows. Check the Celery worker and beat, and the mail transport configuration."
+{{- if .Values.backup.enabled }}
+    - name: trueppm.backup
+      rules:
+        - alert: TruePPMBackupJobFailed
+          # A Job that exhausted backoffLimit. Loud by design: a backup that
+          # fails silently is indistinguishable from one that never ran, and the
+          # difference only surfaces on the day you need it.
+          expr: kube_job_failed{job_name=~"{{ include "trueppm.fullname" . }}-backup.*"} > 0
+          for: {{ .Values.alerts.thresholds.backup.jobFailedFor | default "5m" | quote }}
+          labels:
+            severity: critical
+          annotations:
+            summary: "TruePPM backup Job failed ({{ "{{" }} $labels.job_name {{ "}}" }})"
+            description: "The backup CronJob's Job {{ "{{" }} $labels.job_name {{ "}}" }} failed. Inspect it with: kubectl logs job/{{ "{{" }} $labels.job_name {{ "}}" }}"
+        - alert: TruePPMBackupStale
+          # The complement of the rule above, and the more important half: a
+          # CronJob that is SUSPENDED, unschedulable, or silently never
+          # triggering produces no failed Job at all, so JobFailed stays quiet
+          # forever while no backup is taken. Alert on the absence of a recent
+          # success, not on the presence of a failure.
+          expr: >-
+            time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-backup"})
+            > {{ .Values.alerts.thresholds.backup.staleAfterSeconds | default 172800 }}
+          for: {{ .Values.alerts.thresholds.backup.staleFor | default "30m" | quote }}
+          labels:
+            severity: critical
+          annotations:
+            summary: "TruePPM has taken no successful backup recently"
+            description: "No successful backup Job has completed within {{ .Values.alerts.thresholds.backup.staleAfterSeconds | default 172800 }}s. Default is 2x the daily schedule, so one missed run is tolerated and two are not. Check that the CronJob is not suspended and that its Jobs are being scheduled."
+        - alert: TruePPMBackupNeverSucceeded
+          # Deliberately a SEPARATE rule from the staleness one rather than an
+          # `or absent(...)` disjunct on it. kube-state-metrics publishes
+          # last_successful_time only after a first success, so folding the two
+          # together makes every fresh install alert critical within the
+          # staleness window and stay firing until the first scheduled run —
+          # up to a full schedule period of false positive.
+          #
+          # Split out, this rule says the one thing the metric's absence
+          # actually means: backups are enabled and have produced nothing. That
+          # covers a suspended CronJob, Jobs that never schedule, AND
+          # kube-state-metrics not being scraped at all — the last of which
+          # would otherwise leave the staleness rule silently unable to fire,
+          # which is the same "reports success forever" failure this issue is
+          # about, one level up.
+          expr: absent(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-backup"})
+          for: {{ .Values.alerts.thresholds.backup.neverSucceededFor | default "26h" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM has never taken a successful backup"
+            description: "backup.enabled is true but no successful backup Job has ever been recorded in {{ .Values.alerts.thresholds.backup.neverSucceededFor | default "26h" }}. Either the CronJob is not running (suspended, or its Jobs are not being scheduled) or kube-state-metrics is not being scraped — in which case TruePPMBackupStale cannot fire either."
+{{- end }}
+    - name: trueppm.capacity
+      rules:
+        - alert: TruePPMVolumeFillingUp
+          # Covers every claim in the release namespace — database, Valkey,
+          # backups, media. A full PostgreSQL PVC is silent until it is an
+          # outage, and a full backup PVC turns every subsequent run into a
+          # failure the JobFailed rule reports only after the fact.
+          expr: >-
+            kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes * 100
+            < {{ .Values.alerts.thresholds.volumeAvailablePercent | default 15 }}
+          for: {{ .Values.alerts.thresholds.volumeAvailableFor | default "15m" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "PersistentVolume {{ "{{" }} $labels.persistentvolumeclaim {{ "}}" }} is filling up"
+            description: "{{ "{{" }} $labels.persistentvolumeclaim {{ "}}" }} has less than {{ .Values.alerts.thresholds.volumeAvailablePercent | default 15 }}% free for over {{ .Values.alerts.thresholds.volumeAvailableFor | default "15m" }}. Expand the claim before it fills."
 {{- end }}

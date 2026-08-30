@@ -1,24 +1,46 @@
-# Copy this file to docker-compose.override.yml for local development.
-# It adds live-reload bind mounts and exposes the database port for direct
-# inspection with tools like psql, TablePlus, or DBeaver.
+# Copy to docker-compose.override.yml for local development. Compose picks
+# `docker-compose.override.yml` up automatically alongside docker-compose.yml —
+# you never pass it with -f.
 #
 #   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# scripts/doctor.sh checks for the copied file and points here when it is absent.
+#
+# WHAT THIS IS FOR (#3189): the live-reload bind mounts this file used to carry
+# are already in docker-compose.yml, so those lines did nothing. What is NOT in
+# the base file — deliberately — is a database port published on all interfaces.
+# The base binds 127.0.0.1:5432, because `"5432:5432"` exposed a database with a
+# hardcoded password to the whole network, and Docker's published ports bypass
+# most host firewalls (the DOCKER chain is consulted before INPUT).
+#
+# So this file is now the opt-in for the handful of cases that genuinely need
+# more than loopback, and nothing else. Uncomment only what you need.
 
 services:
+  # A valid no-op, so copying this file before uncommenting anything still
+  # leaves `docker compose config` working. Compose rejects an empty
+  # `services:` mapping outright.
   api:
-    volumes:
-      - ./packages/api/src:/app/src
-    environment:
-      PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONUNBUFFERED: "1"
+    environment: {}
 
-  celery:
-    volumes:
-      - ./packages/api/src:/app/src
-    environment:
-      PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONUNBUFFERED: "1"
+  # Reach the dev database from ANOTHER machine — a colleague's psql, a GUI
+  # client on a different host, a VM. On a laptop you almost certainly do not
+  # need this: the base file's 127.0.0.1:5432 already serves local clients.
+  #
+  # The password is `trueppm`, in the repository. Do not enable this on a
+  # network you do not control.
+  # db:
+  #   ports:
+  #     - "5432:5432"
 
-  db:
-    ports:
-      - "5432:5432"
+  # Reach Valkey directly (redis-cli, RedisInsight). The dev stack publishes no
+  # host port for it at all by default.
+  # valkey:
+  #   ports:
+  #     - "127.0.0.1:6379:6379"
+
+  # Extra env for a debugging session, without editing the tracked file.
+  # api:
+  #   environment:
+  #     DJANGO_LOG_LEVEL: DEBUG
+  #     SQL_LOG_LEVEL: DEBUG

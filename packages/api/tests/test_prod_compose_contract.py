@@ -386,9 +386,11 @@ def test_tls_template_redirects_everything_else_to_https(tls_template: str) -> N
     ("setting", "why"),
     [
         (
-            "client_max_body_size 50M",
-            "a smaller cap rejects a valid .mpp upload with a bare 413 before the app "
-            "can name the limit (#2604)",
+            "client_max_body_size 110M",
+            "a smaller cap rejects a valid upload with a bare 413 before the app can "
+            "name the limit. 110M, not 50M, because the largest application cap is "
+            "the 100 MB attachment one and multipart framing pushes a legal 100 MB "
+            "body past a 100M ceiling (#2604, #3189)",
         ),
         (
             "proxy_pass         http://api:8000",
@@ -399,8 +401,15 @@ def test_tls_template_redirects_everything_else_to_https(tls_template: str) -> N
             "collected static is served by WhiteNoise behind this proxy (#2828)",
         ),
         (
-            "allow 127.0.0.1",
-            "/admin/ is restricted to loopback at the nginx layer",
+            "deny all;",
+            "/admin/ is closed at the nginx layer. This replaced an "
+            "`allow 127.0.0.1` that could never match — nginx tests $remote_addr, "
+            "which for a request through a published port is the Docker bridge "
+            "gateway — so the rule was absolute while reading as conditional "
+            "(#3189). Asserting the old string would now match the COMMENT that "
+            "explains its removal, and so would keep passing with the directive "
+            "itself deleted. The trailing semicolon is load-bearing for the same "
+            "reason: app.conf.template also names `deny all` in a comment",
         ),
     ],
 )

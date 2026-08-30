@@ -51,6 +51,35 @@ says is the fallback.
 Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The default secret key is public — anyone who knows it can forge session cookies and JWTs.
 :::
 
+### `TRUEPPM_ALLOW_DEV_SETTINGS` — the one variable that disables authentication
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `TRUEPPM_ALLOW_DEV_SETTINGS` | _(unset)_ | Set to `1` to permit `trueppm_api.settings.dev` to load outside a test runner. **Never set this on any instance reachable by anyone but you.** |
+
+`settings.dev` sets DRF's `DEFAULT_PERMISSION_CLASSES` to `AllowAny`,
+`ALLOWED_HOSTS` to `["*"]`, `DEBUG = True`, and a hardcoded integration
+encryption key. Loading it is not "development mode" — it removes
+authentication from **every** endpoint instance-wide.
+
+The module refuses to import unless one of four things is true: pytest is
+running, `pytest` or `mypy` is already imported, or `TRUEPPM_ALLOW_DEV_SETTINGS=1`
+is set. That guard is fail-closed and the default state is safe — an
+unconfigured container cannot load dev settings by accident. This variable is
+the only way to override it, which is exactly why it is documented here:
+
+- **Do not put it in a Helm values file, a Kubernetes Secret, a ConfigMap, or a
+  `.env` used by anything other than your workstation.** It has no legitimate
+  production use.
+- **Alarm on it.** If your configuration management or admission control can
+  reject a manifest containing this key, do that.
+- The safe way to run a local instance is `DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev`
+  in the dev compose stack, which sets it for you and binds to localhost.
+
+Setting it does not by itself load dev settings — `DJANGO_SETTINGS_MODULE` still
+has to name the dev module. It removes the interlock that would otherwise stop
+that combination.
+
 ### Host names you must include
 
 Django validates the `Host` header in `get_host()`, before any view runs, and
@@ -150,7 +179,7 @@ is never appropriate in production — list the names instead.
 | `TRUEPPM_SYNC_PULL_PAGE_SIZE` | `1000` | Default page size for the offline delta **pull** (`since=` cursor). Bounds a cold-start sync (`since=0`) to this many rows per response instead of materializing an entire project into one unbounded multi-MB payload; the client loops on the returned cursor for the rest. |
 | `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE` | `5000` | Hard ceiling on a client-requested `page_size` for the sync pull. Clamps a caller-supplied page size so a single request can never re-open the unbounded-response cliff `TRUEPPM_SYNC_PULL_PAGE_SIZE` exists to close. |
 | `RETENTION_PURGE_INFLIGHT_SECONDS` | `600` | Lock TTL (seconds) guarding against overlapping retention-purge runs. See [Retention](/administration/retention/). |
-| `TRUEPPM_BEAT_STALE_SECONDS` | `120` | Age (seconds) after which the last Celery-beat heartbeat is considered stale by `/health/beat/`. See [Durability](/administration/durability/). |
+| `TRUEPPM_BEAT_STALE_SECONDS` | `120` | Age (seconds) after which the last Celery-beat heartbeat is considered stale by `/health/beat/`. See [Beat Liveness](/administration/beat-liveness/). |
 | `TRUEPPM_READYZ_ALLOW_DB_AHEAD` | `false` | Ships in 0.4. Lets `/api/v1/readyz` report **ready** on a pod that *booted* against a database recording migrations it does not ship (`migration_state: ahead`) — the state a deliberate image-only rollback produces. Only that boot-time case is gated; a pod that drifts to `ahead` mid-rolling-upgrade stays ready regardless of this setting. Off by default because the probe cannot tell an additive rollback from a destructive one; set it to `true` only after classifying the release's migrations as additive, and return it to `false` once you have rolled forward. It never suppresses the `behind` gate, the drift is still reported in `migration_state`, and each pod logs a WARNING once when the override first takes effect. See [Rollback](/getting-started/upgrade/#rollback). |
 | `TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS` | `300` | Age (seconds) past which a connected personal external source (e.g. Jira, see [Connected Accounts](/features/connected-accounts/)) is considered stale enough that opening My Work enqueues a background refresh pull. Raise this on a rate-sensitive token; the pull never blocks the My Work response either way. |
 | `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` | _(empty)_ | Comma-separated allow-list of **self-hosted** integration hosts a user's [Connected Account](/features/connected-accounts/) credential may be sent to — GitHub Enterprise / GitLab CE for task links, and **self-hosted Jira Data Center / Server** for personal read-only sync. Atlassian Cloud (`*.atlassian.net`) and github.com / gitlab.com are always allowed and need no entry. This is a security gate: a personal access token is only ever put on the wire toward a host on this list, so a user cannot be tricked into exfiltrating their PAT to an arbitrary host (host is matched by name, e.g. `jira.example.com`). Bound as the `INTEGRATION_ALLOWED_HOSTS` Django setting. **This list governs only where a token may be sent — it does not by itself make a private host reachable.** The outbound-request SSRF guard independently blocks any host resolving to a private/internal address, so an **internal-only** Data Center / GitLab CE instance must **also** be named in `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` (see the row above). A host reachable over a public IP needs nothing beyond this setting. Both variables are exact hostname matches, so the same host string goes in each. |

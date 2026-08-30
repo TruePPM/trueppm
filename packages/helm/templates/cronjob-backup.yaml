@@ -31,6 +31,12 @@ only ever print a note about the bucket instead of writing to it (#2611).
 - name: MEDIA_DIR
   value: {{ .Values.backup.mediaDir | quote }}
 {{- end }}
+# Named in the MANIFEST as the INTENDED destination, exactly as scripts/backup.sh
+# records it (#3185). The manifest is sealed inside the tarball before the upload
+# container can run, so this is a statement of intent — but a failed upload fails
+# the Job, so a bucket named here on an artifact you downloaded did receive it.
+- name: S3_BUCKET
+  value: {{ .Values.backup.s3.bucket | quote }}
 {{- end -}}
 
 {{- define "trueppm.backup.s3Env" -}}
@@ -105,14 +111,42 @@ racing a concurrent write.
   echo "dumping database..."
   pg_dump --format=custom --no-owner --no-privileges \
     -d "$DATABASE_URL" -f "$STAGE/db.dump"
+  # Media, mirroring scripts/backup.sh's four cases so the manifest can state
+  # which one happened (#3185). No `|| true` here: the script has none either,
+  # and swallowing a tar failure produces an artifact that claims to carry media
+  # and does not — the one error a restorer cannot detect until they need it.
   if [ -n "${MEDIA_DIR:-}" ] && [ -d "${MEDIA_DIR}" ]; then
-    echo "archiving media ${MEDIA_DIR}..."
-    tar -czf "$STAGE/media.tar.gz" -C "$MEDIA_DIR" . || true
+    if find "$MEDIA_DIR" -mindepth 1 -print -quit | grep -q .; then
+      echo "archiving media ${MEDIA_DIR}..."
+      tar -czf "$STAGE/media.tar.gz" -C "$MEDIA_DIR" .
+      MEDIA_INCLUDED="yes (${MEDIA_DIR})"
+    else
+      echo "media directory ${MEDIA_DIR} is empty — skipping"
+      MEDIA_INCLUDED="no (empty)"
+    fi
+  elif [ -n "${MEDIA_DIR:-}" ]; then
+    echo "media directory ${MEDIA_DIR} does not exist — skipping"
+    MEDIA_INCLUDED="no (absent)"
+  else
+    echo "no media directory configured (object-storage backend?) — skipping media"
+    MEDIA_INCLUDED="no (not configured)"
   fi
+  # Same field set as scripts/backup.sh's manifest. A restorer reads this to
+  # answer "is media inside this artifact?" — with only created_utc and
+  # pg_dump_version they could not, and the two producers disagreeing about
+  # the format is the same problem one step later.
   {
     echo "TruePPM backup manifest"
     echo "created_utc: $TS"
+    echo "run_context: helm-cronjob"
     echo "pg_dump_version: $(pg_dump --version | head -n1)"
+    echo "db_included: yes"
+    echo "media_included: ${MEDIA_INCLUDED}"
+    # The CronJob has no redis-cli and no route to the Valkey RDB file; a
+    # Redis snapshot is a scripts/backup.sh --redis affordance only. Stated
+    # rather than omitted so the absence is a fact in the artifact.
+    echo "redis_included: no (not supported by the CronJob)"
+    echo "s3_destination: ${S3_BUCKET:-none}"
   } > "$STAGE/MANIFEST"
   tar -czf "$ART" -C "$STAGE" .
   echo "backup written: $ART"
@@ -210,6 +244,29 @@ repo. Keep the two heuristics in sync if either changes (#2650).
 {{- end -}}
 
 {{- if .Values.backup.enabled }}
+
+{{/*
+A backup with nowhere durable to write is worse than no backup: the `backups`
+volume falls back to an emptyDir, the job dumps, exits 0, the artifact dies with
+the pod, and the CronJob reports success forever (#3185). The only previous
+guard was a comment in values.yaml, and a comment cannot fail a render.
+
+Four destinations count, and they compose:
+  persistence.enabled     a chart-managed PVC
+  persistence.existingClaim  a claim the operator manages
+  s3.enabled              an off-cluster bucket (the local copy is staging)
+  extraVolumes            the operator's own volume — but ONLY when mediaDir is
+                          set, because that is the sole condition under which
+                          the template actually renders them
+That last condition is why `extraVolumes` alone is not accepted here: without
+mediaDir the entry is silently dropped and the emptyDir comes back.
+*/}}
+{{- $hasClaim := or .Values.backup.persistence.enabled .Values.backup.persistence.existingClaim -}}
+{{- $hasOwnVolume := and .Values.backup.mediaDir .Values.backup.extraVolumes -}}
+{{- if not (or $hasClaim .Values.backup.s3.enabled $hasOwnVolume) -}}
+{{- fail "backup.enabled is true but no destination is configured, so the artifact would be written to an emptyDir and discarded when the Job pod exits — while the CronJob reports success. Set one of: backup.persistence.enabled=true (chart-managed PVC), backup.persistence.existingClaim (your own claim), backup.s3.enabled=true (off-cluster bucket), or backup.extraVolumes together with backup.mediaDir (your own volume; extraVolumes is ignored unless mediaDir is set)." -}}
+{{- end }}
+
 {{- if .Values.backup.persistence.enabled }}
 {{- if not .Values.backup.persistence.existingClaim }}
 apiVersion: v1
