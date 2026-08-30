@@ -277,7 +277,7 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(screen.getByRole('textbox', { name: /^name/i })).toHaveFocus();
   });
 
-  it('does not scroll the way cards off the top to reach that focus (rule 356)', () => {
+  it('does not scroll the way cards off the top to reach that focus (rule 358)', () => {
     // Name is no longer the sheet's first control, and `focus()` defaults to
     // scrolling every scrollable ancestor until its target is visible — which on a
     // short viewport would scroll the way-in cards, the thing the reorder exists to
