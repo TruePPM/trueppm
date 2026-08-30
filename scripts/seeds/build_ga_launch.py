@@ -138,6 +138,62 @@ LABELS = [
 ]
 
 
+# Agile overlay for the marketing workstream, keyed by wbs_path. Module-level so
+# the row builder below is a plain function rather than a closure.
+_STORY_POINTS = {"1": 5, "2": 8, "3": 5, "4": 5}
+_SPRINT_OF = {"1": "ga-s1", "2": "ga-s1", "3": "ga-s2", "4": "ga-s2", "5": "ga-s2"}
+_REMAINING = {"3": 2}
+
+
+def _put_agile_fields(task: dict, wbs: str, dur: int) -> None:
+    """Add the scrum-only fields. A zero-duration row is a gate, not a story."""
+    task["type"] = "story" if dur else "task"
+    if wbs in _STORY_POINTS:
+        task["story_points"] = _STORY_POINTS[wbs]
+    task["sprint"] = _SPRINT_OF[wbs]
+    if wbs in _REMAINING:
+        task["remaining_points"] = _REMAINING[wbs]
+
+
+def _task_row(row: tuple, *, agile: bool) -> dict:
+    """Build one task block from a (wbs, name, day, dur, ...) tuple.
+
+    Key insertion order is the order these land in ``ga-launch.json``, which is
+    committed — so the sequence of assignments below is part of the output, not
+    a style choice.
+    """
+    wbs, name, day, dur, status, pct, labels, assignee, allocs = row
+    task: dict = {
+        "wbs_path": wbs,
+        "name": name,
+        "status": status,
+        "planned_start": d(day),
+        "assignee": assignee,
+        "governance_class": "gated" if "gate" in labels else "flow",
+    }
+    if dur == 0:
+        task["is_milestone"] = True
+        task["delivery_mode"] = "milestone"
+    else:
+        task["duration"] = dur
+        task["delivery_mode"] = "scrum" if agile else "waterfall"
+    if agile:
+        _put_agile_fields(task, wbs, dur)
+    if status == "COMPLETE":
+        task["percent_complete"] = 100.0
+    elif pct is not None:
+        task["percent_complete"] = pct
+    if labels:
+        task["labels"] = labels
+    if allocs:
+        task["assignments"] = [{"resource": r, "units": u} for r, u in allocs]
+    return task
+
+
+def _tasks(rows: list, *, agile: bool = False) -> list[dict]:
+    return [_task_row(row, agile=agile) for row in rows]
+
+
 def build_ga_launch() -> dict:
     """Assemble the whole pack."""
     # (wbs, name, day, duration, status, pct, labels, assignee, [(resource, units)])
@@ -352,45 +408,6 @@ def build_ga_launch() -> dict:
             [],
         ),
     ]
-
-    story_points = {"1": 5, "2": 8, "3": 5, "4": 5}
-    sprint_of = {"1": "ga-s1", "2": "ga-s1", "3": "ga-s2", "4": "ga-s2", "5": "ga-s2"}
-    remaining = {"3": 2}
-
-    def _tasks(rows: list, *, agile: bool = False) -> list[dict]:
-        out: list[dict] = []
-        for wbs, name, day, dur, status, pct, labels, assignee, allocs in rows:
-            task: dict = {
-                "wbs_path": wbs,
-                "name": name,
-                "status": status,
-                "planned_start": d(day),
-                "assignee": assignee,
-                "governance_class": "gated" if "gate" in labels else "flow",
-            }
-            if dur == 0:
-                task["is_milestone"] = True
-                task["delivery_mode"] = "milestone"
-            else:
-                task["duration"] = dur
-                task["delivery_mode"] = "scrum" if agile else "waterfall"
-            if agile:
-                task["type"] = "story" if dur else "task"
-                if wbs in story_points:
-                    task["story_points"] = story_points[wbs]
-                task["sprint"] = sprint_of[wbs]
-                if wbs in remaining:
-                    task["remaining_points"] = remaining[wbs]
-            if status == "COMPLETE":
-                task["percent_complete"] = 100.0
-            elif pct is not None:
-                task["percent_complete"] = pct
-            if labels:
-                task["labels"] = labels
-            if allocs:
-                task["assignments"] = [{"resource": r, "units": u} for r, u in allocs]
-            out.append(task)
-        return out
 
     def _deps(pairs: list[tuple[str, str, str]]) -> list[dict]:
         return [
