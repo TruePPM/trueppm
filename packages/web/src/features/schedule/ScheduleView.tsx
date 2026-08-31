@@ -3840,6 +3840,21 @@ export function ScheduleView() {
       // Alt+A Author/Read toggle (#2727, ADR-0776 §5).
       out['alt+a'] = (e) => {
         e.preventDefault();
+        // Stated, never silent (rule 311(c)). The pointer path announces itself
+        // for free — focus sits on the `menuitemcheckbox` whose `aria-checked`
+        // flips — but the chord had no feedback at all, and #3263 made that
+        // acute rather than academic: merging the two pills lengthened the
+        // pointer path, so the mode chip's own accessible name now routes people
+        // HERE. Steering someone onto the one path with no confirmation, when
+        // the consequence is that every authoring control silently goes
+        // `disabled`, is the shape rule 311(c) exists to stop.
+        const next = authorMode.mode === 'read' ? 'author' : 'read';
+        const said =
+          next === 'read'
+            ? 'Read mode. Edits are blocked.'
+            : 'Author mode. Edits are allowed.';
+        if (ariaLiveRef.current) ariaLiveRef.current.textContent = said;
+        setScheduleActionToast({ message: said });
         toggleAuthorMode();
       };
       // ⌘⇧M / Ctrl+Shift+M (#2736): declare the hybrid split for the focused
@@ -4003,6 +4018,8 @@ export function ScheduleView() {
     handleUngroupRow,
     buildModeActive,
     toggleAuthorMode,
+    authorMode.mode,
+    setScheduleActionToast,
     focus,
     visibleTasks,
     resourcePool,
@@ -5867,7 +5884,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                     // `+ Item`, so listing it as "always in the toolbar" would
                     // be a claim about a control that is not there.
                     label: hasEditRights
-                      ? 'Item, Grid / Timeline, Display, ···'
+                      ? 'Item, Grid / Timeline, Display, ···, mode'
                       : 'Grid / Timeline, Display, ···',
                     sub: 'Always in the toolbar.',
                     checked: true,
@@ -5876,10 +5893,15 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                   },
                   {
                     id: 'locked-state',
-                    label: hasEditRights
-                      ? 'Zoom, mode, engine status'
-                      : 'Zoom, engine status',
-                    sub: 'Always present; collapse to a chip when narrow.',
+                    // `mode` moved up to the tier-A row in #3263 and is no longer
+                    // in this one's ternary — it is one chip at every width now,
+                    // so "collapse when narrow" stopped being true of it. This
+                    // popover is the product's only answer to "where did my
+                    // button go" (rule 343(f)), so a stale sentence here sends
+                    // someone resizing a window for a shape change that will
+                    // never come.
+                    label: 'Zoom, engine status',
+                    sub: 'Always present; collapse when narrow.',
                     checked: true,
                     where: 'always',
                     locked: true,

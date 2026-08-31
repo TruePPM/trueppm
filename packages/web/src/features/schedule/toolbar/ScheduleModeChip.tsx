@@ -42,17 +42,26 @@ export function ScheduleModeChip({
 }: ScheduleModeChipProps) {
   const isRead = mode === 'read';
   const modeWord = isRead ? 'Read' : 'Author';
+  // Derived, never spelled — the same rule 326(b)/339(b) reason as the menu row
+  // below. A hard-coded "Alt+A" here would have a Mac user HEAR "Alt+A" from the
+  // trigger and READ "⌥A" from the row two lines down, for one binding.
+  const chord = formatChord('alt+a');
 
   return (
     <ToolbarOverflowMenu
       triggerTestId="schedule-mode-chip"
+      // The chord belongs on the trigger too, not only on the row inside the
+      // popover: rule 343(f) requires a control keep its name AND its
+      // `aria-keyshortcuts`, and a chord you must open a menu to discover is not
+      // discoverable from the control.
+      triggerAriaKeyShortcuts="Alt+A"
       // States the consequence, not just the state: "Read" alone does not tell
-      // a screen-reader user that their edits are blocked, and Alt+A is the
-      // one-keystroke way out that the pointer path costs two clicks.
+      // a screen-reader user that their edits are blocked, and the chord is the
+      // one-keystroke way out that the pointer path costs two interactions.
       triggerAriaLabel={
         isRead
-          ? 'Mode: Read — edits are blocked. Alt+A switches to Author.'
-          : 'Mode: Author — edits are allowed. Alt+A switches to Read.'
+          ? `Mode: Read — edits are blocked. ${chord} switches to Author.`
+          : `Mode: Author — edits are allowed. ${chord} switches to Read.`
       }
       // No leading glyph. The word *is* the signal (rule 6 — colour is never
       // the sole carrier), and there is no house icon for "read" —
@@ -82,10 +91,11 @@ export function ScheduleModeChip({
           label: 'Author mode',
           checked: !isRead,
           onChange: onToggleMode,
-          // Derived, never spelled: a literal chord tells every Windows and
-          // Linux user the Mac binding on the one surface they cannot correct
-          // it against (rule 326(b)/339(b)).
-          shortcut: formatChord('alt+a'),
+          // The only checkbox in this menu, so "stay open to toggle several"
+          // buys nothing and costs a third interaction — and an open popover
+          // covers the trigger whose value just changed.
+          closeOnChange: true,
+          shortcut: chord,
           ariaKeyShortcuts: 'Alt+A',
         },
         {
