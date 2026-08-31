@@ -5,14 +5,20 @@
  * rows) rather than a dropdown.
  *
  * No project/methodology context here (this page is global), so every hideable
- * view is listed and "Reset to default" clears the whole personal set. Overview
- * is shown as a static always-on row. Optimistic local state, reverted on error,
- * mirroring the page's landing-preference pattern.
+ * view is listed and "Reset to default" clears the whole personal set. The always-on
+ * views (Dashboard, Settings) are shown as static rows — they are band members since
+ * ADR-0942 but not in `HIDEABLE_VIEW_KEYS`, and a toggle for either would emit a PATCH
+ * the server rejects with a 400. Optimistic local state, reverted on error, mirroring
+ * the page's landing-preference pattern.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUpdateHiddenViews } from '@/hooks/useUpdateHiddenViews';
-import { VIEW_GROUPS, STANDALONE_LEADING } from '@/features/shell/methodologyTabs';
+import {
+  VIEW_GROUPS,
+  ALWAYS_ON_VIEW_KEYS,
+  HIDEABLE_VIEW_KEYS,
+} from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import { Toggle } from '@/features/settings/components/Toggle';
 
@@ -54,6 +60,15 @@ export function ViewVisibilitySection() {
 
   const canReset = effectiveHidden.length > 0;
 
+  // Settings is always-on but ADMIN-gated, so for a member it is not shown at all —
+  // and "always shown" would be a capability claim that is false for them. Same gate
+  // the shell's ViewsMenu and the rail composition apply; strict `!== false` so the row
+  // does not flash away while `/auth/me/` is still in flight (#2033).
+  const canAccessProjectSettings = user?.can_access_admin_settings !== false;
+  const alwaysOnViews = [...ALWAYS_ON_VIEW_KEYS].filter(
+    (view) => view !== 'settings' || canAccessProjectSettings,
+  );
+
   return (
     <section
       aria-labelledby="view-visibility-heading"
@@ -77,33 +92,43 @@ export function ViewVisibilitySection() {
         <p className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
           Always on
         </p>
-        <p className="text-sm text-neutral-text-secondary">
-          {VIEW_TAB_META[STANDALONE_LEADING].label} — always shown
-        </p>
+        {alwaysOnViews.map((view) => (
+          <p key={view} className="text-sm text-neutral-text-secondary">
+            {VIEW_TAB_META[view]?.label ?? view} &mdash; always shown
+          </p>
+        ))}
       </div>
 
-      {VIEW_GROUPS.map((group) => (
-        <div key={group.id} className="flex flex-col gap-2">
-          <p className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
-            {group.id}
-          </p>
-          {group.views.map((view) => {
-            const visible = !hiddenSet.has(view);
-            const label = VIEW_TAB_META[view]?.label ?? view;
-            return (
-              <Toggle
-                key={view}
-                on={visible}
-                onChange={() => toggle(view)}
-                onLabel={label}
-                offLabel={label}
-                ariaLabel={`${label} — ${visible ? 'shown' : 'hidden'}`}
-                disabled={!user}
-              />
-            );
-          })}
-        </div>
-      ))}
+      {/* Bands, minus the always-on members — `HIDEABLE_VIEW_KEYS` is the authored
+          vocabulary (ADR-0942 §6), never band membership. A band left with no hideable
+          member renders nothing rather than a bare header. */}
+      {VIEW_GROUPS.map((group) => ({
+        ...group,
+        views: group.views.filter((v) => HIDEABLE_VIEW_KEYS.has(v)),
+      }))
+        .filter((group) => group.views.length > 0)
+        .map((group) => (
+          <div key={group.id} className="flex flex-col gap-2">
+            <p className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+              {group.id}
+            </p>
+            {group.views.map((view) => {
+              const visible = !hiddenSet.has(view);
+              const label = VIEW_TAB_META[view]?.label ?? view;
+              return (
+                <Toggle
+                  key={view}
+                  on={visible}
+                  onChange={() => toggle(view)}
+                  onLabel={label}
+                  offLabel={label}
+                  ariaLabel={`${label} — ${visible ? 'shown' : 'hidden'}`}
+                  disabled={!user}
+                />
+              );
+            })}
+          </div>
+        ))}
 
       <div>
         <button

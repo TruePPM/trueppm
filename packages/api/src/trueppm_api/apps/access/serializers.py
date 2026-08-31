@@ -512,11 +512,6 @@ class MeSerializer(serializers.Serializer[Any]):
     # It NEVER gates access — RBAC remains the sole authority; this is read here
     # only so the lens can be reflected without a flash of the wrong view.
     role_context = serializers.SerializerMethodField()
-    # Per-user view *placement* opt-in (ADR-0203, #1645). Presentation-only: the
-    # web shell reads this to *additionally* surface Schedule under Deliver. Like
-    # the other prefs it is a server fact (identical for web, mobile, MCP) and
-    # never gates access — it only re-groups a nav tab.
-    schedule_in_deliver = serializers.SerializerMethodField()
     # Account-wide Do-Not-Disturb (#1707, ADR-0292). Read-only projection so the
     # web current-user query carries the DND state and the bell reflects it with no
     # extra request; the authoritative read/write surface is
@@ -563,15 +558,15 @@ class MeSerializer(serializers.Serializer[Any]):
             ws is not None and ws >= WorkspaceRole.ADMIN
         )
 
-    def _prefs(self, obj: Any) -> tuple[str, list[str], str, bool, str, str]:
+    def _prefs(self, obj: Any) -> tuple[str, list[str], str, str, str]:
         # Memoized single read of (default_landing, hidden_views, role_context,
-        # schedule_in_deliver, timezone, date_format): every pref getter needs a
-        # UserProfile column, so reading them in one .only() query keeps /auth/me at
-        # one profile read regardless of how many fields consume it.
+        # timezone, date_format): every pref getter needs a UserProfile column, so
+        # reading them in one .only() query keeps /auth/me at one profile read
+        # regardless of how many fields consume it.
         if not hasattr(self, "_prefs_cache"):
             from trueppm_api.apps.profiles.services import get_profile_prefs
 
-            self._prefs_cache: tuple[str, list[str], str, bool, str, str] = get_profile_prefs(obj)
+            self._prefs_cache: tuple[str, list[str], str, str, str] = get_profile_prefs(obj)
         return self._prefs_cache
 
     def get_default_landing(self, obj: Any) -> str:
@@ -617,19 +612,16 @@ class MeSerializer(serializers.Serializer[Any]):
     def get_role_context(self, obj: Any) -> str:
         return self._prefs(obj)[2]
 
-    def get_schedule_in_deliver(self, obj: Any) -> bool:
-        return self._prefs(obj)[3]
-
     @extend_schema_field(serializers.CharField())
     def get_timezone(self, obj: Any) -> str:
-        return self._prefs(obj)[4]
+        return self._prefs(obj)[3]
 
     # Reuse the model's own choices (not a hardcoded copy) so drf-spectacular
     # collapses this and UserProfileSerializer.date_format into one shared
     # ``DateFormatEnum`` component instead of divergent Me/UserProfile duplicates.
     @extend_schema_field(serializers.ChoiceField(choices=DateFormat.choices))
     def get_date_format(self, obj: Any) -> str:
-        return self._prefs(obj)[5]
+        return self._prefs(obj)[4]
 
     @extend_schema_field(serializers.BooleanField())
     def get_dnd_enabled(self, obj: Any) -> bool:

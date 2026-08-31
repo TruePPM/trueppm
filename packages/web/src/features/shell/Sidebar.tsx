@@ -111,10 +111,18 @@ const GROUP_LABEL_TEXT = 'text-xs font-semibold uppercase tracking-widest';
 const GROUP_LABEL = `px-3 pt-3 pb-1 ${GROUP_LABEL_TEXT} text-chrome-text-secondary`;
 
 // Active vs idle nav row (rule 37: 2px left border + sage tint fill).
-function rowClass(active: boolean): string {
+//
+// `onRaisedGround` swaps only the focus ring's OFFSET colour. The ring offset is a 1px
+// gap painted in a solid colour, so it has to match whatever the row actually sits on;
+// on the WORKSPACE scope band that is `chrome-surface-raised`, and leaving the default
+// would paint a hairline of the rail's ground inside the band as a mismatched halo.
+// Everything else is identical by design (ADR-0942 §2) — a scope band's rows differ
+// from a verb band's in nothing a user can see.
+function rowClass(active: boolean, onRaisedGround = false): string {
   return [
     'group flex items-center gap-2 w-full pl-2.5 pr-2 py-2 rounded-control text-sm transition-colors',
-    'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
+    'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+    onRaisedGround ? 'focus:ring-offset-chrome-surface-raised' : 'focus:ring-offset-chrome-surface',
     active
       ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
       : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
@@ -1328,24 +1336,9 @@ function ProjectViewsTier({
   isDrawer: boolean;
   onClose?: () => void;
 }) {
-  const { groups, labelFor, standaloneLeading, standaloneTrailing } =
-    useGroupedProjectViews(projectId);
+  const { groups, labelFor } = useGroupedProjectViews(projectId);
   const project = useProject(projectId);
   const { data: programs } = usePrograms();
-  const { user } = useCurrentUser();
-  // The Settings row targets `/projects/:id/settings`. It used to be hidden from a
-  // non-admin because `RequireAdminSettings` would bounce them to personal
-  // notification prefs (#2147); since #2971 that route admits them and renders a
-  // reduced member rail, so the redirect justification no longer holds.
-  //
-  // The row stays gated anyway, on a different and narrower reason: this is
-  // persistent chrome, and the member rail is currently ONE row. Promoting a
-  // permanent nav entry for a single section would overstate it. A member reaches
-  // that section through the account menu, which points them straight at its anchor.
-  // When the member rail grows past a row or two, un-gate this and delete the note.
-  // Strict `!== false` so it stays visible while the role signal loads and never
-  // flash-hides for an admin (mirrors #2033).
-  const canAccessProjectSettings = user?.can_access_admin_settings !== false;
 
   const name = project.data?.name ?? 'Project';
   const programId = project.data?.program ?? null;
@@ -1370,13 +1363,39 @@ function ProjectViewsTier({
   );
   const methodologyShort = methodologyStatusLabel(effectiveMethodology);
   const subtitleTitle = programName ? `${programName} · ${methodologyFull}` : methodologyFull;
-  const OverviewIcon = VIEW_TAB_META[standaloneLeading].Icon;
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
   };
 
+  // One row renderer for both band kinds. ADR-0942 §2 is emphatic that a scope band's
+  // rows are IDENTICAL to a verb band's — same type, weight, color, height, icon and
+  // active state — because the distinction is carried by the container (rule + raised
+  // ground + pinned position), never by contrast, size, weight or opacity. Each of those
+  // reads as "less important" in DS v1.0 and three of them read as "unavailable"; Settings
+  // is neither. Sharing the renderer is what makes that impossible to drift.
+  const viewRow = (view: string, onRaisedGround = false) => {
+    const Icon = VIEW_TAB_META[view].Icon;
+    return (
+      <NavLink
+        key={view}
+        to={`/projects/${projectId}/${view}`}
+        onClick={closeDrawer}
+        className={({ isActive }) => rowClass(isActive, onRaisedGround)}
+      >
+        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate">{labelFor(view)}</span>
+      </NavLink>
+    );
+  };
+
   return (
-    <>
+    // A full-height flex column so the WORKSPACE scope band's `mt-auto` resolves against
+    // the RAIL's height rather than the content's: the band pins to the bottom on a short
+    // project and stays at the end of the flow on a tall one (ADR-0942 §2). `min-h-full`
+    // (not `h-full`) so overflowing content still grows the column and scrolls instead of
+    // being clipped. Desktop only — in the drawer the whole wrapper is one scroll region
+    // (#1688) with no definite height for the percentage to resolve against.
+    <div className={isDrawer ? undefined : 'flex min-h-full flex-col'}>
       {/* Header row — the "This project" label plus the relocated Customize-views
           control (#1680): a `flex-wrap justify-between` row so ViewsMenu's gear sits
           at the right and its in-flow `basis-full` panel wraps to a full-width line
@@ -1421,68 +1440,68 @@ function ProjectViewsTier({
         </span>
       </div>
 
-      {/* The project view links (Overview + grouped views) live in their own `View`
-          navigation landmark — the same name the TopBar's view-tab strip carried
-          before #1643 removed it. Moving the landmark here (the rail now owns view
-          switching, #1642) keeps the one canonical `View` nav in the tree, so the
-          leaf in the top bar stays a plain label, not a second view nav (rule 172). */}
-      <nav aria-label="View">
-        {/* Overview leads standalone (no group label). */}
-        <NavLink
-          to={`/projects/${projectId}/overview`}
-          onClick={closeDrawer}
-          className={({ isActive }) => rowClass(isActive)}
-        >
-          <OverviewIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 truncate">{labelFor(standaloneLeading)}</span>
-        </NavLink>
+      {/* The project view links live in their own `View` navigation landmark — the same
+          name the TopBar's view-tab strip carried before #1643 removed it. Moving the
+          landmark here (the rail now owns view switching, #1642) keeps the one canonical
+          `View` nav in the tree, so the leaf in the top bar stays a plain label, not a
+          second view nav (rule 172). ADR-0942 correction A: ONE landmark — the scope band
+          is a labelled `role="group"` inside it, never a second `<nav>`.
 
-        {/* Grouped views (PLAN / DELIVER / TRACK / PEOPLE). The visible mono header
-            is aria-hidden so the group name is not double-read (rule 172/171). */}
-        {groups.map((group) => (
-          <div key={group.id} role="group" aria-label={`${group.label} views`}>
-            <h2 aria-hidden="true" className={GROUP_LABEL}>
-              {group.id}
-            </h2>
-            {group.visibleViews.map((view) => {
-              const Icon = VIEW_TAB_META[view].Icon;
-              return (
-                <NavLink
-                  key={view}
-                  to={`/projects/${projectId}/${view}`}
-                  onClick={closeDrawer}
-                  className={({ isActive }) => rowClass(isActive)}
-                >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  <span className="min-w-0 truncate">{labelFor(view)}</span>
-                </NavLink>
-              );
-            })}
-          </div>
-        ))}
+          `flex flex-1 flex-col` so the scope band's `mt-auto` has something to push
+          against: its position is a function of the rail's height, never of how many
+          bands sit above it (ADR-0942 §2). Drop DELIVER, rename everything, add a band —
+          the footer does not move. */}
+      <nav aria-label="View" className="flex flex-1 flex-col">
+        {/* Verb bands (PLAN / DELIVER / TRACK) in lifecycle order. The visible mono header
+            is aria-hidden so the band name is not double-read (rule 172/171) — the
+            accessible name is the sentence-case `label`, never the uppercase DOM string
+            and never the configurable iteration term (ADR-0942 §11 correction B). */}
+        {groups
+          .filter((group) => group.kind === 'verb')
+          .map((group) => (
+            <div key={group.id} role="group" aria-label={`${group.label} views`}>
+              <h2 aria-hidden="true" className={GROUP_LABEL}>
+                {group.id}
+              </h2>
+              {group.visibleViews.map((view) => viewRow(view))}
+            </div>
+          ))}
 
-        {/* Settings trails standalone (no group label), mirroring the program tier's
-            `PROGRAM_VIEWS` Settings row (#2045). Without it the two Tier-2 siblings
-            diverge and desktop project settings (members/access, working calendars —
-            a getting-started step) is reachable only via the UserMenu. Hidden for
-            non-admins — see `canAccessProjectSettings` above for why that outlived
-            the #2147 redirect it was originally written for (#2971). */}
-        {canAccessProjectSettings &&
-          (() => {
-            const SettingsIcon = VIEW_TAB_META[standaloneTrailing].Icon;
-            return (
-              <NavLink
-                to={`/projects/${projectId}/${standaloneTrailing}`}
-                onClick={closeDrawer}
-                className={({ isActive }) => rowClass(isActive)}
-              >
-                <SettingsIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 truncate">{labelFor(standaloneTrailing)}</span>
-              </NavLink>
-            );
-          })()}
+        {/* WORKSPACE — the scope band (ADR-0942 §2/§11). The rail's flow *ends* at it:
+            `mt-auto` pins it to the bottom, a full-bleed rule (`-mx-2`, run past the
+            rail's 8px inset) is the rail's ONLY rule so it means exactly one thing, and
+            `bg-chrome-surface-raised` lifts the ground in both themes (1.10:1 light,
+            1.14:1 dark) with no theme-specific override. It must be the CHROME ramp: the
+            rail is painted `chrome-surface`, so the `neutral-*` sibling ADR-0942 §11
+            originally named is a cross-family non-step — 1.01:1 in light theme (rule 365). `sticky bottom-0` keeps it out of the scrolling
+            sequence when the verb bands overflow the rail (the Tier-2 nav is the desktop
+            scroll region); `max-h-[40%]` with its own scroll caps it so a future third
+            member can never eat the rail.
+
+            Deliberately NOT dimmed, shrunk, or bordered as a card: each of those encodes
+            rank or unavailability, and a self-hoster lives in Settings in week one.
+            `neutral-text-disabled` is banned from this band.
+
+            Both members are independently gated in `useGroupedProjectViews`, so the band
+            renders with both, either, or neither — and when neither survives the whole
+            container is absent, rule and ground included (the empty-band rule). */}
+        {groups
+          .filter((group) => group.kind === 'scope')
+          .map((group) => (
+            <div
+              key={group.id}
+              role="group"
+              aria-label={`${group.label} views`}
+              className="-mx-2 mt-auto max-h-[40vh] overflow-y-auto border-t border-chrome-border/25 bg-chrome-surface-raised px-2 pb-2 md:sticky md:bottom-0"
+            >
+              <h2 aria-hidden="true" className={GROUP_LABEL}>
+                {group.id}
+              </h2>
+              {group.visibleViews.map((view) => viewRow(view, true))}
+            </div>
+          ))}
       </nav>
-    </>
+    </div>
   );
 }
 

@@ -1,10 +1,4 @@
-import {
-  createBrowserRouter,
-  Navigate,
-  Outlet,
-  useNavigate,
-  type RouteObject,
-} from 'react-router';
+import { createBrowserRouter, Navigate, Outlet, useNavigate, type RouteObject } from 'react-router';
 import { lazy, Suspense, useEffect } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
@@ -538,7 +532,10 @@ export const routes: RouteObject[] = [
                         <ProjectOverviewPage />
                       </Suspense>
                     ),
-                    handle: { title: 'Overview' } satisfies RouteHandle,
+                    // Must match VIEW_TAB_META.overview.label — this feeds document.title
+                    // AND the RouteAnnouncer live region, so a mismatch announces a
+                    // different word than the link the user just activated (WCAG 3.2.4).
+                    handle: { title: 'Dashboard' } satisfies RouteHandle,
                   },
                   {
                     // Unified Today split view (ADR-0180) — the `unified` lens lands here.

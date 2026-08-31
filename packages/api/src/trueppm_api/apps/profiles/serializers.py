@@ -17,8 +17,7 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
     model fields' ``choices`` (DRF rejects an out-of-range value with 400).
     ``hidden_views`` is a bounded list of canonical view keys (ADR-0139);
     ``validate_hidden_views`` rejects unknown keys and de-duplicates.
-    ``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):
-    a display-only boolean that additionally surfaces Schedule under Deliver.
+    ``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).
     ``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):
     ``date_format`` choice validation is enforced by the model field's ``choices``;
     ``timezone`` is validated below against stdlib ``zoneinfo`` (``"auto"`` accepted).
@@ -33,13 +32,40 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         required=False,
     )
 
+    #: Preference keys this endpoint used to accept and no longer does.
+    #:
+    #: DRF's ``to_internal_value`` iterates *declared fields* and pulls each one out of
+    #: the payload, so a key matching no field is never enumerated — a stale client
+    #: PATCHing a removed preference gets a ``200`` and no indication that the write
+    #: evaporated. An agent's default reading of ``200`` on a PATCH is "my write
+    #: landed", and the only counter-signal is the *absence* of a key in the response,
+    #: which nothing obliges a caller to check.
+    #:
+    #: That is the same dishonesty ADR-0942 §3 removed the field to avoid, with the
+    #: mechanism inverted: the no-op field lied by echoing ``true``, and a silently
+    #: dropped key lies by echoing nothing. §3 asks for "deletion and a ``400`` on a
+    #: stale write", so the refusal is explicit and names the key.
+    #:
+    #: Deliberately a NAMED DENYLIST, not general strict mode: rejecting every unknown
+    #: key would make any additive client change a hard failure and break
+    #: forward-compatibility. Only keys this endpoint genuinely retired belong here.
+    #: An entry may be dropped once no deployed client could still be sending it.
+    RETIRED_FIELDS: dict[str, str] = {
+        # ADR-0942 §3 / #3137 — the Schedule-in-Deliver placement opt-in. Every view
+        # now has exactly one home in the rail, so there is nothing left to place.
+        "schedule_in_deliver": (
+            "The Schedule-in-Deliver placement preference was removed in 0.4 "
+            "(ADR-0942): every view now appears in exactly one navigation band. "
+            "Remove this key from your request."
+        ),
+    }
+
     class Meta:
         model = UserProfile
         fields = [
             "default_landing",
             "role_context",
             "hidden_views",
-            "schedule_in_deliver",
             "timezone",
             "date_format",
         ]
@@ -60,6 +86,18 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise serializers.ValidationError("Unknown IANA timezone.") from exc
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Object-level so it can see keys DRF's field loop never looks at: by the time
+        # `attrs` exists the retired key is already gone, so the check must read
+        # `initial_data` (the raw payload). Guarded with `hasattr` because a serializer
+        # constructed for *output* only (no `data=`) has no `initial_data`.
+        raw = getattr(self, "initial_data", None)
+        if isinstance(raw, dict):
+            retired = [k for k in self.RETIRED_FIELDS if k in raw]
+            if retired:
+                raise serializers.ValidationError({k: [self.RETIRED_FIELDS[k]] for k in retired})
+        return attrs
 
     def validate_hidden_views(self, value: list[str]) -> list[str]:
         unknown = [v for v in value if v not in HIDEABLE_VIEW_KEYS]
@@ -91,9 +129,6 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         if "hidden_views" in validated_data:
             instance.hidden_views = validated_data["hidden_views"]
             update_fields.append("hidden_views")
-        if "schedule_in_deliver" in validated_data:
-            instance.schedule_in_deliver = validated_data["schedule_in_deliver"]
-            update_fields.append("schedule_in_deliver")
         if "timezone" in validated_data:
             instance.timezone = validated_data["timezone"]
             update_fields.append("timezone")

@@ -25,7 +25,6 @@ const fixtureMe = {
   landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
   hidden_views: [],
   role_context: 'unified',
-  schedule_in_deliver: false,
   dnd_enabled: false,
 };
 

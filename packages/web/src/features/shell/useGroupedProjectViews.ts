@@ -5,8 +5,6 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import {
   groupedVisibleViewsForUser,
   surfaceHiddenViews,
-  STANDALONE_LEADING,
-  STANDALONE_TRAILING,
   type VisibleViewGroup,
 } from '@/features/shell/methodologyTabs';
 import { applyRoleContextLensOrder } from '@/features/shell/lensOrder';
@@ -19,16 +17,13 @@ import type { Methodology } from '@/types';
 export interface GroupedProjectViews {
   /** Server-resolved effective methodology (`'HYBRID'` until the project loads). */
   methodology: Methodology;
-  /** PLAN / DELIVER / TRACK / PEOPLE groups after the methodology + hidden-views +
-   *  role filters and the role-context lens ordering. `overview` / `settings` are
-   *  NOT in here — they are the standalone leading/trailing views below. */
+  /** PLAN / DELIVER / TRACK verb bands and the WORKSPACE scope band, after the
+   *  methodology + hidden-views + role filters and the role-context lens ordering.
+   *  **Every** view is in here, `overview` and `settings` included — ADR-0942 retired
+   *  the standalone leading/trailing views, so there is no second place to look. */
   groups: VisibleViewGroup[];
   /** Per-view display label; `sprints` adopts the configured iteration label. */
   labelFor: (view: string) => string;
-  /** The always-on leading standalone view (`overview`). */
-  standaloneLeading: string;
-  /** The trailing standalone view (`settings`). */
-  standaloneTrailing: string;
 }
 
 /**
@@ -43,11 +38,11 @@ export interface GroupedProjectViews {
  * The composition (unchanged from the bar's prior inline logic): read the
  * SERVER-RESOLVED `effective_methodology` (rule 196 — never the raw override), union
  * the per-user `hidden_views` (ADR-0139) with the per-project surface hides
- * (ADR-0193), apply the methodology preset + hidden-set filter, gate the Team view
- * behind Scheduler+ (pessimistic while the role loads), drop emptied groups, then
- * apply the role-context lens ordering (ADR-0162, identity for the neutral
- * `unified` lens). Route segments are unchanged (rule 108): callers link to
- * `/projects/:id/:view`.
+ * (ADR-0193), apply the methodology preset + hidden-set filter, gate the WORKSPACE
+ * band's two members (Team behind Scheduler+, Settings behind admin), drop emptied
+ * bands, then apply the role-context lens ordering (ADR-0162, identity for the neutral
+ * `unified` lens, and a no-op on the scope band). Route segments are unchanged
+ * (rule 108): callers link to `/projects/:id/:view`.
  *
  * Args:
  *   projectId: The active project id, or null/undefined off a project route (the
@@ -55,12 +50,9 @@ export interface GroupedProjectViews {
  *     HYBRID default so nothing flashes empty).
  *
  * Returns:
- *   The resolved `GroupedProjectViews` (methodology, grouped views, `labelFor`,
- *   and the standalone leading/trailing view keys).
+ *   The resolved `GroupedProjectViews` (methodology, banded views, `labelFor`).
  */
-export function useGroupedProjectViews(
-  projectId: string | null | undefined,
-): GroupedProjectViews {
+export function useGroupedProjectViews(projectId: string | null | undefined): GroupedProjectViews {
   const { role } = useCurrentUserRole(projectId ?? undefined);
   const { user } = useCurrentUser();
   const project = useProject(projectId);
@@ -77,18 +69,30 @@ export function useGroupedProjectViews(
     ...surfaceHiddenViews(project.data?.effective_surface_visibility ?? { reporting: true }),
   ]);
 
-  // Role gate (pessimistic): the Team view is hidden while the role is loading
-  // (null) or below Scheduler. Direct URL access still works (PermissionDeniedNotice).
-  const roleAllows = (view: string) =>
-    view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER);
+  // Role gates for the two WORKSPACE members (ADR-0942 §2 — the scope band can render
+  // with both, either, or neither, so it needs the same empty-band drop every verb band
+  // gets). Both gates were previously applied by the presentations themselves, which is
+  // exactly the drift `useGroupedProjectViews` exists to prevent (#1642); they belong at
+  // the single composition seam now that both views are band members.
+  //
+  //  - `resources` (Team): pessimistic — hidden while the role is loading (null) or below
+  //    Scheduler. Direct URL access still works (PermissionDeniedNotice).
+  //  - `settings`: strict `!== false` so the row stays visible while the role signal loads
+  //    and never flash-hides for an admin (mirrors #2033). `/projects/:id/settings` no
+  //    longer bounces a non-admin (#2971) — it renders a reduced member rail — so the gate
+  //    survives on the narrower reason: this is persistent chrome and the member rail is
+  //    currently ONE section, which a permanent nav entry would overstate. A member reaches
+  //    it through the account menu, which links straight to the section's anchor.
+  const roleAllows = (view: string) => {
+    if (view === 'resources') return role !== null && role >= ROLE_SCHEDULER;
+    if (view === 'settings') return user?.can_access_admin_settings !== false;
+    return true;
+  };
 
   // Role-context lens (ADR-0162): re-orders only already-permitted views within
-  // their group; `unified` (default while `user` loads) is the identity → no flash.
-  // Per-user Schedule-in-Deliver placement opt-in (ADR-0203, #1645): additively
-  // echoes Schedule into the Deliver group. Off until `user` loads, so the calm
-  // default never flashes the extra placement.
+  // their verb band; `unified` (default while `user` loads) is the identity → no flash.
   const groups = applyRoleContextLensOrder(
-    groupedVisibleViewsForUser(methodology, hiddenViews, user?.schedule_in_deliver ?? false)
+    groupedVisibleViewsForUser(methodology, hiddenViews)
       .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
       .filter((g) => g.visibleViews.length > 0),
     user?.role_context ?? 'unified',
@@ -98,11 +102,5 @@ export function useGroupedProjectViews(
   const labelFor = (view: string) =>
     view === 'sprints' ? iteration.plural : (VIEW_TAB_META[view]?.label ?? view);
 
-  return {
-    methodology,
-    groups,
-    labelFor,
-    standaloneLeading: STANDALONE_LEADING,
-    standaloneTrailing: STANDALONE_TRAILING,
-  };
+  return { methodology, groups, labelFor };
 }

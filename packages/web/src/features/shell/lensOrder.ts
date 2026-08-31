@@ -85,11 +85,15 @@ export function taskDeepLinkPath(projectId: string, taskId: string, lens: RoleCo
 }
 
 /**
- * Re-order each group's `visibleViews` so the lens-priority views lead, keeping
+ * Re-order each **verb** band's `visibleViews` so the lens-priority views lead, keeping
  * every other view in its original relative order (a stable promotion). Pure and
- * non-destructive: no view is added, removed, or moved between groups — only the
- * within-group order changes. `unified` (empty priority) returns the input order
+ * non-destructive: no view is added, removed, or moved between bands — only the
+ * within-band order changes. `unified` (empty priority) returns the input order
  * unchanged, so it is a genuine no-op neutral default.
+ *
+ * `kind: 'scope'` bands are returned untouched (ADR-0942 §2). A scope band is not a
+ * workflow — it is the project's own setup, not a lifecycle step — so there is no
+ * workflow for a role lens to re-point, and its order is fixed for every lens.
  */
 export function applyRoleContextLensOrder(
   groups: VisibleViewGroup[],
@@ -100,6 +104,7 @@ export function applyRoleContextLensOrder(
 
   const rank = new Map(priority.map((view, i) => [view, i]));
   return groups.map((group) => {
+    if (group.kind !== 'verb') return group;
     // Stable sort: promoted views first (by priority index), everything else
     // keeps its existing order. Non-priority views share rank +Infinity, so the
     // stable sort leaves their relative order untouched.

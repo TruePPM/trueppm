@@ -67,8 +67,9 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     assert data["hidden_views"] == []
     # Role-context lens (issue 412, ADR-0162): neutral 'unified' by default (no row).
     assert data["role_context"] == "unified"
-    # Schedule-in-Deliver placement opt-in (ADR-0203, #1645): off by default (no row).
-    assert data["schedule_in_deliver"] is False
+    # The Schedule-in-Deliver placement opt-in (ADR-0203, #1645) is retired by
+    # ADR-0942 §3 / #3137 — the payload must not carry a field nothing reads.
+    assert "schedule_in_deliver" not in data
     # Display frame (#1953, ADR-0410): both prefs default to the 'auto' sentinel.
     assert data["timezone"] == "auto"
     assert data["date_format"] == "auto"
@@ -92,15 +93,27 @@ def test_me_surfaces_stored_display_prefs(db: object) -> None:
     assert resp.data["can_access_admin_settings"] is False
 
 
-def test_me_surfaces_stored_schedule_in_deliver(db: object) -> None:
-    """/auth/me/ reflects the user's stored Schedule-in-Deliver opt-in (#1645)."""
+def test_me_does_not_surface_retired_schedule_in_deliver(db: object) -> None:
+    """/auth/me/ no longer carries ``schedule_in_deliver`` (ADR-0942 §3, #3137).
+
+    The regression this guards is a re-added dead field, not a value: a boolean that
+    round-trips while nothing reads it is a lie to every API and MCP client about what
+    the product does, which is why #3137 dropped the column instead of no-op'ing it.
+    Asserted on a user WITH a profile row, so the absence is the serializer's doing and
+    not the lazy no-row path.
+    """
     from trueppm_api.apps.profiles.models import UserProfile
 
     user = User.objects.create_user(username="sid_me", password="pw")
-    UserProfile.objects.create(user=user, schedule_in_deliver=True)
+    UserProfile.objects.create(user=user, hidden_views=["board"])
     resp = _make_client(user).get(URL)
     assert resp.status_code == 200
-    assert resp.data["schedule_in_deliver"] is True
+    assert "schedule_in_deliver" not in resp.data
+    # The surviving prefs still read through the same memoized single-row fetch.
+    assert resp.data["hidden_views"] == ["board"]
+    assert resp.data["role_context"] == "unified"
+    assert resp.data["timezone"] == "auto"
+    assert resp.data["date_format"] == "auto"
 
 
 def test_me_surfaces_stored_hidden_views(db: object) -> None:
@@ -310,3 +323,54 @@ def test_role_signal_deactivated_workspace_membership_has_no_access(db: object) 
     assert resp.status_code == 200
     assert resp.data["workspace_role"] is None
     assert resp.data["can_access_admin_settings"] is False
+
+
+# ---------------------------------------------------------------------------
+# The one-profile-read property (memoization lock)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_me_reads_the_profile_row_exactly_once() -> None:
+    """``MeSerializer`` must hit ``profiles_userprofile`` once, not once per pref.
+
+    Five getters on this serializer need a ``UserProfile`` column
+    (``default_landing``, ``hidden_views``, ``role_context``, ``timezone``,
+    ``date_format``), and they read it through one memoized ``_prefs()`` call whose
+    cache is ``self._prefs_cache``. ``/auth/me/`` is a hot path, so losing that memo
+    turns one query into five — a regression that no assertion in this file would
+    otherwise notice, because every field still serializes to the right value.
+
+    Locked here because #3137 edited exactly this code: it removed the
+    ``schedule_in_deliver`` getter and shrank the ``get_profile_prefs`` tuple from six
+    elements to five, renumbering the surviving indices. That is the kind of edit that
+    can plausibly drop the ``hasattr`` guard by accident.
+
+    Counted by *table* rather than with an absolute budget for the whole response: the
+    endpoint also reads memberships, workspace roles and notification settings, and an
+    absolute number would fail on any unrelated change to those while saying nothing
+    about the property under test. Asserting on the profile table is the narrow claim
+    that actually fails when the memo breaks (1 → 5).
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.access.serializers import MeSerializer
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    user = User.objects.create_user(username="prefs_once", password="pw")
+    UserProfile.objects.create(user=user, hidden_views=["board"], timezone="Asia/Tokyo")
+
+    with CaptureQueriesContext(connection) as captured:
+        data = MeSerializer(user).data
+
+    profile_reads = [q for q in captured.captured_queries if "profiles_userprofile" in q["sql"]]
+    assert len(profile_reads) == 1, (
+        f"expected exactly one profiles_userprofile read, got {len(profile_reads)}: "
+        f"{[q['sql'] for q in profile_reads]}"
+    )
+    # The memo must serve the right values, not merely serve them once.
+    assert data["hidden_views"] == ["board"]
+    assert data["timezone"] == "Asia/Tokyo"
+    assert data["role_context"] == "unified"
+    assert data["date_format"] == "auto"

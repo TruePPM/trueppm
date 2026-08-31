@@ -136,23 +136,60 @@ critical counts above zero open a task popover; a forecast date is neutral
 (informational, not a risk colour); and team-private velocity shows a "kept to
 the team" wall rather than a number when the team's privacy policy withholds it.
 
-## Grouped, methodology-adaptive view tabs
+## Grouped, methodology-adaptive project views
 
-The view tabs are grouped into **PLAN · TRACK · PEOPLE** so related surfaces sit
-together, and the set adapts to methodology — an agile project doesn't show the
-Gantt-centric tabs a waterfall project leads with, and vice-versa. On agile and
-hybrid projects a **Deliver** group co-locates the sprint circuit (Backlog →
-Sprints → Board). **Overview** always leads and **Settings** always trails. You can
-further tailor the bar with **Customize views** (hide the tabs you don't use);
-hidden views stay reachable from the command palette.
+:::note[Ships in 0.4]
+This section describes the rail as it will be in 0.4. **The current release** groups
+project views as **Plan · Deliver · Track · People**, with a standalone **Overview**
+row leading the rail and a standalone **Settings** row trailing it, and offers a
+Customize-views opt-in that *additionally* shows **Schedule** under **Deliver**.
 
-**Customize views** also carries an opt-in to *additionally* surface the
-**Schedule** under **Deliver**, for hybrid teams who want the plan sitting next to
-the sprint cadence. It is off by default — Schedule stays in **Plan** for everyone
-who doesn't opt in — and it is purely a placement of the nav tab: it never changes
-your rollups, reports, or exports, and it only ever tailors *your own* view, not a
-teammate's. See [View focus](/features/view-focus/) for the role-based lens that
-re-orders and re-points these surfaces for you.
+In 0.4 the **People** band will be replaced by the ruled-off **Workspace** band
+described below, **Overview** will be renamed **Dashboard** and join **Track**,
+**Settings** will move into **Workspace**, and every view will get exactly **one**
+home in the rail — a nav item
+listed in two places reads as two different things — so the Schedule-under-Deliver
+opt-in and the account setting behind it are both retired. If you have that option
+turned on today, it will simply be off after the upgrade; nothing else about your
+account changes. Route addresses do not change in any of this, so existing links and
+bookmarks keep working.
+:::
+
+The project rail groups its views into three bands named for what you are *doing* —
+**Plan**, **Deliver**, **Track** — in the order work moves through them, followed by
+a **Workspace** band that is ruled off and pinned to the bottom of the rail:
+
+| Band | What it holds | What it answers |
+|---|---|---|
+| **Plan** | Schedule · Grid · Calendar | When is the work, and how is it broken down? |
+| **Deliver** | Backlog · Sprints · Board | What is the squad doing this iteration? |
+| **Track** | Dashboard · Today · Risks · Reports · Activity · Assets | How is it going? |
+| **Workspace** | Team · Settings | Who is on this project, and how is it set up? |
+
+**Deliver** exists only on agile and hybrid projects, where it co-locates the sprint
+circuit (Backlog → Sprints → Board) as one object. On a waterfall project there is no
+sprint cadence to name, so the band is absent and **Board** sits in Track as a plain
+kanban. The rest of the set adapts to methodology the same way — an agile project
+doesn't show the Gantt-centric views a waterfall project leads with, and vice-versa.
+
+**Workspace is a different kind of thing, not a lower-ranked fourth band.** Plan,
+Deliver and Track are steps in the life of the work; Team and Settings are the
+project's own setup, which is why they sit below the rule rather than at the end of
+the sequence. They are drawn at exactly the same size, weight and color as every
+other row — the rail says "elsewhere" by changing the floor beneath them, never by
+fading them out. The band holds its place at the bottom no matter how many bands sit
+above it, so Settings is always in the same spot.
+
+**Dashboard** is the project's landing surface and the first row in Track. The
+earlier name, "Overview", described where the row *sat* rather than what it was, and
+once it joins a band that name is simply wrong.
+
+You can tailor the rail with **Customize views** (hide the views you don't use);
+hidden views stay reachable from the command palette. **Dashboard** and **Settings**
+can never be hidden, so your navigation can never end up empty. See
+[View focus](/features/view-focus/) for the role-based lens that re-orders and
+re-points these surfaces for you — it re-orders the three verb bands only, and leaves
+Workspace alone.
 
 ## Pinned projects and programs
 
@@ -213,7 +250,7 @@ the app says so plainly rather than silently dropping the new pin.
 
 Opening a project lands you on the view that matches your **View focus** lens — a
 PM lands on the Schedule, a Scrum Master on the Board, and the neutral default
-lands on the Overview. The lens is presentation only: it never changes your
+lands on Today. The lens is presentation only: it never changes your
 permissions or what anyone else sees.
 
 ## Light, Dark, and Auto

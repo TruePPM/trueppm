@@ -397,9 +397,13 @@ test.describe('Project overview page', () => {
     expect(page.url()).not.toContain('?project=');
   });
 
-  test('Overview tab is active in ViewTabs nav', async ({ page }) => {
+  test('the Dashboard row is active in the View nav', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
-    await expect(nav.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
+    // Labelled "Dashboard" (ADR-0942 §7); the route segment is still /overview.
+    await expect(nav.getByRole('link', { name: 'Dashboard', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
   test('navigate to Schedule view from overview', async ({ page }) => {
