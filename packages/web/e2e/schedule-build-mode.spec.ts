@@ -13,7 +13,14 @@
  * the vitest layer where they can be asserted without canvas/network coupling.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  useFullToolbar,
+  modeChip,
+  openScheduleCheatsheet,
+} from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-build-00000000-0000-0000-0000-000000000349';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
@@ -68,12 +75,14 @@ test.describe('Schedule build-mode — default on desktop (#2682)', () => {
     });
   });
 
-  test('toolbar pill is visible and opens the cheatsheet', async ({ page }) => {
+  test('the mode chip is visible and opens the cheatsheet', async ({ page }) => {
+    // #3263 retired `BuildModePill` into `ScheduleModeChip`. The pill's only
+    // act was opening this dialog, so the chip's `Keyboard shortcuts…` item is
+    // the same affordance under a different roof — still always in the bar,
+    // still never behind the `···` overflow.
     await page.goto(BASE_URL);
-    const pill = page.getByTestId('build-mode-pill');
-    await expect(pill).toBeVisible();
-    await pill.click();
-    await expect(page.getByRole('dialog', { name: 'Schedule shortcuts' })).toBeVisible();
+    await expect(modeChip(page)).toBeVisible();
+    await openScheduleCheatsheet(page);
     // Esc dismisses.
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog', { name: 'Schedule shortcuts' })).toHaveCount(0);
@@ -105,7 +114,7 @@ test.describe('Schedule build-mode — default on desktop (#2682)', () => {
 
   test('cheatsheet renders every section (Quick actions + Dependencies added in #475+#477)', async ({ page }) => {
     await page.goto(BASE_URL);
-    await page.getByTestId('build-mode-pill').click();
+    await openScheduleCheatsheet(page);
     const dialog = page.getByRole('dialog', { name: 'Schedule shortcuts' });
     // Scoped to the `<dt>` section headings, not bare text (#3053). An unscoped
     // `getByText('Dependencies')` also matches any ENTRY label containing the

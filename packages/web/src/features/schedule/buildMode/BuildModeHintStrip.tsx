@@ -87,7 +87,7 @@ function HintChip({ entry }: { entry: HintEntry }) {
  *
  * Mounting is contextual (#1250, web rule 194): ScheduleView renders this only
  * while the user is engaged (RowFocused / CellEdit), so the idle Schedule reclaims
- * the vertical band for ScheduleForecastBar. The always-on toolbar `BuildModePill`
+ * the vertical band for ScheduleForecastBar. The always-on toolbar mode chip
  * — not this strip — is the persistent discovery affordance for first-time users.
  * The component stays total over `FocusMode` (it still renders NoSelection hints
  * when exercised directly) so callers, not the component, own the reveal policy.

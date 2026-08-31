@@ -103,6 +103,13 @@ export interface ToolbarOverflowMenuProps {
   align?: 'left' | 'right';
   /** Extra classes for the trigger button itself. */
   triggerClassName?: string;
+  /**
+   * `data-testid` for the trigger. Set it when the trigger IS the control —
+   * a cluster whose trigger carries the value (`ScheduleModeChip`) is what a
+   * spec drives, and locating it by accessible name couples every such spec to
+   * the label's exact wording.
+   */
+  triggerTestId?: string;
   /** Rendered under the last section — the way out of the menu (#3076). */
   footer?: ReactNode;
   /**
@@ -120,6 +127,7 @@ export function ToolbarOverflowMenu({
   className,
   align = 'right',
   triggerClassName,
+  triggerTestId,
   footer,
   triggerRef: externalTriggerRef,
 }: ToolbarOverflowMenuProps) {
@@ -224,6 +232,7 @@ export function ToolbarOverflowMenu({
       <button
         ref={triggerRef}
         type="button"
+        data-testid={triggerTestId}
         aria-label={triggerAriaLabel}
         aria-haspopup="menu"
         aria-expanded={open}

@@ -173,8 +173,6 @@ import {
   BuildModeHintStrip,
   BuildModeCheatsheet,
   BlankProjectCanvas,
-  BuildModePill,
-  AuthorModePill,
   hasUnresolvedOwnerToken,
   findRowByPredicate,
   usePasteMany,
@@ -4365,7 +4363,8 @@ export function ScheduleView() {
           is actively engaged (RowFocused / CellEdit). When idle (NoSelection) the
           strip is unmounted so ScheduleForecastBar sits flush at the bottom and the
           P50/P80/P95 signal isn't subordinated by always-on discoverability chrome.
-          The always-on BuildModePill in the toolbar remains the discovery affordance. */}
+          The always-on mode chip in the toolbar remains the discovery affordance —
+          its `Keyboard shortcuts…` item is the way in (#3263). */}
       {/* The coach teaches the gestures a static screen cannot show — the row
           controls only appear on hover, so nothing else can announce them
           (#2959). Dismissible, and restorable from Display options; the strip it
@@ -5712,24 +5711,17 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           })}
         />
       )}
-      {/* Mode cluster (#3076 rung 8). Split into two pills while there is room;
-          one chip that still shows its value when there is not. It has no
-          `overflow` state at all — a mode you have to open a menu to read is a
-          mode you forget you are in, and the cost of that is typing into a plan
-          you believe is read-only. */}
-      {buildModeActive && hasEditRights && composition.mode === 'split' && (
-        <>
-          <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
-          {/* The Read/Author toggle is meaningless without rights: there is no
-              mode to leave. It goes, and the View-only badge takes its place. */}
-          <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />
-        </>
-      )}
-      {buildModeActive && hasEditRights && composition.mode === 'chip' && (
+      {/* The mode control (#3076 rung 8, merged to one control in #3263). One
+          chip at every width, always showing its value. It has no `overflow`
+          state at all — a mode you have to open a menu to read is a mode you
+          forget you are in, and the cost of that is typing into a plan you
+          believe is read-only. Absent without edit rights: a Read/Author toggle
+          is meaningless when there is no mode to leave, and the View-only badge
+          takes its place. */}
+      {buildModeActive && hasEditRights && (
         <ScheduleModeChip
           mode={authorMode}
           onToggleMode={onToggleAuthorMode}
-          buildModeActive={buildModeActive}
           onShowCheatsheet={() => setCheatsheetOpen(true)}
         />
       )}
