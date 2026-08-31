@@ -337,6 +337,46 @@ test.describe('dismiss → restore stays a two-way door (#2959)', () => {
     await expect(coachBar(page)).toBeVisible();
   });
 
+  test('dismissing lands focus on the control that restores it, never on <body>', async ({
+    page,
+  }) => {
+    // T10/T11 (#3134). `onDismiss` toggles `displayOptions.coach`, which UNMOUNTS the
+    // container the focused X lives in — so focus fell to `<body>` and a keyboard user
+    // lost their place entirely (WCAG 2.4.3 Focus Order, 2.4.7 Focus Visible). #2959
+    // fixed the one-way *dismissal*; the route back existed but the keyboard user was
+    // dropped on the floor on the way to it.
+    //
+    // The bar's own dismiss control says "bring it back from Display options", so that
+    // trigger is where focus belongs — the fix makes the label true for a keyboard user
+    // rather than only for someone who can see the toolbar.
+    //
+    // Note the sibling keyboard round-trip test above calls `.focus()` on the Display
+    // trigger explicitly after dismissing, which is exactly what hid this: it asserts
+    // the door opens, never where the user was standing when it did.
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await coachBar(page).focus();
+    await page.keyboard.press('Enter');
+    await expect(coachBar(page)).toHaveCount(0);
+
+    // Scoped through the toolbar for the reason the sibling test records: `name` is a
+    // substring match, and while the bar is up its dismiss control also says "Display
+    // options", so a bare 'Display' would resolve to two buttons.
+    const displayTrigger = page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' });
+    await expect(displayTrigger).toBeFocused();
+
+    // And it is genuinely the restoring control: Enter from here opens the menu that
+    // carries the How-to bar toggle, with no intervening Tab.
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menu', { name: 'Display options' })).toBeVisible();
+    await expect(
+      page.getByRole('menuitemcheckbox', { name: 'How-to bar' }),
+    ).toHaveAttribute('aria-checked', 'false');
+  });
+
   test('a bar dismissed while a row is focused is still dismissed when the row is released', async ({
     page,
   }) => {

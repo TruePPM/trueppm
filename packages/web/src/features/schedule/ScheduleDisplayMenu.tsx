@@ -29,6 +29,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type RefObject,
 } from 'react';
 import { CheckIcon, ChevronDownIcon, RadioDotIcon, SlidersIcon } from '@/components/Icons';
 import type { ScheduleViewMode } from '@/stores/scheduleStore';
@@ -171,6 +172,16 @@ export interface ScheduleDisplayMenuProps {
    * Absent for a reader with no authoring apparatus to arrange.
    */
   toolbarPins?: ToolbarPinsConfig | null;
+  /**
+   * Exposes this menu's trigger button so a sibling can hand focus to it (#3134).
+   *
+   * The how-to bar's dismiss control says "bring it back from Display options", and
+   * dismissing unmounts the bar the focused control lives in — so without somewhere to
+   * put focus it fell to `<body>` and the label was only true for someone who could see
+   * the toolbar. Kept optional: every other caller (the print layout among them) needs
+   * nothing here, and the menu still owns its own focus for open/close.
+   */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export function ScheduleDisplayMenu({
@@ -189,6 +200,7 @@ export function ScheduleDisplayMenu({
   displayOptions,
   onToggleDisplayOption,
   toolbarPins = null,
+  triggerRef: externalTriggerRef,
 }: ScheduleDisplayMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -504,7 +516,13 @@ export function ScheduleDisplayMenu({
   return (
     <div className="relative shrink-0">
       <button
-        ref={triggerRef}
+        ref={(node) => {
+          // Callback ref so the menu keeps its own handle (it restores focus here on
+          // close) while a caller can hold one too. Assigning `triggerRef.current`
+          // directly from a second `ref` prop is not possible — an element takes one.
+          triggerRef.current = node;
+          if (externalTriggerRef) externalTriggerRef.current = node;
+        }}
         type="button"
         aria-label={triggerLabel}
         aria-haspopup="menu"
