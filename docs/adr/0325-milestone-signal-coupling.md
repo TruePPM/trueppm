@@ -91,13 +91,96 @@ the CPM boundary already forced. The model docstring, which previously claimed a
 milestone could carry a non-zero duration, is corrected to state the coupled
 invariant.
 
+### Amendment (2026-08-31, #3265) — the invariant is enforced upward too
+
+**As originally written, decision 1 was one-directional and the "the DB can only
+hold the coupled state" claim in Consequences was false.**
+`_reconcile_milestone_signals` reconciles the two *flags* against each other, and
+the resulting milestone state then forces `duration = 0`. Nothing inferred the
+flags from a bare duration. So `PATCH {"duration": 0}` on a work row landed
+`is_milestone=False`, `delivery_mode != 'milestone'`, `duration=0` — precisely the
+state this ADR says cannot exist — and every consumer that keys on `is_milestone`
+(the outline glyph and date treatment, `outlineDrag`'s gate refusals, the Board,
+CPM, sprint rollup) read it as work with no duration.
+
+The hole was found because a client fell into it (#3256: "Convert to milestone"
+sent a bare `duration: 0` and produced a zero-duration task while announcing a
+milestone), but it was open to every caller — the MCP write tools, the MS Project
+and CSV importers, `tasks/bulk/`, and any integrator against the documented v1 API.
+
+**Option (b) is adopted, but narrower than the issue proposed, because the "iff"
+as written is contradicted by the product and not only by the client bug.**
+
+Implementing the literal rule first and testing it against a live request is what
+surfaced this: refusing *every* zero on a non-milestone row returns 400 on two
+deliberate, shipped Board paths.
+
+- `BoardView.handleQuickCaptureBacklog` mints an intake idea at `duration: 0`,
+  because it is *not scheduled work yet*.
+- `BoardView.handleAddPhase` mints a container at `duration: 0`, because a phase's
+  duration rolls up from its children.
+
+Both are legitimately zero-duration and legitimately not milestones. So the
+invariant the read-side consumers actually depend on is **not** "no zero-duration
+non-milestone row may exist". It is the one #3256 broke: **a write must not take
+an estimate away without saying what the row became.**
+
+Option (a) — leave it aspirational, enforce nothing — was still rejected: that
+leaves the hole open to the MCP write tools, `tasks/bulk/`, and any integrator
+against the documented v1 API, which is what the issue was filed about.
+
+**Refuse rather than infer**, with the stable code `zero_duration_not_milestone`.
+Inference is friendlier to importers and is the wrong trade here: the client bug
+that surfaced this was a caller that sent `duration: 0` and did *not* mean "make
+this a gate". Inferring would have converted that bug into a silent data change
+instead of a loud refusal — the same failure one level down.
+
+| Write | Answer | Why |
+|---|---|---|
+| A write that zeroes a **currently non-zero** duration, on a row not becoming a milestone | **Refuse**, `zero_duration_not_milestone` | The #3256 shape exactly: an estimate destroyed with nothing said about what the row became. The message names the payload that does work (`is_milestone=true`). |
+| A create at `duration: 0` | **Allow** | Nothing is destroyed. This is Board intake and Add phase. |
+| A write of `duration: 0` to a row already at 0 | **Allow** | Re-asserting an existing zero destroys nothing. |
+| Un-flag a milestone, **no** `duration` sent | **Default to the model default (1)** | The caller asserted "no longer a milestone" and asserted nothing about the estimate. The stored 0 is the gate's; leaving it lands a former gate masquerading as unestimated work, and refusing would make un-flagging impossible without guessing a number. |
+| Un-flag a milestone **with** `duration: 0` | **Allow** | The stored duration was already 0, so nothing is destroyed. The result is an unestimated work row — the same legal state Board intake mints. |
+
+**A zero-duration non-milestone row therefore remains legal**, and this ADR's
+"iff" should be read as the coupling the *milestone flags* enforce, not as a
+prohibition on unestimated rows. That is a correction to this ADR's original
+wording, not a carve-out from it.
+
+**Serializer-level validation, deliberately not a database constraint.**
+`AddConstraint` builds and *validates* its index against every existing row, and
+migrations run on container start, so a single legacy zero-duration work row would
+be an upgrade crash-loop rather than a failed deploy. The guard fires only when a
+caller *writes* a zero in this request, so existing rows stay readable and
+editable — a `PATCH {"name": …}` on one still succeeds.
+
+**Write-path denominator: 9 examined, 2 affected and covered, 1 examined and deliberately exempt.**
+
+| Path | Status |
+|---|---|
+| `TaskViewSet` create / update (`POST`/`PATCH /tasks/`) | **Affected** — goes through `TaskSerializer.validate`, now guarded |
+| `POST /projects/{pk}/tasks/bulk/` | **Affected** — `task_bulk._apply_create` and `_apply_update` both route through `TaskSerializer`, so it inherits the guard. Asserted rather than assumed: this endpoint has been a repeat site for this class (#3030, #3036), and rows apply independently, so a refusal lands in `rejected` and the legal rows still apply |
+| MS Project importer | Not affected — `bulk_create`s past the serializer and already writes `duration=0 if is_milestone else …` with `delivery_mode` (decision 2) |
+| Board intake / Add phase (`POST /tasks/` with `duration: 0`) | **Examined and deliberately left working** — creates destroy no estimate. The first draft of this change 400'd both; that is what narrowed the rule |
+| Template / seed importer | Not affected — same coupling at the mint |
+| `bundled_templates` | Not affected — same coupling at the mint |
+| Sprint→milestone promotion (`_create_milestone_for_sprint`) | Not affected — mints the fully coupled state |
+| Recurring-occurrence spawn | Not affected — copies the template's `delivery_mode` |
+| `TaskIndentView` / `TaskReparentView` | Out of scope — neither writes `duration` |
+
 ## Consequences
 
 - The database can no longer hold a "half-milestone"; rollup, CPM, and sprint
-  code now agree on every task.
+  code now agree on every task. **The `duration = 0` half of the "iff" was never
+  enforced upward and, per the 2026-08-31 amendment, deliberately still is not** —
+  a zero-duration non-milestone row is legal (Board intake, an empty phase). What
+  the amendment closes is the *destructive* direction: a write that removes an
+  existing estimate without declaring the row a milestone.
 - Three new stable, MCP/agent-reachable rejection codes:
   `milestone_signal_conflict`, `milestone_targeted_by_sprint`,
-  `child_of_milestone`.
+  `child_of_milestone`. A fourth, `zero_duration_not_milestone`, is added by the
+  2026-08-31 amendment above.
 - No schema migration (the change is validation + a docstring, not a field).
 - Enterprise code that reads `delivery_mode` or `is_milestone` continues to work
   unchanged; the two are now guaranteed consistent.
