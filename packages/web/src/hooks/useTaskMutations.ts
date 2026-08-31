@@ -139,6 +139,21 @@ export interface UpdateTaskPayload {
   governance_class?: GovernanceClass;
   /** Execution / rollup mode (ADR-0036/#407). */
   delivery_mode?: DeliveryMode;
+  /**
+   * Make the row a milestone, or turn it back into work (#3256).
+   *
+   * This is the ONLY payload that produces a milestone. The serializer's coupling
+   * is one-directional (`_reconcile_milestone_signals`): `is_milestone: true` sets
+   * `delivery_mode` and zeroes `duration`, but a bare `duration: 0` sets **neither**
+   * flag — it lands a zero-duration *work* row that every milestone behaviour
+   * (the diamond glyph, the start-only date treatment, `outlineDrag`'s gate
+   * refusals, Board, CPM, sprint rollup) reads as work with no duration.
+   *
+   * Send `duration` alongside `is_milestone: false` to restore an estimate on the
+   * way back; do not send it with `is_milestone: true` — the server zeroes it, and
+   * a conflicting pair is the caller asserting something it does not control.
+   */
+  is_milestone?: boolean;
   /** Human blocker flag (ADR-0124). `blocked_reason` is the flag of
    *  record — non-empty flags the task, '' unflags it (the server then clears
    *  blocker_type / blocking_task / blocked_since). `blocking_task` is a soft
@@ -202,6 +217,14 @@ function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
   if (vars.type !== undefined) patch.taskType = vars.type;
   if (vars.governance_class !== undefined) patch.governanceClass = vars.governance_class;
   if (vars.delivery_mode !== undefined) patch.deliveryMode = vars.delivery_mode;
+  if (vars.is_milestone !== undefined) {
+    patch.isMilestone = vars.is_milestone;
+    // The server zeroes duration as part of becoming a milestone, so mirror that
+    // here or the optimistic row renders a diamond still claiming N days until the
+    // refetch lands. On the way back the caller supplies the restored duration
+    // itself, and the `vars.duration` branch above has already applied it.
+    if (vars.is_milestone) patch.duration = 0;
+  }
   // Human blocker flag (ADR-0124). blocked_since / blocked_by / age are
   // server-stamped on the flag transition, so they are NOT optimistically set —
   // the post-mutation refetch fills them. We only reflect what the user typed.

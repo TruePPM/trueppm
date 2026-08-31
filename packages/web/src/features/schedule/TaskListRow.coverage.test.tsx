@@ -280,7 +280,10 @@ describe('TaskListRow — milestone rollup variance branches', () => {
       />,
     );
     // On-plan variance renders "0d" (annotated with float) in the neutral tone.
-    const chip = screen.getByText(/^0d/);
+    // Scoped to the chip's own testid: the Dur cell now states a milestone's zero as
+    // "0d" too (#3258), so a row-wide text query matches both.
+    const chip = screen.getByTestId('milestone-rollup-variance');
+    expect(chip).toHaveTextContent(/^0d/);
     expect(chip.className).toMatch(/text-neutral-text-secondary/);
   });
 
@@ -301,7 +304,9 @@ describe('TaskListRow — milestone rollup variance branches', () => {
       />,
     );
     expect(screen.getByText('25%')).toBeInTheDocument();
-    expect(screen.queryByText(/\dd/)).toBeNull();
+    // No variance chip at all — asserted on the chip rather than on the absence of
+    // any "Nd" text in the row, which the Dur cell's "0d" now legitimately supplies.
+    expect(screen.queryByTestId('milestone-rollup-variance')).toBeNull();
   });
 
   it('renders the scope-changed chip when the linked sprint changed scope', () => {
@@ -676,6 +681,7 @@ function BuildHarness({
       isCaretAtEndRow: () => false,
       clearCaretAtEndRow: vi.fn(),
       convertToMilestone: vi.fn(),
+      convertToTask: vi.fn(),
       duplicateSubtree: vi.fn(),
       deleteTask: vi.fn(),
       isMutationPending: () => false,

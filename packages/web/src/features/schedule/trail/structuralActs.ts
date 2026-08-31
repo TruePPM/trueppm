@@ -119,11 +119,46 @@ export function insertMisplacedSentence(anchor: ActRow): string {
   return `Added the row, but couldn’t place it above ${label(anchor)} — it is at the end of that level instead.`;
 }
 
-export function milestoneSentence(row: ActRow, becameMilestone: boolean): string {
-  return becameMilestone
-    ? `${label(row)} is a milestone — zero duration, so it marks a date rather than taking time.`
-    : `${label(row)} is a task again.`;
+/**
+ * Milestone conversion and its reverse (#3256).
+ *
+ * `restoredDays` is what the row goes back to when a milestone becomes work again.
+ * The trail is the surface the build-mode design leans on instead of a per-row Save,
+ * so it has to name the number: "is an item again" alone leaves the user to discover
+ * by eye whether their estimate survived. Omitted when there is no stashed estimate
+ * to name — a milestone converted back in a later session — and the sentence then
+ * says only what it can prove.
+ *
+ * These are recorded on mutation SUCCESS, never at call time. The pre-#3256 code
+ * announced "is now a milestone" the instant the act fired, so a refused or failed
+ * write left the log asserting something that did not happen — which is worse on
+ * this surface than on most, because the trail is what a user checks *instead of*
+ * re-reading the row.
+ */
+export function milestoneSentence(
+  row: ActRow,
+  becameMilestone: boolean,
+  restoredDays?: number,
+): string {
+  if (becameMilestone) {
+    return `${label(row)} is a milestone — zero duration, so it marks a date rather than taking time.`;
+  }
+  return restoredDays === undefined
+    ? `${label(row)} is an item again.`
+    : `${label(row)} is an item again, at ${restoredDays} ${restoredDays === 1 ? 'day' : 'days'}.`;
 }
+
+/**
+ * Why a phase cannot become a gate (#3256).
+ *
+ * A summary row's dates are rolled up from its children, so zeroing its duration
+ * would either be overwritten by the next rollup or silently detach the row from
+ * the work underneath it. Refusing with the reason beats disabling in silence: the
+ * row menu previously greyed the item only when the row was ALREADY a milestone,
+ * so a phase offered the act and then did nothing recognisable.
+ */
+export const MILESTONE_REFUSES_SUMMARY =
+  'A phase cannot be a milestone — its dates roll up from the work inside it.';
 
 /**
  * Group / Ungroup (#2955) — the trail's record of a wrap and its reversal.
