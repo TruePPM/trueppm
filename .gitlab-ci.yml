@@ -69,6 +69,22 @@ variables:
   # then regenerate the lockfiles. Enforced by web:playwright-pins (#2797).
   PLAYWRIGHT_BASE_TAG: "v1.62.1-noble"
 
+  # Tag of the custom ci-api image (.gitlab/ci-images/api.Dockerfile), used by
+  # the .api / .api-no-db templates and the mcp:* jobs.
+  #
+  # CONTENT-STAMPED, not fixed: `py3.11-<digest>` over the Dockerfile plus the
+  # api/scheduler/mcp pyproject.toml files. A fixed `:py3.11` was a name that
+  # never changed when its contents did, and our runners pull `if-not-present`
+  # — so each served whatever it had cached. Three different digests ran the
+  # same commit and `api:type-check` reported 41 mypy errors on one and none on
+  # the other two (#3275). Stamping mints a name no runner can have cached.
+  # Identical failure and fix to PLAYWRIGHT_BASE_TAG above (#2825); as there,
+  # `pull_policy: always` is not available on these self-hosted group runners.
+  #
+  # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
+  # the current inputs require. Enforced by api:ci-api-tag.
+  CI_API_TAG: "py3.11-a1a48d26e242"
+
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
 # GitLab job-level `retry` can only rerun the WHOLE job, and would have to
@@ -283,7 +299,7 @@ workflow:
 # re-links the editable packages — no wheel downloads, no apt-get.
 # Kaizen #640 item 3: shaves ~3min off each of the six api:* jobs.
 .api:
-  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - job: ci:build-api-image
       optional: true
@@ -314,7 +330,7 @@ workflow:
 # (type-check, migration check, schema generation). DATABASE_URL is set so
 # django-environ parses cleanly; no actual connection is made.
 .api-no-db:
-  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - job: ci:build-api-image
       optional: true
@@ -1221,7 +1237,7 @@ ci:build-api-image:
     - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-    IMAGE: "$CI_REGISTRY_IMAGE/ci-api:py3.11"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1634,6 +1650,36 @@ web:playwright-pins:
     # "it passed" is not evidence that it can still fail.
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
+
+api:ci-api-tag:
+  extends: .fast-job
+  # The ci-api image tag must change whenever the image's contents can (#3275).
+  #
+  # `ci-api` was published as a fixed `:py3.11`. Our runners pull
+  # `if-not-present`, so a runner that already held that tag never re-pulled it
+  # and served whatever digest it had cached. Three digests ran the SAME commit
+  # in one batch: `api:type-check` found 41 mypy errors under one and none under
+  # the other two. Which verdict you got was decided by runner cache age, and
+  # nothing in the pipeline said so — the job simply passed, or simply failed.
+  #
+  # CI_API_TAG is therefore stamped with a digest of the image's own inputs, and
+  # this job recomputes it. Same failure and same fix as web:playwright-pins
+  # above (#2825); as there, `pull_policy: always` is not an available
+  # substitute on self-hosted group runners.
+  #
+  # Static answer — no install, no build, no network. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed python3 coreutils
+  script:
+    # Self-test first: a gate that silently stopped being able to fail is the
+    # failure mode this whole class of bug is made of.
+    - bash scripts/check-ci-api-tag.sh --self-test
+    - bash scripts/check-ci-api-tag.sh
 
 web:row-vocabulary:
   extends: .fast-job
@@ -2893,7 +2939,7 @@ mcp:typecheck:
   # ci:build-api-image is optional — when deps haven't changed it isn't in the
   # pipeline and the job pulls the existing tag from the registry.
   stage: analyze
-  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - mcp:lint
     - job: ci:build-api-image
@@ -3017,7 +3063,7 @@ mcp:test:
   # the runtime install is a fast editable re-link. ci:build-api-image is
   # optional — pulls the existing registry tag when deps haven't changed.
   stage: test
-  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - mcp:lint
     - mcp:typecheck
@@ -4069,7 +4115,7 @@ api:diff-coverage:
   # files failing to decode — reliably reddened this gate with nothing wrong in
   # the code (#2234). ci-api bakes git + diff-cover (via packages/api[dev]), so
   # no apt-get / pip install is needed at job time.
-  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - job: api:coverage
       artifacts: true
@@ -4095,7 +4141,7 @@ web:diff-coverage:
   # python:3.11-slim + a runtime `pip install`. Same corrupted-cached-layer
   # hazard as api:diff-coverage (#2234); the baked image removes the per-run apt
   # + pip install entirely. Still a python image (not node) — no npm install.
-  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - job: web:coverage
       artifacts: true
@@ -4998,7 +5044,7 @@ license:check:py:
   # only changes when manifests/lock files do; main + scheduled runs catch
   # transitive drift that a lock-file refresh might miss.
   stage: security
-  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - job: ci:build-api-image
       optional: true
