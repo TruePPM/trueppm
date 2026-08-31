@@ -16,8 +16,22 @@
 #   - .gitlab/ci-images/api.Dockerfile
 # or on a scheduled pipeline (weekly safety net for transitive drift).
 #
-# Tagged `:py3.11` — the only Python version we ship to. Bump to `:py3.12`
-# when we move requires-python.
+# Tagged `:$CI_API_TAG` — `py3.11-<digest>`, where the digest covers this
+# Dockerfile and the three pyproject.toml files baked in below. The tag is
+# content-stamped rather than fixed because our runners pull `if-not-present`:
+# a fixed `:py3.11` is a name that does not change when its contents do, so a
+# runner keeps serving the digest it cached and the same commit type-checks
+# differently on different runners (#3275 — three digests, one commit, 41 mypy
+# errors on one of them). Version-stamping mints a name no runner can hold.
+# Same failure and same fix as `playwright-base` (#2825).
+#
+# Do NOT "simplify" this back to a fixed tag, and note that `pull_policy: always`
+# is not an available substitute — these are self-hosted group runners and the
+# job is rejected unless allowed_pull_policies is widened first.
+#
+# scripts/check-ci-api-tag.sh recomputes the digest and fails if CI_API_TAG in
+# .gitlab-ci.yml no longer matches. Bump the py3.11 prefix to py3.12 when we
+# move requires-python.
 #
 # Base image pinned by digest (#904 supply-chain hardening — OpenSSF Scorecard
 # "Pinned-Dependencies"). Renovate (pinDigests) keeps the digest current; bump
