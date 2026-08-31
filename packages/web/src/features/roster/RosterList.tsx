@@ -1,6 +1,27 @@
 /**
  * Left-pane roster list showing all ProjectResource rows for a project.
- * Each row: avatar initial, name, job role, capacity bar, top-3 skill chips.
+ * Each row: avatar initial, name, job role, availability bar, top-3 skill chips.
+ *
+ * The bar states **availability**, never load (#3235). `effectiveMaxUnits` is the
+ * resource's maximum availability ceiling as a fraction of full time — the
+ * `units_override` on this project, else `Resource.max_units`, which defaults to 1.0.
+ * Consumed load is a different axis entirely: it is the sum of `TaskResource.units`
+ * over the resource's assignments, bridged through `Resource.user`, and **no field on
+ * `ProjectResource` carries it**. Nothing on this endpoint can be rendered as load.
+ *
+ * This row previously applied a load ramp to that ceiling — `pct >= 85` → amber
+ * "at risk", `> 1.0` → red "overallocated". Because `max_units` defaults to 1.0, every
+ * resource on a fresh install sat at `pct = 100` and the whole roster rendered amber,
+ * while a deliberately-configured 1.5-FTE crew was announced to a screen reader as
+ * "overallocated" carrying zero assignments. A Resource Manager reads this surface to
+ * decide whether someone can take new work, so the ramp failed in the direction that
+ * blocks staffing.
+ *
+ * Hence: no health ramp here. Availability is a quantity, not a verdict — a person at
+ * 50% is not "healthier" than one at 100%. The fill is a neutral brand tint and the
+ * three `semantic-*` health tokens are deliberately absent from this file. When a real
+ * load read exists (#3155 is building the assignment-load signal), it is a **second**
+ * channel on the row, not a recolor of this one.
  */
 import type { ProjectResource } from '@/types';
 import { AvatarInitials } from '@/components/AvatarInitials';
@@ -14,12 +35,21 @@ interface RosterListProps {
   filterQuery: string;
 }
 
-function capacityPercent(pr: ProjectResource): number {
+/** The resource's availability ceiling as a whole percent of full time. */
+function availabilityPercent(pr: ProjectResource): number {
   return Math.round(pr.effectiveMaxUnits * 100);
 }
 
-function isOverallocated(pr: ProjectResource): boolean {
-  return pr.effectiveMaxUnits > 1.0;
+/**
+ * Bar width as a percent of the track.
+ *
+ * Full time fills the track. The old math divided by 2 for a 0-200% scale, which drew
+ * a fully-available person at half width — the visual read was "half empty" for the
+ * default every resource ships with. Anything above full time pins at 100%; the number
+ * beside the bar carries the excess, because a 150% crew is not 1.5 bars of anything.
+ */
+function barWidthPercent(pct: number): number {
+  return Math.min(pct, 100);
 }
 
 export function RosterList({ items, selectedId, onSelect, filterQuery }: RosterListProps) {
@@ -48,8 +78,7 @@ export function RosterList({ items, selectedId, onSelect, filterQuery }: RosterL
     >
       {filtered.map((pr) => {
         const isSelected = pr.id === selectedId;
-        const pct = capacityPercent(pr);
-        const over = isOverallocated(pr);
+        const pct = availabilityPercent(pr);
         const initials = pr.resource.name
           .split(' ')
           .map((w) => w[0] ?? '')
@@ -83,14 +112,15 @@ export function RosterList({ items, selectedId, onSelect, filterQuery }: RosterL
                 <span className="text-sm font-medium text-neutral-text-primary truncate">
                   {pr.resource.name}
                 </span>
+                {/* The word is visible, not only in the accessible name: a bare
+                    "100%" beside a filled bar reads as load to a sighted user, which
+                    is the misreading this row shipped. Both channels now say the same
+                    thing (web rule 287). */}
                 <span
-                  className={[
-                    'text-xs shrink-0',
-                    over ? 'text-semantic-critical' : 'text-neutral-text-secondary',
-                  ].join(' ')}
-                  aria-label={`${pct}% capacity${over ? ' — overallocated' : ''}`}
+                  className="text-xs shrink-0 text-neutral-text-secondary"
+                  aria-label={`${pct}% available — availability, not assigned load`}
                 >
-                  {pct}%
+                  {pct}% available
                 </span>
               </div>
 
@@ -100,21 +130,15 @@ export function RosterList({ items, selectedId, onSelect, filterQuery }: RosterL
                 </p>
               )}
 
-              {/* Capacity bar */}
+              {/* Availability bar — decorative; the percent above is the value, so
+                  the bar stays aria-hidden rather than duplicating it. */}
               <div
                 className="mt-1.5 h-1 rounded-full bg-neutral-border overflow-hidden"
                 aria-hidden="true"
               >
                 <div
-                  className={[
-                    'h-full rounded-full transition-[width]',
-                    over
-                      ? 'bg-semantic-critical'
-                      : pct >= 85
-                        ? 'bg-semantic-at-risk'
-                        : 'bg-semantic-on-track',
-                  ].join(' ')}
-                  style={{ width: `${Math.min(pct, 200) / 2}%` }}
+                  className="h-full rounded-full transition-[width] bg-brand-primary"
+                  style={{ width: `${barWidthPercent(pct)}%` }}
                 />
               </div>
 
