@@ -1818,6 +1818,22 @@ api:lint:
     - ruff format --check src/ tests/
 
 web:lint:
+  # Head of the web critical path — web:build, web:type-check and web:test all
+  # needs: this, so its duration is a serial prefix in front of every web job.
+  # Worth keeping fast for that reason alone.
+  #
+  # The cost here is eslint itself, not the install: a phase breakdown of this
+  # job (#3276) put npm ci at 4s against 179s for `npm run lint`, because the
+  # npm content cache (see .web) already makes --prefer-offline effectively
+  # free. eslint 9 defaults to --concurrency: off and both config blocks are
+  # type-aware, so it built two full TypeScript programs on one core while the
+  # rest of the runner idled. The `lint` script now passes a FIXED
+  # --concurrency=4; the "//lint" key in packages/web/package.json carries the
+  # benchmark and the reason it is fixed rather than `auto`.
+  #
+  # Note for anyone tempted to split this into web:lint + web:lint:e2e to
+  # parallelize: measured separately, src/ is 38s and e2e/ is 5s. src is 88% of
+  # the cost, so a directory split moves the pole instead of removing it.
   extends: [.web, .fast-job]
   stage: lint
   <<: *rules-web
