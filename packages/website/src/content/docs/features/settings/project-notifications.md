@@ -56,8 +56,8 @@ Each event can be routed to four channels:
 |---------|-------|
 | In-app | The notification inbox in the app. This is a durable record — see [Quiet hours](#quiet-hours) for why it behaves differently. |
 | Email | Sent as an email. Email also depends on your workspace-level preference — see [Relationship to your personal preferences](#relationship-to-your-personal-preferences). |
-| Slack | Delivered to Slack. Requires the Slack integration to be configured under **Project Settings → Integrations**; a toggle here records your intent but does not configure the integration. |
-| Mobile push | A push notification to the mobile app. Requires push to be enabled for your device. |
+| Slack | **Not delivered yet.** TruePPM has no Slack notification delivery, and no setting anywhere enables it — a toggle here records your intent for when it ships. To get project events into Slack today, add a Slack-format [webhook](/features/webhooks/): a project-wide feed with its own event list, which does not read this matrix. |
+| Mobile push | **Not delivered yet.** TruePPM has no push delivery, and no device setting enables it — a toggle here records your intent for when it ships. |
 
 A toggle in the matrix represents *your intent to be notified*. It does not imply the underlying integration is live: turning on the Slack column for an event does nothing until a Slack channel is wired up in Integrations.
 
@@ -138,7 +138,7 @@ No. Each member owns their own routing. There is no admin surface to edit anothe
 Because the in-app row is a durable record, not a transient ping. Quiet hours only silence email, Slack, and mobile push. Dropping the in-app row would lose the event entirely.
 
 **I turned on the Slack column but nothing arrives in Slack.**
-The matrix toggle only records intent. Slack delivery additionally requires the Slack integration to be configured under **Project Settings → Integrations**.
+Nothing is delivered on the Slack channel yet. TruePPM has no Slack notification delivery and there is no setting that enables it, so there is nothing you can configure to make this work today — your toggle is saved and applies once delivery ships. If you want project events in Slack now, add a Slack-format [webhook](/features/webhooks/) under **Project Settings → Integrations**. That is a project-wide feed on its own event list; it does not read this matrix and is not per-person routing.
 
 **Do my preferences carry over to other projects?**
 No. This page is per-project. Joining another project starts you on that project's default matrix. Your *workspace-level* mention preferences (**Me → Settings → Notifications**) are the only cross-project notification settings.

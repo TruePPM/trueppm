@@ -1,6 +1,7 @@
 import { useProjectId } from '@/hooks/useProjectId';
 import {
   PROJECT_NOTIFICATION_CHANNELS,
+  PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS,
   PROJECT_NOTIFICATION_EVENTS,
   ProjectNotificationChannel,
   ProjectNotificationEventType,
@@ -124,6 +125,14 @@ export function ProjectNotificationsPage() {
             {PROJECT_NOTIFICATION_CHANNELS.map((c) => (
               <span key={c.channel} className="text-center">
                 {c.label}
+                {PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS.includes(c.channel) && (
+                  <span
+                    className="block font-normal normal-case tracking-normal text-[10px] text-neutral-text-secondary"
+                    title="TruePPM does not deliver on this channel yet — your choice is saved and will apply once delivery ships."
+                  >
+                    not delivered yet
+                  </span>
+                )}
               </span>
             ))}
           </div>
@@ -177,30 +186,22 @@ export function ProjectNotificationsPage() {
         {/* Slack routing + Quiet hours */}
         <div className="grid grid-cols-2 gap-3.5">
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
-            <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">Slack channel routing</h2>
+            <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">
+              Slack &amp; mobile delivery
+            </h2>
             <p className="text-[12px] text-neutral-text-secondary leading-snug mb-3">
-              Configure Slack channels for your workspace in{' '}
-              <span className="font-semibold text-neutral-text-primary">Project Settings → Integrations</span>.
-              Toggles above control whether each event is delivered via Slack at all.
+              TruePPM does not deliver notifications to Slack or mobile push yet, and no
+              setting turns them on. The columns above are kept so you can record your
+              routing intent now — it applies once delivery ships.
             </p>
-            <div className="space-y-2">
-              {[
-                { lvl: 'Critical-path slips, risk escalations', ch: 'Configure in Integrations' },
-                { lvl: 'Daily digest, milestone events', ch: 'Configure in Integrations' },
-                { lvl: 'Comment mentions', ch: 'DM the recipient' },
-              ].map((row) => (
-                <div
-                  key={row.lvl}
-                  className="grid gap-2.5 py-1.5 text-[12px]"
-                  style={{ gridTemplateColumns: '1.4fr 1fr' }}
-                >
-                  <span className="text-neutral-text-secondary leading-snug">{row.lvl}</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-brand-primary-light text-brand-primary h-fit">
-                    {row.ch}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <p className="text-[12px] text-neutral-text-secondary leading-snug">
+              To get project events into Slack today, add a Slack-format webhook under{' '}
+              <span className="font-semibold text-neutral-text-primary">
+                Project Settings → Integrations
+              </span>
+              . That is a project-wide feed on its own event list — it does not read the
+              matrix above, and it is not per-person routing.
+            </p>
           </div>
 
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
