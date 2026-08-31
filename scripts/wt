@@ -36,7 +36,11 @@
 #                                         to main and deleted on origin. Refuses to
 #                                         remove worktrees with uncommitted work.
 #                                         Releases each pruned worktree's check-out.
-#   scripts/wt doctor                     Verify symlinks and docker-stack reuse.
+#   scripts/wt prune-dbs [--yes]          Drop test databases with no live worktree
+#                                         behind them. Skips any database something
+#                                         is still connected to.
+#   scripts/wt doctor                     Verify symlinks and docker-stack reuse, and
+#                                         report orphaned test databases.
 #   scripts/wt help                       Show this help.
 #
 # Safe by construction: parallel agents can self-serve `wt new`/`wt remove`
@@ -49,7 +53,10 @@
 #      grace window (TRUEPPM_WT_GRACE_MIN, default 30) and refuses to reap a
 #      worktree younger than it unless --force.
 #   3. Each worktree gets its OWN Postgres test DB (TRUEPPM_TEST_DB in .envrc), so
-#      parallel `pytest` runs never collide — no external mutex required.
+#      parallel `pytest` runs never collide — no external mutex required. That DB
+#      is dropped by `wt remove`/`wt prune`: pytest-django only drops it on a
+#      CLEAN exit, so an interrupted run would otherwise strand it forever, and
+#      under xdist strand the whole `_gw0..gwN` worker family with it (#3270).
 #   4. `wt stash` keeps stashes under refs/wt-stash/<worktree>, because git's own
 #      refs/stash is shared across worktrees and a pop from the wrong one both
 #      applies AND drops another session's work (#3110). `wt doctor` warns when
@@ -121,6 +128,26 @@ WT_LEDGER_LOCK_STALE_SEC="${TRUEPPM_WT_LOCK_STALE_SEC:-30}"
 # stack, and a `pop` in one takes whatever the other pushed most recently (#3110).
 # Entries here are keyed by worktree so they cannot be reached from anywhere else.
 WT_STASH_NS="refs/wt-stash"
+
+# --- Per-worktree Postgres test database ------------------------------------
+# `wt new` writes TRUEPPM_TEST_DB=<prefix><slug> into .envrc and pytest creates
+# that database on its first run in the worktree. pytest-django drops it on a
+# CLEAN exit and only on a clean exit — an interrupted run (Ctrl-C, a timeout, a
+# killed agent session) leaves it behind, and until #3270 nothing else ever
+# dropped it: `remove`, `prune` and `doctor` were all blind to the database they
+# had caused to exist. 78 orphans had accumulated locally, 97% of the cluster.
+#
+# Everything below is prefix-anchored on WT_TEST_DB_PREFIX so that neither the
+# shared `test_trueppm` nor the dev `trueppm` database can ever be matched, let
+# alone dropped.
+WT_TEST_DB_PREFIX="${TRUEPPM_WT_TEST_DB_PREFIX:-test_trueppm_wt}"
+# Reached with `docker exec` on the container name rather than `docker compose`,
+# so this works from any worktree without resolving a compose file (cmd_doctor
+# checks the api container the same way).
+WT_DB_CONTAINER="${TRUEPPM_WT_DB_CONTAINER:-${COMPOSE_PROJECT_NAME_DEFAULT}-db-1}"
+WT_DB_USER="${TRUEPPM_WT_DB_USER:-trueppm}"
+# Maintenance DB to connect to while dropping others. Never a drop target.
+WT_DB_MAINT="${TRUEPPM_WT_DB_MAINT:-trueppm}"
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -449,6 +476,131 @@ stamp_reservation() {
 # glab is missing or the API call fails, so worktree management never breaks on
 # a network blip.
 
+# ---------------------------------------------------------------------------
+# Per-worktree test database (#3270)
+# ---------------------------------------------------------------------------
+
+# Is the shared stack's Postgres container up? Every DB helper below is
+# best-effort: with no docker, or the stack down, they no-op silently. Tearing
+# down a worktree must never fail because a database could not be reached.
+db_available() {
+  command -v docker >/dev/null 2>&1 || return 1
+  [[ -n "$(docker ps --filter "name=^${WT_DB_CONTAINER}$" --format '{{.Names}}' 2>/dev/null || true)" ]]
+}
+
+# psql -tAc against the maintenance DB. Swallows errors by design (see above).
+db_query() {
+  docker exec -i "$WT_DB_CONTAINER" \
+    psql -U "$WT_DB_USER" -d "$WT_DB_MAINT" -tAc "$1" 2>/dev/null || true
+}
+
+# Every database wt could own. Anchored regex rather than LIKE: the names are
+# full of underscores, which LIKE would treat as single-character wildcards —
+# `test_trueppm_wt%` as a LIKE pattern also matches `testXtrueppmYwt...`.
+db_list_wt() {
+  db_query "SELECT datname FROM pg_database WHERE datname ~ '^${WT_TEST_DB_PREFIX}' ORDER BY datname;"
+}
+
+# Total on-disk size of the named databases, human-readable. Empty if none.
+db_total_size() {
+  local names_sql="$1"
+  db_query "SELECT pg_size_pretty(COALESCE(sum(pg_database_size(datname)),0)) FROM pg_database WHERE datname IN (${names_sql});"
+}
+
+# The test DB name this worktree was given, read from its .envrc. Must be called
+# BEFORE the worktree is removed. awk (not `sed | head`) so there is no pipe to
+# SIGPIPE under `set -o pipefail`.
+worktree_test_db() {
+  local path="$1"
+  [[ -f "$path/.envrc" ]] || return 0
+  awk -F= '/^export TRUEPPM_TEST_DB=/ { print $2; exit }' "$path/.envrc"
+}
+
+# Every database belonging to <base>: the name itself plus its pytest-xdist
+# worker databases. xdist suffixes the test DB per worker, so ONE interrupted
+# parallel run strands the whole `<base>_gw0..gwN` family rather than a single
+# database — 23 of the 78 orphans found in #3270 were `_gw<N>` workers. Matching
+# is done in bash against the real database list, so no pattern is interpolated
+# into SQL.
+test_db_family() {
+  local base="$1" d
+  [[ -n "$base" ]] || return 0
+  db_list_wt | while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    if [[ "$d" == "$base" || "$d" == "${base}_gw"* ]]; then
+      printf '%s\n' "$d"
+    fi
+  done
+}
+
+# Guard: only ever act on a name that starts with the wt prefix AND has
+# something after it. `test_trueppm` (the shared DB) and `trueppm` (the dev DB)
+# both fail this, so they cannot reach a DROP even if passed in by mistake.
+is_wt_test_db() {
+  case "$1" in
+    "${WT_TEST_DB_PREFIX}"?*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Drop one database. Refuses while anything is still connected — a pytest run
+# live in another worktree, or a psql someone left open — because dropping it
+# out from under a running session turns a disk-hygiene chore into a failed test
+# run somebody else has to debug.
+drop_test_db() {
+  local name="$1" conns
+  is_wt_test_db "$name" || { warn "  refusing to drop '$name' (not a ${WT_TEST_DB_PREFIX}* database)"; return 1; }
+  conns="$(db_query "SELECT count(*) FROM pg_stat_activity WHERE datname = '${name}';" | tr -d '[:space:]')"
+  if [[ "$conns" =~ ^[0-9]+$ ]] && (( conns > 0 )); then
+    warn "  $name: $conns active connection(s) — left in place"
+    return 1
+  fi
+  db_query "DROP DATABASE IF EXISTS \"${name}\";" >/dev/null
+  return 0
+}
+
+# Drop a worktree's whole test-DB family. Best-effort and always returns 0: this
+# runs as the last step of a teardown that has already succeeded.
+drop_worktree_test_dbs() {
+  local base="$1" dropped=0 d
+  [[ -n "$base" ]] || return 0
+  is_wt_test_db "$base" || return 0
+  db_available || return 0
+  for d in $(test_db_family "$base"); do
+    if drop_test_db "$d"; then
+      dropped=$((dropped + 1))
+    fi
+  done
+  if (( dropped > 0 )); then
+    ok "  dropped $dropped test database$([[ "$dropped" == 1 ]] && echo "" || echo "s") ($base)"
+  fi
+  return 0
+}
+
+# Test databases with no live worktree behind them. A worktree owns its base
+# name and every `_gw<N>` worker under it; anything else is an orphan.
+orphan_test_dbs() {
+  local live="" path base d
+  while IFS= read -r path; do
+    [[ -z "$path" || "$path" == "$REPO_ROOT" ]] && continue
+    base="$(worktree_test_db "$path")"
+    [[ -n "$base" ]] && live="${live}${base}
+"
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
+
+  db_list_wt | while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    local owned=1
+    while IFS= read -r base; do
+      [[ -z "$base" ]] && continue
+      if [[ "$d" == "$base" || "$d" == "${base}_gw"* ]]; then owned=0; break; fi
+    done <<EOF
+$live
+EOF
+    (( owned == 1 )) && printf '%s\n' "$d"
+  done
+}
+
 lock_available() { command -v glab >/dev/null 2>&1; }
 
 # Extract the issue number encoded in a branch name (`feat/1462-foo` → 1462), or
@@ -721,9 +873,12 @@ cmd_remove() {
   [[ -n "$path" ]] || die "no worktree matches '$needle'"
 
   # Capture the issue before we remove the tree, so we can release its check-out.
-  local rm_branch rm_issue
+  local rm_branch rm_issue rm_test_db
   rm_branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   rm_issue="$(issue_from_branch "$rm_branch")"
+  # Read the test DB name from .envrc while it still exists — `git worktree
+  # remove` deletes it, and the name is the only handle on the database (#3270).
+  rm_test_db="$(worktree_test_db "$path")"
 
   local force="${2:-}"
   if [[ -d "$path" ]]; then
@@ -752,6 +907,10 @@ cmd_remove() {
   # "untracked" from git's POV and would otherwise block removal.
   git -C "$REPO_ROOT" worktree remove --force "$path"
   ok "removed worktree $path"
+
+  # Drop the Postgres test DB this worktree owned. pytest-django only drops it on
+  # a clean exit, so an interrupted run leaves it stranded forever (#3270).
+  drop_worktree_test_dbs "$rm_test_db"
 
   # Free any ADR / migration numbers this branch reserved but may not have used.
   [[ -n "$rm_branch" ]] && ledger_release_branch "$rm_branch"
@@ -851,8 +1010,13 @@ cmd_prune() {
       continue
     fi
 
+    # Same as cmd_remove: the test DB name lives in .envrc, which the removal
+    # below deletes, so read it first (#3270).
+    local prune_test_db
+    prune_test_db="$(worktree_test_db "$path")"
     git -C "$REPO_ROOT" worktree remove --force "$path"
     ok "  $branch: removed (merged to main, remote gone)"
+    drop_worktree_test_dbs "$prune_test_db"
     # Free any numbers this branch reserved (merged ADRs/migrations are now on disk;
     # unused reservations should not linger and block reuse).
     ledger_release_branch "$branch"
@@ -942,8 +1106,80 @@ cmd_doctor() {
     ok "  ${own_ref} has $(wt_stash_entries | wc -l | tr -d ' ') private entr$([[ "$(wt_stash_entries | wc -l | tr -d ' ')" == 1 ]] && echo y || echo ies)"
   fi
 
+  # Orphaned test databases (#3270). `remove`/`prune` now drop the DB they
+  # caused to exist, but that only stops the bleeding — anything stranded by an
+  # interrupted pytest run, or by a worktree removed before this shipped, is
+  # still on disk with nothing pointing at it. This is the half that finds them.
+  say ""
+  if db_available; then
+    local orphans orphan_count in_list
+    orphans="$(orphan_test_dbs)"
+    orphan_count="$(printf '%s' "$orphans" | grep -c . || true)"
+    if [[ "${orphan_count:-0}" -gt 0 ]]; then
+      in_list="$(printf '%s\n' "$orphans" | sed "s/.*/'&'/" | paste -sd, -)"
+      warn "  ${orphan_count} orphaned test database(s), $(db_total_size "$in_list") total, with no live worktree:"
+      printf '%s\n' "$orphans" | sed 's/^/      /' >&2
+      warn "  drop them with: scripts/wt prune-dbs"
+    else
+      ok "  no orphaned ${WT_TEST_DB_PREFIX}* databases"
+    fi
+  else
+    dim "  Postgres container ${WT_DB_CONTAINER} not running — skipped test-DB orphan check"
+  fi
+
   say ""
   say "WIP: $(wt_count)/$WT_CAP active worktrees"
+}
+
+# Drop every test database with no live worktree behind it. The recovery half of
+# #3270: `remove`/`prune` keep the set from growing, this reclaims what already
+# leaked. Deliberately a separate command rather than a step inside `prune` —
+# `prune` reaps worktrees and should not also delete databases nobody asked it
+# about.
+cmd_prune_dbs() {
+  local force="${1:-}"
+  if ! db_available; then
+    die "Postgres container ${WT_DB_CONTAINER} is not running; start the stack with 'make up'"
+  fi
+
+  local orphans orphan_count
+  orphans="$(orphan_test_dbs)"
+  orphan_count="$(printf '%s' "$orphans" | grep -c . || true)"
+  if [[ "${orphan_count:-0}" -eq 0 ]]; then
+    ok "no orphaned ${WT_TEST_DB_PREFIX}* databases"
+    return 0
+  fi
+
+  local in_list
+  in_list="$(printf '%s\n' "$orphans" | sed "s/.*/'&'/" | paste -sd, -)"
+  say "${orphan_count} orphaned test database(s), $(db_total_size "$in_list") total:"
+  printf '%s\n' "$orphans" | sed 's/^/  /'
+  say ""
+
+  if [[ "$force" != "--yes" ]]; then
+    printf "Drop all %s? [y/N] " "$orphan_count"
+    local reply=""
+    read -r reply || true
+    case "$reply" in
+      y|Y|yes|YES) ;;
+      *) say "Aborted; nothing dropped."; return 0 ;;
+    esac
+  fi
+
+  local dropped=0 kept=0 d
+  while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    if drop_test_db "$d"; then
+      dropped=$((dropped + 1))
+    else
+      kept=$((kept + 1))
+    fi
+  done <<EOF
+$orphans
+EOF
+
+  say ""
+  ok "Dropped: $dropped. Kept (in use or not wt-owned): $kept."
 }
 
 # Check out an issue without creating a worktree — for "I picked it up but
@@ -1119,6 +1355,7 @@ case "${1:-help}" in
   list|ls) cmd_list ;;
   remove|rm) shift; cmd_remove "$@" ;;
   prune)   shift; cmd_prune "$@" ;;
+  prune-dbs) shift; cmd_prune_dbs "$@" ;;
   doctor)  cmd_doctor ;;
   help|--help|-h) cmd_help ;;
   *)       err "unknown subcommand: $1"; cmd_help; exit 2 ;;

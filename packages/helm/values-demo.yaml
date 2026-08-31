@@ -89,7 +89,14 @@ env:
 #     --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
 #     --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
 #       'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
-#     --from-literal=ALLOWED_HOSTS="demo.example.com" \
+#     --from-literal=ALLOWED_HOSTS="demo.example.com,trueppm-api" \
+#
+#   ALLOWED_HOSTS must carry `trueppm-api` as well as the public name (#3237).
+#   Demo mode ships no Ingress, so the kubelet probes and the `helm test` Job
+#   both reach the api by its Service DNS name rather than by demo.example.com.
+#   Omit it and /readyz answers 400 DisallowedHost, the pod never turns Ready,
+#   and nothing in the failure names ALLOWED_HOSTS. Replace `trueppm-api` with
+#   `<release>-trueppm-api` if your release name does not contain "trueppm".
 #     --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
 #
 # All four keys are required: settings.prod validates them at import time, so a

@@ -110,6 +110,7 @@ function Harness({ task = base, resourcePool, nameSuggestions, focusRef }: Harne
       isCaretAtEndRow: () => false,
       clearCaretAtEndRow: vi.fn(),
       convertToMilestone: vi.fn(),
+      convertToTask: vi.fn(),
       duplicateSubtree: vi.fn(),
       deleteTask: vi.fn(),
       isMutationPending: () => false,

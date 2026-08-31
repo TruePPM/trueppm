@@ -111,6 +111,7 @@ import {
   type RowMenuItem,
 } from './buildMode';
 import { wbsParentPath } from './buildMode/insertBelow';
+import { MILESTONE_REFUSES_SUMMARY } from './trail/structuralActs';
 import {
   ROW_VOCABULARY,
   ROW_NOUN,
@@ -902,11 +903,20 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       onSelect: () => onClassifyRequest?.(task.id),
     },
     {
+      // A reversible toggle, not a one-way command (#3256). It was disabled only
+      // when the row was ALREADY a milestone, which made the act unrepeatable in
+      // the one direction that mattered and left a phase offering a conversion it
+      // could never perform.
       key: 'milestone',
-      label: 'Convert to milestone',
+      label: task.isMilestone ? 'Milestone' : 'Convert to milestone',
       icon: <MilestoneIcon className="h-4 w-4" aria-hidden="true" />,
-      disabled: task.isMilestone,
-      onSelect: () => buildMode.convertToMilestone(task.id),
+      checked: task.isMilestone,
+      disabled: task.isSummary,
+      disabledReason: task.isSummary ? MILESTONE_REFUSES_SUMMARY : undefined,
+      onSelect: () =>
+        task.isMilestone
+          ? buildMode.convertToTask(task.id)
+          : buildMode.convertToMilestone(task.id),
     },
     {
       key: 'delete',
@@ -3060,7 +3070,15 @@ function MilestoneRollupCell({
         data-testid="milestone-rollup-lock"
       />
       {varianceLabel && (
-        <span className={`tppm-mono text-xs ${varianceClass}`} aria-hidden="true">
+        // Testid alongside the sibling lock icon's (#3256): the chip is aria-hidden,
+        // and its text is a bare "0d"/"-2d" that a row-wide `getByText(/\dd/)` now
+        // collides with, since the Dur cell states a milestone's zero rather than
+        // dashing it. Scope the assertion instead of relying on the em-dash.
+        <span
+          className={`tppm-mono text-xs ${varianceClass}`}
+          aria-hidden="true"
+          data-testid="milestone-rollup-variance"
+        >
           {varianceLabel}
         </span>
       )}
@@ -3827,9 +3845,21 @@ function TaskDurationCell({
         text-right text-neutral-text-secondary tabular-nums pr-2"
       style={{ width: widthPx }}
       role="gridcell"
-      aria-label={task.isMilestone ? 'milestone' : `${task.duration} days`}
+      // #3258. The Finish cell's em-dash is right — a milestone genuinely has one
+      // date, and its aria text says which column carries it. Dur is a different
+      // claim: an em-dash reads as UNKNOWN, and a gate whose duration is unknown is
+      // exactly the wrong thing to say about the one row type defined by having
+      // none. With both cells dashed, the diamond asserted the type and no cell
+      // asserted the consequence. The zero is the point, so state it — in both
+      // channels, since a sighted user reading `0d` is owed the same sentence the
+      // screen-reader user gets (web rule 287).
+      //
+      // This only became visible once #3256 made the conversion write a real
+      // milestone; before that every converted row was a zero-duration *task*, so
+      // this branch never ran on the rows a user had just converted.
+      aria-label={task.isMilestone ? '0 days — milestone' : `${task.duration} days`}
     >
-      {task.isMilestone ? '—' : `${task.duration}d`}
+      {task.isMilestone ? '0d' : `${task.duration}d`}
     </div>
   );
 }

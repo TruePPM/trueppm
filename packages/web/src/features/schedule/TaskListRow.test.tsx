@@ -347,7 +347,12 @@ describe('TaskListRow', () => {
     // House SVG, never the ◆ codepoint (rule 242 / issue 1749).
     expect(screen.getByTestId('milestone-glyph')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('◆');
-    expect(screen.getByLabelText('milestone')).toBeInTheDocument();
+    // #3258: Dur states the ZERO, it does not dash. An em-dash reads as "unknown",
+    // and a gate whose duration is unknown is the wrong thing to say about the one
+    // row type defined by having none. Both channels agree (web rule 287).
+    const durCell = screen.getByLabelText('0 days — milestone');
+    expect(durCell).toHaveTextContent('0d');
+    expect(screen.queryByLabelText('milestone')).not.toBeInTheDocument();
   });
 
   it('seeded-and-untouched task shows the tick mark (#2731, ADR-0799 §4)', () => {

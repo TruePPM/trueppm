@@ -333,8 +333,8 @@ Recorded as the visual contract for #3136:
 
 | Part | Scope band |
 |---|---|
-| Separator | full-bleed 1px `neutral-border`, run past the rail's 8px inset — the rail's **only** rule, so it means exactly one thing |
-| Ground | `neutral-surface-raised` — lifts in both themes, no theme-specific override |
+| Separator | full-bleed 1px `chrome-border/25`, run past the rail's 8px inset — the rail's **only** rule, so it means exactly one thing |
+| Ground | `chrome-surface-raised` — 1.10:1 light, 1.14:1 dark; lifts in both themes, no theme-specific override |
 | Band label | identical to a verb band, every value |
 | Item row | identical, minus the trailing health-dot slot |
 | Active state | identical, spine included — "you are here" is one vocabulary |
@@ -358,6 +358,15 @@ disabled control.
 > would have shown it. The implemented band uses `chrome-surface-raised` (**1.10:1**
 > light, **1.14:1** dark) with a `chrome-border/25` rule. The generalization is now
 > `packages/web/CLAUDE.md` rule 365.
+
+> **Amendment (2026-08-31, #3268).** The correction above was recorded but the table
+> was left as written, so the contract a reader scans still named the wrong ramp while
+> the prose underneath it disagreed — and the #1413 checklist panel, specified into the
+> same rail from the same bundle, inherited `neutral-surface-raised` from the table
+> rather than from the correction. The **Ground and Separator rows are now amended in
+> place**; this note is kept so the original error stays on the record. Anything else
+> rendered *inside* the rail takes the `chrome-*` ramp for the same reason — the
+> container it lifts off is painted `chrome-surface`.
 
 **Correction A — the a11y mechanism.** The finding is adopted: one `<nav>` landmark,
 and a scope band is a labelled group rather than a second landmark. The bundle's

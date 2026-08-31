@@ -936,30 +936,61 @@ for overlay in "" "$CHART/values-dev.yaml" "$CHART/values-prod.yaml"; do
     || fail "helm lint failed for overlay '${overlay:-<defaults>}' — values.schema.json rejects a value the chart ships (#2879)"
 done
 
-# N. Probe Host header (#3183). kubelet dials a probe by POD IP, so with no Host
-#    header Django validates `<podIP>:8000` against ALLOWED_HOSTS in get_host()
-#    — before any view, and out of reach of SECURE_REDIRECT_EXEMPT — and answers
-#    400 DisallowedHost. The pod never turns Ready and the Ingress serves 503,
-#    with nothing in the failure naming ALLOWED_HOSTS. Assert both api probes
-#    carry the header and that it equals the ingress host an operator would have
-#    put in ALLOWED_HOSTS.
-ing_host="$(helm template trueppm "$CHART" --set image.tag=latest \
-  --show-only templates/api/deployment.yaml \
-  | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
-[ -n "$ing_host" ] && [ "$ing_host" != "null" ] \
-  || fail "readinessProbe carries no Host header — kubelet will send Host: <podIP> and Django will 400 it against ALLOWED_HOSTS (#3183)"
-live_host="$(echo "$DEP" | yq '.spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
-[ "$live_host" = "$ing_host" ] \
-  || fail "livenessProbe Host header is '$live_host', expected '$ing_host' — the two probes must agree (#3183)"
+# N. Probe Host header (#3183, #3237). kubelet dials a probe by POD IP, so with
+#    no Host header Django validates `<podIP>:8000` against ALLOWED_HOSTS in
+#    get_host() — before any view, and out of reach of SECURE_REDIRECT_EXEMPT —
+#    and answers 400 DisallowedHost. The pod never turns Ready and the Ingress
+#    serves 503, with nothing in the failure naming ALLOWED_HOSTS.
+#
+#    Both branches are asserted, because until #3237 this block tested only ONE
+#    and read the wrong values key to do it: it rendered with DEFAULTS —
+#    ingress.enabled is false by default — and then asserted the header equalled
+#    values.yaml's ingress.hosts[0].host. That passed for the wrong reason and
+#    pinned the defect in place: the helper read ingress.hosts without testing
+#    ingress.enabled, so every no-Ingress install got the placeholder
+#    `trueppm.example.com` stamped onto both probes and never turned Ready.
+probe_host() { # <release> [extra helm args...]
+  local rel="$1"; shift
+  helm template "$rel" "$CHART" --set image.tag=latest "$@" \
+    --show-only templates/api/deployment.yaml \
+    | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value'
+}
+
+# N.a — no Ingress (the chart DEFAULT). Must be the api Service DNS name, which
+#       is what templates/tests/api-connection.yaml curls and what the README
+#       tells operators to put in ALLOWED_HOSTS. Must NOT be an ingress host.
+noing_host="$(probe_host trueppm)"
 default_ing="$(yq '.ingress.hosts[0].host' "$CHART/values.yaml")"
+[ -n "$noing_host" ] && [ "$noing_host" != "null" ] \
+  || fail "readinessProbe carries no Host header with ingress.enabled=false — kubelet will send Host: <podIP> and Django will 400 it against ALLOWED_HOSTS (#3237)"
+[ "$noing_host" != "$default_ing" ] \
+  || fail "probe Host header is the ingress placeholder '$default_ing' while ingress.enabled is false — no ALLOWED_HOSTS contains it, so both probes 400 and the pod never turns Ready (#3237)"
+[ "$noing_host" = "trueppm-api" ] \
+  || fail "probe Host header with no Ingress is '$noing_host', expected the api Service name 'trueppm-api' — it must match what helm test curls and what ALLOWED_HOSTS is documented to hold (#3237)"
+# The Service name must track the release, or a non-'trueppm' release names a Service that does not exist.
+[ "$(probe_host ppm)" = "ppm-trueppm-api" ] \
+  || fail "probe Host header does not follow trueppm.fullname for release 'ppm' (got '$(probe_host ppm)') (#3237)"
+# ...and it must be the name the helm test Job actually resolves.
+grep -q '{{ include "trueppm.fullname" . }}-api' "$CHART/templates/tests/api-connection.yaml" \
+  || fail "helm test no longer curls '<fullname>-api' — the no-Ingress probe Host fallback was derived from it and the two have drifted (#3237)"
+
+# N.b — Ingress enabled. Must be the first ingress host, the name the operator
+#       already had to put in ALLOWED_HOSTS to serve traffic at all (#3183).
+ing_host="$(probe_host trueppm --set ingress.enabled=true)"
 [ "$ing_host" = "$default_ing" ] \
-  || fail "probe Host header '$ing_host' does not resolve to the first ingress host '$default_ing' (#3183)"
-# The override must win, so an operator without an Ingress can still name the host.
-ovr="$(helm template trueppm "$CHART" --set image.tag=latest --set probes.api.hostHeader=probe.example.test \
-  --show-only templates/api/deployment.yaml \
-  | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
-[ "$ovr" = "probe.example.test" ] \
-  || fail "probes.api.hostHeader override did not take effect (got '$ovr') (#3183)"
+  || fail "with ingress.enabled=true the probe Host header '$ing_host' does not resolve to the first ingress host '$default_ing' (#3183)"
+
+# N.c — both probes must agree, on the default (no-Ingress) path.
+live_host="$(echo "$DEP" | yq '.spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
+[ "$live_host" = "$noing_host" ] \
+  || fail "livenessProbe Host header is '$live_host', expected '$noing_host' — the two probes must agree (#3183)"
+
+# N.d — the explicit override must win over BOTH branches, so an operator can
+#       always name the host themselves.
+[ "$(probe_host trueppm --set probes.api.hostHeader=probe.example.test)" = "probe.example.test" ] \
+  || fail "probes.api.hostHeader override did not take effect with no Ingress (#3183)"
+[ "$(probe_host trueppm --set ingress.enabled=true --set probes.api.hostHeader=probe.example.test)" = "probe.example.test" ] \
+  || fail "probes.api.hostHeader override did not beat the ingress host (#3237)"
 
 # N+1. collectstatic (#3183). The image does not bake collectstatic output
 #      (packages/api/Dockerfile:103 — it "writes here at startup"), the api
@@ -1202,7 +1233,7 @@ echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op
 echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays quiet once they are configured"
 echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
-echo "  - both api probes send Host: $ing_host (kubelet would otherwise send the pod IP and Django would 400 it)"
+echo "  - both api probes send Host: $noing_host with no Ingress, $ing_host with one (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"

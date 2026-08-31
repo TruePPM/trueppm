@@ -113,6 +113,7 @@ function Harness({
       isCaretAtEndRow: () => false,
       clearCaretAtEndRow: vi.fn(),
       convertToMilestone: vi.fn(),
+      convertToTask: vi.fn(),
       duplicateSubtree: vi.fn(),
       deleteTask: mocks.deleteTask,
       isMutationPending: () => false,
