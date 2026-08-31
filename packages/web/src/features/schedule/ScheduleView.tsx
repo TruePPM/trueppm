@@ -1693,6 +1693,8 @@ export function ScheduleView() {
     viewMode,
     setViewMode,
   });
+  // Where focus goes when the how-to bar is dismissed (#3134) — see `onDismiss` below.
+  const displayTriggerRef = useRef<HTMLButtonElement>(null);
   const { options: displayOptions, toggle: toggleDisplayOption } =
     useScheduleDisplayOptions(projectIdUndef);
   // Comfortable rows (#3019). The Display menu's toggle persisted this and
@@ -4178,6 +4180,7 @@ export function ScheduleView() {
         canLinkDependencies={!dependenciesReadOnly}
         displayOptions={displayOptions}
         onToggleDisplayOption={toggleDisplayOption}
+        displayTriggerRef={displayTriggerRef}
         isMobile={isMobile}
         projectId={projectId}
         readOnly={readOnly}
@@ -4412,7 +4415,25 @@ export function ScheduleView() {
           // restores it (#2959). Standing down for the strip is a render
           // condition and must never be confused with being dismissed — a
           // planner who clears their selection gets the bar back.
-          onDismiss={() => toggleDisplayOption('coach')}
+          onDismiss={() => {
+            toggleDisplayOption('coach');
+            // Dismissing unmounts the container the focused X lives in, so without
+            // this focus fell to `<body>` — WCAG 2.4.3 / 2.4.7, and a keyboard user
+            // lost their place entirely (T10/T11, #3134). #2959 fixed the one-way
+            // *dismissal*; the route back existed, but the user was dropped on the
+            // floor on the way to it.
+            //
+            // The trigger is the right landing spot rather than a generic fallback:
+            // this control's own label says "bring it back from Display options", so
+            // moving focus there makes that sentence true for a keyboard user instead
+            // of only for someone who can see the toolbar.
+            //
+            // Synchronous on purpose. Focus moves out of the bar BEFORE React commits
+            // the unmount, so the unmount has no focused descendant to orphan; doing
+            // it in an effect or a rAF would blur first and land second, which is the
+            // flicker this is meant to remove.
+            displayTriggerRef.current?.focus();
+          }}
           onShowCheatsheet={() => setCheatsheetOpen(true)}
         />
       )}
@@ -5360,6 +5381,12 @@ interface ScheduleToolbarProps {
    */
   onUndoStructuralAct: (entryId: number, operationId: string) => void;
   undoPending: boolean;
+  /**
+   * Handle on the Display menu's trigger, so the how-to bar can hand focus to it when
+   * dismissed (#3134). Owned by `ScheduleView` because the bar and the toolbar are
+   * siblings — the toolbar only forwards it.
+   */
+  displayTriggerRef: RefObject<HTMLButtonElement | null>;
   /** Per-person outline chrome (#2959) — surfaced in the Display menu. */
   displayOptions: ScheduleDisplayOptions;
   onToggleDisplayOption: (key: ScheduleDisplayOptionKey) => void;
@@ -5453,6 +5480,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     readOnly,
     displayOptions,
     onToggleDisplayOption,
+    displayTriggerRef,
     hasEditRights,
     canLinkDependencies,
     showAddForm,
@@ -5749,6 +5777,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       <ScheduleDisplayMenu
         displayOptions={displayOptions}
         onToggleDisplayOption={onToggleDisplayOption}
+        triggerRef={displayTriggerRef}
         showCpOnly={showCpOnly}
         setShowCpOnly={setShowCpOnly}
         focusModeEnabled={focusModeEnabled}
