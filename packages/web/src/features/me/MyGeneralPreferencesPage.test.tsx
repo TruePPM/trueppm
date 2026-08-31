@@ -62,7 +62,7 @@ describe('MyGeneralPreferencesPage (ADR-0129, #1181)', () => {
   it("Auto's helper echoes the live resolved intent while default is auto", () => {
     useCurrentUser.mockReturnValue(userWith('auto', 'project_overview'));
     renderWithRouter(<MyGeneralPreferencesPage />);
-    expect(screen.getByText(/Right now this opens a project's Overview/i)).toBeInTheDocument();
+    expect(screen.getByText(/Right now this opens a project's Dashboard/i)).toBeInTheDocument();
   });
 
   it("Auto's helper changes when a concrete preference is set", () => {

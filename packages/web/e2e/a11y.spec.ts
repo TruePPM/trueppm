@@ -402,7 +402,7 @@ test.describe('accessibility @a11y — routes', () => {
     // branch — the "add your first task" card was deleted rather than restyled, and
     // a zero-task project renders the ordinary Overview body. The sr-only page
     // landmark (#2200) is the h1 either way.
-    await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible({
+    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible({
       timeout: 10_000,
     });
 
@@ -415,7 +415,7 @@ test.describe('accessibility @a11y — routes', () => {
     page,
   }, testInfo) => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
-    await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible({
+    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible({
       timeout: 10_000,
     });
     // HealthCluster renders only on project routes (self-gates off `/`).

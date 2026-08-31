@@ -85,8 +85,10 @@ describe('LandingPrimaryUsePrompt (ADR-0129, #1181)', () => {
     // The echo text is split across nodes (label + interpolated intent), so
     // match the surrounding copy and the intent label independently.
     expect(screen.getByText(/currently opens/i)).toBeInTheDocument();
-    // "A project's Overview" appears both as a radio-card label and in the echo.
-    expect(screen.getAllByText(/a project's Overview/i).length).toBeGreaterThanOrEqual(1);
+    // "A project's Dashboard" appears both as a radio-card label and in the echo.
+    // Renamed with VIEW_TAB_META.overview in ADR-0942 §7 — the picker names the same
+    // destination the rail does, so the two must not drift.
+    expect(screen.getAllByText(/a project's Dashboard/i).length).toBeGreaterThanOrEqual(1);
   });
 
   it('Skip sets the seen flag and hides the card, with no PATCH', () => {

@@ -11,35 +11,44 @@ vocabulary without scraping the web bundle.
 guarantee that a user's nav can never be emptied. ``settings`` is also absent —
 it is an admin surface, not a hideable workflow view.
 
-When a new hideable view is added to the web ``VIEW_GROUPS``, add its key here
-too (the two lists are deliberately coupled; a key absent here is rejected with
-a 400 by ``UserProfileSerializer.validate_hidden_views``).
+Both are *band members* on the web since ADR-0942 (they used to stand outside every
+band, which is the only reason they were unhideable). Their absence here is therefore
+no longer a structural consequence of anything — it is an authored decision on both
+sides, and the thing that keeps the two sides honest is
+``contracts/hideable-views.json``: this set and the web's ``HIDEABLE_VIEW_KEYS`` each
+assert against it, in pytest and in vitest respectively. Adding a hideable view means
+editing all three; any one alone fails a pipeline. Prose asking to "keep the two lists
+in sync" is what let the web derive this set from band membership in the first place.
+
+A key absent here is rejected with a 400 by
+``UserProfileSerializer.validate_hidden_views``.
 """
 
 from __future__ import annotations
 
-# Grouped for readability only — the *rendered* group of a key is methodology-adaptive
-# on the web (ADR-0195: Board joins the SPRINT circuit on AGILE/HYBRID, stays in TRACK on
-# WATERFALL). Hideability is per-key and independent of group, so this set is unchanged by
-# that layout: every key below is hideable on every methodology.
+# Grouped for readability only — the *rendered* band of a key is methodology-adaptive on
+# the web (ADR-0195: Board joins the DELIVER circuit on AGILE/HYBRID, stays in TRACK on
+# WATERFALL). Hideability is per-key and independent of band, so this set is unchanged by
+# that layout — and by ADR-0942's retaxonomy, which moved four keys between bands and
+# added none: every key below is hideable on every methodology.
 HIDEABLE_VIEW_KEYS: frozenset[str] = frozenset(
     {
-        # PLAN group
+        # PLAN band
         "schedule",
         "grid",
         "calendar",
-        # SPRINT group (AGILE/HYBRID) — Backlog · Sprints · Board (ADR-0195)
+        # DELIVER band (AGILE/HYBRID) — Backlog · Sprints · Board (ADR-0195)
         "product-backlog",
         "sprints",
         "board",
-        # TRACK group
+        # TRACK band
         "today",
         "risk",
         "reports",
         "activity",
         # Unified Assets surface (#971, ADR-0215) — trails TRACK on the web.
         "assets",
-        # PEOPLE group
+        # WORKSPACE scope band (ADR-0942) — Team, beside the unhideable Settings.
         "resources",
     }
 )

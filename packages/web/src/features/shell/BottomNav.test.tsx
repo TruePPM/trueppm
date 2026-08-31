@@ -90,12 +90,16 @@ describe('BottomNav', () => {
     expect(moreButton).toBeInTheDocument();
   });
 
-  it('leads with Overview and Today as primary tabs (issue 1324)', () => {
+  it('leads with Dashboard and Today as primary tabs (issue 1324)', () => {
+    // ADR-0942 renamed the label and moved the view into the TRACK band on desktop, but
+    // mobile order is ADR-0196's own (ANCHOR_VIEWS), not the desktop band order — so the
+    // #1324 anchor guarantee is unchanged by the retaxonomy. This asserts that.
     renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/board'] });
     const nav = screen.getByRole('navigation', { name: /view/i });
     const links = within(nav).getAllByRole('link');
-    expect(links[0]).toHaveAccessibleName(/Overview/i);
+    expect(links[0]).toHaveAccessibleName(/Dashboard/i);
     expect(links[1]).toHaveAccessibleName(/Today/i);
+    expect(links[0]).toHaveAttribute('href', '/projects/proj-1/overview');
   });
 
   it('makes Backlog reachable as a primary tab on HYBRID (issue 1464)', () => {
@@ -170,7 +174,10 @@ describe('BottomNav', () => {
       initialEntries: ['/projects/proj-1/board/card-42'],
     });
     const nav = screen.getByRole('navigation', { name: /view/i });
-    expect(within(nav).getByRole('link', { name: /Board/i })).toHaveAttribute(
+    // `^Board$` is deliberately anchored: since ADR-0942 the landing view is labelled
+    // "Dashboard", which CONTAINS "board", so an unanchored /Board/i matches two links
+    // and throws a strict-mode collision.
+    expect(within(nav).getByRole('link', { name: /^Board$/i })).toHaveAttribute(
       'aria-current',
       'page',
     );

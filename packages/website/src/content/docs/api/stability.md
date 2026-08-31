@@ -63,8 +63,9 @@ to break on an additive change that this policy considers backward-compatible.
 ## Deprecation window & notice
 
 One stable element is scheduled for deprecation — see
-[Current deprecations](#current-deprecations) below; the window mechanism itself
-has not yet been exercised through to a removal. When a **breaking** change to a
+[Current deprecations](#current-deprecations) below. The window mechanism has not yet
+been exercised through to a removal; the two Breaking changes taken so far both
+bypassed it deliberately, and both are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -93,6 +94,27 @@ deprecation window rather than being removed outright:
    It told any caller holding a project ID — which every project Viewer has — that the
    project has automation enabled with a secret set. A client branching on `401` from
    that endpoint must treat `404` as the same condition.
+
+   **Bypassed a second time, in 0.4 (#3137).** The `schedule_in_deliver` field is
+   removed outright from `GET /api/v1/auth/me/` and `PATCH /api/v1/auth/me/profile/`
+   with no deprecation window. Removing a field is **Breaking** by the table above, so
+   this is a policy exception and is recorded as one rather than as routine. The
+   reasoning ([ADR-0942](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/0942-project-rail-verb-bands-and-a-workspace-scope-band.md)
+   §3): the field was display-only — no rollup, report, export, schedule computation
+   or webhook read it — so the deprecation window would have preserved nothing but the
+   field's own ability to round-trip a value that changed nothing. Marking it
+   `deprecated` for a release would have meant publishing, for another 10–12 weeks, a
+   documented and writable setting that the product no longer honors.
+
+   Unlike an ordinary removal, a stale write **does not fail silently**: a `PATCH`
+   carrying `schedule_in_deliver` is refused with a `400` keyed to the field name, so
+   an integration still sending it finds out at the moment it sends it rather than
+   inferring it from a response body. The whole request is rejected, so sibling fields
+   in the same body are not applied.
+
+   This exception is available because TruePPM is pre-1.0 alpha and the v1 surface is
+   not yet under a GA compatibility promise. It should not be read as a precedent for
+   removals after GA.
 4. **Removal.** The element would be removed only after the window elapses, in
    a minor release before GA or in the next major version at and after GA.
 

@@ -65,8 +65,10 @@ async function openMore(page: Page) {
 test.describe('Mobile BottomNav reachability (#1464)', () => {
   test('HYBRID — Backlog is primary; Risks and Reports reachable via More', async ({ page }) => {
     await setup(page, 'HYBRID');
-    // Overview + Today always lead (issue 1324).
-    await expect(rail(page).getByRole('link', { name: /Overview/i })).toBeVisible({
+    // Dashboard + Today always lead (issue 1324). ADR-0942 renamed the label and moved
+    // the view into TRACK on desktop; mobile order is ADR-0196's own anchor list, so the
+    // guarantee is unchanged.
+    await expect(rail(page).getByRole('link', { name: /Dashboard/i })).toBeVisible({
       timeout: 10_000,
     });
     await expect(rail(page).getByRole('link', { name: /Today/i })).toBeVisible();

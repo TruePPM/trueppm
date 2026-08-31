@@ -1474,7 +1474,7 @@ export function ProjectOverviewPage() {
       {/* sr-only page landmark (#2200) — sibling views (Board/Schedule/
           Resources) ship one; the Overview landing had none, so the page
           heading was the first h2 and the RouteAnnouncer had no h1 to name. */}
-      <h1 className="sr-only">Overview</h1>
+      <h1 className="sr-only">Dashboard</h1>
       {/* Project header */}
       {overview && !overviewLoading && projectId && (
         <ProjectHeader overview={overview} projectId={projectId} />

@@ -58,12 +58,16 @@ export function BottomNav() {
   // workspace (effective_iteration_label set, project override null).
   const sprintsLabel = useIterationLabel(projectId).plural;
 
-  // Compose the reachable set the same way the desktop bar does: methodology
+  // Compose the reachable set the same way the desktop rail does: methodology
   // filter → per-project surface visibility (ADR-0193) → per-user hidden_views
   // (ADR-0139 — now applied on mobile too). `groupedVisibleViewsForUser` handles
   // the first and third; surfaceHiddenViews contributes `reports` when reporting
-  // is off. `overview`/`settings` are standalone (never grouped/hideable), so
-  // they are added explicitly. `resources` (Team) additionally needs Scheduler+.
+  // is off. Since ADR-0942 `overview` and `settings` are band members too, so they
+  // arrive through `grouped` rather than being appended by hand — one vocabulary,
+  // not two. Only the two role gates stay here: `resources` (Team) needs Scheduler+
+  // and `settings` needs admin. The mobile *order* is still ADR-0196's, not the
+  // desktop band order (`selectMobileNav` re-derives it from CANONICAL_VIEW_ORDER),
+  // so the #1324 Overview-then-Today anchor guarantee is untouched by the retaxonomy.
   const surfaceHidden = surfaceHiddenViews(
     project.data?.effective_surface_visibility ?? { reporting: true },
   );
@@ -77,11 +81,9 @@ export function BottomNav() {
   // menu is their way in, and it links straight to the section's anchor. Strict
   // `!== false` so the row is visible while the signal loads (#2147).
   const canAccessSettings = user?.can_access_admin_settings !== false;
-  const reachable = [
-    'overview',
-    ...grouped.filter((v) => v !== 'resources' || canSeeTeam),
-    ...(canAccessSettings ? ['settings'] : []),
-  ];
+  const reachable = grouped.filter(
+    (v) => (v !== 'resources' || canSeeTeam) && (v !== 'settings' || canAccessSettings),
+  );
 
   // Promote the user's pinned views (issue 1591) into the primary slots ahead
   // of the methodology defaults; Overview/Today stay anchored (see ANCHOR_VIEWS).
