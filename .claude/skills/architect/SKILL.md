@@ -146,7 +146,57 @@ What is the chosen approach?
 6. Outbox cleanup: <!-- purge schedule and retention, or N/A -->
 7. Idempotency: <!-- how duplicate executions are detected and handled -->
 8. Dead-letter / failure handling: <!-- DLQ, retry limit, alert threshold, or N/A -->
+
+### On Acceptance
+<!-- Complete when this ADR's Status moves to Accepted — not before. -->
+- [ ] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr NNNN`
+- [ ] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a dated
+      correction note. Record the count, including zero.
 ```
+
+## When an ADR moves to Accepted
+
+An issue that says *"implements ADR-NNNN"* is almost always written **before** the ADR
+is accepted — that is its job, to argue for it. The ADR then gets negotiated and options
+are **rejected**, and the issue is never re-read. The delta between the issue that
+proposed it and the ADR that settled it is exactly **the set of rejected options** — the
+most expensive thing to accidentally implement.
+
+Nothing in the pipeline can catch this. `boundary:check` reads labels, `docs:adr-index`
+reads ADR statistics; **no gate has ever read an issue body against an ADR**, and
+building one would be a poor trade (it cannot distinguish a divergence from an issue
+that legitimately implements one section). So this is a checklist step at a moment that
+already exists, not a gate.
+
+Acceptance is the trigger. Do these four, in order:
+
+1. **Sweep.** `python3 scripts/adr-accepted-issue-sweep.py --adr NNNN` lists every open
+   issue naming this ADR that was written before it was accepted.
+2. **Check the branch before assuming the issue is right.** In #3136 the worktree
+   already followed ADR-0942 and the *issue* carried the rejected scope — diagnosing it
+   the other way round would have "corrected" working code. Branch-right/issue-wrong is
+   the dangerous direction: an implementer reading the issue builds the rejected design,
+   a reviewer approves against it, and `Closes #NNNN` then closes the issue as though
+   the rejected scope had shipped.
+3. **Rewrite the title, not only the body.** A stale title is what survives a triage
+   sweep — #3136's title still read `Grid→Scope` after ADR-0942 rejected that relabel.
+4. **Lead with a dated correction note** rather than editing silently. The old scope is
+   often why an in-flight branch looks strange later.
+
+Record the count in the ADR's `### On Acceptance` block **including when it is zero** —
+a zero is the evidence that the class is rare, and it is what tells a future reader
+whether this step is still earning its slot.
+
+> **Trap, if you ever automate this.** An ADR's `## Status` date is *not* reliably an
+> acceptance date. Three bulk audit sweeps (2026-06-30, 2026-07-29, 2026-08-02) rewrote
+> 81 of 314 Accepted ADRs to read *"Accepted — implemented on main; status corrected
+> `<date>` after ADR audit"*; those ADRs were accepted, and usually implemented, long
+> before the date they now carry. Ranking issues against a correction date turns **2**
+> real 0.4 candidates into **40**. A further **128** references point at Accepted ADRs
+> whose Status carries no date at all and cannot be ranked either way. The sweep script
+> encodes both facts; a hand-rolled `grep` will not.
+
 
 ## Durable Execution Checklist
 

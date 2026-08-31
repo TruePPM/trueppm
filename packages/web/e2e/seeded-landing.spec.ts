@@ -141,6 +141,11 @@ test.describe('Seeded landing (#2731, ADR-0799)', () => {
 
     // The two untouched-seeded rows carry the tick; the hand-authored row does not.
     await expect(page.getByTestId('seeded-untouched-glyph')).toHaveCount(2);
+    // #3273 — and the tick is actually painted. Both row glyphs are direct flex
+    // children of a cell whose content overflows, so a missing `shrink-0` resolves
+    // them to width 0 while `toHaveCount` still passes. Count guards presence;
+    // only visibility guards that a reader can see it.
+    await expect(page.getByTestId('seeded-untouched-glyph').first()).toBeVisible();
 
     // Next strip: one unowned leaf, one unconfirmed gate.
     const strip = page.getByTestId('next-strip');
