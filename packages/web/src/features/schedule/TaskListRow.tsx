@@ -2825,16 +2825,31 @@ function TaskListRowInner({
             never lingers as stale provenance chrome. */}
         {task.isUntouchedSeed && (
           <SeededUntouchedIcon
-            className="mr-1 inline-block h-3 w-3 shrink-0 align-[-0.125em] text-neutral-text-secondary"
+            className="mr-1 h-3 w-3 shrink-0 text-neutral-text-secondary"
             aria-hidden="true"
             data-testid="seeded-untouched-glyph"
           />
         )}
 
-        {/* Milestone diamond indicator */}
+        {/* Milestone diamond indicator.
+
+            `shrink-0` is load-bearing, not defensive (#3273). This cell is a flex
+            container whose content routinely overflows its fixed `widths.task`
+            (measured: 224px of content in a 219px box), and the glyph defaulted to
+            `flex-shrink: 1` — so it absorbed the whole overflow and resolved to
+            `width: 0px` while `height` stayed 12px. The name is what should truncate
+            under pressure; the glyph is the ONLY channel that asserts the row type,
+            and it is `aria-hidden`, so at 0px nobody has the type at all. The sibling
+            seeded-untouched tick above already carries `shrink-0` for this reason.
+
+            The `inline-block` and `align-[-0.125em]` utilities this used to carry were
+            inert and actively misleading: a flex item is blockified (CSS Display §2.7),
+            so `display` computed to `block` and `vertical-align` never applied, which
+            reads at a glance like Tailwind's preflight beating the utilities. It is not
+            — both utilities matched and applied exactly as authored. */}
         {task.isMilestone && (
           <MilestoneIcon
-            className="mr-1 inline-block h-3 w-3 align-[-0.125em] text-brand-accent"
+            className="mr-1 h-3 w-3 shrink-0 text-brand-accent"
             aria-hidden="true"
             data-testid="milestone-glyph"
           />
