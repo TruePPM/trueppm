@@ -222,6 +222,7 @@ import {
   insertSentence,
   insertMisplacedSentence,
   milestoneSentence,
+  MILESTONE_REFUSES_SUMMARY,
   movedIntoSentence,
   adoptedPhaseSentence,
   groupSentence,
@@ -2208,6 +2209,12 @@ export function ScheduleView() {
   );
 
   /** A row reduced to what a sentence needs: its name and what travels with it. */
+  // Prior estimate stashed at milestone conversion so the reverse can restore it
+  // (#3256). Client-side and therefore session-scoped: `own_estimate` is read-only
+  // on the serializer and already owned by the container-shadow lifecycle (#2950),
+  // so parking it server-side needs a field of its own.
+  const priorEstimateRef = useRef<Map<string, number>>(new Map());
+
   const actRow = useCallback(
     (taskId: string): ActRow => {
       const task = allTasks.find((t) => t.id === taskId);
@@ -2578,11 +2585,73 @@ export function ScheduleView() {
       },
       isPristineNewRow: (taskId) => taskId === pristineNewRowId,
       clearPristineNewRow: (taskId) => setPristineNewRowId((cur) => (cur === taskId ? null : cur)),
+      // #3256. Three things were wrong here, and the third is the one that made it
+      // more than a display bug.
+      //
+      // (1) The payload was a bare `duration: 0`. The serializer's coupling is
+      //     one-directional — `is_milestone: true` zeroes duration and sets
+      //     `delivery_mode`, but a bare duration write infers NEITHER flag. So the
+      //     act produced a zero-duration *work* row: no diamond, no start-only date
+      //     treatment, `outlineDrag`'s gate refusals never fired (the "gate" happily
+      //     accepted children), and Board / CPM / sprint rollup all read it as work.
+      // (2) There was no reverse. The UI said so out loud, which made an
+      //     unrecoverable act out of one the spec defines as a toggle.
+      // (3) The trail sentence was recorded at CALL time, so the log asserted
+      //     "... is now a milestone" whether or not the write landed. The trail is
+      //     the surface this design leans on instead of a per-row Save — a log that
+      //     can be wrong about the thing it is standing in for is worse than none.
       convertToMilestone: (taskId) => {
         if (!projectId) return;
+        const task = allTasks.find((t) => t.id === taskId);
+        if (!task) return;
+        if (task.isMilestone) return;
+        // A phase's dates roll up from the work inside it, so it cannot be a gate.
+        // Refuse out loud: the menu item used to be disabled only when the row was
+        // ALREADY a milestone, so a phase offered the act and then did nothing.
+        if (task.isSummary) {
+          setScheduleActionToast({ message: MILESTONE_REFUSES_SUMMARY });
+          return;
+        }
         const row = actRow(taskId);
-        updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
-        recordAct(milestoneSentence(row, true));
+        // Stash before the write — the server zeroes duration, so this is the last
+        // moment the prior estimate exists anywhere the client can read it.
+        priorEstimateRef.current.set(taskId, task.duration);
+        updateTaskMut.mutate(
+          { id: taskId, projectId, is_milestone: true },
+          {
+            onSuccess: () => recordAct(milestoneSentence(row, true)),
+            onError: () => {
+              priorEstimateRef.current.delete(taskId);
+              toast.error("Couldn't make that a milestone — try again.");
+            },
+          },
+        );
+      },
+      convertToTask: (taskId) => {
+        if (!projectId) return;
+        const task = allTasks.find((t) => t.id === taskId);
+        if (!task?.isMilestone) return;
+        const row = actRow(taskId);
+        // A milestone converted back in a later session has no stash: restore
+        // nothing rather than inventing a number, and let the sentence say only what
+        // it can prove. Refusing instead would reinstate the one-way trip this act
+        // exists to remove.
+        const restored = priorEstimateRef.current.get(taskId);
+        updateTaskMut.mutate(
+          {
+            id: taskId,
+            projectId,
+            is_milestone: false,
+            ...(restored === undefined ? {} : { duration: restored }),
+          },
+          {
+            onSuccess: () => {
+              priorEstimateRef.current.delete(taskId);
+              recordAct(milestoneSentence(row, false, restored));
+            },
+            onError: () => toast.error("Couldn't turn that back into an item — try again."),
+          },
+        );
       },
       duplicateSubtree: (taskId) => {
         // ⌘D / Ctrl+D / row menu Duplicate (#2727, ADR-0776 §2, amending
@@ -6052,8 +6121,14 @@ interface ScheduleMainAreaProps {
 function timelineRowMenuItems(
   buildMode: BuildModeApi,
   taskId: string,
+  // Only the two flags the milestone toggle needs (#3256). Passed rather than
+  // looked up so this stays a pure builder — the Timeline has no DOM row, which is
+  // the whole reason this menu exists separately from the Grid's.
+  row: { isMilestone: boolean; isSummary: boolean },
   onMoveToRequest?: (taskId: string) => void,
 ): RowMenuItem[] {
+  const isMilestoneRow = row.isMilestone;
+  const isSummaryRow = row.isSummary;
   return [
     {
       key: 'indent',
@@ -6079,9 +6154,15 @@ function timelineRowMenuItems(
       onSelect: () => buildMode.insertBelow(taskId),
     },
     {
+      // The outline's twin of the list row's item (#3256). It carried no `disabled`
+      // at all, so a phase here offered the act with nothing to stop it.
       key: 'milestone',
-      label: 'Make a milestone',
-      onSelect: () => buildMode.convertToMilestone(taskId),
+      label: isMilestoneRow ? 'Milestone' : 'Make a milestone',
+      checked: isMilestoneRow,
+      disabled: isSummaryRow,
+      disabledReason: isSummaryRow ? MILESTONE_REFUSES_SUMMARY : undefined,
+      onSelect: () =>
+        isMilestoneRow ? buildMode.convertToTask(taskId) : buildMode.convertToMilestone(taskId),
     },
     {
       key: 'duplicate',
@@ -6125,6 +6206,10 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     anchor: { x: number; y: number };
     taskId: string;
   } | null>(null);
+  // The open menu's row, for the flags the milestone toggle reads (#3256).
+  const timelineMenuRow = timelineMenu
+    ? props.allTasks.find((t) => t.id === timelineMenu.taskId)
+    : undefined;
 
   const {
     isMobile,
@@ -6397,6 +6482,10 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
             items={timelineRowMenuItems(
               timelineBuildMode,
               timelineMenu.taskId,
+              {
+                isMilestone: timelineMenuRow?.isMilestone ?? false,
+                isSummary: timelineMenuRow?.isSummary ?? false,
+              },
               onMoveToRequest,
             )}
             onClose={() => setTimelineMenu(null)}
