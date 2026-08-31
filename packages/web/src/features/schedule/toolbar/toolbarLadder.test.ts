@@ -255,8 +255,8 @@ describe('nextFitStep', () => {
   });
 
   it('prefers an OBSERVED rung cost over the design estimate', () => {
-    // The real cost depends on this project's own strings — "142 tasks · 9
-    // critical" is not "3 tasks · 0 critical".
+    // The real cost depends on this project's own strings — "142 items · 9
+    // critical" is not "3 items · 0 critical".
     const observed: Array<number | undefined> = [];
     observed[0] = 10;
     // Rung 0's estimate is 100; with an observed cost of 10, 40px of slack is

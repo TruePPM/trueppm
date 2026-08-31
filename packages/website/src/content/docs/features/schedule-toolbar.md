@@ -14,7 +14,7 @@ Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+
 [ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the ··· menu by default )   [ Build mode pill ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
-[ {N} tasks · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
+[ {N} items · {S} in sprints · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
 ```
 
 ## Fitting the window
@@ -24,8 +24,9 @@ Instead it measures itself and gives ground in a fixed order until everything fi
 
 It concedes in two stages, and the first is always spent before the second:
 
-1. **Things shorten in place.** The summary chip drops its words before its numbers
-   (`142 tasks · 9 critical · CPM ✓` → `142 · 9 ▲ · ✓` → `CPM ✓`), the insert sentence
+1. **Things shorten in place.** The summary chip drops its lowest-priority token, then
+   its words before its numbers (`142 items · 12 in sprints · 9 critical · CPM ✓` →
+   `142 · 9 ▲ · ✓` → `CPM ✓`), the insert sentence
    shortens, the zoom stepper becomes a `Month ▾` menu, and Read/Author and Build mode
    merge into one `Author · Build ▾` chip. Nothing has left the toolbar at this point —
    each control still shows its current value, and the parts that no longer fit are in
@@ -123,13 +124,18 @@ Chart choices are saved per-user in your browser. Unlike the view/render filters
 
 ## Summary chip
 
-Rightmost in the toolbar (above the Today + Zoom controls). Format: `{N} tasks · {C} critical · CPM ✓`.
+Rightmost in the toolbar (above the Today + Zoom controls). Format: `{N} items · {S} in sprints · {C} critical · CPM ✓`.
 
+- **`{N} items`**: every row currently visible after filtering — tasks, phases and milestones alike. The noun is deliberately neutral: a row's type is a declared property, so a count that spans all three cannot call them tasks.
+- **`{S} in sprints`**: how many of those rows are committed to a sprint, excluding phase summaries. On a hybrid plan this is the one place on the Schedule that says how much of it is running iteratively. If your project renames its iteration container (**Settings → Team & workflow**), this token follows that name — `3 in iterations`, `3 in PIs`.
+- **`{C} critical`**: rows on the critical path, excluding phase summaries.
 - **`✓`** (green): CPM ran successfully against the current data.
 - **`⚠`** (amber): the scheduling engine reported an error — usually a cyclic dependency. Open the Schedule's status banner or check task dependencies.
 - **`CPM …`** (italic): a recompute is in flight.
 
-The chip is a `role="status"` announcement for screen readers — every state change is read aloud.
+The chip is a `role="status"` announcement for screen readers — every state change is read aloud. Its spoken form stays **complete at every width**: when the toolbar tightens and the chip sheds tokens on screen, the announcement still carries all four counts.
+
+When space runs short, `in sprints` is the first token to go — the critical count drives the plan's dates, while the sprint count describes how it is being run.
 
 ## Adding a milestone
 
