@@ -51,13 +51,19 @@ def test_object_body_rejects_a_scalar(payload: Any) -> None:
         object_body(_request(payload))
 
 
-def test_invalid_request_body_is_a_400_with_a_flat_detail() -> None:
-    """Flat ``{"detail": ...}``, matching the hand-written guards it generalizes.
+def test_invalid_request_body_is_a_400_carrying_the_code_on_the_wire() -> None:
+    """Shape 2 — ``{"code", "detail"}`` — and the `code` must be IN the body.
 
-    A ``ValidationError`` would nest the message under a field key and describe a
-    field problem; this is a problem with the envelope, and no field is at fault.
+    The distinction this pins is the whole of #3281. A *string* ``default_detail``
+    leaves ``default_code`` on the ``ErrorDetail`` object, where DRF's handler
+    never renders it: the class looks like it publishes a code and does not. So
+    the assertion is on ``exc.detail`` as a mapping, not on ``.code`` — the
+    attribute was present the entire time the wire format was missing it.
     """
     exc = InvalidRequestBody()
     assert exc.status_code == status.HTTP_400_BAD_REQUEST
-    assert str(exc.detail) == "Request body must be a JSON object."
-    assert exc.detail.code == "invalid_body"  # type: ignore[union-attr]
+    assert isinstance(exc.detail, dict)
+    assert dict(exc.detail) == {
+        "code": "invalid_body",
+        "detail": "Request body must be a JSON object.",
+    }
