@@ -525,6 +525,14 @@ scripts:test:
   #     worktree shares one stack and a `pop` in one takes — and drops — whatever
   #     another pushed last (#3110). The test stages two real worktrees and
   #     replays that interleaving; run against `git stash` it fails.
+  #   - wt-testdb: the per-worktree Postgres test DB lifecycle (#3270). `wt new`
+  #     creates the DB name, pytest-django drops the DB only on a CLEAN exit, and
+  #     nothing dropped it otherwise — 78 orphans, 1959 MB, 97% of the local
+  #     cluster. The failure is silent by construction (no test breaks, no
+  #     pipeline reds, disk just fills), so a regression would be invisible again
+  #     without this. `docker` is stubbed with a file-backed catalog, so a DROP is
+  #     observable as an absence rather than as a logged command that may or may
+  #     not have worked.
   # There is no other test harness for these scripts, so guard the logic
   # directly. Pinned python image (bash + python3), ~5s. The wt-reserve test
   # stages real throwaway git repos and runs scripts/wt against them, so this
@@ -560,6 +568,7 @@ scripts:test:
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh
+        - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
@@ -589,6 +598,7 @@ scripts:test:
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh
+        - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
@@ -605,6 +615,7 @@ scripts:test:
     - bash scripts/tests/release-preflight.test.sh
     - bash scripts/tests/wt-reserve.test.sh
     - bash scripts/tests/wt-stash.test.sh
+    - bash scripts/tests/wt-testdb.test.sh
     - bash scripts/tests/osv-severity-gate.test.sh
     - bash scripts/tests/backup-s3.test.sh
     - bash scripts/tests/check-enterprise-imports.test.sh
