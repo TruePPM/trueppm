@@ -178,13 +178,18 @@ hostname:
   (`<release>-trueppm-api`), so that name belongs in the list.
 - **kubelet's liveness and readiness probes** connect by pod IP. The chart
   handles this for you — it sets an explicit `Host` header on both probes,
-  resolved from `ingress.hosts[0].host` (override with
-  `probes.api.hostHeader`). Keep that value in `ALLOWED_HOSTS`: if the two
+  resolved from `ingress.hosts[0].host` when `ingress.enabled: true`, and
+  otherwise from the api Service name `<release>-trueppm-api` (override either
+  with `probes.api.hostHeader`). Keep that value in `ALLOWED_HOSTS`: if the two
   disagree, `/readyz` returns 400, the pod never becomes Ready, the Service
   gets no endpoints, and the Ingress serves 503.
 
-If you deploy without an Ingress — a `LoadBalancer` Service, or a service mesh —
-set `probes.api.hostHeader` explicitly and add the same value here.
+Both callers therefore resolve to the **same** name when you deploy without an
+Ingress, which is the chart default: `<release>-trueppm-api`. Listing it covers
+`helm test` and both kubelet probes at once, and no `probes.api.hostHeader` is
+needed. Set that value explicitly only when the name kubelet should send is
+neither your ingress host nor the Service name — for example a service mesh that
+rewrites the authority.
 :::
 
 `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` puts task attachments on local
