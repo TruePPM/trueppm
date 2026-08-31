@@ -77,7 +77,7 @@ Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `truepp
 
 ## Underway
 
-From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. Point releases have been landing every 4–11 weeks so far (0.2 → 0.3 in four; 0.3 → 0.4 in nine to eleven). Only 0.4 and 0.5 carry dates; the persona ordering past 0.6 is a sequence we intend, not a schedule we have committed to.
+From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. Only 0.4 and 0.5 carry dates; the persona ordering past 0.6 is a sequence we intend, not a schedule we have committed to.
 
 ### 0.4 — the self-hosting PM's beta (target: Aug 31 – Sep 14, 2026)
 
