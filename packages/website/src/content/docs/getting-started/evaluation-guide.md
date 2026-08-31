@@ -140,10 +140,11 @@ before you start clicking:
 
 - **Views live in the left navigation rail**, not in top-bar tabs. Within a
   project they are grouped **Plan** (Schedule, Grid, Calendar) · **Deliver**
-  (Backlog, Sprints, Board) · **Track** (Today, Risks, Reports, Activity,
-  Assets) · **People** (Resources), with **Overview** leading and **Settings**
-  trailing. A view you do not see is hidden by the project's methodology — an
-  agile project has no Schedule group by default.
+  (Backlog, Sprints, Board) · **Track** (Dashboard, Today, Risks, Reports,
+  Activity, Assets), followed by a ruled-off **Workspace** band pinned to the
+  bottom holding **Team** and **Settings**. A view you do not see is hidden by the
+  project's methodology — an agile project has no Schedule or Calendar by default,
+  and no **Deliver** band exists on a waterfall project.
 - **The top bar** carries the `Program › Project` location switcher on the left
   and the health / sync / notifications / user cluster on the right.
 - **⌘K** opens the command palette — the fastest way to jump to a view or find a

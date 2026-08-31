@@ -7,24 +7,38 @@ import {
 } from './lensOrder';
 import type { VisibleViewGroup } from './methodologyTabs';
 
-/** A HYBRID-shaped bar (every view visible) to exercise the ordering — ADR-0195/0203 layout:
- *  the sprint circuit (Backlog · Sprints · Board) lives in the dedicated DELIVER group. */
+/** A HYBRID-shaped rail (every view visible) to exercise the ordering — the ADR-0942
+ *  taxonomy: three verb bands in lifecycle order, then the WORKSPACE scope band. */
 function groups(): VisibleViewGroup[] {
   return [
     {
       id: 'PLAN',
+      kind: 'verb',
       label: 'Plan',
       views: ['schedule', 'grid', 'calendar'],
       visibleViews: ['schedule', 'grid', 'calendar'],
     },
     {
       id: 'DELIVER',
+      kind: 'verb',
       label: 'Deliver',
       views: ['product-backlog', 'sprints', 'board'],
       visibleViews: ['product-backlog', 'sprints', 'board'],
     },
-    { id: 'TRACK', label: 'Track', views: ['today', 'risk', 'reports'], visibleViews: ['today', 'risk', 'reports'] },
-    { id: 'PEOPLE', label: 'People', views: ['resources'], visibleViews: ['resources'] },
+    {
+      id: 'TRACK',
+      kind: 'verb',
+      label: 'Track',
+      views: ['overview', 'today', 'risk', 'reports'],
+      visibleViews: ['overview', 'today', 'risk', 'reports'],
+    },
+    {
+      id: 'WORKSPACE',
+      kind: 'scope',
+      label: 'Workspace',
+      views: ['resources', 'settings'],
+      visibleViews: ['resources', 'settings'],
+    },
   ];
 }
 
@@ -47,16 +61,21 @@ describe('applyRoleContextLensOrder', () => {
     const out = applyRoleContextLensOrder(groups(), 'pm');
     const plan = out.find((g) => g.id === 'PLAN')!;
     expect(plan.visibleViews).toEqual(['schedule', 'grid', 'calendar']);
-    // DELIVER / TRACK / PEOPLE unaffected — no PM-priority views there.
+    // DELIVER / TRACK / WORKSPACE unaffected — no PM-priority views there.
     expect(out.find((g) => g.id === 'DELIVER')!.visibleViews).toEqual([
       'product-backlog',
       'sprints',
       'board',
     ]);
-    expect(out.find((g) => g.id === 'TRACK')!.visibleViews).toEqual(['today', 'risk', 'reports']);
+    expect(out.find((g) => g.id === 'TRACK')!.visibleViews).toEqual([
+      'overview',
+      'today',
+      'risk',
+      'reports',
+    ]);
   });
 
-  it('Scrum Master promotes Board · Sprints · Backlog within the DELIVER group (ADR-0195/0203)', () => {
+  it('Scrum Master promotes Board · Sprints · Backlog within the DELIVER band (ADR-0195/0203)', () => {
     const out = applyRoleContextLensOrder(groups(), 'scrum_master');
     // priority order is [board, sprints, product-backlog]; all three now share the DELIVER
     // group, so the lens reorders within it (daily-driver Board first for the SM).
@@ -64,7 +83,12 @@ describe('applyRoleContextLensOrder', () => {
     expect(sprint.visibleViews).toEqual(['board', 'sprints', 'product-backlog']);
     // PLAN / TRACK unaffected — no SM-priority views there.
     expect(out.find((g) => g.id === 'PLAN')!.visibleViews).toEqual(['schedule', 'grid', 'calendar']);
-    expect(out.find((g) => g.id === 'TRACK')!.visibleViews).toEqual(['today', 'risk', 'reports']);
+    expect(out.find((g) => g.id === 'TRACK')!.visibleViews).toEqual([
+      'overview',
+      'today',
+      'risk',
+      'reports',
+    ]);
   });
 
   it('never adds, removes, or moves a view across groups — only within-group order changes', () => {
@@ -80,11 +104,48 @@ describe('applyRoleContextLensOrder', () => {
   it('only reorders already-present views — a hidden priority view is a no-op', () => {
     // AGILE-shaped PLAN: schedule/calendar already filtered out upstream.
     const agile: VisibleViewGroup[] = [
-      { id: 'PLAN', label: 'Plan', views: [], visibleViews: ['product-backlog', 'sprints', 'grid'] },
+      {
+        id: 'PLAN',
+        kind: 'verb',
+        label: 'Plan',
+        views: [],
+        visibleViews: ['product-backlog', 'sprints', 'grid'],
+      },
     ];
     const out = applyRoleContextLensOrder(agile, 'pm');
     // PM priority is schedule (absent) then grid (present) → grid leads, no schedule conjured.
     expect(out[0].visibleViews).toEqual(['grid', 'product-backlog', 'sprints']);
+  });
+
+  it('leaves the WORKSPACE scope band untouched under every lens (ADR-0942 §2)', () => {
+    // A scope band is not a workflow — it is the project's own setup, not a lifecycle
+    // step — so there is no workflow for a role lens to re-point. Asserted for both
+    // non-identity lenses, since `unified` returns early and would pass vacuously.
+    for (const lens of ['pm', 'scrum_master'] as const) {
+      const out = applyRoleContextLensOrder(groups(), lens);
+      const workspace = out.find((g) => g.id === 'WORKSPACE');
+      expect(workspace?.visibleViews).toEqual(['resources', 'settings']);
+      // Identity, not merely same-contents: the band object is passed straight through.
+      expect(workspace).toBe(out[out.length - 1]);
+    }
+  });
+
+  it('still reorders verb bands when a scope band is present', () => {
+    // Guards the inverse of the rule above: skipping `kind !== 'verb'` must not
+    // accidentally short-circuit the whole map.
+    const out = applyRoleContextLensOrder(groups(), 'pm');
+    expect(out.find((g) => g.id === 'PLAN')?.visibleViews).toEqual([
+      'schedule',
+      'grid',
+      'calendar',
+    ]);
+    expect(out.find((g) => g.id === 'TRACK')?.visibleViews[0]).toBe('overview');
+    const smOut = applyRoleContextLensOrder(groups(), 'scrum_master');
+    expect(smOut.find((g) => g.id === 'DELIVER')?.visibleViews).toEqual([
+      'board',
+      'sprints',
+      'product-backlog',
+    ]);
   });
 
   it('does not mutate the input array', () => {

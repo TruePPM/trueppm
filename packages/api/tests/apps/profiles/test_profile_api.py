@@ -207,62 +207,87 @@ def test_user_can_only_touch_own_role_context() -> None:
     assert UserProfile.objects.get(user=alice).role_context == "pm"
 
 
-# --- schedule_in_deliver (ADR-0203, #1645) ----------------------------------
+# --- schedule_in_deliver is retired (ADR-0942 §3, #3137) --------------------
 
 
 @pytest.mark.django_db
-def test_get_profile_lazily_returns_schedule_in_deliver_false() -> None:
-    """A fresh profile defaults to the calm Schedule-in-Plan-only placement."""
-    user = User.objects.create_user(username="sid_lazy", password="pw")
+def test_profile_payload_omits_retired_schedule_in_deliver() -> None:
+    """The placement opt-in is gone from the read payload, not defaulted to False.
+
+    ADR-0942 §3 rejected keeping it as an ignored no-op: a documented, writable field
+    that changes nothing is the dead-control class this codebase already carries scars
+    from. "Absent" and "present but always False" are different contracts to an API/MCP
+    client, so this asserts absence.
+    """
+    user = User.objects.create_user(username="sid_gone", password="pw")
     resp = _client(user).get(URL)
     assert resp.status_code == 200
-    assert resp.data["schedule_in_deliver"] is False
+    assert "schedule_in_deliver" not in resp.data
 
 
 @pytest.mark.django_db
-def test_patch_sets_schedule_in_deliver() -> None:
-    user = User.objects.create_user(username="sid_set", password="pw")
+def test_patch_schedule_in_deliver_is_refused_with_a_400_naming_the_key() -> None:
+    """A stale client PATCHing the retired field gets a visible refusal, not a no-op.
+
+    This is ADR-0942 §3's "deletion and a 400 on a stale write", and it does not come
+    for free: DRF's ``to_internal_value`` iterates *declared fields* and pulls each out
+    of the payload, so a key matching no field is never enumerated and the default
+    behaviour is ``200`` with the key silently discarded. An agent reads ``200`` on a
+    PATCH as "my write landed" — the same lie the no-op field told by echoing ``true``,
+    with the mechanism inverted. ``UserProfileSerializer.RETIRED_FIELDS`` is what makes
+    the refusal real.
+
+    The error is keyed by field name so a client can attribute it without parsing prose.
+    """
+    user = User.objects.create_user(username="sid_stale", password="pw")
     resp = _client(user).patch(URL, {"schedule_in_deliver": True}, format="json")
+    assert resp.status_code == 400
+    assert "schedule_in_deliver" in resp.data
+    assert "ADR-0942" in str(resp.data["schedule_in_deliver"][0])
+
+
+@pytest.mark.django_db
+def test_retired_key_refusal_rejects_the_whole_body() -> None:
+    """The refusal is all-or-nothing — sibling prefs in the same PATCH do not land.
+
+    This is the deliberate trade-off in ADR-0942 §3's choice of a visible failure. A
+    stale onboarding script that sets every profile field in one body gets a ``400``
+    and writes none of it, rather than a ``200`` that quietly applied four of five
+    fields and dropped the one it was told nothing about. Partial success is the
+    harder failure to debug: the script's author has no signal at all.
+
+    Asserted explicitly because "the other fields still land" was the previous
+    behaviour and is the thing a reader is most likely to assume still holds.
+    """
+    user = User.objects.create_user(username="sid_atomic", password="pw")
+    resp = _client(user).patch(
+        URL,
+        {"schedule_in_deliver": True, "default_landing": "my_work"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    profile = UserProfile.objects.filter(user=user).first()
+    # Either no row was created, or it kept the default — never the requested value.
+    assert profile is None or profile.default_landing != "my_work"
+
+
+@pytest.mark.django_db
+def test_unknown_but_not_retired_keys_are_still_ignored() -> None:
+    """The denylist is narrow: only *retired* keys refuse, not every unknown one.
+
+    General strict mode would make any additive client change a hard failure and break
+    forward-compatibility, which is why `RETIRED_FIELDS` is a named list rather than a
+    "reject anything undeclared" switch. This is the assertion that keeps the two apart.
+    """
+    user = User.objects.create_user(username="sid_forward", password="pw")
+    resp = _client(user).patch(
+        URL,
+        {"some_future_preference": True, "default_landing": "my_work"},
+        format="json",
+    )
     assert resp.status_code == 200
-    assert resp.data["schedule_in_deliver"] is True
-    assert UserProfile.objects.get(user=user).schedule_in_deliver is True
-
-
-@pytest.mark.django_db
-def test_patch_schedule_in_deliver_round_trips_back_off() -> None:
-    user = User.objects.create_user(username="sid_off", password="pw")
-    c = _client(user)
-    c.patch(URL, {"schedule_in_deliver": True}, format="json")
-    resp = c.patch(URL, {"schedule_in_deliver": False}, format="json")
-    assert resp.status_code == 200
-    assert resp.data["schedule_in_deliver"] is False
-    assert UserProfile.objects.get(user=user).schedule_in_deliver is False
-
-
-@pytest.mark.django_db
-def test_patch_schedule_in_deliver_does_not_clobber_other_prefs() -> None:
-    """A partial PATCH of the placement opt-in leaves the other prefs alone."""
-    user = User.objects.create_user(username="sid_partial", password="pw")
-    c = _client(user)
-    c.patch(URL, {"default_landing": "my_work"}, format="json")
-    c.patch(URL, {"hidden_views": ["board"]}, format="json")
-    c.patch(URL, {"schedule_in_deliver": True}, format="json")
-    profile = UserProfile.objects.get(user=user)
-    assert profile.default_landing == "my_work"
-    assert profile.hidden_views == ["board"]
-    assert profile.schedule_in_deliver is True
-
-
-@pytest.mark.django_db
-def test_user_can_only_touch_own_schedule_in_deliver() -> None:
-    """No :id in the path — a user's PATCH only ever writes their own row."""
-    alice = User.objects.create_user(username="sid_alice", password="pw")
-    bob = User.objects.create_user(username="sid_bob", password="pw")
-    _client(alice).patch(URL, {"schedule_in_deliver": True}, format="json")
-
-    # Bob's profile is untouched (defaults to False), Alice's is True.
-    assert _client(bob).get(URL).data["schedule_in_deliver"] is False
-    assert UserProfile.objects.get(user=alice).schedule_in_deliver is True
+    assert "some_future_preference" not in resp.data
+    assert UserProfile.objects.get(user=user).default_landing == "my_work"
 
 
 # --- timezone + date_format (#1953, ADR-0410) -------------------------------

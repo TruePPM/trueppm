@@ -225,7 +225,7 @@ test.describe('View switching', () => {
 
   test('navigate to Board — columns render and URL updates', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
-    await nav.getByRole('link', { name: 'Board' }).click();
+    await nav.getByRole('link', { name: 'Board', exact: true }).click();
     await expect(page).toHaveURL(/\/board$/);
     // Board renders columns; at least the "To Do" column should be visible.
     await expect(page.locator('[aria-label*="To Do"]').first()).toBeVisible({ timeout: 5_000 });
@@ -249,7 +249,7 @@ test.describe('View switching', () => {
     await nav.getByRole('link', { name: 'Grid' }).click();
     await expect(page.getByRole('treegrid', { name: 'Outline task tree' })).toBeVisible();
 
-    await nav.getByRole('link', { name: 'Board' }).click();
+    await nav.getByRole('link', { name: 'Board', exact: true }).click();
     await expect(page.locator('[aria-label*="To Do"]').first()).toBeVisible({ timeout: 5_000 });
 
     await nav.getByRole('link', { name: 'Schedule' }).click();
@@ -277,18 +277,30 @@ test.describe('View switching', () => {
       .toHaveAttribute('aria-current', 'page');
   });
 
-  test('Overview leads the grouped view bar; the sprint circuit co-locates in DELIVER (ADR-0030/0128/0195/0203)', async ({
+  test('the rail is PLAN · DELIVER · TRACK then the WORKSPACE scope band (ADR-0942)', async ({
     page,
   }) => {
-    // v2 groups the tabs into PLAN / DELIVER / TRACK / PEOPLE on HYBRID (the fixture
-    // default) — ADR-0195, group renamed SPRINT → DELIVER in ADR-0203. Overview stays the
-    // standalone leading tab; Board lives in the DELIVER group next to Sprints and Backlog
-    // (the #1466 co-location fix).
+    // Three verb bands in lifecycle order and one scope band the flow ends at. On HYBRID
+    // (the fixture default) every band is present. Dashboard is TRACK's first member
+    // now, not a standalone leading tab — ADR-0942 §7/§8 — and Board still lives in
+    // DELIVER next to Sprints and Backlog (the #1466 co-location fix, ADR-0195 retained).
     const nav = page.getByRole('navigation', { name: 'View' });
     const links = nav.getByRole('link');
-    await expect(links.nth(0)).toHaveText('Overview');
+    // PLAN leads the rail: Schedule is the first row, not Dashboard.
+    await expect(links.nth(0)).toHaveText('Schedule');
+    const track = nav.getByRole('group', { name: 'Track views' });
+    const trackLinks = track.getByRole('link');
+    await expect(trackLinks.nth(0)).toHaveText('Dashboard');
+    await expect(trackLinks.nth(1)).toHaveText('Today');
+    // The scope band is last, and Settings is inside it rather than a loose trailing row.
+    const workspace = nav.getByRole('group', { name: 'Workspace views' });
+    await expect(workspace.getByRole('link', { name: 'Settings' })).toBeVisible();
+    await expect(nav.getByRole('group').last()).toHaveAttribute(
+      'aria-label',
+      'Workspace views',
+    );
     const sprint = nav.getByRole('group', { name: 'Deliver views' });
-    await expect(sprint.getByRole('link', { name: 'Board' })).toBeVisible();
+    await expect(sprint.getByRole('link', { name: 'Board', exact: true })).toBeVisible();
     await expect(sprint.getByRole('link', { name: 'Sprints' })).toBeVisible();
     await expect(sprint.getByRole('link', { name: 'Backlog' })).toBeVisible();
   });

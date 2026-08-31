@@ -88,17 +88,25 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     const rail = railOf(page);
     await expect(rail.getByText('This project')).toBeVisible({ timeout: 10_000 });
 
-    // The four methodology groups carry their accessible names (rule 172).
+    // Three verb bands in lifecycle order, then the WORKSPACE scope band — each
+    // carrying its sentence-case accessible name (rule 172, ADR-0942 §11 correction B).
+    // PEOPLE is retired (ADR-0942 §5).
     await expect(rail.getByRole('group', { name: 'Plan views' })).toBeVisible();
     await expect(rail.getByRole('group', { name: 'Deliver views' })).toBeVisible();
     await expect(rail.getByRole('group', { name: 'Track views' })).toBeVisible();
-    await expect(rail.getByRole('group', { name: 'People views' })).toBeVisible();
+    await expect(rail.getByRole('group', { name: 'Workspace views' })).toBeVisible();
+    await expect(rail.getByRole('group', { name: 'People views' })).toHaveCount(0);
 
-    // Overview leads; Activity + Assets (post-mockup TRACK views) are present.
-    await expect(rail.getByRole('link', { name: 'Overview' })).toBeVisible();
+    // Dashboard leads TRACK (ADR-0942 §7/§8); Activity + Assets are present.
     const track = rail.getByRole('group', { name: 'Track views' });
+    await expect(track.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(track.getByRole('link', { name: 'Activity' })).toBeVisible();
     await expect(track.getByRole('link', { name: 'Assets' })).toBeVisible();
+
+    // The scope band ends the rail: Team beside Settings, outside the verb sequence.
+    const workspace = rail.getByRole('group', { name: 'Workspace views' });
+    await expect(workspace.getByRole('link', { name: 'Team' })).toBeVisible();
+    await expect(workspace.getByRole('link', { name: 'Settings' })).toBeVisible();
   });
 
   test('clicking the rail Activity row navigates to the activity view', async ({ page }) => {

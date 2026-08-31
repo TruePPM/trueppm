@@ -24,7 +24,6 @@ function makeUser(id: string) {
     landing: { intent: 'my_work' as const, path: '/me/work', resolved_by: 'fallback' as const },
     hidden_views: [],
     role_context: 'unified' as const,
-    schedule_in_deliver: false,
     dnd_enabled: false,
     timezone: 'auto',
     date_format: 'auto' as const,

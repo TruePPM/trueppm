@@ -285,7 +285,9 @@ describe('WorkspaceGeneralPage — display fixes (#2013)', () => {
     const select = screen.getByRole('combobox', { name: 'Default project view' });
     expect(select).toHaveValue('board');
     expect(within(select).getByRole('option', { name: 'Board' })).toHaveValue('board');
-    expect(within(select).getByRole('option', { name: 'Overview' })).toHaveValue('overview');
+    // Label follows VIEW_TAB_META ("Dashboard", ADR-0942 §7); the stored VALUE is still
+    // the lowercase `overview` route token (#2013).
+    expect(within(select).getByRole('option', { name: 'Dashboard' })).toHaveValue('overview');
   });
 });
 

@@ -12,9 +12,15 @@ The system-level encoding of the [hybrid PM flow](/the-story/)'s central thesis:
 
 ## The matrix
 
+:::note[Ships in 0.4]
+The **Dashboard** row is named **Overview** in the current release; it is renamed in
+0.4 (its address does not change). Visibility per methodology is unaffected — this is
+a label change, not a matrix change.
+:::
+
 | Tab | Waterfall | Agile | Hybrid |
 |---|---|---|---|
-| Overview | ✅ | ✅ | ✅ |
+| Dashboard | ✅ | ✅ | ✅ |
 | Board | ✅ | ✅ | ✅ |
 | Sprints | ❌ | ✅ | ✅ |
 | Schedule | ✅ | ❌ | ✅ |
@@ -54,7 +60,7 @@ The methodology preset is the team-level default; **Customize views** is your pe
 A few rules keep it predictable:
 
 - You can only hide views that the project's methodology already shows — Customize views layers on top of the preset, it never re-shows a methodology-hidden tab.
-- **Overview is always shown** — it is the orientation landing, so your nav can never be emptied.
+- **Dashboard and Settings are always shown** — Dashboard is the orientation landing and Settings is an administrative surface, so your nav can never be emptied. (This row is named "Overview" in the current release — see the note above the matrix.)
 - Hidden views are not gone: they stay listed in the Views menu and are reachable from the **⌘K command palette** as "Go to {view}". A hidden view's URL still works — hiding is cosmetic, never a permission change.
 - **Reset to {methodology} default** clears your personal hides for the current project and falls back to the methodology layout.
 

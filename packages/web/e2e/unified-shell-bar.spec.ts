@@ -71,7 +71,9 @@ test.describe('v2 unified shell bar (#1204)', () => {
     // The active project is shown, and the leaf is the current view as a plain
     // aria-current label (never a dropdown — the rail owns view switching).
     await expect(location.getByText('Shell Bar Test Project')).toBeVisible();
-    await expect(location.getByText('Overview')).toHaveAttribute('aria-current', 'page');
+    // "Dashboard" (ADR-0942 §7): the leaf resolves through the rail's `labelFor`, so
+    // the bar's wayfinding word and the rail's nav row are the same string by construction.
+    await expect(location.getByText('Dashboard')).toHaveAttribute('aria-current', 'page');
   });
 
   test('the ≡ toggle hides the rail and shows it again, and the hidden state persists across reload', async ({

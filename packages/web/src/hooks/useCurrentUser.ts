@@ -73,13 +73,6 @@ export interface CurrentUser {
    */
   role_context: RoleContext;
   /**
-   * Per-user Schedule-in-Deliver placement opt-in (ADR-0203, #1645) — `false` if
-   * unset. When true the shell *additionally* surfaces Schedule under Deliver
-   * (display-only, never affects rollups/reports/exports). Writable via
-   * PATCH /auth/me/profile/.
-   */
-  schedule_in_deliver: boolean;
-  /**
    * Account-wide Do-Not-Disturb (#1707, ADR-0292) — `false` if unset. When true,
    * notification emails and push are paused for routine events (the in-app inbox
    * and unread count are unaffected, and critical alerts always come through).
