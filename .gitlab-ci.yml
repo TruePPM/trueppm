@@ -2003,6 +2003,30 @@ ci:build-deploy-images:
   # `needs:` this job non-optionally). kind-in-dind + docker build both need the
   # privileged docker:27-dind service.
   stage: test
+  # `needs: []` — start at pipeline creation instead of waiting out the lint and
+  # analyze stages (#3255). This job is the root of the whole deploy-drill chain
+  # (helm:install, helm:netpol, compose:prod, compose:prod:tls all `needs:` it),
+  # and with no `needs:` of its own GitLab fell back to stage ordering, so the
+  # chain could not begin until the slowest analyze job finished. On pipeline
+  # 2803925437 that barrier cost ~230s of pure wait on the critical path
+  # (web:lint 132s -> web:build 71s -> barrier -> this job -> helm:netpol, tail
+  # 732s); the drills then finished alone against a draining pipeline.
+  #
+  # It is genuinely dependency-free: packages/api/Dockerfile and
+  # packages/web/Dockerfile each build from source inside the image (`npm ci` +
+  # `npm run build`, `pip install`), so nothing here consumes a prior-stage
+  # artifact. The empty `needs:` also drops the implicit `dependencies` fan-in
+  # that was downloading every earlier stage's artifacts for nothing.
+  #
+  # The trade-off, stated rather than assumed: a red lint stage no longer stops
+  # the drills, so a chart-touching MR that also fails lint now burns dind
+  # runner time it previously skipped. And the drills move into the pipeline's
+  # saturated window — though they already started at 11 of the 12 available
+  # concurrent slots, so this is a 11->12 contention delta, not quiet->peak.
+  # That matters because #3218 found helm:install bimodal under load and #3236
+  # (its root cause) is still open: if helm flake rate rises after this landed,
+  # reverting this `needs: []` is the first thing to try.
+  needs: []
   interruptible: false
   timeout: 25m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
@@ -2286,6 +2310,13 @@ backup:restore-drill:
   # Trigger: nightly schedule (catches rot between changes) + any change to the
   # scripts or the CronJob template (and this CI file, so the job tests itself).
   stage: test
+  # `needs: []` for the same reason as ci:build-deploy-images (#3255): this drill
+  # consumes no prior-stage artifact — it runs scripts/backup.sh and
+  # scripts/restore.sh from the checkout against its own postgres + minio
+  # services — so stage ordering was making it wait on lint and analyze for
+  # nothing. Unlike the cluster drills it is not load-bimodal: no kind cluster,
+  # no dind, no liveness probes.
+  needs: []
   image:
     name: postgres:16
     # The postgres image ENTRYPOINT starts a database; blank it so GitLab runs
