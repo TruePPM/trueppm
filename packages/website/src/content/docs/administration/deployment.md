@@ -160,7 +160,7 @@ container before the API ever runs, so this is not an optional hardening step:
 ```bash
 kubectl create secret generic trueppm-env --namespace trueppm \
   --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
-  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api,localhost,127.0.0.1 \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
     'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
@@ -171,11 +171,23 @@ Django validates the `Host` header inside `get_host()` — before any view runs 
 and answers **400 DisallowedHost** on a miss. Nothing in that response names
 `ALLOWED_HOSTS`, so it reads like a routing or ingress fault.
 
-Two internal callers reach the API under a name that is *not* your public
+Three callers reach the API under a name that is *not* your public
 hostname:
 
 - **The `helm test` connection probe** curls the API Service by its DNS name
-  (`<release>-trueppm-api`), so that name belongs in the list.
+  (`<release>-trueppm-api`), so that name belongs in the list. That collapses to
+  `trueppm-api` **only** when the release name already contains "trueppm" — the
+  commands on this page use `helm install trueppm`, so they can say `trueppm-api`.
+  Install as `helm install ppm` and the Service is `ppm-trueppm-api`; list that
+  instead, or `helm test` fails with a 400 that names nothing.
+- **A `kubectl port-forward` browser session** arrives as `localhost`. With
+  `ingress.enabled: false` — the chart default — this is the only way to reach
+  the app, and `NOTES.txt` prints the command after every install. The web tier's
+  nginx proxies `/api/` with `proxy_set_header Host $host`, so Django receives
+  `Host: localhost` rather than your public name. Omit it and the SPA loads
+  perfectly (nginx serves the bundle off disk without ever touching Django) while
+  **every** `/api/v1/...` call returns 400 — the app looks broken with nothing
+  naming the cause.
 - **kubelet's liveness and readiness probes** connect by pod IP. The chart
   handles this for you — it sets an explicit `Host` header on both probes,
   resolved from `ingress.hosts[0].host` (override with
