@@ -60,6 +60,7 @@ interface Captured {
   isCaretAtEndRow: ReturnType<typeof vi.fn>;
   clearCaretAtEndRow: ReturnType<typeof vi.fn>;
   convertToMilestone: ReturnType<typeof vi.fn>;
+  convertToTask: ReturnType<typeof vi.fn>;
   duplicateSubtree: ReturnType<typeof vi.fn>;
   deleteTask: ReturnType<typeof vi.fn>;
 }
@@ -79,6 +80,7 @@ const stableSpies = {
   isCaretAtEndRow: vi.fn(() => false),
   clearCaretAtEndRow: vi.fn(),
   convertToMilestone: vi.fn(),
+  convertToTask: vi.fn(),
   duplicateSubtree: vi.fn(),
   deleteTask: vi.fn(),
 };
@@ -114,6 +116,7 @@ function Harness({
       isCaretAtEndRow: stableSpies.isCaretAtEndRow,
       clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
       convertToMilestone: stableSpies.convertToMilestone,
+      convertToTask: stableSpies.convertToTask,
       duplicateSubtree: stableSpies.duplicateSubtree,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: () => false,
@@ -133,6 +136,7 @@ function Harness({
     isCaretAtEndRow: stableSpies.isCaretAtEndRow,
     clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
     convertToMilestone: stableSpies.convertToMilestone,
+    convertToTask: stableSpies.convertToTask,
     duplicateSubtree: stableSpies.duplicateSubtree,
     deleteTask: stableSpies.deleteTask,
   };
@@ -382,6 +386,7 @@ describe('TaskListRow — build-mode keyboard', () => {
           isCaretAtEndRow: stableSpies.isCaretAtEndRow,
           clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
+          convertToTask: stableSpies.convertToTask,
           duplicateSubtree: stableSpies.duplicateSubtree,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
@@ -400,6 +405,7 @@ describe('TaskListRow — build-mode keyboard', () => {
         isCaretAtEndRow: stableSpies.isCaretAtEndRow,
         clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
         convertToMilestone: stableSpies.convertToMilestone,
+        convertToTask: stableSpies.convertToTask,
         duplicateSubtree: stableSpies.duplicateSubtree,
         deleteTask: stableSpies.deleteTask,
       };
@@ -442,6 +448,7 @@ describe('TaskListRow — build-mode keyboard', () => {
           isCaretAtEndRow: stableSpies.isCaretAtEndRow,
           clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
+          convertToTask: stableSpies.convertToTask,
           duplicateSubtree: stableSpies.duplicateSubtree,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
@@ -460,6 +467,7 @@ describe('TaskListRow — build-mode keyboard', () => {
         isCaretAtEndRow: stableSpies.isCaretAtEndRow,
         clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
         convertToMilestone: stableSpies.convertToMilestone,
+        convertToTask: stableSpies.convertToTask,
         duplicateSubtree: stableSpies.duplicateSubtree,
         deleteTask: stableSpies.deleteTask,
       };
@@ -529,7 +537,7 @@ describe('TaskListRow — build-mode context menu', () => {
   it('menu Convert-to-milestone item triggers convertToMilestone', () => {
     const c = renderHarness();
     fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
-    fireEvent.click(screen.getByRole('menuitem', { name: /Convert to milestone/ }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Convert to milestone/ }));
     expect(c.current.convertToMilestone).toHaveBeenCalledWith('t-build-1');
   });
 
@@ -584,11 +592,43 @@ describe('TaskListRow — build-mode context menu', () => {
     expect(screen.getByRole('menuitem', { name: /Duplicate/ })).toBeInTheDocument();
   });
 
-  it('Convert to milestone is disabled when task is already a milestone', () => {
-    renderHarness({ task: { ...baseTask, isMilestone: true, duration: 0 } });
+  // #3256 — the item is a reversible toggle, not a one-way command. Disabling it on
+  // an existing milestone is what made "turning one into a milestone cannot be
+  // undone" true, and the row-menu was the only pointer route to the act.
+  it('offers the reverse on a milestone row rather than disabling the item', () => {
+    const c = renderHarness({ task: { ...baseTask, isMilestone: true, duration: 0 } });
     fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
-    const item = screen.getByRole('menuitem', { name: /Convert to milestone/ });
+    const item = screen.getByRole('menuitemcheckbox', { name: 'Milestone' });
+    expect(item).toBeEnabled();
+    expect(item).toBeChecked();
+    fireEvent.click(item);
+    expect(c.current.convertToTask).toHaveBeenCalledWith('t-build-1');
+    expect(c.current.convertToMilestone).not.toHaveBeenCalled();
+  });
+
+  it('reflects the un-set state with aria-checked on a work row', () => {
+    renderHarness();
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    // menuitemcheckbox, not menuitem: aria-pressed is not valid on a menuitem, so
+    // aria-checked is the menu-scoped equivalent of the toggle state.
+    expect(screen.getByRole('menuitemcheckbox', { name: /Convert to milestone/ })).not.toBeChecked();
+  });
+
+  it('refuses on a summary row and states why', () => {
+    const c = renderHarness({ task: { ...baseTask, isSummary: true } });
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    // Named by label + reason: a greyed item with no reason cannot be told apart
+    // from a missing permission. Previously a phase was offered the act outright.
+    const item = screen.getByRole('menuitemcheckbox', {
+      name: 'Convert to milestone — A phase cannot be a milestone — its dates roll up from the work inside it.',
+    });
     expect(item).toBeDisabled();
+    // The reason is on screen too, not only in the accessible name.
+    expect(
+      screen.getByText('A phase cannot be a milestone — its dates roll up from the work inside it.'),
+    ).toBeInTheDocument();
+    fireEvent.click(item);
+    expect(c.current.convertToMilestone).not.toHaveBeenCalled();
   });
 
   // ── "Move to…" (#2954) ───────────────────────────────────────────────────
@@ -643,6 +683,7 @@ describe('TaskListRow — pending-mutation guards (#806)', () => {
           isCaretAtEndRow: stableSpies.isCaretAtEndRow,
           clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
+          convertToTask: stableSpies.convertToTask,
           duplicateSubtree: stableSpies.duplicateSubtree,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: (id: string) => ids.has(id),
@@ -713,6 +754,7 @@ function PendingHarness({ pending }: { pending: boolean }) {
       isCaretAtEndRow: stableSpies.isCaretAtEndRow,
       clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
       convertToMilestone: stableSpies.convertToMilestone,
+      convertToTask: stableSpies.convertToTask,
       duplicateSubtree: stableSpies.duplicateSubtree,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: (id: string) => pending && id === 't-build-1',
@@ -749,8 +791,8 @@ describe('TaskListRow — build-mode editable cells', () => {
 
   it('milestone tasks fall through to the static Dur cell (no EditableCell)', () => {
     renderHarness({ task: { ...baseTask, isMilestone: true, duration: 0 } });
-    // Static cell uses the legacy aria-label "milestone".
-    expect(screen.getByLabelText('milestone')).toBeInTheDocument();
+    // #3258: the static cell states the zero rather than dashing it.
+    expect(screen.getByLabelText('0 days — milestone')).toHaveTextContent('0d');
   });
 });
 

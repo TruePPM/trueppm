@@ -475,6 +475,44 @@ describe('useUpdateTask optimisticTaskPatch mapping', () => {
     expect(t.sprintId).toBe('sprint-7');
   });
 
+  // #3256 — the payload IS the bug. `convertToMilestone` sent a bare `duration: 0`,
+  // and the serializer's coupling is one-directional: `is_milestone: true` zeroes
+  // duration and sets delivery_mode, but a bare duration write infers NEITHER flag.
+  // The result was a zero-duration *work* row that read as a milestone nowhere.
+  it('sends is_milestone on the wire and mirrors the zeroed duration optimistically', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask]);
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', is_milestone: true });
+
+    await waitFor(() => {
+      const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+      expect(t.isMilestone).toBe(true);
+    });
+    const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+    // The server zeroes duration as part of becoming a milestone; without mirroring
+    // it the optimistic row renders a diamond still claiming 7 days until the
+    // refetch lands.
+    expect(t.duration).toBe(0);
+    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { is_milestone: true });
+  });
+
+  it('restores an estimate alongside is_milestone: false on the way back', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [{ ...baseTask, isMilestone: true, duration: 0 }]);
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ id: 't1', projectId: 'p1', is_milestone: false, duration: 5 });
+
+    await waitFor(() => {
+      const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+      expect(t.isMilestone).toBe(false);
+    });
+    const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+    // The caller's duration wins — the `is_milestone` branch must not re-zero it.
+    expect(t.duration).toBe(5);
+    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { is_milestone: false, duration: 5 });
+  });
+
   it('maps type, governance_class, delivery_mode and the blocker flag triple', async () => {
     qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask]);
     const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });

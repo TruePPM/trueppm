@@ -553,7 +553,7 @@
               "minimum": 1
             },
             "hostHeader": {
-              "description": "Host header kubelet sends on the api probes. Empty resolves to the first ingress host. Must be present in ALLOWED_HOSTS or the probe 400s (#3183).",
+              "description": "Host header kubelet sends on the api probes. Empty resolves to the first ingress host when ingress.enabled is true, else to the api Service name <release>-trueppm-api. Must be present in ALLOWED_HOSTS or the probe 400s (#3183, #3237).",
               "type": "string"
             },
             "startupEnabled": {

@@ -32,10 +32,12 @@ describe('RosterList', () => {
     expect(screen.getByText('Alice Smith')).toBeInTheDocument();
   });
 
-  it('shows capacity percentage', () => {
+  it('states availability in the visible text, not a bare percent', () => {
     const items = [makeProjectResource({ effectiveMaxUnits: 0.5 })];
     render(<RosterList items={items} selectedId={null} onSelect={vi.fn()} filterQuery="" />);
-    expect(screen.getByText('50%')).toBeInTheDocument();
+    // A bare "50%" next to a filled bar reads as load. The word is what disambiguates
+    // it, and it must be on-screen — not only in the accessible name (#3235).
+    expect(screen.getByText('50% available')).toBeInTheDocument();
   });
 
   it('shows empty state when no items', () => {
@@ -113,21 +115,68 @@ describe('RosterList', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('shows overallocated capacity in critical color when effectiveMaxUnits > 1', () => {
+  // The AC asks for a colour/semantic assertion at three points on the axis. These
+  // are the assertions the old suite lacked: it fixtured `effective_max_units: '1.00'`
+  // and asserted only that "100%" was visible, which locked the defect in rather than
+  // catching it. `queryBar` reads the fill element directly so a ramp cannot come back
+  // unnoticed.
+  function queryBar(container: HTMLElement): HTMLElement {
+    const bar = container.querySelector<HTMLElement>('[aria-hidden="true"] > div');
+    expect(bar).not.toBeNull();
+    return bar as HTMLElement;
+  }
+
+  it('never applies a health ramp — a 1.5-FTE crew is not "overallocated"', () => {
     const items = [makeProjectResource({ effectiveMaxUnits: 1.5 })];
-    render(<RosterList items={items} selectedId={null} onSelect={vi.fn()} filterQuery="" />);
-    // aria-label includes "overallocated"
-    const pctLabel = screen.getByLabelText(/150%.*overallocated/);
-    expect(pctLabel).toBeInTheDocument();
+    const { container } = render(
+      <RosterList items={items} selectedId={null} onSelect={vi.fn()} filterQuery="" />,
+    );
+    // 150% availability is a deliberately-configured crew carrying zero assignments.
+    // Announcing it as overallocated is a false claim about work that does not exist.
+    expect(screen.getByText('150% available')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/overallocated/)).not.toBeInTheDocument();
+
+    const bar = queryBar(container);
+    expect(bar.className).toContain('bg-brand-primary');
+    expect(bar.className).not.toContain('bg-semantic-critical');
+    // Above full time the bar pins rather than overflowing its track.
+    expect(bar.style.width).toBe('100%');
   });
 
-  it('shows normal color when capacity is below 85%', () => {
+  it('draws the default 1.0 ceiling as a full bar in the neutral fill, not amber', () => {
+    // This is the fresh-install case: max_units defaults to 1.0, so EVERY resource hit
+    // the old `pct >= 85` branch and the entire roster rendered in the product's amber
+    // "at risk" colour — at half width, so a fully-available person looked half-empty.
+    const items = [makeProjectResource({ effectiveMaxUnits: 1.0 })];
+    const { container } = render(
+      <RosterList items={items} selectedId={null} onSelect={vi.fn()} filterQuery="" />,
+    );
+    const bar = queryBar(container);
+    expect(bar.className).toContain('bg-brand-primary');
+    expect(bar.className).not.toContain('bg-semantic-at-risk');
+    expect(bar.style.width).toBe('100%');
+  });
+
+  it('draws a partial ceiling proportionally, in the same fill', () => {
+    const items = [makeProjectResource({ effectiveMaxUnits: 0.5 })];
+    const { container } = render(
+      <RosterList items={items} selectedId={null} onSelect={vi.fn()} filterQuery="" />,
+    );
+    const bar = queryBar(container);
+    // Same colour as every other row: availability is a quantity, not a verdict, so a
+    // person at 50% is not "healthier" than one at 100%.
+    expect(bar.className).toContain('bg-brand-primary');
+    expect(bar.className).not.toContain('bg-semantic-on-track');
+    expect(bar.style.width).toBe('50%');
+  });
+
+  it('keeps the two channels agreeing on what the number means', () => {
     const items = [makeProjectResource({ effectiveMaxUnits: 0.5 })];
     render(<RosterList items={items} selectedId={null} onSelect={vi.fn()} filterQuery="" />);
-    const pctLabel = screen.getByLabelText(/50%/);
-    expect(pctLabel).toBeInTheDocument();
-    // Should not have overallocated suffix
-    expect(pctLabel.getAttribute('aria-label')).not.toContain('overallocated');
+    const label = screen.getByText('50% available');
+    expect(label.getAttribute('aria-label')).toBe(
+      '50% available — availability, not assigned load',
+    );
   });
 
   it('filters by jobRole', () => {

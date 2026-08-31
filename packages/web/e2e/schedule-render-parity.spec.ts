@@ -154,10 +154,15 @@ test.describe('Schedule render parity — toolbar + columns (#248)', () => {
     await expect(page.getByText('Framing')).toBeVisible();
   });
 
-  test('Summary chip shows task count and critical count', async ({ page }) => {
+  test('Summary chip shows item, sprint and critical counts', async ({ page }) => {
     await page.goto(BASE_URL);
-    // Chip label includes counts and CPM healthy state.
-    await expect(page.getByLabel(/Project status: 2 tasks, 2 critical, CPM healthy/)).toBeVisible();
+    // Chip label includes all four counts and the CPM healthy state. The noun is
+    // the governed neutral one (#3259) — the chip counts every row regardless of
+    // structure_role, so "tasks" typed the phases and milestones among them.
+    // Neither fixture task carries a sprint, hence `0 in sprints`.
+    await expect(
+      page.getByLabel(/Project status: 2 items, 0 in sprints, 2 critical, CPM healthy/),
+    ).toBeVisible();
   });
 });
 

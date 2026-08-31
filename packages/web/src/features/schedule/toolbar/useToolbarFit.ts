@@ -4,7 +4,7 @@
  * Walks {@link TOOLBAR_LADDER} until the bar's contents measure narrower than
  * its box, then stops. This is deliberately a **measurement** loop rather than
  * a set of media queries: the natural width of the bar depends on the project's
- * own strings ("142 tasks · 9 critical" is not "3 tasks · 0 critical"), on the
+ * own strings ("142 items · 9 critical" is not "3 items · 0 critical"), on the
  * rail being collapsed or not, on edit rights, and on which controls the person
  * pinned. A width table cannot know any of that, and every width it guessed
  * wrong would clip in silence — which is the defect this replaces.

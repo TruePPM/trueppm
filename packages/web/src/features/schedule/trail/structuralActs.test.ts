@@ -115,8 +115,22 @@ describe('milestone', () => {
     );
   });
 
-  it('reverts plainly', () => {
-    expect(milestoneSentence({ name: 'FAT review' }, false)).toBe('FAT review is a task again.');
+  it('names the estimate it restored on the way back (#3256)', () => {
+    // The trail stands in for a per-row Save on this surface, so "is an item again"
+    // alone leaves the user to check by eye whether their estimate survived.
+    expect(milestoneSentence({ name: 'FAT review' }, false, 5)).toBe(
+      'FAT review is an item again, at 5 days.',
+    );
+    expect(milestoneSentence({ name: 'FAT review' }, false, 1)).toBe(
+      'FAT review is an item again, at 1 day.',
+    );
+  });
+
+  it('says only what it can prove when there is no stashed estimate', () => {
+    // A milestone converted back in a later session: the client-side stash is gone.
+    // Inventing a number here would be the same class of false claim as the
+    // pre-#3256 trail asserting a conversion that never landed.
+    expect(milestoneSentence({ name: 'FAT review' }, false)).toBe('FAT review is an item again.');
   });
 });
 

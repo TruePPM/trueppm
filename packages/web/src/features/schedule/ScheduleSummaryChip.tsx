@@ -2,6 +2,8 @@ import { CheckIcon, CriticalDotIcon, WarningIcon } from '@/components/Icons';
 import { Tooltip } from '@/components/Tooltip';
 import type { Task } from '@/types';
 import { useSchedulerStore } from '@/stores/schedulerStore';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { ROW_NOUN, ROW_NOUN_PLURAL, countRows } from './rowVocabulary';
 import type { CountsDensity } from './toolbar/toolbarLadder';
 
 export interface ScheduleSummaryChipProps {
@@ -21,7 +23,34 @@ export interface ScheduleSummaryChipProps {
 
 /**
  * Read-only project-health chip in the Schedule toolbar (#248).
- * Format: "{N} tasks · {C} critical · CPM ✓".
+ * Format: "{N} items · {S} in sprints · {C} critical · CPM ✓".
+ *
+ * **The noun is governed** (#3259). The count derives from `visibleTasks`, which
+ * is every row regardless of `structure_role` — tasks, phases and milestones
+ * alike — so a header naming them must use `ROW_VOCABULARY`'s neutral noun
+ * rather than a literal. It said "tasks" until #3259, which typed every phase
+ * and milestone it counted; two hand sweeps (#3027, #2952) and the mechanism
+ * that replaced them (#3031) all passed over this file because the lock test
+ * did not render it. It does now.
+ *
+ * **`{S} in sprints` is what paid for the Mode column's removal.** The column
+ * went and `RowModeIndicators` kept only the 3px gutter and the exception chip
+ * (#3139 item 2 pins that gutter as a WCAG 1.4.1 requirement, so it is not
+ * coming back) — but the readout that was supposed to replace it never shipped,
+ * leaving a hybrid plan with nowhere on the Schedule to say how much of itself
+ * runs in sprints. The predicate mirrors `criticalCount`: summaries are excluded,
+ * because a phase is not itself in a sprint even when its children are.
+ *
+ * It renders at zero, exactly as `critical` does. A readout whose tokens appear
+ * and vanish with their values cannot be read at a glance — the reader has to
+ * work out whether a missing token means zero or means shortened.
+ *
+ * **Two vocabularies meet in this one string, and they are unrelated.** The row
+ * noun is `ROW_VOCABULARY`'s (#3031); the iteration-container noun is the
+ * project's own configured label via `useIterationLabel` (ADR-0111), because a
+ * team running Iterations or PIs is not running sprints. Hardcoding the second
+ * would have shipped "in sprints" onto every such project — `web:lint`'s
+ * `no-restricted-syntax` iteration-label gate (#1287) is what caught it here.
  *
  * Loading state preserves chip width via two-dot placeholders + italic
  * "CPM …" so the surrounding toolbar does not reflow during recompute.
@@ -40,9 +69,12 @@ export function ScheduleSummaryChip({
 }: ScheduleSummaryChipProps) {
   const isRecalculating = useSchedulerStore((s) => s.isRecalculating);
   const cpmError = useSchedulerStore((s) => s.cpmError);
+  const itl = useIterationLabel();
+  const inIterations = `in ${itl.lowerPlural}`;
 
-  const taskCount = visibleTasks.length;
+  const rowCount = visibleTasks.length;
   const criticalCount = visibleTasks.filter((t) => t.isCritical && !t.isSummary).length;
+  const inSprintCount = visibleTasks.filter((t) => t.sprintId != null && !t.isSummary).length;
 
   const status: 'loading' | 'ok' | 'error' = isRecalculating
     ? 'loading'
@@ -50,11 +82,13 @@ export function ScheduleSummaryChip({
       ? 'error'
       : 'ok';
 
+  // Spelled out in full at EVERY density (rule 161): the fit ladder shortens what
+  // is painted, never what is announced, so a screen-reader user at `min` gets
+  // the same four facts a sighted user gets at `full`.
   const ariaLabel = (() => {
     if (status === 'loading') return 'Project status: recalculating';
-    if (status === 'error')
-      return `Project status: ${taskCount} tasks, ${criticalCount} critical, CPM error`;
-    return `Project status: ${taskCount} tasks, ${criticalCount} critical, CPM healthy`;
+    const facts = `${countRows(rowCount)}, ${inSprintCount} ${inIterations}, ${criticalCount} critical`;
+    return `Project status: ${facts}, CPM ${status === 'error' ? 'error' : 'healthy'}`;
   })();
 
   if (density === 'hidden') return null;
@@ -92,8 +126,15 @@ export function ScheduleSummaryChip({
       {status === 'loading' ? (
         <span aria-hidden="true" className="inline-flex items-center gap-1.5">
           <span className="tppm-mono motion-safe:animate-pulse opacity-50">··</span>
-          {density === 'full' && <span>tasks</span>}
+          {density === 'full' && <span>{ROW_NOUN_PLURAL}</span>}
           <span>·</span>
+          {density === 'full' && (
+            <>
+              <span className="tppm-mono motion-safe:animate-pulse opacity-50">··</span>
+              <span>{inIterations}</span>
+              <span>·</span>
+            </>
+          )}
           <span className="tppm-mono motion-safe:animate-pulse opacity-50">··</span>
           {density === 'full' && <span>critical</span>}
           <span>·</span>
@@ -103,9 +144,19 @@ export function ScheduleSummaryChip({
         <span aria-hidden="true" className="inline-flex items-center gap-1.5">
           {density !== 'min' && (
             <>
-              <span className="tppm-mono">{taskCount}</span>
-              {density === 'full' && <span>{taskCount === 1 ? 'task' : 'tasks'}</span>}
+              <span className="tppm-mono">{rowCount}</span>
+              {density === 'full' && <span>{rowCount === 1 ? ROW_NOUN : ROW_NOUN_PLURAL}</span>}
               <span>·</span>
+              {/* First token to drop when the ladder tightens, ahead of
+                  `critical`: the critical count drives the plan's dates, the
+                  sprint count describes how it is being run. */}
+              {density === 'full' && (
+                <>
+                  <span className="tppm-mono">{inSprintCount}</span>
+                  <span>{inIterations}</span>
+                  <span>·</span>
+                </>
+              )}
               <span className="tppm-mono">{criticalCount}</span>
               {density === 'full' ? (
                 <span>critical</span>

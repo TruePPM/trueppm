@@ -14,6 +14,22 @@ export interface RowMenuItem {
   destructive?: boolean;
   /** When true, the item is rendered disabled and cannot be activated. */
   disabled?: boolean;
+  /**
+   * Why the item is disabled, rendered as a second line under the label (#3256).
+   *
+   * A greyed item with no reason is the worst of both: it advertises a capability
+   * and refuses to say why it is unavailable, so the user cannot tell a missing
+   * permission from a wrong row type. Ignored unless `disabled` is set, and carried
+   * into the item's accessible name so both channels state the same thing.
+   */
+  disabledReason?: string;
+  /**
+   * Marks the item as a toggle rather than a command (#3256). Renders as
+   * `role="menuitemcheckbox"` with `aria-checked`, which is the menu-scoped
+   * equivalent of the `aria-pressed` a standalone toggle button carries —
+   * `aria-pressed` is not valid on a `menuitem`.
+   */
+  checked?: boolean;
   /** Inserts a separator above this item. */
   startsGroup?: boolean;
   onSelect: () => void;
@@ -130,8 +146,17 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
           )}
           <button
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            aria-checked={item.checked}
             aria-disabled={item.disabled || undefined}
+            // Both channels state the refusal: the reason renders as a second line
+            // AND joins the accessible name, so a screen-reader user is not left with
+            // a bare disabled label (#3256).
+            aria-label={
+              item.disabled && item.disabledReason
+                ? `${item.label} — ${item.disabledReason}`
+                : undefined
+            }
             disabled={item.disabled}
             onMouseEnter={() => !item.disabled && setActiveIndex(idx)}
             onClick={(e) => {
@@ -144,7 +169,8 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
               onClose();
             }}
             className={[
-              'group flex w-full items-center gap-2 px-3 h-8 text-left',
+              'group flex w-full items-center gap-2 px-3 text-left',
+              item.disabled && item.disabledReason ? 'py-1.5' : 'h-8',
               item.disabled
                 ? 'text-neutral-text-disabled cursor-not-allowed'
                 : item.destructive
@@ -162,7 +188,17 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
                 {item.icon}
               </span>
             )}
-            <span className="flex-1 truncate">{item.label}</span>
+            <span className="flex-1 min-w-0">
+              <span className="block truncate">{item.label}</span>
+              {item.disabled && item.disabledReason && (
+                <span
+                  className="block text-xs leading-snug text-neutral-text-secondary whitespace-normal"
+                  aria-hidden="true"
+                >
+                  {item.disabledReason}
+                </span>
+              )}
+            </span>
             {item.hint && (
               <span className="tppm-mono text-xs text-neutral-text-secondary">{item.hint}</span>
             )}
