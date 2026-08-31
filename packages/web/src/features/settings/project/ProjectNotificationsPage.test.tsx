@@ -216,7 +216,10 @@ describe('ProjectNotificationsPage', () => {
     renderPage();
 
     expect(screen.queryByTitle(/not dispatched yet/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/not delivered yet/i)).not.toBeInTheDocument();
+    // Scoped to the banner, not a bare /not delivered yet/ text query: the Slack
+    // and Mobile push COLUMN markers (#3249) carry the same wording and are
+    // always present, independent of the per-row classification asserted here.
+    expect(screen.queryByText(/^Rows marked/i)).not.toBeInTheDocument();
   });
 
   it('shows no labels when an older server sends no classification', () => {
@@ -231,7 +234,57 @@ describe('ProjectNotificationsPage', () => {
     renderPage();
 
     expect(screen.queryByTitle(/not dispatched yet/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/not delivered yet/i)).not.toBeInTheDocument();
+    // Scoped to the banner, not a bare /not delivered yet/ text query: the Slack
+    // and Mobile push COLUMN markers (#3249) carry the same wording and are
+    // always present, independent of the per-row classification asserted here.
+    expect(screen.queryByText(/^Rows marked/i)).not.toBeInTheDocument();
+  });
+
+  // #3249 — nothing in apps/notifications delivers on Slack or mobile push, and
+  // no setting anywhere turns them on. Unmarked, the columns read as working
+  // controls. The row badges are per-event and cannot cover this: the channel is
+  // dead for every row, including the one event that IS dispatched.
+  it('marks the channels with no delivery path, and only those', () => {
+    renderPage();
+
+    const marked = screen.getAllByTitle(/does not deliver on this channel yet/i);
+    expect(marked).toHaveLength(2);
+    marked.forEach((el) => expect(el).toHaveTextContent(/not delivered yet/i));
+  });
+
+  it('marks the undeliverable columns even when every event is dispatched', () => {
+    // The two markers are independent of the per-event classification — a server
+    // that wires all nine dispatchers still cannot deliver to Slack or push.
+    useProjectNotificationPreferences.mockReturnValue({
+      preferences: {
+        ...SEED,
+        eventDelivery: Object.fromEntries(
+          Object.keys(SEED.eventDelivery).map((event) => [event, true]),
+        ),
+      },
+      isLoading: false,
+      error: null,
+      update: { mutate },
+    });
+    renderPage();
+
+    expect(screen.getAllByTitle(/does not deliver on this channel yet/i)).toHaveLength(2);
+  });
+
+  it('does not tell the user to configure Slack notification delivery in Integrations', () => {
+    // The card used to read "Configure Slack channels for your workspace in
+    // Project Settings → Integrations" and route three levels to "Configure in
+    // Integrations". That page has no Slack configuration and none exists, so the
+    // instruction sent people somewhere that could not help them.
+    renderPage();
+
+    expect(screen.queryByText(/Slack channel routing/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Configure in Integrations/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/does not deliver notifications to Slack or mobile push yet/i))
+      .toBeInTheDocument();
+    // The webhook pointer is a real, different capability — it must stay marked
+    // as project-wide so it is not read as a fix for the matrix above.
+    expect(screen.getByText(/project-wide feed/i)).toBeInTheDocument();
   });
 
   it('renders an error state on API failure', () => {

@@ -23,10 +23,15 @@ discipline — stop one session from stomping another's worktree:
    `TRUEPPM_WT_GRACE_MIN` minutes (default **30**) unless you pass `--force`, so
    an agent mid-startup is protected even before it commits anything.
 3. **Per-worktree test database.** `.envrc` exports a unique
-   `TRUEPPM_TEST_DB=test_trueppm_wt_<slug>`, so N worktrees each create and drop
-   their **own** Postgres test DB. Parallel `pytest` runs no longer collide on a
-   shared `test_trueppm`, which removes the need for an external run lock (and
-   `flock(1)` isn't available on macOS anyway).
+   `TRUEPPM_TEST_DB=test_trueppm_wt_<slug>`, so N worktrees each get their **own**
+   Postgres test DB. Parallel `pytest` runs no longer collide on a shared
+   `test_trueppm`, which removes the need for an external run lock (and
+   `flock(1)` isn't available on macOS anyway). `wt remove` and `wt prune` drop
+   that database when they tear the worktree down: pytest-django drops it only on
+   a **clean** exit, so an interrupted run — Ctrl-C, a timeout, a killed agent
+   session — would otherwise strand it forever, and under `pytest-xdist` strand
+   the whole `_gw0…gwN` worker family with it. See
+   [Test databases](#test-databases).
 4. **A worktree-private stash.** `git stash` is *not* worktree-scoped — see
    [Stashing](#stashing) below. `wt stash` keeps entries under
    `refs/wt-stash/<worktree>` so one session cannot consume another's.
@@ -223,8 +228,43 @@ yourself first whether finishing what you started would be cheaper.
 - Both symlinks resolve to existing targets
 - `COMPOSE_PROJECT_NAME` is set in the current shell
 - The shared `trueppm-api-1` Docker container is running
+- No orphaned test databases (see [Test databases](#test-databases))
 
 If anything is amber, the message tells you what to fix.
+
+## Test databases
+
+Each worktree's `pytest` runs against its own database, named by
+`TRUEPPM_TEST_DB` in `.envrc`. Under `pytest-xdist` the name is suffixed per
+worker, so one worktree can own `test_trueppm_wt_<slug>` **and**
+`test_trueppm_wt_<slug>_gw0…_gwN`.
+
+`wt remove` and `wt prune` drop that whole family as their last step. Two things
+they deliberately will not do:
+
+- **Drop a database something is still connected to.** A live `pytest` in another
+  session holds connections; dropping underneath it turns a disk-hygiene chore
+  into a failed test run someone else has to debug. The database is left in place
+  with a warning.
+- **Fail the teardown.** With Docker absent or the stack down there is nothing to
+  drop, and removing the worktree still succeeds.
+
+Anything stranded some other way — an interrupted run whose worktree is still
+live, or a worktree removed before this behavior existed — shows up in
+`wt doctor` as an orphan: a `test_trueppm_wt*` database with no live worktree
+behind it. Reclaim them with:
+
+```bash
+scripts/wt prune-dbs          # lists them with total size, then asks
+scripts/wt prune-dbs --yes    # no prompt
+make wt-prune-dbs             # same as the first form
+```
+
+`prune-dbs` only ever matches the `test_trueppm_wt` prefix, so the shared
+`test_trueppm` and the dev `trueppm` database are unreachable from it, and it
+skips anything with an open connection. It is separate from `wt prune` on
+purpose — `wt prune` reaps worktrees, and should not also delete databases you
+did not ask it about.
 
 ## Stashing
 
@@ -363,8 +403,9 @@ is the canonical path. It refuses if your tree has uncommitted tracked
 changes or untracked files beyond the auto-created set (the two symlinks,
 `.envrc`, `.wt-owner`, and `.wt-reservation`). If you really do want to discard
 work, pass `--force` as the second argument. Removing a worktree also releases
-its issue check-out (see [Issue check-out lock](#issue-check-out-lock)) and frees
-any ADR/migration numbers it reserved.
+its issue check-out (see [Issue check-out lock](#issue-check-out-lock)), frees
+any ADR/migration numbers it reserved, and drops its Postgres test database (see
+[Test databases](#test-databases)).
 
 **Bulk cleanup after merges:** `scripts/wt prune` (or `make wt-prune`)
 sweeps every worktree whose branch has been merged to `main` and deleted
@@ -378,7 +419,9 @@ on `origin`. Detection works like this:
    longer has one on `origin`, and (c) is fully an ancestor of `origin/main`
 4. Apply the same safety guards as `wt remove` — refuse to drop worktrees
    with uncommitted local work (override with `--force` if you really mean it)
-5. Report what got pruned, what was skipped, and what was kept
+5. Drop each pruned worktree's test database, subject to the same guards as
+   `wt remove` (see [Test databases](#test-databases))
+6. Report what got pruned, what was skipped, and what was kept
 
 Run `make wt-prune` periodically — after a merge train, end of day, or
 whenever your `wt list` looks bloated. It's idempotent (running twice is
