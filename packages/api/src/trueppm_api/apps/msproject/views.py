@@ -6,7 +6,7 @@ import base64
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -267,7 +267,9 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
             "name": _project_name_from_filename(filename),
             "start_date": timezone.localdate().isoformat(),
         }
-        program_id = request.data.get("program")
+        # `parser_classes = [MultiPartParser]` on this view, so the body is always a
+        # QueryDict — a JSON list body is rejected as 415 before the handler runs.
+        program_id = cast("dict[str, Any]", request.data).get("program")
         if program_id:
             project_payload["program"] = program_id
 

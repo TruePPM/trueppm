@@ -18,6 +18,7 @@ import {
 } from '@/hooks/useProjectTemplates';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { SELECT_CHEVRON } from './selectChevron';
+import { DRAFT_EXCLUSION_SENTENCE } from '@/features/project/draftExclusion';
 import type { Methodology } from '@/types';
 
 /** Where the user asked to land after the project exists (#2710). */
@@ -178,25 +179,36 @@ const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: stri
  *
  * Deliberate divergence from the design handoff (issue #2728): the original design
  * writes the project as a `draft` on the first keystroke. This still creates on
- * submit, exactly like the modal it replaces — no `draft` state, no lifecycle-
- * exclusion logic.
+ * **submit**, exactly like the modal it replaces.
  *
- * That divergence was re-examined in #3127 and **upheld on both halves**; the
- * reasoning is recorded in `docs/design/handoff/2026-08-v4-beta1-review/README.md`
- * §5, which is the file to read before wiring this to the draft lifecycle. In short:
- * `commit_project()` is the only way out of `draft` and has no caller in the web app
- * until #3129, so creating drafts here would strand every new project outside rollup,
- * search, My Work and notifications; and creating on a keystroke would fire a real
- * `project.created` webhook at subscribers for every abandoned sheet. "Leaving is
- * free" is worth building — as persistence of *this sheet's* state, not as a server
- * row — but it is a different interaction and owes a `ux-design` pass and rule 217
- * first.
+ * That divergence was re-examined in #3127 and upheld on **both** halves; the reasoning
+ * is in `docs/design/handoff/2026-08-v4-beta1-review/README.md` §5. **#3233 resolves the
+ * first half and leaves the second standing** — read both parts before changing either:
+ *
+ *   1. **Draft lifecycle — now wired.** #3127's objection was conditional, not
+ *      permanent: `commit_project()` is the only way out of `draft` and had no caller in
+ *      the web app, so creating drafts here would have stranded every new project outside
+ *      rollup, search, My Work and notifications with no way back. Its stated unblocking
+ *      condition was "#3129 ships", and #3129 has shipped — `useCommitProject`,
+ *      `CommitPlanConfirmDialog` and the Overview Commit button all exist. The footer's
+ *      "Create as a draft" checkbox sends `start_as_draft`, which #3233 added as a
+ *      create-only *intent* flag; the server still owns `lifecycle` (#3127 is not
+ *      reopened). It is **opt-in and defaults to off**, so the ordinary create is
+ *      unchanged and still produces an `ACTIVE` project.
+ *
+ *   2. **Create-on-keystroke — still rejected.** Writing the row as the user types would
+ *      fire a real `project.created` webhook at subscribers for every abandoned sheet.
+ *      "Leaving is free" remains worth building as persistence of *this sheet's* state
+ *      rather than a server row, and still owes a `ux-design` pass and rule 217 first.
  *
  * That is also why the footer's commit note is worded to the create-on-submit
  * behavior rather than the handoff's "Nothing is created until you open the
- * designer" (#3130): while this sheet creates a real, `ACTIVE` project the moment
- * Create is pressed, the handoff's sentence would be a false capability claim of
- * the rule-308 class. `commitNote()` therefore states the one thing that does hold
+ * designer" (#3130): this sheet creates a real project the moment Create is pressed —
+ * `ACTIVE`, or `DRAFT` if the footer checkbox is ticked (#3233), but a real row either
+ * way — so the handoff's sentence would be a false capability claim of the rule-308
+ * class. The note is deliberately silent about which lifecycle results: the checkbox
+ * sitting directly above it, with `DRAFT_EXCLUSION_SENTENCE` as its description, is
+ * where that is stated, and repeating it here would give one fact two owners (rule 328). `commitNote()` therefore states the one thing that does hold
  * — nothing is written before the press — and takes the button's own `commitLabel`
  * so the sentence and the control cannot drift (rule 316). It deliberately stops
  * short of the discard half; `commitNote()`'s docblock says why.
@@ -224,6 +236,9 @@ export function NewProjectModal({
   // Explicit working-calendar override; null = follow the inherited default shown
   // by the picker (nothing sent on create — the server resolves it the same way).
   const [calendarOverride, setCalendarOverride] = useState<string | null>(null);
+  // #3233. Default false: ACTIVE stays the default create, so the sheet's existing
+  // behaviour is unchanged unless the user asks for a draft.
+  const [startAsDraft, setStartAsDraft] = useState(false);
   // The program this project attaches to (#2673, ADR-0764). `programId` only seeds
   // this — it is the single source of truth from here on, read by the picker and
   // the create payload.
@@ -368,6 +383,9 @@ export function NewProjectModal({
         methodology: derived.methodology,
         ...(selectedProgramId ? { program: selectedProgramId } : {}),
         ...(calendarOverride ? { calendar: calendarOverride } : {}),
+        // Omitted entirely when false rather than sent as `false`, so an ordinary
+        // create's payload is byte-identical to what it was before #3233.
+        ...(startAsDraft ? { start_as_draft: true } : {}),
       },
       {
         onSuccess: (data) => {
@@ -636,6 +654,52 @@ export function NewProjectModal({
                 to rendering a confident wrong one. The button is disabled and
                 reads "Creating…" throughout that window, so nothing is left
                 unexplained. */}
+            {/* Create as a draft (#3233).
+
+                Sits in the footer beside the calendar for the same reason the calendar
+                does (ADR-0441): its default is already resolved and correct for most
+                projects, so it belongs next to the commit rather than between the fields
+                and the choice that drives them.
+
+                This wires the FIRST half of the handoff's draft design only. The second
+                half — writing the row on the first keystroke — stays rejected: it would
+                fire a real `project.created` webhook at subscribers for every abandoned
+                sheet. "Leaving is free" is still worth building as persistence of this
+                sheet's state rather than a server row, and still owes a `ux-design` pass
+                and rule 217. See the component docblock.
+
+                The consequence is stated, not implied. A user choosing "draft" is opting
+                the project out of four aggregates, and `DRAFT_EXCLUSION_SENTENCE` is the
+                single owner of that phrase (rule 328) — the header line and the commit
+                sheet render the same string, so the three cannot drift. */}
+            <div className="flex items-start gap-2">
+              <input
+                id="new-project-start-as-draft"
+                type="checkbox"
+                checked={startAsDraft}
+                onChange={(e) => setStartAsDraft(e.target.checked)}
+                disabled={createProject.isPending}
+                aria-describedby="new-project-start-as-draft-note"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded-chip border-neutral-border
+                  accent-brand-primary focus:outline-none focus:ring-2
+                  focus:ring-brand-primary focus:ring-offset-1"
+              />
+              <div className="flex flex-col gap-0.5">
+                <label
+                  htmlFor="new-project-start-as-draft"
+                  className="text-sm text-neutral-text-primary"
+                >
+                  Create as a draft
+                </label>
+                <p
+                  id="new-project-start-as-draft-note"
+                  className="text-xs text-neutral-text-secondary"
+                >
+                  {DRAFT_EXCLUSION_SENTENCE}
+                </p>
+              </div>
+            </div>
+
             {!createProject.isPending && (
               <p id={COMMIT_NOTE_ID} className="text-xs text-neutral-text-secondary">
                 {commitNote(commitLabel)}

@@ -58,6 +58,7 @@ from trueppm_api.apps.access.serializers import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
+from trueppm_api.core.request_body import object_body
 
 _PK = str | uuid.UUID
 
@@ -541,7 +542,7 @@ class UserDefinedMentionGroupViewSet(
 
     def _member_user_or_400(self, project_id: _PK) -> Any:
         """Resolve request.data['user'] to a User that is an active project member."""
-        user_id = (self.request.data or {}).get("user")
+        user_id = object_body(self.request).get("user")
         if not user_id:
             raise drf_serializers.ValidationError({"user": "This field is required."})
         User = get_user_model()
@@ -829,7 +830,7 @@ class ProgramUserDefinedMentionGroupViewSet(
         membership anywhere in the program would be filtered out at resolution
         anyway, so reject the add up front.
         """
-        user_id = (self.request.data or {}).get("user")
+        user_id = object_body(self.request).get("user")
         if not user_id:
             raise drf_serializers.ValidationError({"user": "This field is required."})
         User = get_user_model()

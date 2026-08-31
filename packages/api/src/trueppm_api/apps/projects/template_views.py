@@ -45,6 +45,7 @@ from trueppm_api.apps.projects.template_services import (
 )
 from trueppm_api.apps.workspace.models import AuditEventType
 from trueppm_api.apps.workspace.services import record_audit_event
+from trueppm_api.core.request_body import object_body
 
 # Shared user-facing response details.
 _NO_SUCH_PROJECT_DETAIL = "No such project."
@@ -355,7 +356,8 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         tasks and edges, bounded by ``MAX_TEMPLATE_NODES``, and the publisher should
         learn immediately whether their project was too large rather than by polling.
         """
-        project_id, name, raw_description = _publish_inputs(request.data)
+        body = object_body(request)
+        project_id, name, raw_description = _publish_inputs(body)
         try:
             project = Project.objects.get(pk=project_id, is_deleted=False)
         except (Project.DoesNotExist, ValueError, TypeError) as exc:
@@ -367,7 +369,7 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         except TemplateStructureError as exc:
             raise ValidationError({"project": str(exc)}) from exc
 
-        source_kind = request.data.get("source_kind") or TemplateSource.WORKSPACE
+        source_kind = body.get("source_kind") or TemplateSource.WORKSPACE
         if source_kind not in TemplateSource.values:
             raise ValidationError({"source_kind": "Unknown provenance."})
 
@@ -378,7 +380,7 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         # is already taken is a decision, not an error to swallow: either publish
         # a new version of that template, or pick a different name.
         existing = ProjectTemplate.objects.filter(name=name[:200]).order_by("-version").first()
-        supersede = _flag(request.data.get("new_version"))
+        supersede = _flag(body.get("new_version"))
         if existing is not None and not supersede:
             return Response(
                 {
@@ -508,7 +510,7 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         commits, and it is what the Start sheet polls.
         """
         template = self.get_object()
-        project_id = request.data.get("project")
+        project_id = object_body(request).get("project")
         if not project_id:
             raise ValidationError({"project": "This field is required."})
         try:

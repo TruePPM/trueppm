@@ -19,17 +19,21 @@ baseline manager. The API behavior below is unchanged.
 
 Most projects get their first baseline automatically, by being **committed**.
 
-A new project starts as a **draft** — a plan nobody has agreed to yet. A draft is fully
-writable; what it is not is *visible*. TruePPM holds a draft out of program rollup,
-portfolio health, search, My Work and the notification fan-out, so a half-built plan
-cannot quietly become part of an aggregate someone reports upward.
+A project can be created as a **draft** — a plan nobody has agreed to yet. Tick
+**Create as a draft** in the footer of the New project sheet; leave it unticked and the
+project is created active, which is the default.
+
+A draft is fully writable; what it is not is *visible*. TruePPM holds a draft out of
+program rollup, portfolio health, search, My Work and the notification fan-out, so a
+half-built plan cannot quietly become part of an aggregate someone reports upward.
 
 Committing ends that. On the project **Overview**, a draft shows a **Draft** chip, and a
 Project Manager sees a **Commit plan** button beside **Update Status**:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft: project created
+    [*] --> Active: project created
+    [*] --> Draft: created with “Create as a draft”
     Draft --> Active: Commit plan
     note right of Draft
         Excluded from rollup,

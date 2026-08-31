@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from datetime import time, timedelta
 from typing import Any, TypeGuard
 
@@ -1660,7 +1660,13 @@ class Project(VersionedModel):
         return self.name
 
     @classmethod
-    def from_db(cls, db: Any, field_names: Any, values: Any) -> Project:
+    def from_db(
+        cls,
+        db: str | None,
+        field_names: Collection[str],
+        values: Collection[Any],
+        **kwargs: Any,
+    ) -> Project:
         """Remember the calendar this row was loaded with (ADR-0686).
 
         A ``Calendar`` created before any project points at it resolves to no
@@ -1678,7 +1684,10 @@ class Project(VersionedModel):
         attribute stays unset and the receiver simply re-allocates, which is
         wasted work on a rare path rather than a query on a hot one.
         """
-        instance = super().from_db(db, field_names, values)
+        # `**kwargs` forwarded blind rather than named: Django 6.0 adds a
+        # keyword-only `fetch_mode` to this hook and the stubs already describe it,
+        # but naming it here would be an unbound argument on the 5.2 LTS we run.
+        instance = super().from_db(db, field_names, values, **kwargs)
         if "calendar_id" not in instance.get_deferred_fields():
             instance._sync_loaded_calendar_id = instance.calendar_id  # type: ignore[attr-defined]
         return instance

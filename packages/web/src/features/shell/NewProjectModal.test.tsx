@@ -246,22 +246,68 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(document.getElementById(describedBy!)).toHaveTextContent(/nothing is created/i);
   });
 
-  it('never claims a draft is saved — the sheet creates an ACTIVE project on submit', () => {
+  it('never claims the sheet persists anything on its own', () => {
     // Rule 308(d): assert the *capability* is absent, not one retired phrasing.
-    // `Project.lifecycle` defaults to ACTIVE and `commit_project()` (the only
-    // draft → active transition) has no caller in the web app until #3129, so any
-    // "saved as a draft" / "we'll keep this for you" copy here would be a false
-    // claim. `handleSubmit` is the only caller of `useCreateProject`.
+    //
+    // NARROWED in #3233, deliberately, and the narrowing is the point. This used to
+    // include a bare `/\bdraft\b/i` on the reasoning that `commit_project()` — the only
+    // draft → active transition — had no caller in the web app "until #3129". That was a
+    // CONDITIONAL premise, not a permanent one, and #3129 shipped: the sheet now offers
+    // an opt-in "Create as a draft" checkbox, so the word is legitimately on screen and
+    // the old assertion would fail against correct code.
+    //
+    // What has NOT changed is the second half of the handoff's design, which #3127
+    // rejected on grounds that have not expired: the sheet does not write anything as
+    // you type, so any autosave / "we'll keep this for you" / "pick up where you left
+    // off" copy would still be a false claim (it would also fire a real `project.created`
+    // webhook per abandoned sheet). `handleSubmit` remains the only caller of
+    // `useCreateProject`. Those are the claims still asserted absent.
     renderModal();
     for (const claim of [
       /until you open the designer/i,
-      /\bdraft\b/i,
       /\bautosave|auto-save|automatically saved|saved automatically\b/i,
       /we.?ll (keep|save|remember)/i,
       /pick up where you left off|returning is exact/i,
+      /saved as a draft/i,
     ]) {
       expect(screen.queryByText(claim)).not.toBeInTheDocument();
     }
+  });
+
+  it('offers create-as-draft, off by default, and omits the flag entirely when unticked', async () => {
+    // Off by default so the ordinary create is unchanged — and the flag is OMITTED
+    // rather than sent as `false`, so a default payload is byte-identical to pre-#3233.
+    renderModal();
+    const box = screen.getByRole('checkbox', { name: /create as a draft/i });
+    expect(box).not.toBeChecked();
+    await fillName('Ordinary');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    const payload = mutateMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('start_as_draft');
+  });
+
+  it('sends start_as_draft when the box is ticked', async () => {
+    renderModal();
+    await fillName('Unagreed Plan');
+    await userEvent.click(screen.getByRole('checkbox', { name: /create as a draft/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ start_as_draft: true }),
+      expect.anything(),
+    );
+  });
+
+  it('states the consequence of choosing draft, in the phrase that owns it', () => {
+    // Rule 328: `DRAFT_EXCLUSION_SENTENCE` is the single owner of this fact — the
+    // Overview header line and the commit confirm sheet render the same string. A
+    // fourth phrasing here is how the three drifted apart the first time (#3129).
+    renderModal();
+    const box = screen.getByRole('checkbox', { name: /create as a draft/i });
+    const describedBy = box.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)).toHaveTextContent(
+      /held out of program rollup, portfolio health, search and My Work/i,
+    );
   });
 
   it('cut fields (description, copy-settings-from, use-program-defaults, default member role) are not on this screen', () => {
@@ -671,6 +717,12 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     await userEvent.tab();
     expect(document.activeElement).toBe(
       screen.getByRole('combobox', { name: /working calendar/i }),
+    );
+    // #3233 inserted the "Create as a draft" checkbox between the calendar and the
+    // actions, matching its visual position in the footer.
+    await userEvent.tab();
+    expect(document.activeElement).toBe(
+      screen.getByRole('checkbox', { name: /create as a draft/i }),
     );
     await userEvent.tab();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /cancel/i }));

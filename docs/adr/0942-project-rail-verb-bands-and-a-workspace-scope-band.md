@@ -317,6 +317,17 @@ this.
 
 ### 10. The rail collapses to 0px. The brief's collapsed frames are dead spec
 
+> **Superseded by [ADR-0979](0979-collapsed-rail-is-icon-only.md) (2026-08-31).** Founder
+> decision: **the collapsed rail is icon-only at 64px.** This section is reversed in full —
+> the design bundle's icon-only frames are the reference, **not** dead spec, and
+> implementation checklist item 6 ("Do not implement the design bundle's collapsed icon
+> frames") no longer applies. `selectSidebarWidth` becomes `64 | 248`, and the collapsed
+> rail becomes a live, focusable landmark rather than an `inert` / `aria-hidden` subtree.
+> The paragraph below is retained as the superseded record — it is why an in-flight branch
+> or a reviewer may still expect 0px. See ADR-0979 for the argument against the three
+> rationales this section inherited from ADR-0127. Surfaced as Q1 by the
+> `handoff-0.4-1413-3135/ADR Verification.html` pass; tracked as #3269.
+
 ADR-0127 Decision D holds unchanged: collapsed means **the rail is not there** —
 0px, `inert`, `aria-hidden` — and ⌘K remains the fast jump. The design bundle's
 icon-only 64px frames are **not to be implemented**, now or later. Nothing else in

@@ -102,6 +102,7 @@ from trueppm_api.apps.projects.views import (
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 from trueppm_api.core.openapi import suppress_list_pagination
+from trueppm_api.core.request_body import object_body
 
 # Upper bound on sub-programs created by a single split call (#967). Generous
 # enough for "one sub-program per project" on a large program, but caps the
@@ -1817,7 +1818,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             prepare_sample_for_user,
         )
 
-        key = request.data.get("sample", DEFAULT_SAMPLE)
+        key = object_body(request).get("sample", DEFAULT_SAMPLE)
         try:
             program = load_sample(key, owner=request.user, create_users=True)
         except SeedReplaceAmbiguous as exc:

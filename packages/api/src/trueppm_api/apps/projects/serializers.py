@@ -73,6 +73,7 @@ from trueppm_api.apps.projects.models import (
     ProjectApiToken,
     ProjectCustomField,
     ProjectExportJob,
+    ProjectLifecycle,
     PulseResponse,
     RelationType,
     RetroActionItem,
@@ -532,6 +533,36 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "Requires 'program' to be set; cannot be combined with copy_settings_from."
         ),
     )
+    # Create the project in DRAFT rather than ACTIVE (#3233). Write-only, create-only.
+    #
+    # This is an *intent* flag, deliberately not a writable ``lifecycle`` (#3127 made
+    # that read-only and argued the case at length in ``Meta.read_only_fields``: neither
+    # transition is a field a client may set, at create or at update, because both have
+    # an endpoint that does the surrounding work). Nothing here reopens that. The client
+    # says "this plan is not agreed yet"; the server owns what that means, which is the
+    # lifecycle value and the ``draft_started_at`` stamp, set together in ``create``.
+    #
+    # Why it had to exist: ``lifecycle`` defaults to ACTIVE and every DRAFT assignment in
+    # the repository was inside a test fixture, so ``POST /projects/{id}/commit/`` returned
+    # ``409 already_committed`` for every project that existed. The Draft pill, the Commit
+    # button, ``CommitPlanConfirmDialog``, ``commitRefusal``, ``canCommitPlan``,
+    # ``draftExclusion`` and 14 server-side exclusion call sites were all built, secured and
+    # tested against a state no user could enter.
+    #
+    # Create-only is enforced in ``validate`` with a 400 rather than DRF's silent strip:
+    # a read-only field dropping quietly is defensible for ``lifecycle`` (it matches
+    # ``is_archived`` beside it), but this field is new and has no back-compat callers, so
+    # a caller who sends it on PATCH should be told it did nothing rather than get a 200.
+    start_as_draft = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Optional, create-only. When true the project is created in the 'draft' "
+            "lifecycle instead of 'active' — writable, but excluded from rollup, "
+            "portfolio health, search and notifications until POST /projects/{id}/commit/ "
+            "captures baseline v1. Rejected on update."
+        ),
+    )
     member_count = serializers.SerializerMethodField()
     percent_complete = serializers.SerializerMethodField()
     # Count of non-deleted, not-yet-COMPLETE tasks — annotated on the list
@@ -692,6 +723,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Write-only opt-in to seed settings from the parent program (#1909) —
             # see the field declaration above; never appears in read output.
             "inherit_program_defaults",
+            "start_as_draft",
             "server_version",
             "name",
             "description",
@@ -968,6 +1000,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         Both source markers are non-model fields, so they are popped before create.
         """
+        start_as_draft = validated_data.pop("start_as_draft", False)
+        if start_as_draft:
+            # The server owns both halves of the transition, which is why this is an
+            # intent flag and not a writable `lifecycle` (#3127, #3233). Stamping
+            # `draft_started_at` here keeps the pair consistent: nothing else in the
+            # create path sets it, and a draft without its stamp cannot be aged.
+            validated_data["lifecycle"] = ProjectLifecycle.DRAFT
+            validated_data["draft_started_at"] = timezone.now()
         inherit_program = validated_data.pop("inherit_program_defaults", False)
         source = validated_data.pop("copy_settings_from", None)
         if source is not None:
@@ -1649,6 +1689,17 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if instance is not None and attrs.pop("inherit_program_defaults", False):
             raise serializers.ValidationError(
                 {"inherit_program_defaults": "This field is only accepted when creating a project."}
+            )
+        # start_as_draft is create-only too (#3233). Same pop-then-reject shape and for
+        # the same two reasons: popped so it never reaches ModelSerializer.update() as a
+        # bogus non-field attribute or trips the below-Admin field gate below, and
+        # rejected only when truthy so `start_as_draft: false` on a PATCH is a no-op
+        # rather than an error. Entering draft after creation is not this field's job and
+        # is not currently reachable by design — `commit_project()` is the only lifecycle
+        # transition with an endpoint, and it runs one way (#3127).
+        if instance is not None and attrs.pop("start_as_draft", False):
+            raise serializers.ValidationError(
+                {"start_as_draft": "This field is only accepted when creating a project."}
             )
         if instance is None:
             _reject_conflicting_settings_sources(attrs)
