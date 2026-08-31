@@ -507,7 +507,35 @@ function StripFrame({
 
   return (
     <div className="rounded-card border border-neutral-border overflow-hidden">
-      <div className={['grid', task.isMilestone ? 'grid-cols-2' : 'grid-cols-4'].join(' ')}>
+      {/* Two-up below `md`, four-up at the drawer's own width and above (#3212).
+          The strip renders in BOTH drawer shells — the ≥ md 540px slide-in and
+          the < md 85vh bottom sheet — and four tracks in a 356px sheet leaves
+          each cell an 89px box with a 60px content area. That was already too
+          narrow for the 66px unit picker (it overflowed by 6px, into the Float
+          cell, unclipped, because the grid item is `min-w-0` while the picker is
+          `shrink-0`); raising the picker to the 44px touch floor makes the same
+          overflow 30px, which would have put a touch-target fix on a tablet and
+          a layout regression on the phone that fix is for.
+
+          Two tracks give the sheet a 149px content box, so the 90px picker fits
+          with room left. The dividers follow the tracks rather than the source
+          order: every second cell drops its right divider at the narrow layout
+          (it would otherwise draw a second line against the card's own border),
+          and the first row gains a bottom one, so the 2x2 reads as a grid rather
+          than as four cells that happened to wrap. Both revert at `md`, where
+          the four-up strip is unchanged to the pixel. */}
+      <div
+        className={[
+          'grid',
+          task.isMilestone
+            ? 'grid-cols-2'
+            : [
+                'grid-cols-2 md:grid-cols-4',
+                '[&>*:nth-child(2n)]:border-r-0 md:[&>*:nth-child(2n)]:border-r',
+                '[&>*:nth-child(-n+2)]:border-b md:[&>*:nth-child(-n+2)]:border-b-0',
+              ].join(' '),
+        ].join(' ')}
+      >
         <Cell label={task.isMilestone ? 'Date' : 'Start'}>
           {hasSchedule ? (
             startComputed ? (
