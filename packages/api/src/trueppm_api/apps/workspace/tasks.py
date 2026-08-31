@@ -17,10 +17,14 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from celery import shared_task
 
 from trueppm_api.core.idempotent import idempotent_task
+
+if TYPE_CHECKING:
+    from django.core.mail.backends.base import BaseEmailBackend
 
 logger = logging.getLogger(__name__)
 
@@ -442,7 +446,7 @@ def _do_purge_stale_invites() -> None:
 def _send_invite_email(
     invite: object,
     *,
-    connection: object | None = None,
+    connection: BaseEmailBackend | None = None,
     from_email: str | None = None,
 ) -> bool:
     """Render and send the invitation email. Returns True on SMTP success.

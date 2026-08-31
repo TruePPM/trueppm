@@ -48,6 +48,7 @@ from trueppm_api.apps.projects.models import (
     Project,
 )
 from trueppm_api.apps.projects.serializers import BacklogItemSerializer, TaskSerializer
+from trueppm_api.core.request_body import object_body
 
 
 class BacklogItemViewSet(
@@ -221,7 +222,7 @@ class BacklogItemViewSet(
         # Confirm the program exists and the caller holds program-write.
         self._resolve_program()
 
-        project_id = request.data.get("project_id")
+        project_id = object_body(request).get("project_id")
         if not project_id:
             return Response(
                 {"detail": "project_id is required."},

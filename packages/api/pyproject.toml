@@ -172,9 +172,12 @@ binary = ["psycopg[binary]>=3.1,<4.0"]
 # narrows a type changes the verdict of `api:type-check` with no commit and no
 # lockfile change. That is what happened: djangorestframework-stubs began typing
 # `Request.data` as `dict[str, Any] | list[Any]`, and 41 `request.data.get(...)`
-# call sites became errors on code nobody had touched. Whether those call sites
-# need narrowing is real (see #2795) but separate; adopting a newer stubs release
-# should be a deliberate MR that bumps these pins and fixes what they flag.
+# call sites became errors on code nobody had touched.
+#
+# Those 41 are resolved as of #3278 and the pins moved forward with them, which
+# is the shape any future bump takes: a deliberate MR that raises these three
+# lines and fixes what the new stubs flag — never a range that lets a PyPI
+# release decide the gate.
 #
 # These three must match packages/api/uv.lock. Same reasoning as the exact
 # `drf-spectacular[sidecar]==0.30.0` pin (#2260).
@@ -189,8 +192,8 @@ dev = [
     "pytest-socket>=0.8,<1.0",
     "diff-cover>=9.0,<10.0",
     "mypy==1.20.2",
-    "django-stubs[compatible-mypy]==6.0.5",
-    "djangorestframework-stubs[compatible-mypy]==3.17.0",
+    "django-stubs[compatible-mypy]==6.1.0",
+    "djangorestframework-stubs[compatible-mypy]==3.18.1",
     "ruff>=0.8,<1.0",
     "testcontainers[postgres]>=4.7,<5.0",
 ]

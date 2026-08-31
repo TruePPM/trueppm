@@ -326,3 +326,69 @@ def test_deleted_group_does_not_resolve(project: Project, member_user: object) -
     group.is_deleted = True
     group.save()
     assert resolve_user_defined_group_members(project.id, "subs") is None
+
+
+# ---------------------------------------------------------------------------
+# Non-object request body (#3278)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("body", [[{"user": "x"}], [], "scalar", 42])
+def test_add_member_rejects_a_non_object_body(
+    project: Project, admin_user: object, body: object
+) -> None:
+    """400, never 500 — and never the "field is required" answer for a bad envelope.
+
+    The pre-#3278 idiom here was ``(self.request.data or {}).get("user")``, which
+    is the reason this is the one site in that change whose behaviour moved by
+    more than 500 → 400. ``or {}`` swallowed the *falsy* non-objects (``[]``,
+    ``""``, ``null``) into an empty dict and answered "this field is required",
+    which describes a field on a body that has no fields. Only a **non-empty**
+    list reached ``.get`` and 500'd. So both halves are pinned here: the empty
+    list used to be a misleading 400 and the populated one used to be a crash,
+    and they now give the same, accurate answer.
+    """
+    group = UserDefinedMentionGroup.objects.create(project=project, name="subs")
+    resp = _client(admin_user).post(
+        f"/api/v1/projects/{project.id}/mention-groups/{group.id}/add-member/",
+        body,
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.data == {"detail": "Request body must be a JSON object."}
+
+
+@pytest.mark.django_db
+def test_add_member_still_reports_a_missing_field_on_a_real_object(
+    project: Project, admin_user: object
+) -> None:
+    """The negative control: `{}` is a valid envelope, so the field answer stands."""
+    group = UserDefinedMentionGroup.objects.create(project=project, name="subs")
+    resp = _client(admin_user).post(
+        f"/api/v1/projects/{project.id}/mention-groups/{group.id}/add-member/",
+        {},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert "user" in resp.data
+
+
+@pytest.mark.django_db
+def test_a_non_admin_is_refused_before_the_body_is_inspected(
+    project: Project, member_user: object
+) -> None:
+    """403 beats 400 — the guard must not become a membership oracle.
+
+    A caller without the role gets the same 403 for a malformed body as for a
+    well-formed one, so the new envelope check cannot be used to probe whether a
+    group id is real.
+    """
+    group = UserDefinedMentionGroup.objects.create(project=project, name="subs")
+    for body in ([{"user": "x"}], {"user": "x"}):
+        resp = _client(member_user).post(
+            f"/api/v1/projects/{project.id}/mention-groups/{group.id}/add-member/",
+            body,
+            format="json",
+        )
+        assert resp.status_code == 403, (body, resp.content)

@@ -6,7 +6,7 @@ import base64
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -135,7 +135,10 @@ def _parse_column_map(request: Request) -> dict[str, str]:
     over a mapping hint would be a worse outcome than importing the detected
     columns and letting the operator see the result.
     """
-    raw = request.data.get("column_map")
+    # Both callers set `parser_classes = [MultiPartParser]`, so the body is always
+    # a QueryDict — a JSON list is rejected as 415 before this runs. Narrowed
+    # rather than guarded: a branch that cannot be reached cannot be tested.
+    raw = cast("dict[str, Any]", request.data).get("column_map")
     if not raw:
         return {}
     if isinstance(raw, dict):
@@ -167,7 +170,10 @@ def _parse_date_order(request: Request) -> str:
     and a JSON list reaching a membership test against strings is the #2795
     container-type-confusion class.
     """
-    raw = request.data.get("date_order")
+    # Both callers set `parser_classes = [MultiPartParser]`, so the body is always
+    # a QueryDict — a JSON list is rejected as 415 before this runs. Narrowed
+    # rather than guarded: a branch that cannot be reached cannot be tested.
+    raw = cast("dict[str, Any]", request.data).get("date_order")
     if raw is None or raw == "":
         return "auto"
     if not isinstance(raw, str) or raw not in DATE_ORDERS:
@@ -360,7 +366,10 @@ class CsvImportView(IdempotencyMixin, APIView):
         # True when the operator explicitly accepted a convention rather than
         # letting auto decide. Kept for support archaeology only — nothing
         # branches on it (#2926).
-        date_order_confirmed = str(request.data.get("date_order_confirmed", "")).lower() in {
+        # `parser_classes = [MultiPartParser]` — see `_parse_column_map`.
+        date_order_confirmed = str(
+            cast("dict[str, Any]", request.data).get("date_order_confirmed", "")
+        ).lower() in {
             "true",
             "1",
         }
