@@ -2,15 +2,21 @@
 
 ``Request.data`` is ``dict | list`` — a top-level JSON array is a legal body, and
 ``request.data.get(...)`` on one raises ``AttributeError``, which DRF renders as
-a **500**. Every endpoint below used to do exactly that; each now narrows the
-container before the first field read.
+a **500**. Most of the endpoints below used to do exactly that; each now narrows
+the container before the first field read.
 
-Two of these are worth calling out because a plausible-looking guard did *not*
-protect them:
+*Most*, not all — the pre-fix failure mode is worth stating accurately, because
+one of these never raised at all:
 
 * ``field-values`` tested ``"value" not in request.data`` first — but ``in`` also
   tests membership of a *list's elements*, so ``["value"]`` sailed past it and
   died on the subscript one line later;
+* ``retro-item-patch`` was **quieter**: its handler branches on ``"column" in
+  data`` / ``"text" in data``, and ``[{...}]`` matched neither, so it fell
+  through to ``refresh_from_db()`` and returned **200**. The caller was told the
+  edit succeeded and nothing had been written. ``["column"]`` *would* have 500'd,
+  so it is the same class — but a fixture that only sends ``[{...}]`` reaches the
+  silent-accept branch rather than the crash;
 * ``set-presenter`` and ``set-note`` already carried ``isinstance(..., str)``
   value guards, which is the trait that defines this bug class: the value guard
   sits downstream of the container access that has already blown up.

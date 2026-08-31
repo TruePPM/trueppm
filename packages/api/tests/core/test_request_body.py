@@ -39,6 +39,18 @@ def test_object_body_rejects_a_list(payload: list[Any]) -> None:
         object_body(_request(payload))
 
 
+@pytest.mark.parametrize("payload", ["scalar", 42, True])
+def test_object_body_rejects_a_scalar(payload: Any) -> None:
+    """A list is the common case; it is not the only non-object.
+
+    `"scalar"` is the nastiest of these because `str` has no `.get` either but
+    *does* support `in` and `[...]` — so a scalar body slips past exactly the
+    membership tests a list slips past, and then indexes by character.
+    """
+    with pytest.raises(InvalidRequestBody):
+        object_body(_request(payload))
+
+
 def test_invalid_request_body_is_a_400_with_a_flat_detail() -> None:
     """Flat ``{"detail": ...}``, matching the hand-written guards it generalizes.
 

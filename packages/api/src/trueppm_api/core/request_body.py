@@ -31,11 +31,17 @@ from rest_framework.request import Request
 class InvalidRequestBody(APIException):
     """400 for a JSON body that parsed fine but is not an object.
 
-    A dedicated exception rather than ``ValidationError`` so the response is the
-    flat ``{"detail": ...}`` the existing hand-written guards already return
-    (``projects/views.py`` reparent, group/ungroup) — ``ValidationError`` would
-    wrap the message in a list under a field key and describe a field problem,
-    which this is not.
+    A dedicated exception rather than ``ValidationError``: the latter would wrap
+    the message in a list under a field key and describe a *field* problem, and
+    this is a problem with the envelope — no field is at fault.
+
+    The body on the wire is the flat ``{"detail": ...}`` DRF's stock handler
+    renders for an ``APIException``; ``default_code`` stays on the ``ErrorDetail``
+    and never reaches the client. That matches the reparent guard
+    (``projects/views.py``) and **not** the group/ungroup one, which returns
+    ``{"code": "invalid_body", "detail": ...}`` and has a test asserting the
+    ``code``. Converging the two is a client-visible break and is deliberately
+    not done here — see the MR notes.
     """
 
     status_code = status.HTTP_400_BAD_REQUEST

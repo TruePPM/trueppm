@@ -10907,6 +10907,10 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
         serializer = BoardSavedViewSerializer(saved_view, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         save_kwargs: dict[str, Any] = {"server_version": saved_view.server_version + 1}
+        # `"config" in request.data` is a membership test, not a container guard —
+        # `in` also tests a list's elements. Safe only because the serializer above
+        # has already rejected a non-mapping, and nothing subscripts the body after
+        # this. Load-bearing ordering: do not move a body read above `is_valid`.
         if "config" in request.data:
             # Only stamp schema_version when this PATCH actually rewrites
             # config: validate_config only ran (and only emitted the full
