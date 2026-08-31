@@ -112,13 +112,12 @@ test.describe('Milestone conversion (#3256)', () => {
     expect(store.patches[0]).toEqual({ is_milestone: true });
     expect(store.patches[0]).not.toHaveProperty('duration');
 
-    // Presence, not `toBeVisible`: the diamond currently computes to width 0px
-    // (`.w-3` matches but the resolved width is 0, while height is 12) on ANY
-    // milestone row, including a server-fixtured one on unmodified render code —
-    // so it is pre-existing and out of this diff, and filed as #3273. Asserting
-    // visibility here would red on a defect this MR neither caused nor fixes. Tighten
-    // this to `toBeVisible()` when #3273 lands — this is the only e2e that guards it.
-    await expect(row.getByTestId('milestone-glyph')).toHaveCount(1);
+    // #3273 — `toBeVisible`, not presence. The glyph is the only channel that asserts
+    // the row TYPE (everything else on the row states a consequence), and it is
+    // `aria-hidden`, so a zero-width render leaves nobody — sighted or not — with the
+    // type. `toBeVisible()` is what distinguishes "rendered" from "rendered at 0px";
+    // `toHaveCount(1)` passed throughout the defect. This is the only e2e guarding it.
+    await expect(row.getByTestId('milestone-glyph')).toBeVisible();
     // #3258 — Dur states the zero. An em-dash would read as "unknown", which is the
     // wrong thing to say about the one row type defined by having no duration. This
     // is also the assertion a user can actually perceive today.
