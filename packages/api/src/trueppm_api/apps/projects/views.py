@@ -232,9 +232,14 @@ from trueppm_api.apps.projects.serializers import (
     TaskScopeRollupSerializer,
     TaskSerializer,
     TaskWriteResponseSerializer,
+    ZeroDurationNotMilestoneError,
 )
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
-from trueppm_api.apps.projects.task_bulk import MSG_PROGRESS_NEEDS_ANCHOR, BulkOutcome
+from trueppm_api.apps.projects.task_bulk import (
+    MSG_PROGRESS_NEEDS_ANCHOR,
+    MSG_ZERO_DURATION_NOT_MILESTONE,
+    BulkOutcome,
+)
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 from trueppm_api.apps.sync.conflict import FieldLevelMergeMixin, check_field_conflict
@@ -598,6 +603,23 @@ class TaskUngroupResponseSerializer(serializers.Serializer[Any]):
     operation_id = serializers.UUIDField(
         allow_null=True,
         help_text=_OPERATION_ID_HELP,
+    )
+
+
+def _zero_duration_not_milestone_response() -> Response:
+    """The 400 body for a zero duration written onto a non-milestone row (#3265).
+
+    One builder rather than two literals: the update path refuses this and the
+    create path carries a defensive arm for it, and clients match on the pair
+    ``(code, message)``, so a drifted copy reads as a different error.
+    """
+    return Response(
+        {
+            "code": "zero_duration_not_milestone",
+            "detail": MSG_ZERO_DURATION_NOT_MILESTONE,
+            "suggested_action": "set_is_milestone",
+        },
+        status=status.HTTP_400_BAD_REQUEST,
     )
 
 
@@ -5424,7 +5446,20 @@ class TaskViewSet(
         ),
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        response: Response = super().create(request, *args, **kwargs)
+        # A defensive backstop, not a live path (#3265). As the guard is currently
+        # scoped it cannot fire on a create at all: it keys on
+        # `self.instance.duration != 0`, and a create has no instance — creating at
+        # `duration: 0` is legal and deliberately so (Board intake, "Add phase").
+        # The arm is kept because the cost of being wrong is asymmetric: this
+        # exception does NOT derive from `DRFValidationError`, so were the guard
+        # ever widened to fire on creates, it would escape `is_valid()` entirely and
+        # surface as a **500** — a refusal turned into an outage, on the path an
+        # importer or MCP client uses first. `_handle_task_write` covers `update` /
+        # `partial_update` only and cannot cover this one.
+        try:
+            response: Response = super().create(request, *args, **kwargs)
+        except ZeroDurationNotMilestoneError:
+            return _zero_duration_not_milestone_response()
         _attach_dropped_field_warnings(
             request, response, _task_serializer_field_names(self.get_serializer()), created=True
         )
@@ -5623,6 +5658,8 @@ class TaskViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except ZeroDurationNotMilestoneError:
+            return _zero_duration_not_milestone_response()
         except GuardrailBlockedError as exc:
             return Response(
                 {
