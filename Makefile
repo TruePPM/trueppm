@@ -5,7 +5,7 @@
         migrations-check migrations-numbering migrations-constraint-safety schema-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
-        release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor dropdown-scroll-check
+        release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-prune-dbs wt-doctor dropdown-scroll-check
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
 # must hit at least $(COVERAGE_DIFF_MIN)% line coverage.
@@ -50,6 +50,9 @@ wt-remove: ## Remove a worktree (usage: make wt-remove ISSUE=600)
 
 wt-prune: ## Remove worktrees whose branches were merged + deleted on origin
 	@bash scripts/wt prune
+
+wt-prune-dbs: ## Drop test databases with no live worktree behind them
+	@bash scripts/wt prune-dbs
 
 wt-doctor: ## Verify worktree symlinks + shared Docker stack are healthy
 	@bash scripts/wt doctor
