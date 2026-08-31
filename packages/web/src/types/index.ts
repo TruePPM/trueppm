@@ -652,6 +652,18 @@ export interface Project {
   effectiveIterationLabel?: string | null;
   effectiveMethodology?: Methodology;
   inheritedMethodology?: Methodology;
+  /**
+   * Whether the plan has been committed to (#2962, #3233). `'draft'` means nobody
+   * has agreed to it yet — fully writable, but held out of every aggregate in
+   * `DRAFT_EXCLUDED_AGGREGATES` until `POST /projects/{id}/commit/` captures
+   * baseline v1.
+   *
+   * Optional because older list fixtures do not annotate it; **treat absent as
+   * `'active'`**, never as draft. Until #3233 the list mapper dropped this field
+   * entirely, so every list, sidebar row and card rendered a draft identically to a
+   * committed project — the state was only legible on the project Overview header.
+   */
+  lifecycle?: 'draft' | 'active';
 }
 
 /**

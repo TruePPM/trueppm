@@ -33,6 +33,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.lifecycle import is_draft, visible_projects
 from trueppm_api.apps.projects.models import (
+    Baseline,
     Calendar,
     Program,
     Project,
@@ -891,3 +892,163 @@ class TestLifecycleIsNotAClientWritableField:
         draft.refresh_from_db()
         assert draft.lifecycle == ProjectLifecycle.ACTIVE
         assert Baseline.objects.filter(project=draft, name="Baseline v1").count() == 1
+
+
+@pytest.mark.django_db
+class TestCreateAsDraft:
+    """A project can actually BE created in draft (#3233).
+
+    The state this whole module tests was, until now, unreachable in production.
+    ``lifecycle`` defaults to ACTIVE and every ``DRAFT`` assignment in the repository
+    lived inside a test fixture — so ``POST /projects/{id}/commit/`` returned
+    ``409 already_committed`` for every project that existed, and the Draft pill, the
+    Commit button, ``CommitPlanConfirmDialog``, ``commitRefusal``, ``canCommitPlan``,
+    ``draftExclusion`` and 14 server-side exclusion call sites were all built, secured
+    and tested against a state no user could enter.
+
+    ``start_as_draft`` is an **intent** flag, not a writable ``lifecycle``: #3127 made
+    that field read-only and argued at length that neither transition is a field a
+    client may set, at create or at update. Nothing here reopens that, and
+    ``TestLifecycleIsNotAClientWritableField`` above still pins it over the whole
+    serializer population.
+    """
+
+    def _payload(self, calendar: Calendar, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": "Nakatomi Rebuild",
+            "start_date": "2026-09-01",
+            "calendar": str(calendar.pk),
+            **extra,
+        }
+
+    def test_create_without_the_flag_is_active(self, client: APIClient, calendar: Calendar) -> None:
+        """The default is unchanged — this is the no-regression half.
+
+        Without it, a passing draft assertion below proves only that the flag was
+        honored, not that omitting it still yields a committed project.
+        """
+        res = client.post("/api/v1/projects/", self._payload(calendar), format="json")
+        assert res.status_code == 201, res.data
+        project = Project.objects.get(pk=res.data["id"])
+        assert project.lifecycle == ProjectLifecycle.ACTIVE
+        assert project.draft_started_at is None
+        assert not is_draft(project)
+
+    def test_create_with_the_flag_is_draft_and_stamped(
+        self, client: APIClient, calendar: Calendar
+    ) -> None:
+        res = client.post(
+            "/api/v1/projects/", self._payload(calendar, start_as_draft=True), format="json"
+        )
+        assert res.status_code == 201, res.data
+        project = Project.objects.get(pk=res.data["id"])
+        assert project.lifecycle == ProjectLifecycle.DRAFT
+        assert is_draft(project)
+        # Both halves of the transition are server-owned, so the stamp is not optional:
+        # a draft without it cannot be aged.
+        assert project.draft_started_at is not None
+
+    def test_flag_false_is_active(self, client: APIClient, calendar: Calendar) -> None:
+        res = client.post(
+            "/api/v1/projects/", self._payload(calendar, start_as_draft=False), format="json"
+        )
+        assert res.status_code == 201, res.data
+        assert Project.objects.get(pk=res.data["id"]).lifecycle == ProjectLifecycle.ACTIVE
+
+    def test_the_flag_is_write_only(self, client: APIClient, calendar: Calendar) -> None:
+        """It must never echo back — it is an instruction, not a property of the project."""
+        res = client.post(
+            "/api/v1/projects/", self._payload(calendar, start_as_draft=True), format="json"
+        )
+        assert "start_as_draft" not in res.data
+        assert res.data["lifecycle"] == ProjectLifecycle.DRAFT
+
+    def test_lifecycle_is_still_not_settable_at_create(
+        self, client: APIClient, calendar: Calendar
+    ) -> None:
+        """#3127 is not reopened by the create path.
+
+        DRF strips read-only fields before ``validate()``, so this is a 201 with the
+        write silently dropped rather than a 400 — the shape the #3127 comment
+        documents. What matters is the stored value, so that is what is asserted.
+        """
+        res = client.post(
+            "/api/v1/projects/",
+            self._payload(calendar, lifecycle=ProjectLifecycle.DRAFT),
+            format="json",
+        )
+        assert res.status_code == 201, res.data
+        assert Project.objects.get(pk=res.data["id"]).lifecycle == ProjectLifecycle.ACTIVE
+
+    def test_patch_rejects_the_flag(self, client: APIClient, calendar: Calendar) -> None:
+        """Create-only, and it says so rather than dropping quietly.
+
+        ``lifecycle`` dropping silently on PATCH is defensible — it matches the
+        already-read-only ``is_archived`` beside it — but this field is new and has no
+        back-compat callers, so a caller who sends it on update is told it did nothing.
+        """
+        res = client.post(
+            "/api/v1/projects/", self._payload(calendar, start_as_draft=True), format="json"
+        )
+        pid = res.data["id"]
+        patch = client.patch(f"/api/v1/projects/{pid}/", {"start_as_draft": True}, format="json")
+        assert patch.status_code == 400
+        assert "start_as_draft" in patch.data
+
+    def test_patch_tolerates_the_flag_when_false(
+        self, client: APIClient, calendar: Calendar
+    ) -> None:
+        """False is a no-op, not an error — a client echoing its own form state back
+        on an unrelated PATCH must not be 400'd for a field it is not using."""
+        res = client.post("/api/v1/projects/", self._payload(calendar), format="json")
+        pid = res.data["id"]
+        patch = client.patch(
+            f"/api/v1/projects/{pid}/", {"start_as_draft": False, "name": "Renamed"}, format="json"
+        )
+        assert patch.status_code == 200, patch.data
+        assert Project.objects.get(pk=pid).name == "Renamed"
+
+    def test_a_created_draft_is_committable_end_to_end(
+        self, client: APIClient, calendar: Calendar
+    ) -> None:
+        """The point of the whole issue: Draft -> Commit is reachable.
+
+        Before this, ``POST /commit/`` answered ``409 already_committed`` for every
+        project in existence, because nothing could put one in draft to begin with.
+        """
+        res = client.post(
+            "/api/v1/projects/", self._payload(calendar, start_as_draft=True), format="json"
+        )
+        pid = res.data["id"]
+        Task.objects.create(project_id=pid, name="Mobilize", duration=5)
+
+        commit = client.post(f"/api/v1/projects/{pid}/commit/", {}, format="json")
+        assert commit.status_code == 200, commit.data
+
+        project = Project.objects.get(pk=pid)
+        assert project.lifecycle == ProjectLifecycle.ACTIVE
+        assert Baseline.objects.filter(project=project, is_active=True).exists()
+
+        # And the anchor does not move: a second commit is refused.
+        again = client.post(f"/api/v1/projects/{pid}/commit/", {}, format="json")
+        assert again.status_code == 409
+
+    def test_a_created_draft_is_excluded_from_aggregates(
+        self, client: APIClient, calendar: Calendar
+    ) -> None:
+        """End-to-end proof it is a real draft, not just a stored string.
+
+        Flips back to ACTIVE and re-asserts, per this module's standing rule: without
+        the second half a passing exclusion assertion proves only that the fixture
+        was empty.
+        """
+        res = client.post(
+            "/api/v1/projects/",
+            self._payload(calendar, start_as_draft=True),
+            format="json",
+        )
+        pid = res.data["id"]
+        assert not visible_projects(Project.objects.all()).filter(pk=pid).exists()
+
+        Project.objects.filter(pk=pid).update(lifecycle=ProjectLifecycle.ACTIVE)
+        assert visible_projects(Project.objects.all()).filter(pk=pid).exists()
