@@ -163,8 +163,21 @@ c = ["psycopg[c]>=3.1,<4.0"]
 binary = ["psycopg[binary]>=3.1,<4.0"]
 # Dev/toolchain deps are capped on the next major too — an unpinned `ruff` or
 # `mypy` that drifts a major between a local run and CI produces format/type
-# failures that only surface in the pipeline. (Exact-version reproducibility is
-# a lockfile concern, tracked separately; these caps are the cheap floor.)
+# failures that only surface in the pipeline.
+#
+# The mypy toolchain (mypy + both stubs) is pinned EXACT rather than capped
+# (#3275). A cap is not enough here because the ci-api image is built with
+# `pip install -e ./api[dev]`, which never consults uv.lock — so a range
+# re-resolves against PyPI on every image rebuild, and a stubs release that
+# narrows a type changes the verdict of `api:type-check` with no commit and no
+# lockfile change. That is what happened: djangorestframework-stubs began typing
+# `Request.data` as `dict[str, Any] | list[Any]`, and 41 `request.data.get(...)`
+# call sites became errors on code nobody had touched. Whether those call sites
+# need narrowing is real (see #2795) but separate; adopting a newer stubs release
+# should be a deliberate MR that bumps these pins and fixes what they flag.
+#
+# These three must match packages/api/uv.lock. Same reasoning as the exact
+# `drf-spectacular[sidecar]==0.30.0` pin (#2260).
 dev = [
     "psycopg[binary]>=3.1,<4.0",
     "pytest>=8.0,<10.0",
@@ -175,9 +188,9 @@ dev = [
     "pytest-split>=0.9,<1.0",
     "pytest-socket>=0.8,<1.0",
     "diff-cover>=9.0,<10.0",
-    "mypy>=1.0,<2.0",
-    "django-stubs[compatible-mypy]>=5.0,<7.0",
-    "djangorestframework-stubs[compatible-mypy]>=3.15,<4.0",
+    "mypy==1.20.2",
+    "django-stubs[compatible-mypy]==6.0.5",
+    "djangorestframework-stubs[compatible-mypy]==3.17.0",
     "ruff>=0.8,<1.0",
     "testcontainers[postgres]>=4.7,<5.0",
 ]

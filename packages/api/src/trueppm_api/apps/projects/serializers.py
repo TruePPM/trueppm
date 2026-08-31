@@ -3658,6 +3658,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         )
         if is_milestone:
             attrs["duration"] = 0
+        else:
+            self._enforce_zero_duration_is_a_milestone(attrs)
         self._reject_milestone_unflag_with_live_sprint(attrs)
         self._resolve_planned_finish_duration(attrs, is_milestone=is_milestone)
         self._validate_sprint_project_ownership(attrs)
@@ -3969,6 +3971,74 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         governance_default, delivery_default = resolve_default_classification(project)
         attrs.setdefault("governance_class", governance_default)
         attrs.setdefault("delivery_mode", delivery_default)
+
+    def _enforce_zero_duration_is_a_milestone(self, attrs: dict[str, Any]) -> None:
+        """Close ADR-0325's invariant upward: no zero-duration work rows (#3265).
+
+        ADR-0325 states one canonical state — ``is_milestone`` iff
+        ``delivery_mode='milestone'`` iff ``duration=0`` — and claims the DB can
+        only hold it. Its normalization was **one-directional**:
+        :meth:`_reconcile_milestone_signals` reconciles the two *flags* against
+        each other, and the milestone state then forces ``duration = 0``. Nothing
+        inferred the flags from a bare ``duration``. So ``PATCH {"duration": 0}``
+        on a work row landed exactly the state the ADR says cannot exist, and every
+        consumer that keys on ``is_milestone`` — the outline glyph and date
+        treatment, ``outlineDrag``'s gate refusals, the Board, CPM, sprint rollup —
+        read it as work with no duration.
+
+        **Scope: an edit that destroys an existing estimate, not every zero.**
+        ADR-0325's "iff" reads as though no zero-duration non-milestone row may
+        ever exist. The product contradicts that in two deliberate places, both
+        verified against a live request rather than read off the code: the Board's
+        backlog quick-capture mints an intake idea at ``duration: 0`` because it
+        is *not scheduled work yet*, and "Add phase" mints a container at
+        ``duration: 0`` because a phase's duration rolls up from its children
+        (``BoardView.handleQuickCaptureBacklog`` / ``handleAddPhase``). Refusing
+        every zero 400s both. So the invariant that consumers actually depend on
+        is narrower than the ADR's wording, and it is the one #3256 broke: a write
+        that **takes an estimate away** must say what the row became.
+
+        Three situations, three answers, because the caller asserted different
+        things:
+
+        * **A write zeroes a duration that is currently non-zero, on a row that
+          is not becoming a milestone.** Refuse, with the stable code
+          ``zero_duration_not_milestone``. This is exactly #3256: a caller sent
+          ``duration: 0``, meant "make this a gate", and got a work row with its
+          estimate silently destroyed. Refuse rather than infer — inference is
+          friendlier to importers and would have made that bug invisible instead
+          of loud, one level down. The hole is open to every caller, not just the
+          one that fell in: the MCP write tools, ``tasks/bulk/``, and any
+          integrator against the documented v1 API.
+        * **A create, or an edit of a row already at zero.** Allowed. Nothing is
+          destroyed, and this is the intake/phase case above. A row that is zero
+          and not a milestone is legal — it just cannot be *made* that way by
+          discarding an estimate.
+        * **The caller un-flagged a milestone and said nothing about duration.**
+          The row's stored duration is 0 because it *was* a gate, so leaving it
+          lands a former gate masquerading as unestimated work. Default to the
+          model's ``duration`` default: the caller asserted "no longer a
+          milestone" and asserted nothing about the estimate, and refusing would
+          make un-flagging impossible without guessing a number.
+
+        Deliberately **not** a database constraint. ``AddConstraint`` validates
+        against every existing row and migrations run on container start, so one
+        legacy zero-duration work row would be an upgrade crash-loop rather than a
+        failed deploy. Serializer-level validation leaves such rows readable and
+        editable — this fires only on the write that removes the estimate.
+        """
+        if attrs.get("duration") == 0 and self.instance is not None and self.instance.duration != 0:
+            raise ZeroDurationNotMilestoneError
+        # Un-flagging: the stored 0 is the gate's, and nothing else in this write
+        # replaces it. Keyed on `attrs`, not the instance — a caller who sent a
+        # duration alongside the un-flag has already been handled above.
+        if (
+            "duration" not in attrs
+            and self.instance is not None
+            and self.instance.is_milestone
+            and self.instance.duration == 0
+        ):
+            attrs["duration"] = Task._meta.get_field("duration").default
 
     def _reject_milestone_unflag_with_live_sprint(self, attrs: dict[str, Any]) -> None:
         """Block un-flagging a milestone that a live sprint still targets (#1773).
@@ -6027,6 +6097,26 @@ class MilestoneRollupLockedError(Exception):
     Bypasses DRF's :class:`serializers.ValidationError` so the frontend
     receives a stable error code (``milestone_rollup_locked``) the UI can
     map to its lock affordance and toast copy without scraping a message.
+    """
+
+    pass
+
+
+class ZeroDurationNotMilestoneError(Exception):
+    """Raised by ``TaskSerializer.validate`` when a write lands ``duration = 0``
+    on a row that is not a milestone (#3265).
+
+    ADR-0325's invariant — ``is_milestone`` iff ``delivery_mode='milestone'`` iff
+    ``duration = 0`` — was enforced downward only, so a bare ``duration: 0``
+    landed a state the ADR says cannot exist and every consumer keying on
+    ``is_milestone`` read as work with no duration.
+
+    Bypasses DRF's :class:`serializers.ValidationError` for the reason the whole
+    class of these exist: a field-level ``ErrorDetail``'s ``code`` is **dropped
+    from the JSON body**. It is readable in-process as ``res.data[f][0].code``
+    and an HTTP client sees only ``{"duration": ["<message>"]}`` — a bare 400
+    string, which is exactly what a refusal reachable by MCP write tools and API
+    integrators must not be.
     """
 
     pass
