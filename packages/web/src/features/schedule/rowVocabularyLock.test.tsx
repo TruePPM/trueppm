@@ -1,10 +1,13 @@
-import { render, cleanup } from '@testing-library/react';
+import { cleanup } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test/utils';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { TaskListHeader } from './TaskListHeader';
 import { ScheduleAppendTaskFooter } from './ScheduleAppendTaskFooter';
 import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
 import { TaskListPanel } from './TaskListPanel';
+import { ScheduleSummaryChip } from './ScheduleSummaryChip';
+import { useSchedulerStore } from '@/stores/schedulerStore';
 import { ROW_VOCABULARY } from './rowVocabulary';
 
 /**
@@ -117,6 +120,39 @@ const GOVERNED_SURFACES: { name: string; render: () => void }[] = [
     name: 'BlankOutlineDraftRow',
     render: () => void render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={220} />),
   },
+  ...(['ok', 'error'] as const).map((cpm) => ({
+    // The Schedule toolbar's summary chip (#3259). It counts `visibleTasks` —
+    // every row regardless of structure_role — and called all of them "tasks",
+    // which typed every phase and milestone it counted.
+    //
+    // This is the lock's FIRST real miss, and the reason it is worth adding
+    // rather than fixing by hand: two sweeps (#3027, #2952) and then the
+    // mechanism built to replace them (#3031) all passed over this file, purely
+    // because the roster above never rendered it. Fixing the string and not the
+    // roster would leave the next chip exactly as unprotected.
+    //
+    // Both noun-bearing aria branches are rendered. The third, `loading`,
+    // announces "Project status: recalculating" and carries no noun — so it is
+    // excluded deliberately, not overlooked.
+    name: `ScheduleSummaryChip (CPM ${cpm})`,
+    render: () => {
+      useSchedulerStore.setState({
+        isRecalculating: false,
+        cpmError: cpm === 'error' ? { error: 'cyclic_dependency', cycle: ['a', 'b'] } : null,
+        recalculatedAt: null,
+      });
+      render(
+        <ScheduleSummaryChip
+          visibleTasks={[
+            { id: 'a', wbs: '1', name: 'a', start: '2026-04-05', finish: '2026-04-09',
+              duration: 5, progress: 0, parentId: null, isCritical: true, isComplete: false,
+              isSummary: false, isMilestone: false, status: 'NOT_STARTED', assignees: [],
+              notes: '', sprintId: 's1' },
+          ] as never}
+        />,
+      );
+    },
+  })),
   {
     // The outline SHELL — its own accessible name is a claim about everything
     // inside it, and a treegrid called "Task list" typed every row it held for
