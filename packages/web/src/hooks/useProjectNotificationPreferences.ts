@@ -45,6 +45,24 @@ export const PROJECT_NOTIFICATION_CHANNELS: { channel: ProjectNotificationChanne
   { channel: 'mobile_push', label: 'Mobile push' },
 ];
 
+/**
+ * Channels TruePPM has no delivery path for (#3249). Nothing in
+ * apps/notifications delivers on these, and no setting anywhere turns them on —
+ * so without a marker the columns read as working controls.
+ *
+ * Unlike the per-event `eventDelivery` flags above, which the server owns
+ * precisely because a client-side copy would drift, there is no server signal
+ * for this yet, so the list is hardcoded here deliberately rather than by
+ * oversight. It should not survive long: #3252 has to decide whether `slack`
+ * and `mobile_push` stay registered at all when the ADR-0049
+ * NOTIFICATION_CHANNELS registry is wired, and that decision is what replaces
+ * this constant.
+ */
+export const PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS: ProjectNotificationChannel[] = [
+  'slack',
+  'mobile_push',
+];
+
 export type ProjectNotificationMatrix = Record<
   ProjectNotificationEventType,
   Record<ProjectNotificationChannel, boolean>

@@ -848,15 +848,33 @@ reaches — so a correct, documented `ALLOWED_HOSTS=trueppm.example.com` makes
 gets an endpoint, and the Ingress serves 503 with nothing in the output naming
 ALLOWED_HOSTS.
 
-Resolution order: an explicit probes.api.hostHeader, else the first ingress host
-(the name the operator already had to put in ALLOWED_HOSTS to serve traffic at
-all). Empty renders NO header, preserving the by-pod-IP behavior for a wildcard
-ALLOWED_HOSTS dev install.
+Resolution order (#3237):
+
+  1. an explicit probes.api.hostHeader — always wins;
+  2. the first ingress host, but ONLY when ingress.enabled is true (the name the
+     operator already had to put in ALLOWED_HOSTS to serve traffic at all);
+  3. otherwise the api Service's own DNS name.
+
+Step 2 must test ingress.enabled and not just ingress.hosts. `ingress.enabled:
+false` is the chart DEFAULT, while ingress.hosts ships populated with the
+placeholder `trueppm.example.com` — so reading hosts alone stamped that example
+name onto the probes of every no-Ingress install, which is #3183's mechanism
+left in place on the path most operators actually take. Nothing accepts it: the
+chart's own values-demo.yaml documents ALLOWED_HOSTS=demo.example.com, so both
+probes 400 and the pod never turns Ready.
+
+Step 3 is the api Service name because that is a name the pod genuinely accepts:
+it is already the one the README, values-prod.yaml and the deployment guide tell
+operators to put in ALLOWED_HOSTS for `helm test`, whose Job curls exactly this
+DNS name. Emitting NO header would be worse than useless here — kubelet would
+fall back to `Host: <podIP>:8000`, and a pod IP is never in ALLOWED_HOSTS.
 */}}
 {{- define "trueppm.probeHostHeader" -}}
 {{- if .Values.probes.api.hostHeader -}}
 {{- .Values.probes.api.hostHeader -}}
-{{- else if .Values.ingress.hosts -}}
+{{- else if and .Values.ingress.enabled .Values.ingress.hosts -}}
 {{- (first .Values.ingress.hosts).host | default "" -}}
+{{- else -}}
+{{- printf "%s-api" (include "trueppm.fullname" .) -}}
 {{- end -}}
 {{- end -}}

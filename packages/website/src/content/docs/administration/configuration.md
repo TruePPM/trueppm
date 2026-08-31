@@ -101,10 +101,15 @@ forever while the site itself serves correctly — nginx passes `Host $host`, so
 real traffic is unaffected and only the healthcheck fails.
 
 On **Kubernetes**, the chart sets an explicit `Host` header on both probes,
-resolved from `ingress.hosts[0].host` and overridable with
+resolved from `ingress.hosts[0].host` when `ingress.enabled: true` and otherwise
+from the api Service name `<release>-trueppm-api`, and overridable with
 `probes.api.hostHeader`. That value must appear in `ALLOWED_HOSTS`. If it does
 not, `/readyz` returns 400, no pod becomes Ready, the Service has no endpoints,
 and the Ingress serves 503.
+
+Because `ingress.enabled` defaults to **false**, the default install sends
+`<release>-trueppm-api` on both probes — the same name the `helm test` row above
+already requires. One entry covers all three Kubernetes callers.
 
 Wildcards are not a fix. `ALLOWED_HOSTS=*` disables host validation entirely and
 is never appropriate in production — list the names instead.
