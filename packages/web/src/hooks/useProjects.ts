@@ -48,6 +48,8 @@ interface ApiProject {
   health?: string;
   /** Count of non-deleted, not-yet-complete tasks (annotated on the list). */
   open_task_count?: number | null;
+  /** Committed-vs-draft (#2962). Absent on pre-0.4 fixtures — treat as 'active'. */
+  lifecycle?: 'draft' | 'active';
 }
 
 // Deterministic palette cycled by index — no server-side color assignment yet.
@@ -71,6 +73,12 @@ function mapProject(p: ApiProject, index: number): Project {
     // Server health enum → dot state; AUTO/unset stays hollow ('unknown').
     healthState: toHealthState(p.health),
     openTaskCount: p.open_task_count ?? null,
+    // #3233: this was dropped, so every list, sidebar row and card rendered a draft
+    // identically to a committed project. Passed through rather than defaulted here —
+    // consumers treat absent as 'active', and collapsing the two at the boundary would
+    // erase the distinction between "the server says active" and "this fixture predates
+    // the field".
+    lifecycle: p.lifecycle,
     // The modulo guarantees index is in bounds; fallback keeps TS happy on the readonly array type
     colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#3E8C6D',
     // Default to HYBRID for projects created before ADR-0041 landed (preserves

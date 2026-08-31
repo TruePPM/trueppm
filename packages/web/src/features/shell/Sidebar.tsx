@@ -359,6 +359,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             name: i.name,
             healthState: (loaded?.healthState as HealthState | undefined) ?? 'unknown',
             openTaskCount: loaded?.openTaskCount ?? null,
+            // Same enrichment caveat as health and the count above: a pinned project
+            // beyond the list page ceiling is not loaded, so it reads as not-draft.
+            // That is the honest rendering of "we have the name but not the
+            // annotations" — and it errs toward under-claiming rather than labelling a
+            // committed project a draft.
+            isDraft: loaded?.lifecycle === 'draft',
           };
         }),
     [pinnedItems, projectById],
@@ -563,6 +569,7 @@ type ProgramListItem = NonNullable<ReturnType<typeof usePrograms>['data']>[numbe
 type PinnedProjectRow = {
   id: string;
   name: string;
+  isDraft: boolean;
   healthState: HealthState;
   openTaskCount: number | null;
 };
@@ -827,6 +834,7 @@ function PinnedTier({
               health={p.healthState}
               openTaskCount={p.openTaskCount}
               pinned
+              isDraft={p.isDraft}
               onOpen={() => go(`/projects/${p.id}/overview`)}
             />
           ))}
@@ -1247,6 +1255,7 @@ function BrowseContent({
                       health={(p.healthState as HealthState) ?? 'unknown'}
                       openTaskCount={p.openTaskCount}
                       pinned={p.isPinned ?? false}
+                      isDraft={p.lifecycle === 'draft'}
                       onOpen={() => go(`/projects/${p.id}/overview`)}
                     />
                   ))
@@ -1269,6 +1278,7 @@ function BrowseContent({
               health={(p.healthState as HealthState) ?? 'unknown'}
               openTaskCount={p.openTaskCount}
               pinned={p.isPinned ?? false}
+              isDraft={p.lifecycle === 'draft'}
               onOpen={() => go(`/projects/${p.id}/overview`)}
             />
           ))}
@@ -1584,6 +1594,7 @@ function ProjectRow({
   health,
   openTaskCount,
   pinned,
+  isDraft = false,
   onOpen,
 }: {
   id: string;
@@ -1591,6 +1602,14 @@ function ProjectRow({
   health: HealthState;
   openTaskCount: number | null;
   pinned: boolean;
+  /**
+   * Uncommitted plan (#3233). Until then `mapProject` dropped `lifecycle` entirely,
+   * so a draft rendered here identically to a committed project — the state was only
+   * legible on the project Overview header, one navigation away. Absent means active:
+   * older list shapes do not annotate the field, and defaulting the other way would
+   * mark every project on a stale fixture as a draft.
+   */
+  isDraft?: boolean;
   onOpen: () => void;
 }) {
   return (
@@ -1599,15 +1618,40 @@ function ProjectRow({
       <button
         type="button"
         onClick={onOpen}
+        // Draft leads the label rather than trailing it. It qualifies everything after
+        // it — a health word and a task count on a plan nobody has agreed to mean
+        // something different — and a screen-reader user should not have to reach the
+        // end of the row to learn that. The visible chip below is `aria-hidden` because
+        // this is where the fact is carried (rule 6).
         aria-label={
-          openTaskCount != null
-            ? `${name}, ${HEALTH_LABEL[health]}, ${openTaskCount} open ${openTaskCount === 1 ? 'task' : 'tasks'}`
-            : `${name}, ${HEALTH_LABEL[health]}`
+          [
+            isDraft ? 'Draft' : null,
+            name,
+            HEALTH_LABEL[health],
+            openTaskCount != null
+              ? `${openTaskCount} open ${openTaskCount === 1 ? 'task' : 'tasks'}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(', ')
         }
         className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
       >
         {name}
       </button>
+      {/* `shrink-0` is load-bearing: this is a flex row whose name cell already
+          truncates under pressure, and a chip that defaults to `flex-shrink: 1`
+          resolves to width 0 while keeping its height — visible in the DOM, invisible
+          to the reader, and passing any presence-based test (#3273). */}
+      {isDraft && (
+        <span
+          aria-hidden="true"
+          className="shrink-0 rounded-chip border border-neutral-border px-1 text-xs
+            font-medium text-chrome-text-secondary"
+        >
+          Draft
+        </span>
+      )}
       {/* Right-aligned open-task count (rule 7: mono numerals). aria-hidden —
           the count is already in the name button's aria-label above. The pin
           toggle reveals on hover and overlays this when present. */}

@@ -52134,6 +52134,11 @@
                         "writeOnly": true,
                         "description": "Optional. When true, seed the new project's methodology and visibility from its parent program at create time (copy-at-create, not bound). Requires 'program' to be set; cannot be combined with copy_settings_from."
                     },
+                    "start_as_draft": {
+                        "type": "boolean",
+                        "writeOnly": true,
+                        "description": "Optional, create-only. When true the project is created in the 'draft' lifecycle instead of 'active' — writable, but excluded from rollup, portfolio health, search and notifications until POST /projects/{id}/commit/ captures baseline v1. Rejected on update."
+                    },
                     "name": {
                         "type": "string",
                         "minLength": 1,
@@ -56553,6 +56558,11 @@
                         "type": "boolean",
                         "writeOnly": true,
                         "description": "Optional. When true, seed the new project's methodology and visibility from its parent program at create time (copy-at-create, not bound). Requires 'program' to be set; cannot be combined with copy_settings_from."
+                    },
+                    "start_as_draft": {
+                        "type": "boolean",
+                        "writeOnly": true,
+                        "description": "Optional, create-only. When true the project is created in the 'draft' lifecycle instead of 'active' — writable, but excluded from rollup, portfolio health, search and notifications until POST /projects/{id}/commit/ captures baseline v1. Rejected on update."
                     },
                     "name": {
                         "type": "string",
