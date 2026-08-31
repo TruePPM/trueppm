@@ -143,8 +143,9 @@ therefore deterministic-only; every probabilistic answer requires the server.
 
 Mutation testing proves the suite's assertions catch regressions rather than merely
 executing lines. Its scope is `models.py`, `derive.py`, and `cli.py`. **`engine.py`
-— the CPM and Monte Carlo core — is out of scope**, and the score floor is currently
-report-only.
+— the CPM and Monte Carlo core — is out of scope.** The score floor within that
+scope does gate: `MUTATION_MIN` is 0.92 against an observed 93.0–93.1%, and a
+nightly below it reds.
 
 - **Impact:** the strongest available evidence of assertion strength deliberately
   excludes the code that matters most. Where the roadmap describes "mutation testing

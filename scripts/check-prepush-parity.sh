@@ -47,6 +47,22 @@ MAKEFILE="${MAKEFILE_OVERRIDE:-Makefile}"
 # exactly the reasoning that produced the gap in the first place.
 #
 # Keep this list short and re-check an entry when its script changes.
+#
+# A REASON THAT IS FALSE IS WORSE THAN NO ENTRY (#3217). check-package-licenses.sh
+# sat here for five months under "requires installed dependency trees for five
+# packages". It requires nothing of the sort — it reads LICENSE and
+# packages/*/LICENSE and diffs them, offline, in 0.03s. The reason had been
+# written about the *dependency*-license jobs (license:check:py|web|website|mcp|
+# mobile, wasm:license-check), which genuinely do need installed trees, and that
+# is exactly the conflation check-package-licenses.sh's own header exists to warn
+# against: a package shipping ITS OWN license text is a different obligation from
+# the licenses of its dependencies.
+#
+# A missing entry gets caught here on the next run. A wrong one reads as a
+# considered judgement and stops anyone re-deriving it — which is why it took a
+# separate audit, five months later, to notice. So write the reason from the
+# script in front of you, and if it names a sibling gate rather than this one,
+# that is the tell.
 OPT_OUT="
 check-issue-boundary.sh	reads the GitLab tracker, not the repo — a failure comes from an issue label and no commit can fix it, so as a pre-push gate it would block pushes on state the pusher did not touch (#2977)
 check-suppression-issues.sh	queries the tracker for issue state
@@ -54,7 +70,6 @@ check-todo-grep.sh	resolves TODO(#NNN) against open/closed issues via the tracke
 check-adr-collisions.sh	compares ADR numbers against remote branches
 check-release-images.sh	verifies published release images; release-time only
 check-mermaid-rendered.sh	requires a full astro build of packages/website (minutes, not seconds)
-check-package-licenses.sh	requires installed dependency trees for five packages
 check-dts-camelcase.sh	reads the wasm-pack .d.ts, which exists only after a wasm build; the wasm tree is covered by pre-push-wasm
 "
 

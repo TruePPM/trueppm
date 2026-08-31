@@ -126,10 +126,22 @@ the fraction of mutants the suite killed, excluding mutants on lines no test cov
 (that is a coverage gap, which the coverage gate already owns, not an
 assertion-strength gap).
 
-In CI this runs as **`scheduler:mutation`** — schedule-only and non-gating
-(`allow_failure: true`), the same "triage signal, never a merge gate" shape as the
-fuzz jobs. The score floor (`MUTATION_MIN`) starts report-only so the first nightly
-runs establish a baseline before any threshold is enforced.
+In CI this runs as **`scheduler:mutation`** — schedule-only, so it never blocks a
+merge request, but **gating**: `MUTATION_MIN` is `0.92`, set from the observed
+nightly baseline of 93.0–93.1%, and a nightly that scores below it goes red and
+stays red until the survivor is killed. Unlike the fuzz jobs it does *not* carry
+`allow_failure`, because a mutation score crossing a fixed floor is one
+deterministic number rather than an open-ended stochastic finding. Ratchet the
+floor down as the score improves; never up to quiet a red.
+
+`check_mutation_score.py` exits `0` when the score meets the floor, `1` when it is
+measured and below, and **`2` when it could not be measured at all** — a missing,
+unparseable or empty stats file. That last state used to exit `0`, and it hid
+thirteen consecutive nightlies that measured nothing (a test read a repo file that
+was not listed in `[tool.mutmut] also_copy`, so mutmut's stats pass died inside its
+sandbox and every mutant came back `not checked`). If you add a test under
+`packages/scheduler/` that reads a file from the package root, add that file to
+`also_copy`.
 
 ## CI gates
 
