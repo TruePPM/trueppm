@@ -9,9 +9,11 @@ Three entities power the unified @mention surface that #311 ships first and
   user Notification rows at write time).
 - Notification — per-recipient inbox row. Single feed surface so a future
   #476 note-mention lands in the same UI as today's comment-mention.
-- NotificationPreference — per-user `(event_type, channel)` toggle. Consumes
-  ADR-0049's NOTIFICATION_CHANNELS registry; Enterprise extends the channel
-  axis with slack_dm/teams_dm/sms without OSS changes.
+- NotificationPreference — per-user `(event_type, channel)` toggle. ADR-0049's
+  NOTIFICATION_CHANNELS registry is *registered but not yet consumed*: channel
+  validation runs off the ProjectNotificationChannel TextChoices (see
+  serializers._VALID_CHANNELS), so an Enterprise-registered slack_dm/teams_dm/sms
+  would currently be rejected. Wiring the registry is #3252.
 - ProjectNotificationPreference — per-(project, user) routing matrix plus
   daily quiet-hours window. Backs the Project > Notifications settings page
   (#522); orthogonal to NotificationPreference, which is the *global* mention
@@ -177,8 +179,11 @@ class NotificationEventType(models.TextChoices):
 
 
 class NotificationChannel(models.TextChoices):
-    """Delivery channels (OSS keys only; Enterprise extends via ADR-0049
-    NOTIFICATION_CHANNELS registry — slack_dm / teams_dm / sms).
+    """Delivery channels (OSS keys only).
+
+    ADR-0049's NOTIFICATION_CHANNELS registry is *intended* to open this axis to
+    Enterprise channels (slack_dm / teams_dm / sms), but nothing reads it yet, so
+    registering one does not make it accepted. Wiring it is #3252.
     """
 
     IN_APP = "in_app", "In-app"
@@ -430,8 +435,10 @@ class NotificationPreference(models.Model):
     """Per-user channel preference, per event type.
 
     Defaults backfill on first GET (see services.get_or_create_defaults). The
-    channel axis is open-ended — ADR-0049 Enterprise channels (slack_dm,
-    teams_dm, sms) coexist here without an OSS schema change.
+    channel column is a plain CharField, so the *schema* imposes no channel list —
+    but serializer validation does (_VALID_CHANNELS, built from the
+    ProjectNotificationChannel TextChoices), so an ADR-0049 Enterprise channel
+    (slack_dm, teams_dm, sms) does not yet round-trip. Wiring is #3252.
     """
 
     user = models.ForeignKey(
