@@ -167,7 +167,12 @@ test('Roster list renders rostered resources', async ({ page }) => {
   await seedAuthAndNavigate(page);
   await expect(page.getByText('Alice Nguyen')).toBeVisible();
   await expect(page.getByText('Frontend Engineer')).toBeVisible();
-  await expect(page.getByText('100%')).toBeVisible();
+  // This assertion used to read `getByText('100%')`, which passes whether the row
+  // means availability or load — it is exactly what let the load ramp ship (#3235).
+  // Assert the word too, and assert the row does NOT claim overallocation: the fixture
+  // is `effective_max_units: '1.00'` with no assignments anywhere in it.
+  await expect(page.getByText('100% available')).toBeVisible();
+  await expect(page.getByLabel(/overallocated/)).toHaveCount(0);
 });
 
 test('Roster list shows skill chips', async ({ page }) => {

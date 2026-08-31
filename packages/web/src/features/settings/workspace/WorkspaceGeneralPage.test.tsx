@@ -369,3 +369,57 @@ describe('WorkspaceGeneralPage — failed GET (#2656)', () => {
     expect(mockState.refetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('WorkspaceGeneralPage — settings that persist but nothing reads (#3234)', () => {
+  // Three fields on this page save, round-trip, and are read by no code: `work_week`
+  // (zero consumers in packages/scheduler, packages/wasm-scheduler, or the CPM path —
+  // working days come from Calendar.working_days), `default_project_view` (nothing
+  // seeds Project.default_view from it), and the day half of the fiscal-year anchor
+  // (GanttScaleData computes quarters from the month alone).
+  //
+  // A control that saves and changes nothing is indistinguishable from one that
+  // works, so the copy is the only signal a user gets. These assertions pin the
+  // *disclosure*, not the wording: they fail if someone restores a behavioral claim
+  // without also wiring the field, which is the regression that produced the issue.
+
+  it('does not claim the work week drives the scheduler', () => {
+    renderPage();
+    const hint = screen.getByText(/set working days on a calendar/i);
+    expect(hint).toBeInTheDocument();
+    expect(
+      screen.queryByText(/non-working days are skipped by the scheduler/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not claim the default project view decides where a member lands', () => {
+    renderPage();
+    expect(screen.getByText(/projects currently open on the Schedule/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/where members land when they open a project/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('scopes the fiscal-year claim to the month, which is the half that is wired', () => {
+    renderPage();
+    // The month genuinely drives quarter labels (GanttScaleData.fiscalQuarter), so the
+    // hint must keep saying so — this is not a blanket "nothing works" disclaimer.
+    const hint = screen.getByText(/The month sets how quarters are labeled/i);
+    expect(hint).toBeInTheDocument();
+    expect(hint).toHaveTextContent(/day is stored but not used to place a quarter boundary/i);
+  });
+
+  it('states the inert behavior inside the Work week help popover too', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /Work week/i }));
+    const popover = await screen.findByRole('dialog');
+    expect(popover).toHaveTextContent(/does not schedule against it yet/i);
+    // The popover must route to the section that lists the unwired settings, not to
+    // the working-calendars page it used to point at — that page documents the
+    // mechanism that DOES work, so landing there confirms the wrong thing.
+    expect(within(popover).getByRole('link', { name: /Learn more/i })).toHaveAttribute(
+      'href',
+      expect.stringContaining('#settings-that-are-stored-but-not-yet-read'),
+    );
+  });
+});

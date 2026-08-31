@@ -10,6 +10,22 @@ placeholder prefixes as a backstop. `prod-compose-drill.sh` no longer overwrites
 the key with a generated one, so CI exercises the path an operator actually
 takes — the reason this survived as long as it did.
 
+> **Operator action required.** If you installed from a `.env.example` copied
+> before this release and did **not** replace the `SECRET_KEY` it shipped, your
+> install is signing every session cookie, CSRF token, and access/refresh JWT
+> with a string published in this repository — anyone can forge a token for any
+> user. Check with `grep '^SECRET_KEY=' .env`; if the value begins with
+> `REPLACE-WITH`, rotate it now:
+>
+> ```bash
+> python3 -c "import secrets; print(secrets.token_urlsafe(50))"
+> ```
+>
+> Write the result to `SECRET_KEY` in `.env` and restart the stack. Rotating
+> invalidates every session and every issued JWT — users must log in again — but
+> touches no stored data. If you also set `JWT_SIGNING_KEY` explicitly to the
+> same placeholder, rotate that too. (#3232)
+
 **The public demo no longer bootstraps a superuser.** `docker-compose.demo.yml`
 bakes a public `SECRET_KEY`, justified by a security note saying the stack has
 "zero user accounts and no authenticated write path" — while its `api-init` ran
@@ -25,4 +41,4 @@ alongside `--with-personas` so the claim stays true.
 `settings.dev` — `AllowAny` on every endpoint, `ALLOWED_HOSTS=["*"]`, `DEBUG`,
 and a hardcoded encryption key — load outside a test runner appeared nowhere in
 the documentation, so nobody knew to alarm on it or keep it out of a manifest.
-Closes #3187.
+Closes #3187. Closes #3232.

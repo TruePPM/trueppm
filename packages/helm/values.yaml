@@ -586,7 +586,7 @@ probes:
     livenessPath: /api/v1/health/
     livenessInitialDelaySeconds: 30
     livenessPeriodSeconds: 30
-    # Host header kubelet sends on the two probes above (#3183).
+    # Host header kubelet sends on the two probes above (#3183, #3237).
     #
     # kubelet dials a probe by POD IP, so with no header it sends
     # `Host: <podIP>:8000`. Django checks that against ALLOWED_HOSTS inside
@@ -596,12 +596,27 @@ probes:
     # DisallowedHost, the pod never turns Ready, the Service gets no endpoints,
     # and the Ingress serves 503. Nothing in that failure names ALLOWED_HOSTS.
     #
-    # Empty (the default) resolves to the first ingress host — the name you
-    # already had to put in ALLOWED_HOSTS to serve traffic at all — so the
-    # common case needs no configuration. Set it explicitly when you run
-    # without an Ingress (a LoadBalancer Service, a service mesh) and
-    # ALLOWED_HOSTS is not a wildcard. Setting it to a name absent from
-    # ALLOWED_HOSTS reproduces the bug, so keep the two in step.
+    # Empty (the default) resolves in two steps:
+    #
+    #   ingress.enabled: true   -> the first ingress host, the name you already
+    #                              had to put in ALLOWED_HOSTS to serve traffic
+    #                              at all;
+    #   ingress.enabled: false  -> the api Service's own DNS name,
+    #                              `<release>-trueppm-api` (collapsed to
+    #                              `trueppm-api` when the release name already
+    #                              contains "trueppm").
+    #
+    # The second step is why this knob usually needs no value even without an
+    # Ingress: the Service name is already what `helm test` curls and what the
+    # README tells you to put in ALLOWED_HOSTS. Before #3237 the resolution read
+    # ingress.hosts WITHOUT testing ingress.enabled, so every no-Ingress install
+    # — the chart default — got the placeholder `trueppm.example.com` stamped
+    # onto both probes and could never turn Ready.
+    #
+    # Set it explicitly when the name the kubelet should send is neither of
+    # those (a service mesh rewriting authority, an unusual ALLOWED_HOSTS).
+    # Setting it to a name absent from ALLOWED_HOSTS reproduces the bug, so keep
+    # the two in step.
     #
     # https://docs.trueppm.com/administration/configuration/
     hostHeader: ""
