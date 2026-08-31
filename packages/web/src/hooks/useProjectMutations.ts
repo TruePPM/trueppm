@@ -60,6 +60,17 @@ export interface CreateProjectPayload {
    */
   inherit_program_defaults?: boolean;
   /**
+   * Create the project in the `draft` lifecycle instead of `active` (#3233).
+   *
+   * An *intent* flag, deliberately not a writable `lifecycle`: #3127 made that field
+   * read-only in both directions and the server owns the transition, stamping
+   * `draft_started_at` alongside it. Create-only — the API 400s this on PATCH.
+   *
+   * A draft is fully writable but held out of `DRAFT_EXCLUDED_AGGREGATES` until
+   * `POST /projects/{id}/commit/` captures baseline v1.
+   */
+  start_as_draft?: boolean;
+  /**
    * Default RBAC role for members later added without an explicit role (ADR-0363,
    * #157). A `ROLE_*` ordinal below Owner; server defaults to `ROLE_MEMBER`.
    */
