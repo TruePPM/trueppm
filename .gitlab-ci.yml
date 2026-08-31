@@ -4003,27 +4003,52 @@ web:test:
   # singleFork pool (fileParallelism: false) keeps each shard's jsdom heap bounded;
   # since the runner is single-core per shard, intra-shard parallelism would not
   # help wall-clock and only reinflates the heap that forced singleFork — so the
-  # lever is shard count, not pool concurrency. Profiling (#1295) showed the suite
-  # is evenly distributed (no dominant spec; the two old shards ran 301s/302s — a
-  # <0.5% imbalance), so wall-clock per shard scales ~linearly with shard count.
-  # At parallel: 2 each shard ran ~301s — 2x the next-longest test job (api:test
-  # 4/4 at ~161s). At parallel: 4 each shard handles ~115 files (~150s), dropping
-  # web:test into the api:test band so it is no longer the critical-path leader;
-  # more shards also means fewer files per shard, which *eases* OOM pressure rather
-  # than adding to it. api:test already runs parallel: 4 on the same pool. Each
-  # shard is a single core (singleFork), so each added shard costs only +1 worker
-  # on the fleet — unlike api:test's 4-xdist shards, bumping web:test's shard count
-  # does not risk the 28-thread ceiling api:test is tuned against. Raised 4 → 6
-  # (#1702) after the 0.4 test-suite growth (+172 web spec files in one week) crept
-  # each shard back to ~219s and re-made web:test the critical-path pole; at 6 it
-  # handles ~77 files/shard (~100s), ceding the pole to api:test again with runway
-  # for continued growth. Each
-  # shard writes partial istanbul coverage (coverage-final.json) to
+  # lever is shard count, not pool concurrency. Each shard is a single core
+  # (singleFork), so each added shard costs only +1 worker on the fleet — unlike
+  # api:test's 4-xdist shards, bumping web:test's shard count does not by itself
+  # risk the 28-thread ceiling api:test is tuned against. Raised 2 → 4 (#1295)
+  # and 4 → 6 (#1702) after the 0.4 test-suite growth (+172 web spec files in one
+  # week).
+  #
+  # CORRECTED 2026-08-31 (#3277) — the numbers this comment used to carry were
+  # measured at parallel: 2 and had not been re-taken since. It claimed the suite
+  # was evenly distributed ("<0.5% imbalance"), that 6 shards would each run
+  # ~77 files in ~100s, and that this ceded the critical-path pole to api:test.
+  # Measured over 8 main pipelines at the current parallel: 6, all three are
+  # wrong:
+  #   - shard means are 285s–342s against a ~319s ideal — a ~20% systematic
+  #     spread, not <0.5%. vitest's --shard splits by FILE COUNT; api:test splits
+  #     by measured duration via pytest-split's .test_durations baseline, which is
+  #     why api's shards balance and web's do not.
+  #   - a shard runs ~319s on average, not ~100s.
+  #   - web:test does NOT cede the pole. api:test finishes at ~420s while
+  #     web:coverage (gated on all 6 web:test shards) ends at ~784s. web is the
+  #     critical path, with ~5.5 min of idle headroom on the api side.
+  # Duration-aware sharding for web is worth ~25–40s and is deliberately NOT done
+  # here — most of the max-vs-ideal gap is fleet contention, not assignment (the
+  # same shard index swings 229s–447s run to run). Do not re-tune shard count off
+  # the old numbers.
+  #
+  # needs lists only web:test's true data dependencies (#3277), mirroring the
+  # same fix applied to api:test in #1121. web:test consumed neither of the two
+  # jobs it used to wait on: web:build publishes dist/ for web:e2e to serve via
+  # `vite preview` (vitest transforms source through vite at run time and never
+  # reads dist/ — see web:build's own comment), and web:type-check emits no
+  # artifact at all. Because needs: defaults to artifacts: true, all six shards
+  # were also downloading the dist/ artifact and never opening it. Dropping both
+  # edges lets the shards start when web:lint lands (~194s → ~100s once #3276
+  # lands) instead of waiting out web:build at ~285s. web:lint is kept as a cheap
+  # fail-fast gate so a full 6-shard run stays off obviously-broken code.
+  # Trade-off, identical to the one #1121 accepted for api:test: a run can proceed
+  # while web:type-check is failing, spending 6 × ~378s of runner compute on a
+  # branch with a type error. Both gates still block the merge.
+  #
+  # Each shard writes partial istanbul coverage (coverage-final.json) to
   # coverage-<index>/; web:coverage stitches them (merge-coverage.mjs discovers the
   # coverage-<n>/ dirs dynamically — shard-count-agnostic) for the diff-coverage
   # gate. The `--` forwards the shard + output-dir flags to vitest while preserving
   # the dir filter and coverage config from test:coverage.
-  needs: [web:lint, web:type-check, web:build]
+  needs: [web:lint]
   parallel: 6
   <<: *rules-web
   script:
