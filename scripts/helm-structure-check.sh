@@ -843,6 +843,70 @@ if notes --set env.SECRET_KEY=x --set env.ALLOWED_HOSTS=h \
   fail "NOTES.txt still warns about missing secrets when every key is set under env.* (#2812)"
 fi
 
+# 10b. The port-forward path must name ALLOWED_HOSTS, and every prescribed
+#      ALLOWED_HOSTS must cover it (#3238).
+#
+#      With ingress.enabled=false — the chart DEFAULT — NOTES.txt's port-forward
+#      command is the only route into the app. The web tier's nginx proxies /api/
+#      with `Host $host`, so Django sees `Host: localhost`. Omitting it fails in
+#      the most misleading way available: nginx serves the SPA and its bundles off
+#      disk without ever touching Django, so the app RENDERS and then every
+#      /api/v1/... call answers 400, with nothing naming the cause.
+#
+#      Probed through the same offline mechanism as the boot-guard notice above:
+#      the text lives in trueppm.portForwardHostNotice, because
+#      `helm install --dry-run` needs a reachable cluster even with
+#      --dry-run=client and this job has none.
+grep -q 'trueppm.portForwardHostNotice' "$CHART/templates/NOTES.txt" \
+  || fail "NOTES.txt does not include the trueppm.portForwardHostNotice helper — it prints a port-forward command with no word that ALLOWED_HOSTS must contain localhost (#3238)"
+
+cat > "$PROBE_DIR/chart/templates/zz-portfwd-notice-probe.yaml" <<'PFPROBE'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: port-forward-notice-probe
+data:
+  notice: |
+{{ include "trueppm.portForwardHostNotice" . | indent 4 }}
+PFPROBE
+
+# Both topologies reach the API under `localhost`: through the web tier's nginx
+# proxy, and directly when web.enabled=false. The notice must fire in each.
+for pf_web in true false; do
+  pf_notice="$(helm template trueppm "$PROBE_DIR/chart" --set image.tag=latest \
+    --set "web.enabled=$pf_web" --show-only templates/zz-portfwd-notice-probe.yaml 2>&1)"
+  echo "$pf_notice" | grep -q "ALLOWED_HOSTS" \
+    || fail "the port-forward notice does not name ALLOWED_HOSTS with web.enabled=$pf_web (#3238)"
+  echo "$pf_notice" | grep -q "localhost" \
+    || fail "the port-forward notice does not name 'localhost' with web.enabled=$pf_web — that is the Host Django actually receives (#3238)"
+done
+
+# ...and the docs must prescribe an ALLOWED_HOSTS that contains it. Asserted as an
+# AGREEMENT between chart and docs rather than a string match on either alone,
+# because the defect was exactly that they disagreed: NOTES.txt told the operator
+# to port-forward while the README and the deployment guide prescribed a list
+# without localhost.
+#
+# The docs path is anchored on THIS SCRIPT's location, not on $CHART: the
+# self-test passes a fixture chart copied into a temp dir, from which no docs
+# tree is reachable. Anchoring on $CHART made the assertion count 1 source
+# instead of 2 and fail the self-test — which is the counter working.
+pf_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+pf_docs_checked=0
+for src in "$CHART/README.md" \
+           "$pf_repo_root/packages/website/src/content/docs/administration/deployment.md"; do
+  [ -f "$src" ] || continue
+  pf_docs_checked=$((pf_docs_checked + 1))
+  while IFS= read -r line; do
+    case "$line" in
+      *localhost*) : ;;
+      *) fail "$(basename "$src") prescribes '$line' — no localhost, while NOTES.txt tells operators to port-forward. The SPA loads and every /api/ call 400s (#3238)" ;;
+    esac
+  done < <(grep -o 'ALLOWED_HOSTS=[A-Za-z0-9.,_-]*' "$src" || true)
+done
+[ "$pf_docs_checked" -eq 2 ] \
+  || fail "expected to check 2 ALLOWED_HOSTS doc sources, checked $pf_docs_checked — a path moved and this assertion silently stopped covering it (#3238)"
+
 # 11. The quiet branch must NAME the envFrom sources it is trusting (#2879).
 #    `len(envFrom) > 0` is a weak signal: `envFrom` is a list, so a values file that
 #    sets it REPLACES the operator's entry instead of appending. A release whose only
@@ -872,30 +936,61 @@ for overlay in "" "$CHART/values-dev.yaml" "$CHART/values-prod.yaml"; do
     || fail "helm lint failed for overlay '${overlay:-<defaults>}' — values.schema.json rejects a value the chart ships (#2879)"
 done
 
-# N. Probe Host header (#3183). kubelet dials a probe by POD IP, so with no Host
-#    header Django validates `<podIP>:8000` against ALLOWED_HOSTS in get_host()
-#    — before any view, and out of reach of SECURE_REDIRECT_EXEMPT — and answers
-#    400 DisallowedHost. The pod never turns Ready and the Ingress serves 503,
-#    with nothing in the failure naming ALLOWED_HOSTS. Assert both api probes
-#    carry the header and that it equals the ingress host an operator would have
-#    put in ALLOWED_HOSTS.
-ing_host="$(helm template trueppm "$CHART" --set image.tag=latest \
-  --show-only templates/api/deployment.yaml \
-  | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
-[ -n "$ing_host" ] && [ "$ing_host" != "null" ] \
-  || fail "readinessProbe carries no Host header — kubelet will send Host: <podIP> and Django will 400 it against ALLOWED_HOSTS (#3183)"
-live_host="$(echo "$DEP" | yq '.spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
-[ "$live_host" = "$ing_host" ] \
-  || fail "livenessProbe Host header is '$live_host', expected '$ing_host' — the two probes must agree (#3183)"
+# N. Probe Host header (#3183, #3237). kubelet dials a probe by POD IP, so with
+#    no Host header Django validates `<podIP>:8000` against ALLOWED_HOSTS in
+#    get_host() — before any view, and out of reach of SECURE_REDIRECT_EXEMPT —
+#    and answers 400 DisallowedHost. The pod never turns Ready and the Ingress
+#    serves 503, with nothing in the failure naming ALLOWED_HOSTS.
+#
+#    Both branches are asserted, because until #3237 this block tested only ONE
+#    and read the wrong values key to do it: it rendered with DEFAULTS —
+#    ingress.enabled is false by default — and then asserted the header equalled
+#    values.yaml's ingress.hosts[0].host. That passed for the wrong reason and
+#    pinned the defect in place: the helper read ingress.hosts without testing
+#    ingress.enabled, so every no-Ingress install got the placeholder
+#    `trueppm.example.com` stamped onto both probes and never turned Ready.
+probe_host() { # <release> [extra helm args...]
+  local rel="$1"; shift
+  helm template "$rel" "$CHART" --set image.tag=latest "$@" \
+    --show-only templates/api/deployment.yaml \
+    | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value'
+}
+
+# N.a — no Ingress (the chart DEFAULT). Must be the api Service DNS name, which
+#       is what templates/tests/api-connection.yaml curls and what the README
+#       tells operators to put in ALLOWED_HOSTS. Must NOT be an ingress host.
+noing_host="$(probe_host trueppm)"
 default_ing="$(yq '.ingress.hosts[0].host' "$CHART/values.yaml")"
+[ -n "$noing_host" ] && [ "$noing_host" != "null" ] \
+  || fail "readinessProbe carries no Host header with ingress.enabled=false — kubelet will send Host: <podIP> and Django will 400 it against ALLOWED_HOSTS (#3237)"
+[ "$noing_host" != "$default_ing" ] \
+  || fail "probe Host header is the ingress placeholder '$default_ing' while ingress.enabled is false — no ALLOWED_HOSTS contains it, so both probes 400 and the pod never turns Ready (#3237)"
+[ "$noing_host" = "trueppm-api" ] \
+  || fail "probe Host header with no Ingress is '$noing_host', expected the api Service name 'trueppm-api' — it must match what helm test curls and what ALLOWED_HOSTS is documented to hold (#3237)"
+# The Service name must track the release, or a non-'trueppm' release names a Service that does not exist.
+[ "$(probe_host ppm)" = "ppm-trueppm-api" ] \
+  || fail "probe Host header does not follow trueppm.fullname for release 'ppm' (got '$(probe_host ppm)') (#3237)"
+# ...and it must be the name the helm test Job actually resolves.
+grep -q '{{ include "trueppm.fullname" . }}-api' "$CHART/templates/tests/api-connection.yaml" \
+  || fail "helm test no longer curls '<fullname>-api' — the no-Ingress probe Host fallback was derived from it and the two have drifted (#3237)"
+
+# N.b — Ingress enabled. Must be the first ingress host, the name the operator
+#       already had to put in ALLOWED_HOSTS to serve traffic at all (#3183).
+ing_host="$(probe_host trueppm --set ingress.enabled=true)"
 [ "$ing_host" = "$default_ing" ] \
-  || fail "probe Host header '$ing_host' does not resolve to the first ingress host '$default_ing' (#3183)"
-# The override must win, so an operator without an Ingress can still name the host.
-ovr="$(helm template trueppm "$CHART" --set image.tag=latest --set probes.api.hostHeader=probe.example.test \
-  --show-only templates/api/deployment.yaml \
-  | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
-[ "$ovr" = "probe.example.test" ] \
-  || fail "probes.api.hostHeader override did not take effect (got '$ovr') (#3183)"
+  || fail "with ingress.enabled=true the probe Host header '$ing_host' does not resolve to the first ingress host '$default_ing' (#3183)"
+
+# N.c — both probes must agree, on the default (no-Ingress) path.
+live_host="$(echo "$DEP" | yq '.spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders[] | select(.name == "Host") | .value')"
+[ "$live_host" = "$noing_host" ] \
+  || fail "livenessProbe Host header is '$live_host', expected '$noing_host' — the two probes must agree (#3183)"
+
+# N.d — the explicit override must win over BOTH branches, so an operator can
+#       always name the host themselves.
+[ "$(probe_host trueppm --set probes.api.hostHeader=probe.example.test)" = "probe.example.test" ] \
+  || fail "probes.api.hostHeader override did not take effect with no Ingress (#3183)"
+[ "$(probe_host trueppm --set ingress.enabled=true --set probes.api.hostHeader=probe.example.test)" = "probe.example.test" ] \
+  || fail "probes.api.hostHeader override did not beat the ingress host (#3237)"
 
 # N+1. collectstatic (#3183). The image does not bake collectstatic output
 #      (packages/api/Dockerfile:103 — it "writes here at startup"), the api
@@ -1138,7 +1233,7 @@ echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op
 echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays quiet once they are configured"
 echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
-echo "  - both api probes send Host: $ing_host (kubelet would otherwise send the pod IP and Django would 400 it)"
+echo "  - both api probes send Host: $noing_host with no Ingress, $ing_host with one (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"

@@ -26,8 +26,30 @@ export interface BuildModeApi {
    * `isSummary` is server-derived from having children, not a settable flag.
    */
   insertChild: (taskId: string) => void;
-  /** Convert a task to a milestone (set duration=0). Used by the row menu. */
+  /**
+   * Make the row a milestone — a dated gate that holds no work (#3256).
+   *
+   * Sends `is_milestone: true` and lets the server zero the duration and set
+   * `delivery_mode`. It must NOT send a bare `duration: 0`: the serializer's
+   * coupling is one-directional, so that payload lands a zero-duration *work* row
+   * and every milestone behaviour keys off `isMilestone`.
+   *
+   * Refuses on a summary row — a phase's dates roll up from the work inside it,
+   * so it cannot be a gate. The refusal is stated, not silent.
+   */
   convertToMilestone: (taskId: string) => void;
+  /**
+   * The reverse: turn a milestone back into work, restoring the estimate it had
+   * before the conversion (#3256).
+   *
+   * The prior estimate is stashed client-side at conversion time. It therefore
+   * survives the session, not a reload: `own_estimate` is read-only on the
+   * serializer and already owned by the container-shadow lifecycle (#2950), so a
+   * durable stash needs a server field and is filed separately. A milestone whose
+   * stash is gone converts back at its current duration rather than refusing —
+   * being unable to undo is the defect this act exists to remove.
+   */
+  convertToTask: (taskId: string) => void;
   /**
    * ⌘D / Ctrl+D / the row menu's Duplicate item (#2727, ADR-0776 §2, amending
    * ADR-0066 §Q1): duplicates `taskId` and its full subtree, top-down,

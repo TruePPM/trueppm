@@ -214,7 +214,7 @@ export interface FitStepInput {
    * Observed cost of each rung, indexed by rung. Populated as rungs are
    * applied; `undefined` falls back to the design's estimate. Observed beats
    * estimated because the real cost depends on the project's own strings —
-   * "142 tasks · 9 critical" and "3 tasks · 0 critical" are not the same width.
+   * "142 items · 9 critical" and "3 items · 0 critical" are not the same width.
    */
   costs: ReadonlyArray<number | undefined>;
 }
