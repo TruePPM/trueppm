@@ -106,6 +106,65 @@ describe('ScheduleInsertTargetStatement', () => {
     expect(spoken).toHaveTextContent('⏎ adds a row after 2.3 · same level');
   });
 
+  // #3134 `T5`. The two tests above each pin ONE density, which is how the
+  // property they were protecting stayed true by coincidence: `full` had no
+  // split at all and got away with it only because the drawn string and the
+  // described string happened to be the same one. These two assert the property
+  // itself — across every density the ladder can produce, in one comparison —
+  // so a fourth rung that draws a third form fails here rather than shipping a
+  // button whose description depends on the window.
+  const DENSITIES = ['full', 'short', 'none'] as const;
+
+  it("+ Item's accessible description is identical at every width (T5)", () => {
+    const spoken = DENSITIES.map((density) => {
+      const { unmount } = render(
+        <ScheduleInsertTargetStatement
+          target={{ kind: 'after', taskId: 't-23', wbs: '2.3', landsAfterWbs: '2.3' }}
+          hasEditRights
+          density={density}
+        />,
+      );
+      const el = screen.getByTestId('schedule-insert-target');
+      // What an AT client actually computes for `aria-describedby`: the text of
+      // the referenced subtree with the `aria-hidden` parts removed. Reading
+      // `textContent` instead would concatenate the drawn copy back in and pass
+      // on markup that speaks the sentence twice.
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+      unmount();
+      return (clone.textContent ?? '').trim();
+    });
+
+    expect(spoken[0]).toBe('⏎ adds a row after 2.3 · same level');
+    expect(new Set(spoken).size).toBe(1);
+  });
+
+  it('draws exactly one copy of the claim, whatever the ladder left room for', () => {
+    // The other half of the split. Without this a regression that dropped the
+    // `aria-hidden` would still pass the description test above while showing
+    // the sentence twice — and rule 171's point is that both halves are one
+    // rule, not two.
+    for (const density of DENSITIES) {
+      const { unmount } = render(
+        <ScheduleInsertTargetStatement
+          target={{ kind: 'after', taskId: 't-23', wbs: '2.3', landsAfterWbs: '2.3' }}
+          hasEditRights
+          density={density}
+        />,
+      );
+      const el = screen.getByTestId('schedule-insert-target');
+      const drawn = Array.from(el.querySelectorAll('[aria-hidden="true"]'));
+      // `none` is the rung where the ink runs out entirely — nothing drawn, the
+      // description still there. Every other density draws exactly one copy.
+      expect(drawn).toHaveLength(density === 'none' ? 0 : 1);
+      // At `none` the whole element IS the sr-only node — there is no ink left
+      // to hide from, so the split has one half rather than two.
+      const spoken = density === 'none' ? el : el.querySelector('.sr-only');
+      expect(spoken).toHaveTextContent('⏎ adds a row after 2.3 · same level');
+      unmount();
+    }
+  });
+
   it('is the element the toolbar button describes itself with', () => {
     render(
       <ScheduleInsertTargetStatement

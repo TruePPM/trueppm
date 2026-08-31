@@ -78,6 +78,58 @@ describe('baseComposition', () => {
   });
 });
 
+describe('the insert sentence occupies the rungs everything else cites (#3134 T6)', () => {
+  /**
+   * The #3134 design carries an amendment to the sentence's two rungs, quoting
+   * them as **rung 2 (94px)** and **rung 11 (104px)**. #3076 is closed and the
+   * ladder is in `main`, so those are claims about shipped code and were checked
+   * against it rather than against the handoff prose. The finding:
+   *
+   * - **rung 2 / 94px — correct.** `sentence-short`.
+   * - **rung 11 / 104px — stale.** 104px is right and rung 11 is not: the
+   *   sentence stops being drawn at **rung 9** (`sentence-drop`). Rung 11 is
+   *   `milestone-overflow`, at 116px.
+   *
+   * The two disagree for a documented reason, not a typo. The design's ladder
+   * interleaved collapses and demotions — it demoted Export PDF at rung 3 —
+   * and the shipped one spends every collapse before any demotion (see
+   * `TOOLBAR_LADDER`'s own comment, and the test below that pins it). That
+   * reordering moves `sentence-drop` two rungs earlier. Any amendment quoting
+   * rung 11 for the sentence is therefore describing a ladder that was never
+   * built, and must be re-indexed to 9 before it is applied.
+   *
+   * Pinned here rather than left as a note in an MR because the next citation
+   * will come from a handoff too, and a prose finding cannot be re-checked. If
+   * a future rung reorders these, this fails and names the new indices.
+   */
+  it('shortens at rung 2 and stops being drawn at rung 9 — not rung 11', () => {
+    const ids = TOOLBAR_LADDER.map((r) => r.id);
+    const short = ids.indexOf('sentence-short');
+    const drop = ids.indexOf('sentence-drop');
+
+    // 1-indexed, the way every rung reference outside this file is written.
+    expect(short + 1).toBe(2);
+    expect(drop + 1).toBe(9);
+    expect(TOOLBAR_LADDER[short].estimate).toBe(94);
+    expect(TOOLBAR_LADDER[drop].estimate).toBe(104);
+
+    // The rung the design's numbering pointed at, so a reader who arrives with
+    // the handoff in hand sees what 11 actually is instead of assuming a typo.
+    expect(ids[10]).toBe('milestone-overflow');
+    expect(TOOLBAR_LADDER[10].estimate).toBe(116);
+  });
+
+  it('rations the sentence in that order and never un-rations it on the way down', () => {
+    // The indices above are only meaningful if they produce the densities they
+    // claim to — an id could be renamed into place and still act on nothing.
+    expect(resolveComposition(ALL_PINNED, 1).sentence).toBe('full');
+    expect(resolveComposition(ALL_PINNED, 2).sentence).toBe('short');
+    expect(resolveComposition(ALL_PINNED, 8).sentence).toBe('short');
+    expect(resolveComposition(ALL_PINNED, 9).sentence).toBe('none');
+    expect(resolveComposition(ALL_PINNED, MAX_LADDER_STEP).sentence).toBe('none');
+  });
+});
+
 describe('resolveComposition', () => {
   it('leaves everything alone at step 0', () => {
     expect(resolveComposition(ALL_PINNED, 0)).toEqual(baseComposition(ALL_PINNED));

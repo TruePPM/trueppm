@@ -181,7 +181,10 @@ import {
   PasteReceiptStrip,
   PasteColumnMappingDialog,
   isMultiRowPaste,
+  shouldRenderCoachBar,
+  shouldRenderHintStrip,
   type BuildModeApi,
+  type CanvasTeachingInput,
 } from './buildMode';
 import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
 import { useAuthorModeLayoutCoupling } from '@/hooks/useAuthorModeLayoutCoupling';
@@ -1860,6 +1863,20 @@ export function ScheduleView() {
   // and the section stays reachable by direct URL.
   const surfaces = useSurfaceVisibility(projectIdUndef);
   const focus = useScheduleFocus();
+  /**
+   * The one input both canvas teaching surfaces are decided from (web rule 363).
+   *
+   * Assembled once so the two render conditions provably read the same values —
+   * two call sites each spelling their own conjunction is how the column ended
+   * up with three surfaces on it (#3134).
+   */
+  const canvasTeaching: CanvasTeachingInput = {
+    buildModeActive,
+    hasEditRights,
+    coachEnabled: displayOptions.coach,
+    focusMode: focus.state.mode,
+    visibleRowCount: visibleTasks.length,
+  };
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   // Classification popover (#2736). The controller is shared with the product
   // backlog, which grew the same entry point in #3035 — this surface owns only the
@@ -4309,14 +4326,29 @@ export function ScheduleView() {
         />
       )}
 
-      {buildModeActive && hasEditRights && displayOptions.coach && (
+      {/* The canvas column's teaching surface — exactly one, ever (web rule
+          363, #3134). Both conditions come from `teachingSurfaces.ts` rather
+          than being spelled inline: the property that matters is that the two
+          are never simultaneously true, and a conjunction of two JSX guards in
+          a 6,000-line component is not a thing anything can hold. The module
+          partitions them on focus mode, so the invariant is provable by
+          enumeration and `teachingSurfaces.test.ts` proves it.
+
+          The insert-target statement in the toolbar is NOT a third competitor:
+          it is a readout (clause 1) and is exempt. So is the bulk-edit control
+          in the strip — a control that performs the act is not a teacher. */}
+      {shouldRenderCoachBar(canvasTeaching) && (
         <ScheduleCoachBar
+          // Dismiss still writes the stored option and Display ▸ Outline still
+          // restores it (#2959). Standing down for the strip is a render
+          // condition and must never be confused with being dismissed — a
+          // planner who clears their selection gets the bar back.
           onDismiss={() => toggleDisplayOption('coach')}
           onShowCheatsheet={() => setCheatsheetOpen(true)}
         />
       )}
 
-      {buildModeActive && focus.state.mode !== 'NoSelection' && (
+      {shouldRenderHintStrip(canvasTeaching) && (
         <BuildModeHintStrip
           mode={focus.state.mode}
           selectionCount={focus.state.selectedIds?.size ?? 0}

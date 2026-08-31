@@ -829,6 +829,9 @@ function PinnedTier({
         // Keep `role="status"` on the advisory text only, not the
         // actions (a live region should not announce controls).
         <div className="flex flex-col items-start gap-2 px-3 py-2">
+          {/* Reword this only on purpose: it is the `role="status"` text, so
+              its wording is what a screen reader is spoken on first load, and
+              it is the rail's narrowest line. */}
           <p role="status" className="text-xs text-chrome-text-secondary">
             No projects yet — create one or load a demo.
           </p>

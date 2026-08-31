@@ -21,6 +21,16 @@ describe('ScheduleCoachBar', () => {
     expect(screen.getByText('wrap them in a phase')).toBeInTheDocument();
   });
 
+  it('groups its lines under a real accessible name, not a discarded aria-label', () => {
+    // `role="group"` is load-bearing, not decoration: a bare <div> maps to
+    // `role="generic"`, which is name-PROHIBITED, so the `aria-label` was being
+    // dropped outright and a screen-reader user met the two buttons with no
+    // container context. Without this assertion the role can be deleted and
+    // every other test in the tree stays green.
+    render(<ScheduleCoachBar onDismiss={() => {}} onShowCheatsheet={() => {}} />);
+    expect(screen.getByRole('group', { name: 'How the outline works' })).toBeInTheDocument();
+  });
+
   it('says where the bar went, so dismissing it is not a one-way door', () => {
     // The strip this replaces could only be dismissed; a keyboard user who hid
     // it had no route back to the surface that explained the keyboard.
