@@ -105,14 +105,30 @@ The same affordance appears throughout the
 | `subdomain` | string | `""` | **Read-only via the API.** Reserved for a future hosted edition; self-hosted installs leave this blank. |
 | `timezone` | string (IANA) | `"UTC"` | Default timezone used for display and for interpreting dates without explicit timezone info. |
 | `fiscal_year_start_month` | integer (1–12) | `1` | Fiscal-year start month. Drives quarter labels across the workspace, including the [Schedule timeline](/features/schedule-toolbar/#fiscal-quarters). |
-| `fiscal_year_start_day` | integer (1–31) | `1` | Fiscal-year start day, validated against the month (year-agnostic: February caps at 28; 30-day months reject 31). |
+| `fiscal_year_start_day` | integer (1–31) | `1` | Fiscal-year start day, validated against the month (year-agnostic: February caps at 28; 30-day months reject 31). **Carried for the display label only** — quarter boundaries are computed from `fiscal_year_start_month` alone, so a fiscal year set to April 6 still labels Q1 as beginning April 1. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
 | `fiscal_year_start_display` | string | `"January 1"` | **Read-only.** Human label derived from month + day, e.g. `"April 6"`. |
-| `work_week` | array of 7 booleans | Mon–Fri `true`, Sat–Sun `false` | Working-day flags, Monday through Sunday. Controls which days the CPM engine treats as working days when no project calendar overrides. |
-| `default_project_view` | string | `"board"` | The view tab that opens by default when a user opens a project (`"board"`, `"schedule"`, etc.). |
+| `work_week` | array of 7 booleans | Mon–Fri `true`, Sat–Sun `false` | Working-day flags, Monday through Sunday. **Stored and returned, but no scheduling path reads it.** Working days come from the project's effective [working calendar](/administration/working-calendars/), never from this field. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
+| `default_project_view` | string | `"board"` | Intended as the view tab a project opens on (`"board"`, `"schedule"`, etc.). **Stored and returned, but nothing reads it** — a project opens on its own `default_view`, which is `schedule` for every project created today. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
 | `allow_guests` | boolean | `true` | Whether users with `guest` status may be added to projects. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing` | boolean | `false` | When `true`, designated read-only views may be shared via link so anyone with the link can view without signing in. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing_override_policy` | string | `"suggest"` | Whether downstream scopes may override the workspace sharing values. `"suggest"` (default) lets programs/projects override; `"enforce"` makes the workspace value a hard ceiling. **`enforce` is an Enterprise capability — in the community edition it degrades to `suggest` (no lock).** |
 | `sprint_picker_ready_only_default` <br/>*(ships in 0.4)* | boolean | `true` | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories. This is the **workspace default**; programs and projects inherit it and may override it per scope (Shape A: `null` override = inherit). Advisory only — the picker's own "Show all" toggle always reveals a not-ready story, and committing one is never blocked. There is no override policy / enforcement seam for this field. |
+
+### Settings that are stored but not yet read
+
+Three fields on this page save, round-trip on reload, and are returned by the API —
+and **nothing in the product consumes them**. They are listed here rather than hidden
+because the control is live: changing one produces a saved value and no behavior
+change, with nothing to tell you which of the two happened.
+
+| Field | What it does today | What would make it real |
+|---|---|---|
+| `work_week` | Nothing. Every schedule's working days come from the project's effective [working calendar](/administration/working-calendars/) (`Calendar.working_days`), resolved workspace → program → project. A workspace on a Sunday–Thursday week that sets this field still gets Monday–Friday schedules. **Set working days on a calendar instead** — that path works today. | [#75](https://gitlab.com/trueppm/trueppm/-/issues/75) — workspace-level working-week defaults feeding calendar resolution (milestone 0.8) |
+| `default_project_view` | Nothing. A project opens on its own `default_view`, and no code path seeds that from this value — every project created today starts at `schedule` regardless of what is set here. | [#3234](https://gitlab.com/trueppm/trueppm/-/issues/3234) tracks the gap; per-user [view focus](/features/view-focus/) is the mechanism that does choose a landing view |
+| `fiscal_year_start_day` | Contributes to the `fiscal_year_start_display` label only. Quarter boundaries on the [Schedule timeline](/features/schedule-toolbar/#fiscal-quarters) derive from `fiscal_year_start_month` alone. A UK operator setting **April 6** sees "April 6" confirmed here and Q1 drawn from **April 1**. | [#3234](https://gitlab.com/trueppm/trueppm/-/issues/3234) — day-precision fiscal quarters |
+
+`fiscal_year_start_month` is **not** in this list: it is fully wired and does drive
+quarter labels everywhere they appear.
 
 ### Access
 
