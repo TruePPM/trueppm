@@ -368,6 +368,12 @@ version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
 	@# getting-started/. Editing a non-declaring page breaks its baseline hash, so
 	@# any docs branch can trip this. ~3s, no network.
 	@bash scripts/check-version-status.sh
+	@# The early-promotion guard (#2824) refuses an alpha cut against a version
+	@# already promoted to the roadmap's "## Shipped" section while its "Ships in
+	@# 0.X" callouts are still live — the edit that licenses release.sh to delete
+	@# all 131 of them. It only ever executes at release time, so this self-test is
+	@# the only signal that it still works. Same CI job. ~1s, no network.
+	@bash scripts/check-early-promotion.sh --self-test
 
 config-doc-links-check: ## Run the docs:config-links CI job locally (#3190)
 	@# Every https://docs.trueppm.com link in packages/helm/values.yaml and

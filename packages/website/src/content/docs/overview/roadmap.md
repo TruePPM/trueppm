@@ -15,7 +15,22 @@ Version numbers still appear past 0.6 where another page declares against one. P
 
 ## Shipped
 
-### 0.1 — first OSS release (May 2026)
+:::note[What "Shipped" means here]
+A version appears in this section once the release line reaches **the maturity that
+version promises** — for 0.4, the first `beta` tag. Alpha prereleases on the way to
+that milestone do not move it up.
+
+0.1, 0.2, and 0.3 each promised an alpha and arrived as one (`v0.1.0-alpha.1`,
+`v0.2.0-alpha.1`, `v0.3.0-alpha.1`), which is why they are listed here without the
+line ever leaving alpha. 0.4 promises a beta, so it moves here at `v0.4.0-beta.1`
+and not before — see [how the 0.4 line is numbered](#how-the-04-line-is-numbered).
+
+Everything under this heading is in `main` and tagged. Anything that is not is under
+[Underway](#underway) or [Planned](#planned), and the docs pages that describe it
+carry a "Ships in 0.X" banner until the release lands.
+:::
+
+### 0.1 — first OSS release (alpha: May 2026)
 
 Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` and tagged.
 
