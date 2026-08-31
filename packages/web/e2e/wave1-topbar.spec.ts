@@ -370,15 +370,23 @@ test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
 
   test('BottomNav Board link has path-based href (not query-param)', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
-    const boardLink = nav.getByRole('link', { name: 'Board' });
+    // `exact: true` — Playwright's `name` is a case-insensitive SUBSTRING match by
+    // default, and the landing view is labelled "Dashboard" since ADR-0942, which
+    // contains "board". Without it this is a strict-mode collision.
+    const boardLink = nav.getByRole('link', { name: 'Board', exact: true });
     await expect(boardLink).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/board`);
   });
 
   test('active tab in BottomNav reflects the current path', async ({ page }) => {
     await page.goto(`${BASE_URL}/board`);
     const nav = page.getByRole('navigation', { name: 'View' });
-    await expect(nav.getByRole('link', { name: 'Board' })).toHaveAttribute('aria-current', 'page');
-    await expect(nav.getByRole('link', { name: 'Overview' })).not.toHaveAttribute('aria-current');
+    await expect(nav.getByRole('link', { name: 'Board', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(nav.getByRole('link', { name: 'Dashboard', exact: true })).not.toHaveAttribute(
+      'aria-current',
+    );
   });
 
   test('BottomNav exposes the headline Today view on mobile (issue #1324)', async ({ page }) => {

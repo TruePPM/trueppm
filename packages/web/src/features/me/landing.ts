@@ -41,7 +41,7 @@ export function humanizeIntent(intent: LandingIntent): string {
     case 'my_work':
       return 'My Work';
     case 'project_overview':
-      return "a project's Overview";
+      return "a project's Dashboard";
     case 'portfolio':
       return 'Portfolio';
   }
@@ -59,7 +59,7 @@ export const LANDING_CHOICES: ReadonlyArray<{
   { value: 'my_work', label: 'My Work', description: 'Your cross-project task list.' },
   {
     value: 'project_overview',
-    label: "A project's Overview",
+    label: "A project's Dashboard",
     description: 'Open straight into your most recent project.',
   },
   {

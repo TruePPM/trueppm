@@ -25,15 +25,12 @@ vi.mock('@/hooks/useUpdateHiddenViews', () => ({
   useUpdateHiddenViews: vi.fn(() => ({ mutate })),
 }));
 
-const mutateSchedule = vi.fn();
-vi.mock('@/hooks/useUpdateScheduleInDeliver', () => ({
-  useUpdateScheduleInDeliver: vi.fn(() => ({ mutate: mutateSchedule })),
-}));
-
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
+const mockUseRole = useCurrentUserRole as ReturnType<typeof vi.fn>;
 const mockUseCurrentUser = useCurrentUser as ReturnType<typeof vi.fn>;
 const mockUseProject = useProject as ReturnType<typeof vi.fn>;
 
@@ -44,8 +41,8 @@ function open() {
 describe('ViewsMenu (ADR-0139)', () => {
   beforeEach(() => {
     mutate.mockClear();
-    mutateSchedule.mockClear();
     mockUseProjectId.mockReturnValue('proj-1');
+    mockUseRole.mockReturnValue({ role: 200, isLoading: false }); // SCHEDULER
     mockUseCurrentUser.mockReturnValue({ user: { hidden_views: [] }, isLoading: false });
     mockUseProject.mockReturnValue({
       data: { id: 'proj-1', methodology: 'HYBRID', effective_methodology: 'HYBRID' },
@@ -59,18 +56,55 @@ describe('ViewsMenu (ADR-0139)', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('opens a menu listing the always-on Overview and toggleable views', () => {
+  it('lists both always-on views without a toggle, and hideable views with one', () => {
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
     open();
     const menu = screen.getByRole('menu', { name: 'Customize views' });
-    // Overview is present but NOT a toggle.
-    expect(within(menu).getByText('Overview')).toBeInTheDocument();
+    // ADR-0942 §6: `overview` (labelled Dashboard) and `settings` are band members now
+    // but are NOT hideable. Offering either a toggle would PATCH a key the server
+    // answers with a 400 — the exact trap the authored vocabulary exists to close.
+    expect(within(menu).getByText('Dashboard')).toBeInTheDocument();
+    expect(within(menu).getByText('Settings')).toBeInTheDocument();
     expect(
-      within(menu).queryByRole('menuitemcheckbox', { name: /Overview/i }),
+      within(menu).queryByRole('menuitemcheckbox', { name: /Dashboard/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(menu).queryByRole('menuitemcheckbox', { name: /^Settings$/ }),
     ).not.toBeInTheDocument();
     // Hideable views are menuitemcheckbox rows, checked (visible) by default.
     const schedule = within(menu).getByRole('menuitemcheckbox', { name: 'Schedule' });
     expect(schedule).toHaveAttribute('aria-checked', 'true');
+    // Team is hideable and lives under the WORKSPACE header now.
+    expect(within(menu).getByRole('menuitemcheckbox', { name: 'Team' })).toBeInTheDocument();
+  });
+
+  it('omits the Team toggle for a role below Scheduler', () => {
+    // The Scheduler+ gate on `resources` is duplicated in this component and in
+    // `useGroupedProjectViews`; without a test here the ViewsMenu copy could diverge
+    // and start offering a toggle for a view this user cannot reach.
+    // `mockReturnValue`, not `…Once`: opening the menu is a state change, so the
+    // component re-renders and a one-shot mock would serve SCHEDULER to the render
+    // that actually builds the list — the test would pass against a deleted gate.
+    mockUseRole.mockReturnValue({ role: 100, isLoading: false }); // MEMBER
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Team' })).not.toBeInTheDocument();
+    // The rest of the menu still renders — only Team is gated.
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Schedule' })).toBeInTheDocument();
+  });
+
+  it('omits the always-on Settings row for a user who cannot reach project settings', () => {
+    // A member must not be told a surface is "always shown" when the rail does not show
+    // it to them at all — the same admin gate the composition seam applies.
+    mockUseCurrentUser.mockReturnValue({
+      user: { hidden_views: [], can_access_admin_settings: false },
+      isLoading: false,
+    });
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    const menu = screen.getByRole('menu', { name: 'Customize views' });
+    expect(within(menu).getByText('Dashboard')).toBeInTheDocument();
+    expect(within(menu).queryByText('Settings')).not.toBeInTheDocument();
   });
 
   it('toggling a visible view PATCHes it into the hidden set', () => {
@@ -124,75 +158,20 @@ describe('ViewsMenu (ADR-0139)', () => {
     expect(screen.getByRole('menuitemcheckbox', { name: /Sprints/i })).toBeInTheDocument();
   });
 
-  // --- Schedule-in-Deliver placement opt-in (#1645) ------------------------
-
-  it('offers the Schedule-in-Deliver placement toggle on HYBRID, off by default', () => {
+  it('no longer offers a Schedule-in-Deliver placement toggle (ADR-0942 §3, #3137)', () => {
+    // The opt-in let `schedule` sit in PLAN and DELIVER at once. One home per item, per
+    // render: a nav item listed twice is two objects to the person using it, and the
+    // control that produced that is gone along with its server field.
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
     open();
-    const placement = screen.getByRole('menuitemcheckbox', {
-      name: /Also show Schedule under Deliver/i,
-    });
-    expect(placement).toHaveAttribute('aria-checked', 'false');
-  });
-
-  it('toggling the placement opt-in PATCHes schedule_in_deliver = true', () => {
-    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
-    open();
-    fireEvent.click(
-      screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
-    );
-    expect(mutateSchedule).toHaveBeenCalledTimes(1);
-    expect(mutateSchedule.mock.calls[0][0]).toBe(true);
-    // The hidden-views mutation is untouched — placement is not a visibility change.
-    expect(mutate).not.toHaveBeenCalled();
-  });
-
-  it('reflects an already-on placement opt-in as checked', () => {
-    mockUseCurrentUser.mockReturnValue({
-      user: { hidden_views: [], schedule_in_deliver: true },
-      isLoading: false,
-    });
-    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
-    open();
+    const menu = screen.getByRole('menu', { name: 'Customize views' });
     expect(
-      screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
-    ).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('does NOT offer the placement toggle on WATERFALL (no Deliver group)', () => {
-    mockUseProject.mockReturnValue({
-      data: { id: 'proj-1', methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
-      isLoading: false,
-    });
-    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
-    open();
-    expect(
-      screen.queryByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
+      within(menu).queryByRole('menuitemcheckbox', { name: /under Deliver/i }),
     ).not.toBeInTheDocument();
-  });
-
-  it('does NOT offer the placement toggle on AGILE (Schedule methodology-hidden)', () => {
-    mockUseProject.mockReturnValue({
-      data: { id: 'proj-1', methodology: 'AGILE', effective_methodology: 'AGILE' },
-      isLoading: false,
-    });
-    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
-    open();
-    expect(
-      screen.queryByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
-    ).not.toBeInTheDocument();
-  });
-
-  it('hides the placement toggle when Schedule is personally hidden (no dead toggle)', () => {
-    mockUseCurrentUser.mockReturnValue({
-      user: { hidden_views: ['schedule'], schedule_in_deliver: false },
-      isLoading: false,
-    });
-    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
-    open();
-    expect(
-      screen.queryByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
-    ).not.toBeInTheDocument();
+    expect(within(menu).queryByText(/Placement/i)).not.toBeInTheDocument();
+    // Schedule is still offered as an ordinary hide/show toggle — the retirement removed
+    // a placement control, not the view.
+    expect(within(menu).getByRole('menuitemcheckbox', { name: 'Schedule' })).toBeInTheDocument();
   });
   describe('the hidden-views PATCH waits for /auth/me/ to answer (#3214)', () => {
     it('does not PATCH when a view is toggled before the user has loaded', () => {

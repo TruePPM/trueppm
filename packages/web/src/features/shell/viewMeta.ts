@@ -33,7 +33,11 @@ export interface ViewMeta {
  * in context override it with the configured iteration label (ADR-0111/0116).
  */
 export const VIEW_TAB_META: Record<string, ViewMeta> = {
-  overview: { label: 'Overview', Icon: OverviewIcon },
+  // "Dashboard", not "Overview" (ADR-0942 §7). "Overview" named a *position* — the thing
+  // at the top you arrive at. Once it is TRACK's first member that name is simply wrong.
+  // The route segment stays `overview` (rule 108); key/label divergence is the same seam
+  // `sprints` has used for the configured iteration term since 0.2 (ADR-0111/0116).
+  overview: { label: 'Dashboard', Icon: OverviewIcon },
   // Unified Today split view (ADR-0180) — the `unified` role-context lens lands here.
   today: { label: 'Today', Icon: TodayIcon },
   'product-backlog': { label: 'Backlog', Icon: WbsIcon },

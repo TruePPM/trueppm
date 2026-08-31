@@ -57,11 +57,13 @@ test.describe('Customize views (ADR-0139)', () => {
     await page.goto(`${BASE_URL}/board`);
 
     const nav = page.getByRole('navigation', { name: 'View' });
-    await expect(nav.getByRole('link', { name: 'Board' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Board', exact: true })).toBeVisible();
     // Schedule is hidden by the personal preference.
     await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveCount(0);
-    // Overview (always-on) remains.
-    await expect(nav.getByRole('link', { name: 'Overview' })).toBeVisible();
+    // Dashboard (always-on) remains — it is a TRACK member now, not a standalone row,
+    // so the always-on guarantee rests on the authored vocabulary (ADR-0942 §6) rather
+    // than on standing outside every band.
+    await expect(nav.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
 
     // Open the Customize views menu — Schedule is listed, unchecked.
     await page.getByRole('button', { name: 'Customize views', exact: true }).click();
@@ -69,9 +71,14 @@ test.describe('Customize views (ADR-0139)', () => {
     await expect(menu).toBeVisible();
     const scheduleRow = menu.getByRole('menuitemcheckbox', { name: 'Schedule', exact: true });
     await expect(scheduleRow).toHaveAttribute('aria-checked', 'false');
-    // Overview is shown but is not a toggle.
-    await expect(menu.getByText('Overview')).toBeVisible();
-    await expect(menu.getByRole('menuitemcheckbox', { name: /Overview/ })).toHaveCount(0);
+    // Both always-on views are shown, and neither is a toggle — offering one would
+    // PATCH a key the server rejects with a 400.
+    await expect(menu.getByText('Dashboard', { exact: true })).toBeVisible();
+    await expect(menu.getByText('Settings', { exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitemcheckbox', { name: /Dashboard/ })).toHaveCount(0);
+    await expect(
+      menu.getByRole('menuitemcheckbox', { name: 'Settings', exact: true }),
+    ).toHaveCount(0);
   });
 
   test('toggling a view off PATCHes the hidden set to the profile', async ({ page }) => {
@@ -105,45 +112,34 @@ test.describe('Customize views (ADR-0139)', () => {
     await expect(reset).toBeDisabled();
   });
 
-  // --- Schedule-in-Deliver placement opt-in (#1645) ------------------------
+  // --- the Schedule-in-Deliver placement opt-in is retired (ADR-0942 §3, #3137) ---
 
-  test('the Schedule-in-Deliver placement opt-in surfaces Schedule under Deliver and PATCHes the flag', async ({
+  test('offers no placement opt-in, and Schedule has exactly one home in the rail', async ({
     page,
   }) => {
-    // HYBRID fixture, nothing hidden → the placement opt-in is offered and off.
+    // HYBRID fixture, nothing hidden — the methodology where the opt-in used to apply.
+    // ADR-0942 §3: a nav item listed twice is two objects to the person using it, so the
+    // control and its server field are both gone.
     await setup(page, []);
     await page.goto(`${BASE_URL}/board`);
 
-    // The nav renders (Schedule present in Plan) before we touch the menu — gate
-    // on it so the interaction isn't racing the page's data reads.
+    // Gate on the nav having rendered before touching the menu, so the interaction is
+    // not racing the page's data reads.
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav.getByRole('link', { name: 'Schedule' })).toBeVisible();
 
-    const patch = page.waitForRequest(
-      (req) => req.url().includes('/auth/me/profile/') && req.method() === 'PATCH',
-    );
-    await page.getByRole('button', { name: 'Customize views', exact: true }).click();
-    const menu = page.getByRole('menu', { name: 'Customize views' });
-    const placement = menu.getByRole('menuitemcheckbox', {
-      name: /Also show Schedule under Deliver/,
-    });
-    await expect(placement).toHaveAttribute('aria-checked', 'false');
-    await placement.click();
+    // Schedule appears once, in PLAN, and nowhere else.
+    await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveCount(1);
+    const plan = nav.getByRole('group', { name: 'Plan views' });
+    await expect(plan.getByRole('link', { name: 'Schedule' })).toBeVisible();
+    const deliver = nav.getByRole('group', { name: 'Deliver views' });
+    await expect(deliver.getByRole('link', { name: 'Schedule' })).toHaveCount(0);
 
-    const body = (await patch).postDataJSON() as { schedule_in_deliver: boolean };
-    expect(body.schedule_in_deliver).toBe(true);
-  });
-
-  test('the placement opt-in is absent when Schedule is personally hidden (no dead toggle)', async ({
-    page,
-  }) => {
-    await setup(page, ['schedule']);
-    await page.goto(`${BASE_URL}/board`);
     await page.getByRole('button', { name: 'Customize views', exact: true }).click();
     const menu = page.getByRole('menu', { name: 'Customize views' });
     await expect(menu).toBeVisible();
-    await expect(
-      menu.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/ }),
-    ).toHaveCount(0);
+    await expect(menu.getByRole('menuitemcheckbox', { name: /under Deliver/ })).toHaveCount(0);
+    await expect(menu.getByText('Placement')).toHaveCount(0);
   });
+
 });

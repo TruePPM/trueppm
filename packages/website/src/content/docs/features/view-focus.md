@@ -1,4 +1,5 @@
 ---
+documentedFor: "0.4"
 title: View focus
 description: A per-user lens that organizes each project around the hat you're wearing — PM, Scrum Master, or both — without changing anyone's access.
 ---
@@ -27,10 +28,18 @@ There are three focuses, and **Unified Today** is the default:
   focus cares about — the Schedule in PM focus, the Board in Scrum Master focus, the
   **Today** split view in Unified Today. You can still navigate anywhere; this only
   changes where you *start*.
-- **Emphasizes your view tabs.** Your focus moves its priority tabs to the front of the
-  project view bar, so the views you reach for most are first. Nothing is hidden or
-  removed — the same tabs are all there, just reordered. Unified Today keeps the standard
-  order.
+- **Emphasizes your views.** Your focus moves its priority views to the front of the
+  navigation rail, so the views you reach for most are first. Nothing is hidden or
+  removed — the same views are all there, just reordered. Unified Today keeps the
+  standard order.
+
+  :::note[Ships in 0.4]
+  From 0.4 the reordering will apply to the **Plan**, **Deliver** and **Track** bands
+  only. The **Workspace** band (Team · Settings) will keep a fixed order for every
+  focus: it is the project's own setup rather than a step in the life of the work, so
+  there is no workflow for a focus to re-point. In the current release the rail has no
+  Workspace band and the reordering applies throughout.
+  :::
 
 ## The Today view
 

@@ -341,11 +341,23 @@ Recorded as the visual contract for #3136:
 | Scroll | outside the scroll region; the rule gains a 6px inset shadow once scrolled |
 | Position | `margin-top: auto`, capped `max-height: 40%` with its own scroll |
 
-Tokens: `neutral-surface`, `neutral-surface-raised`, `neutral-border`,
-`neutral-text-primary`, `neutral-text-secondary`, `brand-primary`. **`neutral-text-disabled`
-is banned from the band** — the rejected alternatives (dimming, shrunk label,
-bordered card) each encode rank or unavailability, and dimming at `opacity:.5` is
-literally how this app draws a disabled control.
+Tokens: **the `chrome-*` ramp**, not the `neutral-*` one — `chrome-surface`,
+`chrome-surface-raised`, `chrome-border`, `chrome-text-primary`,
+`chrome-text-secondary`, `brand-primary`. **`neutral-text-disabled` is banned from the
+band** — the rejected alternatives (dimming, shrunk label, bordered card) each encode
+rank or unavailability, and dimming at `opacity:.5` is literally how this app draws a
+disabled control.
+
+> **Correction (2026-08-30, #3136).** This table originally named the `neutral-*`
+> tokens. That was wrong, and wrong in a way that silently disarmed the whole
+> mechanism: the rail is painted `chrome-surface`, and `--chrome-*` / `--neutral-*` are
+> two independent ramps (`packages/web/CLAUDE.md` rule 8a), so `neutral-surface-raised`
+> on `chrome-surface` measures **1.01:1 in light theme** — no lift whatsoever — while
+> reading as a real lift in dark (1.27:1). §2's "the rail says elsewhere by changing the
+> floor" would not have fired for any light-theme user, and no dark-mode screenshot
+> would have shown it. The implemented band uses `chrome-surface-raised` (**1.10:1**
+> light, **1.14:1** dark) with a `chrome-border/25` rule. The generalization is now
+> `packages/web/CLAUDE.md` rule 365.
 
 **Correction A — the a11y mechanism.** The finding is adopted: one `<nav>` landmark,
 and a scope band is a labelled group rather than a second landmark. The bundle's

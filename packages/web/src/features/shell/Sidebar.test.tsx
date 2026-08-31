@@ -534,24 +534,87 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     }
   });
 
-  it('leads with Overview, linking to the /overview segment (rule 108)', () => {
+  it('leads TRACK with Dashboard, still linking to the /overview segment (rule 108)', () => {
     renderRail();
-    const overview = screen.getByRole('link', { name: 'Overview' });
-    expect(overview).toHaveAttribute('href', '/projects/p1/overview');
-    // The grouped headers are present with their accessible names (rule 172).
+    // The label is "Dashboard" (ADR-0942 §7) but the ROUTE SEGMENT is untouched — a
+    // rename that moved the URL would break every bookmark and deep link in the wild.
+    const dashboard = screen.getByRole('link', { name: 'Dashboard' });
+    expect(dashboard).toHaveAttribute('href', '/projects/p1/overview');
+    expect(screen.queryByRole('link', { name: 'Overview' })).not.toBeInTheDocument();
+    // The band headers are present with their accessible names (rule 172).
     expect(screen.getByRole('group', { name: 'Plan views' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Deliver views' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Track views' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'People views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Workspace views' })).toBeInTheDocument();
+    // PEOPLE is retired (ADR-0942 §5) — its fourteen-month bet on a second
+    // people-surface was falsified, and Team moved beside Settings.
+    expect(screen.queryByRole('group', { name: 'People views' })).not.toBeInTheDocument();
+    // Dashboard leads TRACK; Today follows it (ADR-0942 §8).
+    const track = screen.getByRole('group', { name: 'Track views' });
+    const trackLinks = within(track).getAllByRole('link');
+    expect(trackLinks[0]).toHaveAccessibleName('Dashboard');
+    expect(trackLinks[1]).toHaveAccessibleName('Today');
   });
 
-  it('trails with Settings, mirroring the program tier (#2045)', () => {
+  it('ends the rail at the WORKSPACE scope band — Team then Settings (ADR-0942)', () => {
     renderRail();
+    const workspace = screen.getByRole('group', { name: 'Workspace views' });
+    expect(within(workspace).getAllByRole('link').map((l) => l.textContent)).toEqual([
+      'Team',
+      'Settings',
+    ]);
+    expect(within(workspace).getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'href',
+      '/projects/p1/settings',
+    );
+    // Settings is a band member now, not a loose trailing row outside every landmark.
     const settings = screen.getByRole('link', { name: 'Settings' });
-    expect(settings).toHaveAttribute('href', '/projects/p1/settings');
-    // It is a standalone trailing row — outside every grouped landmark — so it
-    // must not live inside one of the PLAN/DELIVER/TRACK/PEOPLE groups.
-    expect(settings.closest('[role="group"]')).toBeNull();
+    expect(settings.closest('[role="group"]')).toBe(workspace);
+    // The scope band is LAST in the nav, and its position is `mt-auto` — a function of
+    // the rail's height, not of how many bands sit above it (ADR-0942 §2).
+    const nav = screen.getByRole('navigation', { name: 'View' });
+    const bands = within(nav).getAllByRole('group');
+    expect(bands[bands.length - 1]).toBe(workspace);
+    expect(workspace.className).toContain('mt-auto');
+  });
+
+  it('draws the scope band with a rule and a raised ground, never with dimming', () => {
+    // ADR-0942 §2/§11: the distinction is carried by the CONTAINER. Contrast, size,
+    // weight and opacity each read as "less important" in DS v1.0 and three of them read
+    // as "unavailable" — and a self-hoster lives in Settings in week one. The full-bleed
+    // rule is the rail's only rule, so it means exactly one thing.
+    renderRail();
+    const workspace = screen.getByRole('group', { name: 'Workspace views' });
+    expect(workspace.className).toContain('border-t');
+    // The CHROME ramp, not the neutral one. ADR-0942 §11's table originally named
+    // `neutral-*`; its dated correction records why that was wrong — the rail is painted
+    // `chrome-surface`, and `neutral-surface-raised` on it measures 1.01:1 in light theme
+    // (no lift at all) while reading as a real lift in dark, so the defect would have been
+    // invisible to a dark-mode screenshot. `chrome-surface-raised` is 1.10:1 light /
+    // 1.14:1 dark. See packages/web/CLAUDE.md rule 365 — and note that this assertion can
+    // only prove the token was TYPED, never that the surface lifts.
+    expect(workspace.className).toContain('border-chrome-border/25');
+    expect(workspace.className).toContain('bg-chrome-surface-raised');
+    expect(workspace.className).toContain('-mx-2'); // full-bleed past the rail's 8px inset
+    expect(workspace.className).not.toContain('neutral-text-disabled');
+    expect(workspace.className).not.toContain('opacity-');
+    // Its rows are the same rows as a verb band's — same type, weight, colour, height
+    // and active-state vocabulary (ADR-0942 §2). The ONE permitted difference is the
+    // focus ring's offset colour: that offset is a 1px gap painted in a literal colour,
+    // so on the raised ground it has to be the raised token or the halo shows a seam of
+    // the rail's ground (rule 365). Compared with that one class normalized away, rather
+    // than by listing the classes that must match — a whitelist would silently stop
+    // covering anything added to `rowClass` later.
+    const plan = screen.getByRole('group', { name: 'Plan views' });
+    const planRow = within(plan).getByRole('link', { name: 'Grid' });
+    const scopeRow = within(workspace).getByRole('link', { name: 'Settings' });
+    const normalizeRingOffset = (cls: string) =>
+      cls.replace('focus:ring-offset-chrome-surface-raised', 'focus:ring-offset-chrome-surface');
+    expect(normalizeRingOffset(scopeRow.className)).toBe(normalizeRingOffset(planRow.className));
+    // …and the difference is exactly that, not an accidental extra class.
+    expect(scopeRow.className).toContain('focus:ring-offset-chrome-surface-raised');
+    expect(planRow.className).toContain('focus:ring-offset-chrome-surface');
+    expect(planRow.className).not.toContain('focus:ring-offset-chrome-surface-raised');
   });
 
   it('hides the Settings row from a non-admin — RequireAdminSettings would bounce them (#2147)', () => {
@@ -562,8 +625,28 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     });
     renderRail();
     expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
-    // The rest of the project views still render — only Settings is gated.
+    // The rest of the project views still render — only Settings is gated. The WORKSPACE
+    // band survives on Team alone (a scope band renders with either member, ADR-0942 §2).
     expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
+    const workspace = screen.getByRole('group', { name: 'Workspace views' });
+    expect(within(workspace).getAllByRole('link').map((l) => l.textContent)).toEqual(['Team']);
+  });
+
+  it('drops the whole WORKSPACE band — rule and ground included — when neither member survives', () => {
+    // A Member below Scheduler who also cannot reach project Settings. The empty-band
+    // rule (ADR-0128 §A, applied unchanged by ADR-0942 §2) must remove the container, not
+    // leave a bare rule and a raised strip with nothing in it.
+    mockUseRole.mockReturnValue({ role: 100, isLoading: false }); // MEMBER
+    mockUseCurrentUser.mockReturnValue({
+      user: { ...DEFAULT_USER.user, can_access_admin_settings: false },
+    });
+    renderRail();
+    expect(screen.queryByRole('group', { name: 'Workspace views' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Team' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
+    // The verb bands are untouched — the rail is not empty, it just ends at TRACK.
+    expect(screen.getByRole('group', { name: 'Track views' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
   });
 
   it('keeps the Settings row visible while the role signal is still loading (#2147)', () => {
@@ -609,7 +692,9 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     mockUseRole.mockReturnValue({ role: 100, isLoading: false }); // MEMBER
     renderRail();
     expect(screen.queryByRole('link', { name: 'Team' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'People views' })).not.toBeInTheDocument();
+    // The WORKSPACE band stays — Settings is still reachable for this user.
+    const workspace = screen.getByRole('group', { name: 'Workspace views' });
+    expect(within(workspace).getAllByRole('link').map((l) => l.textContent)).toEqual(['Settings']);
   });
 
   it('removes a personally-hidden view from the rail (ADR-0139)', () => {

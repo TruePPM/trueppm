@@ -37,7 +37,7 @@ describe('safeLandingPath — landing allowlist guard (ADR-0129, #1181)', () => 
 describe('humanizeIntent', () => {
   it('maps each intent to a human label', () => {
     expect(humanizeIntent('my_work')).toBe('My Work');
-    expect(humanizeIntent('project_overview')).toBe("a project's Overview");
+    expect(humanizeIntent('project_overview')).toBe("a project's Dashboard");
     expect(humanizeIntent('portfolio')).toBe('Portfolio');
   });
 });
