@@ -36,16 +36,22 @@ before you start.
 
 ## What you see on the Schedule view
 
-Two visible signals appear:
+Build mode adds a toolbar pill and a single **teaching band** under the plan:
 
-- A **`⌨ Build mode` pill** in the toolbar (left side, next to the +Item button). Clicking it opens the keyboard cheatsheet.
-- A **bottom hint strip** that always shows the three most relevant hotkeys for what you're currently focused on. Pressing `?` opens the full cheatsheet from anywhere on the page.
+- A **`⌨ Build mode` pill** in the toolbar (left side, next to the + Item button). It is always there, and clicking it opens the keyboard cheatsheet.
+- A **teaching band** directly under the plan. It shows one of two things, never both at once:
+  - The **how-to bar**, while nothing in the outline is selected. Three lines covering indent, grouping, and the row controls that only appear when you hover a row — the things you cannot discover by looking. Hide it with its **×**; bring it back from **Display → Outline → How-to bar**.
+  - The **hint strip**, from the moment you focus a row. It shows the three most relevant hotkeys for the state you are in, and swaps to selection actions — group, delete, clear — once more than one row is selected.
+
+Pressing `?` opens the full cheatsheet from anywhere on the page, and the band's own **`?` All shortcuts** button does the same.
+
+Neither appears on a plan with no rows: a blank project opens with a live row already holding the cursor, which is the only thing there is to teach at that point.
 
 The Schedule list rows also gain new keyboard behavior — see below.
 
 ## Keyboard reference
 
-The Schedule list is in one of three focus states at any time. The same keys do different things in each — the hint strip and cheatsheet always show what's active.
+The Schedule list is in one of three focus states at any time. The same keys do different things in each — the hint strip tracks the state you are actually in, and the cheatsheet (`?`) lists every binding at once.
 
 ### When nothing is selected (NoSelection)
 

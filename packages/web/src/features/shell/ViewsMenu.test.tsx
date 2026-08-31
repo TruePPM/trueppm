@@ -173,4 +173,51 @@ describe('ViewsMenu (ADR-0139)', () => {
     // a placement control, not the view.
     expect(within(menu).getByRole('menuitemcheckbox', { name: 'Schedule' })).toBeInTheDocument();
   });
+  describe('the hidden-views PATCH waits for /auth/me/ to answer (#3214)', () => {
+    it('does not PATCH when a view is toggled before the user has loaded', () => {
+      // `serverHidden` is `user?.hidden_views ?? []`, so an unanswered query and a
+      // user who hides nothing arrive here as the same value. The PATCH sends the
+      // FULL replacement set, not a delta, so a toggle in that window would send
+      // `['board']` and silently un-hide every other view this user had hidden —
+      // server-side, on every device. This menu is mounted on every project route,
+      // so the exposure window is the widest of the two ADR-0139 surfaces.
+      //
+      // Honest scope: the source carries both `disabled={!user}` on the row and
+      // `if (!user) return;` in `commit()`. jsdom will not dispatch through a
+      // disabled button, so this goes red only when BOTH are removed.
+      mockUseCurrentUser.mockReturnValue({ user: undefined, isLoading: true });
+      renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+      open();
+
+      fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Board/i }));
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('renders the rows inert while the user is unknown', () => {
+      mockUseCurrentUser.mockReturnValue({ user: undefined, isLoading: true });
+      renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+      open();
+
+      expect(screen.getByRole('menuitemcheckbox', { name: /Board/i })).toBeDisabled();
+    });
+
+    it('still PATCHes once the user has answered, preserving the existing hidden set', () => {
+      // The other half of the guard: it must DELAY the write, not disable it. An
+      // empty `hidden_views` from a query that has answered is a real answer, and a
+      // user with views already hidden must keep them when hiding one more.
+      mockUseCurrentUser.mockReturnValue({
+        user: { hidden_views: ['grid'], schedule_in_deliver: false },
+        isLoading: false,
+      });
+      renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+      open();
+
+      const board = screen.getByRole('menuitemcheckbox', { name: /Board/i });
+      expect(board).toBeEnabled();
+      fireEvent.click(board);
+
+      expect(mutate).toHaveBeenCalledWith(['grid', 'board'], expect.anything());
+    });
+  });
 });

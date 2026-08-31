@@ -19,6 +19,10 @@
 // resolves to two buttons. `exact: true` is not the fix either — the trigger's
 // own accessible name becomes "Display, 1 active filter" once a filter is on.
 // Scoping to the toolbar is stable under both.
+// Since #3134 the how-to bar renders only while the outline is IDLE (web rule
+// 363), so the collision is conditional now rather than constant. Keep the
+// scoping regardless: it is correct in both states, and every assertion here
+// runs before a row is touched, which is exactly the two-button case.
 import { test, expect } from './fixtures/coverage';
 import {
   setupAuth,

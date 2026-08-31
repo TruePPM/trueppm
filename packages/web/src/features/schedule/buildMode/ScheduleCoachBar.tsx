@@ -42,7 +42,7 @@ interface Props {
 }
 
 /**
- * A three-line coach above the outline (#2959, epic #2946).
+ * A three-line coach in the band below the outline (#2959, epic #2946).
  *
  * Discovery was hover-dependent, and the `?` cheatsheet was the only teacher —
  * so a user who never hovered a row never learned that the row controls existed
@@ -52,11 +52,45 @@ interface Props {
  * whole point: the strip this replaces could only ever be dismissed, which left
  * a keyboard user who hid it with no route back to the one surface that
  * explained the keyboard.
+ *
+ * ## When it renders (web rule 363, #3134)
+ *
+ * Only while the outline is idle (`NoSelection`) and the canvas is drawing at
+ * least one row. `BuildModeHintStrip` is anchored to focus state and selection
+ * size, which is strictly narrower than this bar's anchor (build mode is on),
+ * so the two are partitioned rather than stacked — see `teachingSurfaces.ts`.
+ *
+ * "Stacked" is literal, and it is why the border below is `border-t` and not
+ * `border-b`. Measured at 1920×1080 with two rows, this bar drew at `y=978`
+ * (29px) and the hint strip at `y=979` (28px): the same band, in the same slot
+ * under the outline, and before the partition they queued one above the other
+ * for ~57px of hint bars. So this is one band with two contents, not two bands
+ * — which means it has to draw the same frame in both states. `border-b` gave
+ * it a rule on the wrong edge, leaving no separation from the outline above and
+ * doubling against `ScheduleForecastBar`'s own `border-t` below.
+ *
+ * All three lines stay. The row-controls line in particular is the ONLY line
+ * here with no counterpart in the strip, so the tempting "drop the duplicated
+ * item" edit would delete this bar's stated reason to exist and keep the two
+ * lines that genuinely are duplicated. The overlap is the indent chord (line 1)
+ * and the group chord (line 2), both of which the strip re-teaches from its own
+ * narrower anchor at the moment each becomes performable.
+ *
+ * Standing down is not being dismissed. The caller suppresses the render and
+ * never touches `displayOptions.coach`, so clearing a selection brings the bar
+ * back for a planner who never hid it, and the Display-menu checkbox keeps
+ * meaning what it says.
  */
 export function ScheduleCoachBar({ onDismiss, onShowCheatsheet }: Props) {
   return (
     <div
-      className="flex items-center gap-3 px-4 py-1.5 border-b border-neutral-border
+      // `role="group"`, because a bare <div> maps to `role="generic"`, which is
+      // name-PROHIBITED — the `aria-label` below was being discarded outright
+      // and a screen-reader user met the two buttons with no container context.
+      // Exactly the fact `ScheduleInsertTargetStatement` cites as its reason for
+      // using real text rather than an attribute; it was true here too.
+      role="group"
+      className="flex items-center gap-3 px-4 py-1.5 border-t border-neutral-border
         bg-neutral-surface-sunken text-xs text-neutral-text-secondary flex-shrink-0 overflow-hidden"
       aria-label="How the outline works"
     >

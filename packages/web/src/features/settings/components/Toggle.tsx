@@ -10,6 +10,10 @@ export interface ToggleProps {
   /** Accessible name for the control. Without it the switch announces only its
    *  visible label ("Enabled"/"Disabled"), which does not say what it controls. */
   ariaLabel?: string;
+  /** Render the switch inert. Use it when the state the switch would write is not
+   *  yet known — a switch that paints "on" from an unanswered query and silently
+   *  ignores the click is a worse affordance than one that is visibly not ready. */
+  disabled?: boolean;
 }
 
 /**
@@ -26,6 +30,7 @@ export function Toggle({
   offLabel = 'Disabled',
   hint,
   ariaLabel,
+  disabled = false,
 }: ToggleProps) {
   const label = on ? onLabel : offLabel;
   return (
@@ -34,8 +39,9 @@ export function Toggle({
       role="switch"
       aria-checked={on}
       aria-label={ariaLabel}
+      disabled={disabled}
       onClick={() => onChange(!on)}
-      className="inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+      className="inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:opacity-60 disabled:cursor-not-allowed"
     >
       <span
         className={[

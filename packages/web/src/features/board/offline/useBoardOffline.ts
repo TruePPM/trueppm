@@ -150,18 +150,32 @@ export function useBoardOffline(projectId: string | null | undefined): void {
     const persist = () => {
       const tasks = queryClient.getQueryData<Task[]>(tasksKey(projectId));
       if (!tasks || tasks.length === 0) return;
-      void putBoardSnapshot({
-        projectId,
-        tasks,
-        dependencies: queryClient.getQueryData<TaskLink[]>(depsKey(projectId)) ?? [],
-        boardConfig: queryClient.getQueryData<BoardColumnDef[]>(configKey(projectId)) ?? null,
-        savedAt: Date.now(),
-      });
+      // An unanswered query is not an empty answer (#3214, the #3213 shape).
+      // These three queries settle independently — `['tasks']`, `['dependencies']`
+      // and `['boardConfig']` are separate fetches — and this callback fires on the
+      // tasks one, so it routinely runs while the other two are still in flight.
+      // A `?? []` / `?? null` here would launder "deps have not loaded yet" into
+      // "this project has no dependencies", and `putBoardSnapshot` is a whole-record
+      // `db.put` keyed on projectId, so that guess would overwrite the last good
+      // snapshot. The seed effect above then feeds it straight back in as a hard
+      // answer (`setQueryData(depsKey, snapshot.dependencies)`), and the next offline
+      // open shows a board with every dependency edge silently missing.
+      const dependencies = queryClient.getQueryData<TaskLink[]>(depsKey(projectId));
+      if (!dependencies) return;
+      const boardConfig = queryClient.getQueryData<BoardColumnDef[]>(configKey(projectId));
+      if (!boardConfig) return;
+      void putBoardSnapshot({ projectId, tasks, dependencies, boardConfig, savedAt: Date.now() });
     };
     persist();
     const unsubscribe = cache.subscribe((event) => {
+      // Subscribe to all three keys, not just tasks. The guards above make the write
+      // wait for the last of the three to settle, so a tasks-only subscription would
+      // mean a deps or config answer landing after the final tasks event never
+      // produces a snapshot at all — turning the guard into a silent disable of
+      // offline seeding rather than a delay of it.
       const key = event.query.queryKey as readonly unknown[];
-      if (key[0] === 'tasks' && key[1] === projectId) persist();
+      if (key[1] !== projectId) return;
+      if (key[0] === 'tasks' || key[0] === 'dependencies' || key[0] === 'boardConfig') persist();
     });
     return unsubscribe;
   }, [projectId, queryClient]);

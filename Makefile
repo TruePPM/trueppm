@@ -368,6 +368,12 @@ version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
 	@# getting-started/. Editing a non-declaring page breaks its baseline hash, so
 	@# any docs branch can trip this. ~3s, no network.
 	@bash scripts/check-version-status.sh
+	@# The early-promotion guard (#2824) refuses an alpha cut against a version
+	@# already promoted to the roadmap's "## Shipped" section while its "Ships in
+	@# 0.X" callouts are still live — the edit that licenses release.sh to delete
+	@# all 131 of them. It only ever executes at release time, so this self-test is
+	@# the only signal that it still works. Same CI job. ~1s, no network.
+	@bash scripts/check-early-promotion.sh --self-test
 
 config-doc-links-check: ## Run the docs:config-links CI job locally (#3190)
 	@# Every https://docs.trueppm.com link in packages/helm/values.yaml and
@@ -403,6 +409,20 @@ gate-selftest-parity-check: ## Fail if a CI gate never proves it can fail, in it
 	@bash scripts/check-gate-selftest-parity.sh --self-test
 	@bash scripts/check-gate-selftest-parity.sh
 
+package-licenses-check: ## Run the lint:package-licenses CI job locally (#3217)
+	@# Every separately-distributed package ships its own license text (#2632).
+	@# Apache-2.0 §4(a) obliges a recipient of a distribution to receive the
+	@# license, and the root LICENSE does not travel with a PyPI wheel, a
+	@# crates.io sdist, or a packaged Helm chart.
+	@#
+	@# This was opted OUT of pre-push for five months under "requires installed
+	@# dependency trees for five packages" — a reason written about the
+	@# license:check:* DEPENDENCY jobs, not this one (#3217). It reads LICENSE and
+	@# packages/*/LICENSE and diffs them: no network, no toolchain, 0.03s for the
+	@# scan and 0.24s for the self-test.
+	@bash scripts/check-package-licenses.sh --self-test
+	@bash scripts/check-package-licenses.sh
+
 prepush-parity-check: ## Fail if a CI check script has no pre-push mirror and no opt-out (#2941)
 	@# The durable half of #2941. The pre-push list was a historical accretion —
 	@# each gate added by hand as it was written, and nothing checking the list
@@ -431,7 +451,7 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

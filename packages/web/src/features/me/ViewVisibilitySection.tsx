@@ -38,6 +38,15 @@ export function ViewVisibilitySection() {
   }, [pending, serverHidden]);
 
   function commit(next: string[]) {
+    // `serverHidden` is `user?.hidden_views ?? []`, which says the same thing for
+    // "/auth/me/ has not answered yet" as for "this user hides nothing" (#3214,
+    // the #3213 shape). That matters here because the PATCH sends the FULL
+    // replacement set, not a delta: a user with five hidden views who clicks a
+    // toggle in that window would send `[thatOne]` and silently un-hide the other
+    // four — server-side, on every device, confirmed rather than repaired by the
+    // `['current-user']` invalidation that follows. An empty set is only a real
+    // answer once `user` exists.
+    if (!user) return;
     setPending(next);
     update.mutate(next, { onError: () => setPending(null) });
   }
@@ -114,6 +123,7 @@ export function ViewVisibilitySection() {
                   onLabel={label}
                   offLabel={label}
                   ariaLabel={`${label} — ${visible ? 'shown' : 'hidden'}`}
+                  disabled={!user}
                 />
               );
             })}

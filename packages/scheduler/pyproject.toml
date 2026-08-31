@@ -135,10 +135,26 @@ pytest_add_cli_args = [
     "--ignore=tests/test_contract_fuzz.py",
 ]
 #
-# mutmut runs the suite inside a copied `mutants/` sandbox; copy scripts/ in too so
-# tests/test_mutation_score.py can import the score helper there as it does in a
-# normal run.
-also_copy = ["scripts/"]
+# mutmut runs the suite inside a copied `mutants/` sandbox, and anything a test
+# reads that is not copied in is simply absent there. Three entries, all load
+# bearing:
+#   * scripts/     — tests/test_mutation_score.py imports the score helper.
+#   * CHANGELOG.md
+#   * README.md    — tests/test_public_surface.py::TestReleaseMetadataConsistency
+#                    reads both off the package root (#2837).
+#
+# The changelog omission cost 13 consecutive nightlies (#3216). mutmut's stats
+# pass runs the suite once with `-x` before mutating anything; that run raised
+# FileNotFoundError on mutants/CHANGELOG.md, mutmut printed "failed to collect
+# stats" and exited 1, `|| true` swallowed it, and `export-cicd-stats` wrote
+# {"killed": 0, "survived": 0} — which the score check read as "no scoreable
+# mutants" and passed. Every mutant read `not checked` in the artifact and the
+# job went green from 2026-08-18 to 2026-08-30.
+#
+# So: a test added under packages/scheduler/ that reads a repo file is a change
+# to THIS list. The failure is silent by construction — nothing about a green
+# scheduler:mutation tells you the suite never ran.
+also_copy = ["scripts/", "CHANGELOG.md", "README.md"]
 
 [tool.mypy]
 # No python_version pin (#1342): mypy tracks the interpreter it runs under, so it

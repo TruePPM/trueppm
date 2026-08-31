@@ -256,6 +256,15 @@ export function ViewsMenu() {
     view === 'sprints' ? iteration.plural : (VIEW_TAB_META[view]?.label ?? view);
 
   function commit(next: string[]) {
+    // `serverHidden` is `user?.hidden_views ?? []`, which says the same thing for
+    // "/auth/me/ has not answered yet" as for "this user hides nothing" (#3214,
+    // the #3213 shape). The PATCH sends the FULL replacement set, not a delta, so
+    // a toggle clicked in that window would send `[thatOne]` and silently un-hide
+    // every other view the user had hidden — server-side and on every device.
+    // This menu is mounted on every project route, so its exposure window is the
+    // widest of the two ADR-0139 surfaces. An empty set is only a real answer
+    // once `user` exists.
+    if (!user) return;
     setPending(next);
     update.mutate(next, {
       onError: () => setPending(null),
@@ -348,7 +357,8 @@ export function ViewsMenu() {
                     role="menuitemcheckbox"
                     aria-checked={visible}
                     onClick={() => toggle(view)}
-                    className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left hover:bg-chrome-surface-raised focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
+                    disabled={!user}
+                    className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left hover:bg-chrome-surface-raised focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary disabled:cursor-not-allowed disabled:hover:bg-transparent"
                   >
                     <Icon
                       className={

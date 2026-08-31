@@ -408,6 +408,49 @@ For production, use managed datastores with TLS instead (below). When
 `env.DATABASE_URL` **must** include `sslmode=require` — the app refuses to boot on
 a plaintext external database.
 
+### Chart-generated passwords and GitOps
+
+When `postgresql.auth.password` / `valkey.auth.password` are empty, the chart
+generates a strong random password on first install and keeps it in the
+chart-owned connection Secret, which carries `helm.sh/resource-policy: keep` so
+an accidental `helm uninstall` cannot orphan the database PVC behind a lost
+credential.
+
+On a re-render the chart reads the existing password back with Helm's `lookup`
+function, so `helm upgrade` never churns it. **`lookup` only works when Helm is
+talking to a live cluster.** It returns an empty result during `helm template`,
+`helm install --dry-run`, and `helm diff` — and in that case the chart falls
+through to generating a *new* password:
+
+```bash
+# Three renders of the same chart with the same values:
+for i in 1 2 3; do
+  helm template trueppm packages/helm | grep POSTGRES_PASSWORD
+done
+# → three different passwords
+```
+
+That matters if you deploy through a renderer rather than through Helm itself.
+**Argo CD renders manifests with `helm template`**, so with the bundled
+datastores and an empty password, every sync mints a new credential, overwrites
+the Secret, and leaves the PostgreSQL StatefulSet's PVC holding the old one. The
+API then fails to authenticate against its own database, and nothing in the
+error names the cause.
+
+Two supported postures:
+
+- **Production — use managed datastores.** `values-prod.yaml` already sets
+  `postgresql.enabled: false` and `valkey.enabled: false`, so no password is
+  generated and the question does not arise. This is the recommended path
+  regardless of how you deploy.
+- **Dev/demo under GitOps — set the passwords explicitly.** Supply
+  `postgresql.auth.password` and `valkey.auth.password` from your secret manager
+  (External Secrets, Sealed Secrets, SOPS). The chart honors an explicit value
+  verbatim and never generates, so renders become deterministic.
+
+`helm install` and `helm upgrade` are unaffected — they reach the cluster, find
+the kept Secret, and read the existing password back.
+
 ### Managed (external) datastores
 
 For production, disable the bundled subcharts and point at managed services.

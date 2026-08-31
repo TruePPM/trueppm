@@ -53,6 +53,29 @@ IMAGE_REPO="${IMAGE_REPO:-${REGISTRY}/trueppm/trueppm}"
 RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 APISERVER_HOST="${APISERVER_HOST:-docker}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
+# DRILL-SPECIFIC celery probe settings (#3218) — chart defaults are unchanged
+# and stay the production posture. Same values and same reason as the block in
+# scripts/helm-install-drill.sh, which carries the full evidence; keep the two
+# in sync. Short version: an exec probe runs INSIDE the container it measures,
+# so each `celery inspect ping` forks a full Django import into the worker's own
+# 1-CPU cgroup and starves the MainProcess that has to answer it. On a loaded
+# node it never succeeds — job 16193488334 saw x13 readiness failures with zero
+# successes against a worker that had logged `ready.` 16s in and never
+# restarted. Readiness needs one success and has no failure budget to widen, so
+# no timing value can fix it; the probe has to come off for the drill.
+# This drill installs the same chart the same way and job 16193421330 shows it
+# failing identically, so it carries the same block. A CNI-enforcing cluster is
+# if anything worse, since Calico must program the policy before the worker can
+# reach Valkey at all.
+# Beat keeps its probe: it renders a livenessProbe only, so it never gates
+# `--wait`, and its period stays at the chart's 60s so the drill does not double
+# Django-import forks into the chart's tightest cgroup.
+CELERY_PROBE_OVERRIDES=(
+  --set probes.worker.enabled=false
+  --set probes.beat.initialDelaySeconds=45
+  --set probes.beat.timeoutSeconds=15
+  --set probes.beat.failureThreshold=10
+)
 CALICO_VERSION="${CALICO_VERSION:-v3.32.1}"
 # Probe image: busybox carries `nc`, which reports a dropped SYN as a timeout
 # (exit != 0) and an accepted connection as exit 0 — exactly the discrimination
@@ -247,6 +270,7 @@ helm install "$RELEASE" "$CHART" \
   --set persistence.media.enabled=true \
   --set persistence.media.accessMode=ReadWriteOnce \
   --set 'envFrom[0].secretRef.name=trueppm-env' \
+  "${CELERY_PROBE_OVERRIDES[@]}" \
   --wait --timeout "$INSTALL_TIMEOUT"
 log "rollout complete under an enforcing CNI"
 kubectl get pods -o wide
