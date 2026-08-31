@@ -418,11 +418,16 @@ export function WorkspaceGeneralPage() {
 
         <FieldRow
           label="Fiscal year starts"
-          hint="Controls how quarters are labeled across the workspace, including the Schedule timeline."
+          hint="The month sets how quarters are labeled across the workspace, including the Schedule timeline. The day is stored but not used to place a quarter boundary."
           help={
             <FieldHelp
               label="Fiscal year starts"
-              body="The month and day your fiscal year begins, so quarters (Q1–Q4) label correctly everywhere they appear, including the Schedule timeline. Set it to match your organization's finance calendar."
+              /* The month is fully wired (GanttScaleData.fiscalQuarter reads it). The
+                 day reaches only the fiscal_year_start_display label — quarter
+                 boundaries are computed from the month alone, so an April 6 fiscal
+                 year draws Q1 from April 1. Say so rather than let the confirmed
+                 "April 6" read as a boundary the timeline honors (#3234). */
+              body="The month your fiscal year begins, so quarters (Q1–Q4) label correctly everywhere they appear, including the Schedule timeline. Set it to match your organization's finance calendar. The day is recorded for display — quarters still begin on the first of the month, so a fiscal year starting April 6 shows Q1 beginning April 1."
               docHref="administration/workspace-settings/#fiscal-year-start"
             />
           }
@@ -439,12 +444,18 @@ export function WorkspaceGeneralPage() {
 
         <FieldRow
           label="Work week"
-          hint="Non-working days are skipped by the scheduler."
+          hint="Saved here, but not yet read by the scheduler — set working days on a calendar."
           help={
             <FieldHelp
               label="Work week"
-              body="The days the scheduler treats as working days. Non-working days are skipped when it lays out task dates and durations, so a 5-day task starting Friday finishes the following Thursday when the weekend is off."
-              docHref="administration/working-calendars/"
+              /* This field has no consumer anywhere: not in packages/scheduler, not in
+                 packages/wasm-scheduler, not in the CPM path. Working days come
+                 exclusively from Calendar.working_days via
+                 resolve_effective_base_calendar. Wiring it is #75 (0.8). Until then the
+                 honest statement is that the control persists and changes nothing —
+                 same treatment PhaseGateConfigPanel gives its unwired template. */
+              body="The working-week pattern for the workspace. TruePPM does not schedule against it yet — every project's working days come from its working calendar, which is where to change them today. This field saves and reloads, but no task date moves as a result of it."
+              docHref="administration/workspace-settings/#settings-that-are-stored-but-not-yet-read"
             />
           }
         >
@@ -472,12 +483,15 @@ export function WorkspaceGeneralPage() {
 
         <FieldRow
           label="Default project view"
-          hint="Where members land when they open a project for the first time."
+          hint="Saved here, but not yet read — projects currently open on the Schedule."
           help={
             <FieldHelp
               label="Default project view"
-              body="The view a member lands on the first time they open a project — Dashboard, Board, Schedule, WBS, Table, or Calendar. Each member can still switch views afterward, and their choice is remembered per project."
-              docHref="administration/workspace-settings/"
+              /* Zero consumers: nothing seeds Project.default_view from this value, and
+                 projects/seed/importer.py hardcodes "SCHEDULE". The control persists and
+                 changes nothing (#3234). */
+              body="The view a member is intended to land on the first time they open a project. TruePPM does not read it yet — every project opens on its own default view, which is the Schedule. This field saves and reloads, but where you land does not change."
+              docHref="administration/workspace-settings/#settings-that-are-stored-but-not-yet-read"
             />
           }
         >

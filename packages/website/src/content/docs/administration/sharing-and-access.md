@@ -175,7 +175,7 @@ them per program or project would be meaningless or contradictory.
 | Setting | Why workspace-only |
 |---|---|
 | **Fiscal year start** | A fiscal calendar is an organization-wide accounting anchor; per-project fiscal years would make rollups and quarter labels incoherent. |
-| **Work week** (working-day flags) | The default working-week pattern is an installation default; per-project working time is expressed through project **calendars**, not a second copy of this flag. |
+| **Work week** (working-day flags) | Per-project working time is expressed through project **calendars**, not a second copy of this flag — which is why there is no per-scope override here. Note that the workspace field itself is **currently inert**: nothing reads it, and working days resolve entirely from the [working calendar](/administration/working-calendars/) chain. See [Settings that are stored but not yet read](/administration/workspace-settings/#settings-that-are-stored-but-not-yet-read). |
 
 ### Per-scope, inheritable
 
