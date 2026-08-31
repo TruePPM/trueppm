@@ -17,9 +17,13 @@ class IntegrationsConfig(AppConfig):
         against the same registries at the same hook — no OSS code changes
         required when Enterprise lights up Jira / ServiceNow / Slack App.
 
-        ``NOTIFICATION_CHANNELS`` is wired by #639 (``email``/``in_app``).
-        ``OUTGOING_CHANNEL_PROVIDERS`` is populated here by #638 with the OSS
-        ``generic`` and ``slack`` renderers.
+        ``NOTIFICATION_CHANNELS`` is populated below with the OSS ``in_app`` /
+        ``email`` channels, but **nothing consumes the registry yet** — channel
+        validation still runs off the ``ProjectNotificationChannel`` TextChoices,
+        so a channel registered here is not thereby accepted. Wiring it is #3252.
+        Contrast ``OUTGOING_CHANNEL_PROVIDERS``, populated here by #638 with the
+        OSS ``generic`` and ``slack`` renderers, which *is* consumed — see
+        ``apps/webhooks/serializers.py`` and ``apps/webhooks/dispatch.py``.
         """
         from .external_sources import EXTERNAL_TASK_SOURCES, OSS_EXTERNAL_TASK_SOURCES
         from .notification_channels import OSS_NOTIFICATION_CHANNELS
