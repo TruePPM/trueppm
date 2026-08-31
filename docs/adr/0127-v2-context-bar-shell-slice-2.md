@@ -13,6 +13,14 @@ Decision E = defer presence, Decision B = drop "+ New".
 > when the rail is hidden / on mobile) rather than always-on, and the theme toggle collapses
 > to `UserMenu` only.
 
+> **Decision D superseded by [ADR-0979](0979-collapsed-rail-is-icon-only.md) (2026-08-31).**
+> Founder decision: the collapsed rail is **icon-only at 64px**, not a 0px hide. The
+> alternatives row below that rejects "Collapse = 60px icon rail kept" is therefore
+> **reversed** — and so is the derived claim that this supersedes #1176, whose *premise*
+> (icons in the collapsed rail) returns, though not as a hand-picked Resources exception;
+> see ADR-0979 §4. The persistent re-open `≡` **stays**, re-characterised as a toggle
+> rather than a rescue. Decisions A, B, C and E are untouched.
+
 ## Context
 The v2 UI redesign (epic #1163, golden standard in ADR-0126) replaces the legacy
 16-element top bar with a calm **two-row top region**: a *context row* (wayfinding +
@@ -112,7 +120,7 @@ left→right:
 | New `ContextBar` above untouched `TopBar` (chosen) | Zero churn to tabs/health; #1167 stays clean; ships independently | A transient extra row until #1167 trims `TopBar` |
 | Restructure `TopBar` into a two-row container now | One component owns the top region | Forces touching ViewTabs/health/notifications = #1167's scope; high regression risk |
 | Breadcrumb inline in each view (status quo) | No new component | Three drifting copies; no persistent wayfinding; fails the "always know where I am" VoC win |
-| Collapse = 60px icon rail kept (Decision D alt) | Preserves #1176 quick icon-nav | Not the golden-standard "hide-to-context-bar"; leaves the interim state permanent |
+| Collapse = 60px icon rail kept (Decision D alt) — **REVERSED 2026-08-31, this is now the decision at 64px; see [ADR-0979](0979-collapsed-rail-is-icon-only.md)** | Preserves #1176 quick icon-nav | Not the golden-standard "hide-to-context-bar"; leaves the interim state permanent |
 
 ## Consequences
 - **Easier:** persistent wayfinding (the validated VoC win); a reusable `Breadcrumb` +
