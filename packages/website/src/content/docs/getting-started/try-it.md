@@ -10,8 +10,8 @@ hybrid sample project — arrive with the **0.4 beta**. This page previews them.
 
 :::caution[Ships in 0.4 — not yet available]
 Both paths on this page land with the **0.4 tag**. 0.4 is currently **Underway**
-(target Aug 17 – 31, 2026) — see the [roadmap](/overview/roadmap/). The hosted
-`try.trueppm.com` instance goes live at the tag, and the `docker-compose.demo.yml`
+(target Aug 31 – Sep 14, 2026) — see the [roadmap](/overview/roadmap/). The
+hosted `try.trueppm.com` instance goes live at the tag, and the `docker-compose.demo.yml`
 trial pulls published release images that are not built until then (#939). Until
 0.4 tags, treat this page as a preview.
 
