@@ -843,6 +843,70 @@ if notes --set env.SECRET_KEY=x --set env.ALLOWED_HOSTS=h \
   fail "NOTES.txt still warns about missing secrets when every key is set under env.* (#2812)"
 fi
 
+# 10b. The port-forward path must name ALLOWED_HOSTS, and every prescribed
+#      ALLOWED_HOSTS must cover it (#3238).
+#
+#      With ingress.enabled=false — the chart DEFAULT — NOTES.txt's port-forward
+#      command is the only route into the app. The web tier's nginx proxies /api/
+#      with `Host $host`, so Django sees `Host: localhost`. Omitting it fails in
+#      the most misleading way available: nginx serves the SPA and its bundles off
+#      disk without ever touching Django, so the app RENDERS and then every
+#      /api/v1/... call answers 400, with nothing naming the cause.
+#
+#      Probed through the same offline mechanism as the boot-guard notice above:
+#      the text lives in trueppm.portForwardHostNotice, because
+#      `helm install --dry-run` needs a reachable cluster even with
+#      --dry-run=client and this job has none.
+grep -q 'trueppm.portForwardHostNotice' "$CHART/templates/NOTES.txt" \
+  || fail "NOTES.txt does not include the trueppm.portForwardHostNotice helper — it prints a port-forward command with no word that ALLOWED_HOSTS must contain localhost (#3238)"
+
+cat > "$PROBE_DIR/chart/templates/zz-portfwd-notice-probe.yaml" <<'PFPROBE'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: port-forward-notice-probe
+data:
+  notice: |
+{{ include "trueppm.portForwardHostNotice" . | indent 4 }}
+PFPROBE
+
+# Both topologies reach the API under `localhost`: through the web tier's nginx
+# proxy, and directly when web.enabled=false. The notice must fire in each.
+for pf_web in true false; do
+  pf_notice="$(helm template trueppm "$PROBE_DIR/chart" --set image.tag=latest \
+    --set "web.enabled=$pf_web" --show-only templates/zz-portfwd-notice-probe.yaml 2>&1)"
+  echo "$pf_notice" | grep -q "ALLOWED_HOSTS" \
+    || fail "the port-forward notice does not name ALLOWED_HOSTS with web.enabled=$pf_web (#3238)"
+  echo "$pf_notice" | grep -q "localhost" \
+    || fail "the port-forward notice does not name 'localhost' with web.enabled=$pf_web — that is the Host Django actually receives (#3238)"
+done
+
+# ...and the docs must prescribe an ALLOWED_HOSTS that contains it. Asserted as an
+# AGREEMENT between chart and docs rather than a string match on either alone,
+# because the defect was exactly that they disagreed: NOTES.txt told the operator
+# to port-forward while the README and the deployment guide prescribed a list
+# without localhost.
+#
+# The docs path is anchored on THIS SCRIPT's location, not on $CHART: the
+# self-test passes a fixture chart copied into a temp dir, from which no docs
+# tree is reachable. Anchoring on $CHART made the assertion count 1 source
+# instead of 2 and fail the self-test — which is the counter working.
+pf_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+pf_docs_checked=0
+for src in "$CHART/README.md" \
+           "$pf_repo_root/packages/website/src/content/docs/administration/deployment.md"; do
+  [ -f "$src" ] || continue
+  pf_docs_checked=$((pf_docs_checked + 1))
+  while IFS= read -r line; do
+    case "$line" in
+      *localhost*) : ;;
+      *) fail "$(basename "$src") prescribes '$line' — no localhost, while NOTES.txt tells operators to port-forward. The SPA loads and every /api/ call 400s (#3238)" ;;
+    esac
+  done < <(grep -o 'ALLOWED_HOSTS=[A-Za-z0-9.,_-]*' "$src" || true)
+done
+[ "$pf_docs_checked" -eq 2 ] \
+  || fail "expected to check 2 ALLOWED_HOSTS doc sources, checked $pf_docs_checked — a path moved and this assertion silently stopped covering it (#3238)"
+
 # 11. The quiet branch must NAME the envFrom sources it is trusting (#2879).
 #    `len(envFrom) > 0` is a weak signal: `envFrom` is a list, so a values file that
 #    sets it REPLACES the operator's entry instead of appending. A release whose only

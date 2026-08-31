@@ -13,7 +13,7 @@ starts (details: [Required secrets](#required-secrets-prod-refuses-to-boot-witho
 # 1. the four values settings.prod enforces at import time
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
-  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api,localhost,127.0.0.1 \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
     'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
@@ -407,14 +407,14 @@ API, Celery worker, **and** the init containers all consume it):
 | Key | Why | Issue |
 |-----|-----|-------|
 | `SECRET_KEY` | ≥ 32 chars; Django signing | #566 |
-| `ALLOWED_HOSTS` | comma-separated hostnames | Must cover every name a request arrives under, not just your public one: the `helm test` probe curls the api Service by DNS name (`<release>-trueppm-api`, collapsed to `trueppm-api` when the release name already contains "trueppm"), and the kubelet probes send the `probes.api.hostHeader` value. A miss is a 400 DisallowedHost, which reads like a routing fault. |
+| `ALLOWED_HOSTS` | comma-separated hostnames | Must cover every name a request arrives under, not just your public one: the `helm test` probe curls the api Service by DNS name (`<release>-trueppm-api`, collapsed to `trueppm-api` **only** when the release name already contains "trueppm" — `helm install ppm` needs `ppm-trueppm-api`), the kubelet probes send the `probes.api.hostHeader` value, and a `kubectl port-forward` browser session arrives as `localhost` because the web tier's nginx proxies `/api/` with `Host $host`. A miss is a 400 DisallowedHost, which reads like a routing fault. |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key; encrypts integration PATs at rest | #1002 |
 | `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` *or* `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` **with `persistence.media.enabled=true`** | attachment storage choice. The local opt-in is verified at boot from 0.4: the pods have a read-only root filesystem, so without the claim there is no writable path and the API refuses to start rather than fail on the first upload. | #775, #2559, #3184 |
 
 ```bash
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
-  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api,localhost,127.0.0.1 \
   --from-literal=INTEGRATION_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") \
   --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage \
   --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments

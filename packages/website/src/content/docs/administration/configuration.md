@@ -95,6 +95,7 @@ Your public hostname is rarely the only name in play:
 | The api container's healthcheck | `localhost` | Docker Compose — `docker-compose.prod.yml` curls `http://localhost:8000/api/v1/health/` |
 | kubelet liveness/readiness probes | the pod IP, unless a `Host` header is set | Kubernetes |
 | The `helm test` connection probe | `<release>-trueppm-api` | Kubernetes |
+| A `kubectl port-forward` browser session | `localhost` | Kubernetes — the only route in when `ingress.enabled: false`, the chart default |
 
 On **Compose**, omit `localhost` and the api container reports `unhealthy`
 forever while the site itself serves correctly — nginx passes `Host $host`, so
@@ -109,7 +110,21 @@ and the Ingress serves 503.
 
 Because `ingress.enabled` defaults to **false**, the default install sends
 `<release>-trueppm-api` on both probes — the same name the `helm test` row above
-already requires. One entry covers all three Kubernetes callers.
+already requires. One entry covers all three of those callers, but not the
+port-forward session below, which sends a different name.
+
+Also on **Kubernetes**, `NOTES.txt` prints a `kubectl port-forward` command
+after every install without an Ingress — which is the default. The web tier's
+nginx proxies `/api/` with `proxy_set_header Host $host`, so a browser on
+`http://localhost:8080` makes Django see `Host: localhost`. Omit `localhost` and
+the failure is deceptively partial: the SPA document and its JS bundles load
+fine, because nginx serves them off disk and never touches Django, while every
+`/api/v1/...` call returns 400. The app renders and then appears broken, with
+nothing naming the cause.
+
+`<release>-trueppm-api` collapses to `trueppm-api` **only** when the release name
+already contains "trueppm". `helm install ppm ...` produces `ppm-trueppm-api` —
+list the name your own release actually generates.
 
 Wildcards are not a fix. `ALLOWED_HOSTS=*` disables host validation entirely and
 is never appropriate in production — list the names instead.

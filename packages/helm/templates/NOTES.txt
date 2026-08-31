@@ -46,4 +46,6 @@ No Ingress is rendered (ingress.enabled=false). Port-forward to try it:
 
   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "trueppm.fullname" . }}-api 8080:{{ .Values.service.port }}
 {{- end }}
+
+{{ include "trueppm.portForwardHostNotice" . }}
 {{- end }}

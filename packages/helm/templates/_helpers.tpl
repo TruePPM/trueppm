@@ -878,3 +878,37 @@ fall back to `Host: <podIP>:8000`, and a pod IP is never in ALLOWED_HOSTS.
 {{- printf "%s-api" (include "trueppm.fullname" .) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Port-forward ALLOWED_HOSTS notice (#3238).
+
+With ingress.enabled=false — the chart DEFAULT — the port-forward command in
+NOTES.txt is the only route into the app. The web tier's nginx proxies /api/ with
+`proxy_set_header Host $host`, so Django receives `Host: localhost`, not the
+operator's public hostname.
+
+Omitting localhost fails in the most misleading way available: nginx serves the
+SPA document and its JS bundles off disk without ever touching Django, so the app
+RENDERS, and then every /api/v1/... XHR answers 400 DisallowedHost. It looks like
+a broken build, and nothing in the response names ALLOWED_HOSTS.
+
+Lives in a named helper rather than inline in NOTES.txt for the same reason
+trueppm.bootGuardNotice does: `helm install --dry-run` needs a reachable cluster
+even with --dry-run=client, so the gate cannot render NOTES.txt directly. A
+helper can be rendered offline through a throwaway probe template, which is what
+scripts/helm-structure-check.sh does.
+*/}}
+{{- define "trueppm.portForwardHostNotice" -}}
+{{- if .Values.web.enabled }}
+!! ALLOWED_HOSTS must contain `localhost` before this works.
+!! The web tier's nginx proxies /api/ with `Host $host`, so Django sees
+!! `Host: localhost` — not your public hostname. If it is missing, the page
+!! and its JS load fine (nginx serves those off disk without touching Django)
+!! and then EVERY /api/v1/... call answers 400 DisallowedHost. The app looks
+!! broken and nothing in the response names ALLOWED_HOSTS.
+{{- else }}
+!! ALLOWED_HOSTS must contain `localhost` before this works — you are calling
+!! the API directly as http://localhost:8080, so Django sees `Host: localhost`
+!! and answers 400 DisallowedHost if it is not listed.
+{{- end }}
+{{- end -}}
