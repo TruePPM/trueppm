@@ -1806,12 +1806,16 @@ api:lint:
   extends: .fast-job
   stage: lint
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
-  cache:
-    <<: *api-cache
-    policy: pull
+  # Deliberately no pip cache. This job runs as root on a stock image, while the
+  # `api-pip` archive is written by the ci-api jobs as uid 1000; when euid is 0
+  # pip's check_path_owner() uses the cache only if the directory is owned by
+  # uid 0, so every restore was followed by "The cache has been disabled" and
+  # cost ~2s for nothing (#3274). `ruff` is one small wheel -- fetching it
+  # uncached beats restoring a 643-file archive pip will not read.
+  # --no-cache-dir also stops pip writing a cache no later job can use.
   <<: *rules-api
   before_script:
-    - pip install ruff --quiet
+    - pip install ruff --quiet --no-cache-dir
   script:
     - cd packages/api
     - ruff check src/ tests/
@@ -3564,16 +3568,30 @@ wasm:conformance:
   # fails against the committed snapshots — and regenerating them touches
   # `packages/wasm-scheduler/fixtures/`, which pulls `wasm:test` back into the
   # pipeline to re-check Rust against the new oracle. `main` runs everything.
+  # Runs `pytest` inside packages/scheduler, so it belongs on the scheduler
+  # template like every other scheduler:* job. It sat on a stock python image,
+  # which cost a full scheduler[dev] install from PyPI on every run (~14s) --
+  # and, because that image runs as root while the `scheduler-pip` archive is
+  # written by ci-scheduler as uid 1000, pip refused the restored cache outright
+  # (check_path_owner() demands uid-0 ownership when euid is 0), so the download
+  # was pure cost. The template's image has the dev-dep wheels resident, making
+  # the install an editable re-link, and runs as the same uid 1000 that wrote
+  # the cache (#3274).
+  extends: .scheduler
   stage: test
-  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
-    # Both needs are optional: this job fires on scheduler OR wasm-scheduler
-    # changes, but scheduler:lint only fires on scheduler changes and
-    # wasm:lint only fires on wasm-scheduler changes. A wasm-scheduler-only
+    # scheduler:lint and wasm:lint are optional: this job fires on scheduler OR
+    # wasm-scheduler changes, but scheduler:lint only fires on scheduler changes
+    # and wasm:lint only fires on wasm-scheduler changes. A wasm-scheduler-only
     # MR schedules conformance + wasm:lint but not scheduler:lint (and vice
     # versa for a scheduler-only MR). Without optional on both, GitLab fails
     # the whole pipeline with "needs job does not exist" the moment either
-    # side is scheduled without the other.
+    # side is scheduled without the other. Re-stated here rather than inherited
+    # because a job's own `needs` list REPLACES the template's, so
+    # ci:build-scheduler-image has to be named explicitly -- same pattern as
+    # scheduler:bench and scheduler:notebooks.
+    - job: ci:build-scheduler-image
+      optional: true
     - job: scheduler:lint
       optional: true
     - job: wasm:lint
@@ -3588,8 +3606,7 @@ wasm:conformance:
   cache:
     <<: *scheduler-cache
     policy: pull
-  before_script:
-    - pip install -e "packages/scheduler[dev]" --quiet
+  # before_script (the editable scheduler[dev] re-link) comes from .scheduler.
   script:
     - cd packages/scheduler
     - pytest tests/test_wasm_conformance.py -v
@@ -4393,13 +4410,12 @@ web:integration:
         prefix: web-npm-cacache
       paths:
         - .cache/npm/
-    - key:
-        files:
-          - packages/api/pyproject.toml
-        prefix: api-pip
-      paths:
-        - .cache/pip/
-      policy: pull
+    # No api-pip entry. The ci-integration image runs as pwuser (uid 1001) while
+    # that archive is written by ci-api as uid 1000, so pip disabled the restored
+    # cache on every run and the ~3.5s download bought nothing (#3274). Even with
+    # the uids aligned it would buy nothing: the dev-deps are already resident in
+    # the image under /opt/api-venv, so the installs below are editable re-links
+    # that never reach an index.
   before_script:
     - *retry-fn
     # Image has Python 3 + uvicorn + scheduler[dev] + api[dev] dev-deps resident
@@ -4516,13 +4532,12 @@ sso:integration:
         prefix: web-npm-cacache
       paths:
         - .cache/npm/
-    - key:
-        files:
-          - packages/api/pyproject.toml
-        prefix: api-pip
-      paths:
-        - .cache/pip/
-      policy: pull
+    # No api-pip entry. The ci-integration image runs as pwuser (uid 1001) while
+    # that archive is written by ci-api as uid 1000, so pip disabled the restored
+    # cache on every run and the ~3.5s download bought nothing (#3274). Even with
+    # the uids aligned it would buy nothing: the dev-deps are already resident in
+    # the image under /opt/api-venv, so the installs below are editable re-links
+    # that never reach an index.
   before_script:
     - *retry-fn
     - retry pip install -e "packages/scheduler[dev]" --quiet

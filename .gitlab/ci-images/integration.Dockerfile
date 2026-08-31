@@ -79,8 +79,18 @@ RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api \
  && rm -rf /opt/ci-deps
 
 # Run the CI job as a non-root user (Sonar dockerfile:S6471). The Playwright base
-# ships `pwuser` (uid 1000, the vendor's own browser-sandbox user); give it the
-# venv so the job-time `pip install -e packages/...` editable re-link still writes.
+# ships `pwuser` (uid **1001**, the vendor's own browser-sandbox user); give it
+# the venv so the job-time `pip install -e packages/...` editable re-link still
+# writes.
+#
+# The uid matters beyond this chown, and this comment used to say 1000 (#3274).
+# The ci-api and ci-scheduler images run as `ci` = uid 1000 and are what write
+# the shared `.cache/pip` cache archives, so anything restored here is owned by
+# 1000 and pip silently disables the cache for a uid-1001 process. That is why
+# the integration jobs declare no api-pip cache entry: they cannot use one, and
+# the dev-deps are resident in /opt/api-venv anyway. Verify with
+# `docker run --rm --entrypoint sh <base> -c 'id pwuser'` before trusting it --
+# it is the vendor's number, not ours, and it has moved before.
 RUN chown -R pwuser /opt/api-venv
 USER pwuser
 
