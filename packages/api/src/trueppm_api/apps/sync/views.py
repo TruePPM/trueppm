@@ -527,7 +527,10 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         # documents the shape but ignores unknown collection keys; passing the raw
         # map keeps the explicit "unsupported collection → 400" guard byte-identical
         # for existing clients rather than silently dropping the foreign collection.
-        changes = request.data["changes"]
+        # The envelope serializer above already rejected a non-mapping body with a
+        # 400 ("Expected a dictionary, but got list"), so the raw body is provably a
+        # mapping by here — narrowed rather than re-guarded.
+        changes = cast("dict[str, Any]", request.data)["changes"]
 
         try:
             project = Project.objects.get(pk=pk, is_deleted=False)

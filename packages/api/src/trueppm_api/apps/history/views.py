@@ -217,7 +217,7 @@ class TaskHistoryListView(APIView):
         records = raw[:_MAX_HISTORY_ROWS]
 
         paginator = HistoryPagination()
-        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
+        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records
 
         # Pass the untrimmed cap+1 batch (#1889): when the cap was hit, the extra row
         # serves purely as the diff seed for the oldest kept record — otherwise that
@@ -284,7 +284,7 @@ class ProjectHistoryListView(APIView):
         records = raw[:_MAX_HISTORY_ROWS]
 
         paginator = HistoryPagination()
-        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
+        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records
 
         # Pass the untrimmed cap+1 batch (#1889): when the cap was hit, the extra row
         # serves purely as the diff seed for the oldest kept record — otherwise that

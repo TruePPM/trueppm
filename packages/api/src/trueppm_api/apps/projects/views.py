@@ -250,6 +250,7 @@ from trueppm_api.apps.webhooks.models import (
 )
 from trueppm_api.core.openapi import suppress_list_pagination
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
+from trueppm_api.core.request_body import object_body
 
 logger = logging.getLogger(__name__)
 
@@ -6836,7 +6837,7 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
         from trueppm_api.apps.projects.services import toggle_demo_ready
 
         outcome = self.get_object()  # runs object-level IsProjectMemberWrite
-        demo_ready = bool(request.data.get("demo_ready", True))
+        demo_ready = bool(object_body(request).get("demo_ready", True))
         toggle_demo_ready(outcome, demo_ready=demo_ready)
         return Response(
             {"id": str(outcome.id), "demo_ready": outcome.demo_ready},
@@ -6854,7 +6855,7 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
         from trueppm_api.apps.projects.services import set_demo_presenter
 
         outcome = self.get_object()  # runs object-level IsProjectMemberWrite
-        presenter = request.data.get("presenter", "")
+        presenter = object_body(request).get("presenter", "")
         if not isinstance(presenter, str):
             return Response(
                 {"presenter": ["Must be a string."]}, status=status.HTTP_400_BAD_REQUEST
@@ -6880,7 +6881,7 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
         from trueppm_api.apps.projects.services import set_review_note
 
         outcome = self.get_object()  # runs object-level IsProjectMemberWrite
-        note = request.data.get("note", "")
+        note = object_body(request).get("note", "")
         if not isinstance(note, str):
             return Response({"note": ["Must be a string."]}, status=status.HTTP_400_BAD_REQUEST)
         set_review_note(outcome, note=note)
@@ -6956,7 +6957,7 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
         )
 
         item = self.get_object()  # runs object-level IsProjectMemberWrite
-        data = request.data
+        data = object_body(request)
         if "column" in data or "position" in data:
             try:
                 position = float(data.get("position", item.position))
@@ -9968,7 +9969,7 @@ class TaskLabelView(IdempotencyMixin, APIView):
     )
     def post(self, request: Request, project_pk: str, task_pk: str) -> Response:
         task = self._get_task(project_pk, task_pk)
-        label_id = request.data.get("label_id")
+        label_id = object_body(request).get("label_id")
         if not label_id:
             raise DRFValidationError({"label_id": "This field is required."})
         # Cross-project IDOR guard: the label must belong to the task's OWN project.
@@ -10058,9 +10059,13 @@ class TaskCustomFieldValueView(IdempotencyMixin, APIView):
 
         task = self._get_task(project_pk, task_pk)
         field = self._get_field(task, field_id)
-        if "value" not in request.data:
+        # `"value" in request.data` is NOT a container guard: `in` also tests
+        # membership of a list's elements, so a body of `["value"]` passes it and
+        # blows up on the subscript below. Narrow the container first.
+        body = object_body(request)
+        if "value" not in body:
             raise DRFValidationError({"value": "This field is required."})
-        columns = validate_custom_field_write(field, request.data["value"])
+        columns = validate_custom_field_write(field, body["value"])
 
         obj, created = TaskCustomFieldValue.objects.get_or_create(
             task=task, field=field, defaults=columns
@@ -10541,7 +10546,7 @@ def _retro_patch(request: Request, sprint: Any, caller: Any, caller_role: int) -
             {"detail": "No retro recorded for this sprint."}, status=status.HTTP_404_NOT_FOUND
         )
 
-    new_visibility = request.data.get("team_visibility")
+    new_visibility = object_body(request).get("team_visibility")
     if new_visibility is not None:
         # Author or Project ADMIN+ only.
         if retro.created_by_id != caller.pk and caller_role < Role.ADMIN:
@@ -10614,9 +10619,10 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
     """
     from trueppm_api.apps.projects.models import RetroActionItem, RetroVisibility, SprintRetro
 
-    notes = request.data.get("notes", "")
-    items_in: list[dict[str, Any]] = list(request.data.get("action_items", []) or [])
-    new_visibility = request.data.get("team_visibility")
+    body = object_body(request)
+    notes = body.get("notes", "")
+    items_in: list[dict[str, Any]] = list(body.get("action_items", []) or [])
+    new_visibility = body.get("team_visibility")
 
     invalid = _validate_retro_assignees(items_in, sprint.project_id)
     if invalid is not None:
@@ -12736,7 +12742,7 @@ def _history_paginated_response(
 
     paginator = PageNumberPagination()
     paginator.page_size = page_size
-    page: list[Any] | None = paginator.paginate_queryset(feed, request)  # type: ignore[arg-type]
+    page: list[Any] | None = paginator.paginate_queryset(feed, request)
     response = paginator.get_paginated_response(page)
     response.data["count_truncated"] = count_truncated
     if include:
@@ -14733,7 +14739,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
-        ids = request.data.get("outcome_ids")
+        ids = object_body(request).get("outcome_ids")
         if not isinstance(ids, list) or not ids:
             return Response(
                 {"outcome_ids": [_NON_EMPTY_LIST_REQUIRED]},
@@ -15025,11 +15031,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         # POST — create a sticky. Write role already enforced via get_permissions
         # (IsProjectMemberWrite fallthrough), re-checked on the sprint object above.
+        body = object_body(request)
         item = create_board_item(
             sprint,
-            column=request.data.get("column", RetroColumn.WENT_WELL),
-            text=request.data.get("text", ""),
-            color=request.data.get("color", ""),
+            column=body.get("column", RetroColumn.WENT_WELL),
+            text=body.get("text", ""),
+            color=body.get("color", ""),
             author=cast(User, request.user),
         )
         return Response(RetroBoardItemSerializer(item).data, status=status.HTTP_201_CREATED)
@@ -15069,12 +15076,13 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 return Response(status=status.HTTP_204_NO_CONTENT)
             return Response(PulseResponseSerializer(mine).data, status=status.HTTP_200_OK)
 
+        body = object_body(request)
         response = upsert_pulse_response(
             sprint,
             respondent=user,
-            mood=request.data.get("mood"),
-            energy=request.data.get("energy"),
-            confidence=request.data.get("confidence"),
+            mood=body.get("mood"),
+            energy=body.get("energy"),
+            confidence=body.get("confidence"),
         )
         return Response(PulseResponseSerializer(response).data, status=status.HTTP_200_OK)
 
@@ -15328,7 +15336,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        target_sprint_id = request.data.get("target_sprint_id")
+        target_sprint_id = object_body(request).get("target_sprint_id")
         if not target_sprint_id:
             return Response(
                 {"target_sprint_id": "Required."},
@@ -15837,11 +15845,10 @@ class MeSearchView(McpReadableViewMixin, APIView):
         paginator = pagination.PageNumberPagination()
         if len(raw_q) < _OMNI_SEARCH_MIN_Q:
             # A merged Python list, not a QuerySet, is a valid paginate_queryset
-            # argument (Django's Paginator accepts sequences); the stub types the
-            # first arg as QuerySet, hence the ignore (mirrors the task-activity
-            # feed pagination).
+            # argument — Django's Paginator accepts any sequence, and the stubs
+            # now type the parameter that way too (mirrors the task-activity feed).
             empty: list[dict[str, Any]] = []
-            page: list[Any] | None = paginator.paginate_queryset(empty, request, view=self)  # type: ignore[arg-type]
+            page: list[Any] | None = paginator.paginate_queryset(empty, request, view=self)
             return paginator.get_paginated_response(
                 OmniSearchResultSerializer(page or [], many=True).data
             )
@@ -15872,7 +15879,7 @@ class MeSearchView(McpReadableViewMixin, APIView):
             )
         )
 
-        page = paginator.paginate_queryset(merged, request, view=self)  # type: ignore[arg-type]
+        page = paginator.paginate_queryset(merged, request, view=self)
         return paginator.get_paginated_response(
             OmniSearchResultSerializer(page or [], many=True).data
         )

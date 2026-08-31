@@ -42,7 +42,7 @@ the mechanism it borrows.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.mail import get_connection
@@ -137,7 +137,7 @@ def build_smtp_connection(
         use_ssl=eff_security == "ssl",
         timeout=getattr(settings, "EMAIL_TIMEOUT", 10),
     )
-    return cast("BaseEmailBackend", conn)
+    return conn
 
 
 def _assert_host_public(host: str, port: int) -> None:
@@ -243,7 +243,7 @@ def resolve_email_connection(
 
     obj = settings_obj or WorkspaceEmailSettings.load()
     if obj.transport_mode == EmailTransportMode.CLOUD:
-        return cast("BaseEmailBackend", get_connection())
+        return get_connection()
 
     try:
         password = obj.get_password()
