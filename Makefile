@@ -343,6 +343,13 @@ playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image 
 	@# ~1s, no network.
 	@bash scripts/check-playwright-pins.sh
 
+ci-api-tag-check: ## Fail if CI_API_TAG no longer matches the ci-api image inputs (#3275)
+	@# A fixed image tag whose contents change is invisible to every runner that
+	@# already cached it — three digests ran one commit and api:type-check
+	@# disagreed with itself. The tag is stamped with a digest of the Dockerfile
+	@# plus the three baked pyproject.toml files; this recomputes it. No network.
+	@bash scripts/check-ci-api-tag.sh
+
 helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the app never emits (#2805)
 	@# A PromQL name with no matching series is not an error anywhere in the
 	@# stack: the alert silently never fires and the panel is silently blank.
@@ -454,7 +461,7 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

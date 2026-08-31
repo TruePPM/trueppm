@@ -67,6 +67,7 @@ failure of its HTTP status class.
 | `progress_requires_anchor` | Progress was set on a task with no date to anchor it to | — |
 | `milestone_rollup_locked` | The value is rolled up to the milestone and cannot be set directly | — |
 | `child_of_milestone` | A milestone is a zero-duration gate and cannot be given children | — |
+| `zero_duration_not_milestone` | A write set an existing, non-zero duration to `0` on a task that is not a milestone — removing the estimate without saying what the row became. Send `is_milestone: true` (or `delivery_mode: "milestone"`) to make it a gate, or a duration of at least `1` to keep it as work. Creating a task at `duration: 0`, or re-writing a `0` that is already `0`, is **not** refused — an unestimated row is legal | `suggested_action` |
 | `guardrail_blocked` | A configured guardrail refused the write | `rule`, `suggested_action` |
 | `base_url_not_allowed` | The supplied integration base URL is not permitted | — |
 | `invalid_token` | The password-reset uid+token pair is bad, unknown, or expired | — |

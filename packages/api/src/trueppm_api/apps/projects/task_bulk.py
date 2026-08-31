@@ -96,6 +96,17 @@ MSG_PROGRESS_NEEDS_ANCHOR = (
     "Cannot record progress without a planned start date or sprint assignment."
 )
 
+#: Rejection text for a zero duration written onto a row that is not a milestone.
+#:
+#: Same reason as the constant above: emitted from the bulk row handler AND from
+#: ``TaskViewSet._handle_task_write``, and clients match on the pair
+#: (code, message), so a drifted copy reads as a different error (#3265).
+MSG_ZERO_DURATION_NOT_MILESTONE = (
+    "A task with zero duration is a milestone — send is_milestone=true (or "
+    "delivery_mode='milestone') to make one. To record work with no estimate, use "
+    "a duration of at least 1."
+)
+
 #: One resolved edge awaiting the graph guard: (row index, raw row, predecessor, successor).
 _EdgeEntry = tuple[int, dict[str, Any], str, str]
 
@@ -254,11 +265,13 @@ def _validate_or_reject(ser: Any, index: int, row_id: Any, out: BulkOutcome) -> 
 
     Returns ``True`` when the row validated and the caller may save.
 
-    The three failures are caught separately rather than as one ``Exception`` arm
+    The failures are caught separately rather than as one ``Exception`` arm
     because clients match on the pair ``(code, message)`` and each carries a
-    different remediation. ``ProgressAnchorError`` and ``MilestoneRollupLockedError``
-    both derive from plain ``Exception``, not from ``DRFValidationError``, so the
-    order of the arms is not load-bearing.
+    different remediation. ``ProgressAnchorError``, ``MilestoneRollupLockedError``
+    and ``ZeroDurationNotMilestoneError`` all derive from plain ``Exception``, not
+    from ``DRFValidationError``, so the order of the arms is not load-bearing —
+    but omitting an arm is: the refusal would escape the row's savepoint and 500
+    the whole batch rather than rejecting one row.
 
     Safe to use on the create path even though ``MilestoneRollupLockedError`` cannot
     arise there: ``_enforce_milestone_rollup_lock`` short-circuits on
@@ -268,12 +281,20 @@ def _validate_or_reject(ser: Any, index: int, row_id: Any, out: BulkOutcome) -> 
     from trueppm_api.apps.projects.serializers import (
         MilestoneRollupLockedError,
         ProgressAnchorError,
+        ZeroDurationNotMilestoneError,
     )
 
     try:
         ser.is_valid(raise_exception=True)
     except ProgressAnchorError:
         out.reject(index, row_id, CODE_INVALID, MSG_PROGRESS_NEEDS_ANCHOR)
+        return False
+    except ZeroDurationNotMilestoneError:
+        # Needs its own arm for a reason the other two do not illustrate: this
+        # exception does NOT derive from DRFValidationError, so without it the
+        # refusal escapes the row's savepoint and 500s the whole batch instead of
+        # rejecting one row (#3265).
+        out.reject(index, row_id, CODE_INVALID, MSG_ZERO_DURATION_NOT_MILESTONE)
         return False
     except MilestoneRollupLockedError:
         out.reject(

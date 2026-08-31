@@ -64,4 +64,12 @@ regexes = [
   # only surfaces after a migration squash (#1286). A field-length declaration
   # is never a credential.
   '''max_length=\d+''',
+  # CI_API_TAG — the content stamp on the ci-api image tag (#3275), e.g.
+  # `py3.11-a1a48d26e242`. The generic-api-key rule flags it because the
+  # variable name contains "API" and a truncated sha256 has credential-like
+  # entropy. It is a digest OF FOUR TRACKED FILES, recomputed by
+  # scripts/check-ci-api-tag.sh on every run — a value anyone can regenerate
+  # from the repo is not a secret. Scoped to the exact shape (python version +
+  # 12 hex) so it cannot mask anything else.
+  '''py3\.\d+-[0-9a-f]{12}''',
 ]
