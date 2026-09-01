@@ -10,6 +10,9 @@
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+// Imported rather than repeated: a copied 320 here would keep asserting the old
+// floor the day somebody changes the real one.
+import { MIN_BAR_TRACK } from '../src/features/schedule/ScheduleView';
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000568';
 
@@ -58,9 +61,22 @@ async function gotoSchedule(page: import('@playwright/test').Page, viewportWidth
   // forces full-width Timeline mode (#1670) and the task-list panel never mounts,
   // so the 600px case has no "Item list" grid. The canvas scroll container
   // renders in both the mobile and desktop layouts.
-  await expect(page.getByTestId('schedule-canvas-scroll')).toBeVisible({
+  const canvas = page.getByTestId('schedule-canvas-scroll');
+  await expect(canvas).toBeVisible({
     timeout: 15_000,
   });
+  // `toBeVisible()` is not the gate it looks like (#3279, the #2974 lesson again).
+  // The outline is `flex-shrink-0` at its own column width and the canvas is
+  // `flex-1 min-w-0`, so a pane too narrow for both takes it out of the bar track
+  // alone. At 768px that had already ground the canvas down to 25px — a box
+  // `toBeVisible()` accepts and no user can read — and one more 64px of rail took
+  // it to 0 and finally failed here. Assert the floor the code declares, so this
+  // gate cannot pass on a timeline that has stopped being one.
+  await expect
+    .poll(async () => Math.round((await canvas.boundingBox())?.width ?? 0), {
+      timeout: 15_000,
+    })
+    .toBeGreaterThanOrEqual(MIN_BAR_TRACK);
 }
 
 test.describe('Schedule toolbar — clustered layout (#1741)', () => {
