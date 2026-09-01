@@ -56,11 +56,17 @@ check-issue-boundary.sh	EXTERNAL: input is the GitLab tracker's issue labels, no
 check-release-images.sh	EXTERNAL: queries the container registry for published release images; covered by scripts/tests/check-release-images.test.sh
 "
 
+# Reads OPT_OUT from a here-string, NOT a pipe (#3321). The `return` below exits on
+# the FIRST match, so a piped reader leaves the writer blocked on a full pipe; it takes
+# SIGPIPE, `set -o pipefail` promotes 141, and `set -e` aborts the gate before it prints
+# anything — a red `main` with an empty job log and nothing pointing at the cause. The
+# race is payload-sized: two entries always fit in the pipe buffer, so it never fired
+# locally and fired rarely in CI (job 16239480831, commit 70e5599ef, retry green).
 opt_out_reason() {
-    printf '%s\n' "$OPT_OUT" | while IFS=$'\t' read -r name reason; do
+    while IFS=$'\t' read -r name reason; do
         [ -n "$name" ] || continue
         if [ "$name" = "$1" ]; then printf '%s' "$reason"; return; fi
-    done
+    done <<< "$OPT_OUT"
 }
 
 # Emit "job<TAB>script-basename<TAB>yes|no" for every gate invoked in CI, where the
@@ -182,6 +188,26 @@ self_test() {
 
     printf 'workflow:\n  rules:\n    - changes:\n        - scripts/check-zz-probe.sh\n' > "$tmp/changes.yml"
     _case "gate named in a changes: list" expect-pass "$tmp/changes.yml"
+
+    # #3321: opt_out_reason must not read OPT_OUT through a pipe. Its `return` fires on
+    # the FIRST match, so a piped writer still holding the rest takes SIGPIPE, pipefail
+    # promotes that to 141, and set -e aborts the gate with no output at all. The race is
+    # payload-sized: the live OPT_OUT is two lines and always fits in the pipe buffer, so
+    # the broken code passed every other case in this file. This one plants a value past
+    # the buffer to make it deterministic, and asserts under `set -e` inside a command
+    # substitution — exactly how run_scan calls it.
+    local padded_out padded_rc=0
+    padded_out="$(
+        set -euo pipefail
+        OPT_OUT="check-issue-boundary.sh"$'\t'"EXTERNAL: probe"$'\n'"$(printf 'filler-%s\tpad\n' {1..20000})"
+        opt_out_reason check-issue-boundary.sh
+    )" || padded_rc=$?
+    if [ "$padded_rc" -eq 0 ] && [ "$padded_out" = "EXTERNAL: probe" ]; then
+        echo "SELF-TEST OK: opt_out_reason survives an OPT_OUT larger than the pipe buffer."
+    else
+        echo "SELF-TEST FAILED: opt_out_reason exited $padded_rc returning '$padded_out' on a padded OPT_OUT (the #3321 SIGPIPE race)." >&2
+        rc=1
+    fi
 
     [ "$rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
     return "$rc"
