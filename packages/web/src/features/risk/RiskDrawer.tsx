@@ -13,7 +13,7 @@ export interface RiskDrawerProps {
   risk: Risk | null;
   isOpen: boolean;
   onClose: () => void;
-  /** When true, drawer opens directly in edit mode (from the ✎ quick-edit affordance). */
+  /** When true, drawer opens directly in edit mode (from the row's edit button). */
   initialEditing?: boolean;
 }
 
@@ -55,7 +55,7 @@ export function RiskDrawer({ projectId, risk, isOpen, onClose, initialEditing }:
   const showForm     = isCreateMode || isEditing;
 
   // Reset editing state whenever the drawer opens or the active risk changes.
-  // Respects initialEditing so the ✎ quick-edit affordance opens in edit mode.
+  // Respects initialEditing so the row's edit button opens in edit mode.
   useEffect(() => {
     if (isOpen) setIsEditing(initialEditing ?? false);
   }, [isOpen, risk?.id, initialEditing]);
