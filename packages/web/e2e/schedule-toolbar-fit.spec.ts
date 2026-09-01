@@ -253,7 +253,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     await expect(menu.getByRole('menuitemcheckbox', { name: /Author mode/ })).toHaveCount(0);
   });
 
-  test('the locked rows describe the shape the bar actually has (#3263, rule 368)', async ({
+  test('the locked rows describe the shape the bar actually has (#3263, rule 369)', async ({
     page,
   }) => {
     // These two rows are the product's only answer to "where did my button go"

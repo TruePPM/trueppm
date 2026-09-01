@@ -243,6 +243,10 @@ export function ToolbarOverflowMenu({
       // Checkbox items stay open so the user can toggle multiple in a row —
       // unless the caller says this one is the only thing in the menu worth
       // toggling, in which case staying open is just a dismissal to perform.
+      //
+      // `close()` and not `setOpen(false)`: it moves focus to the trigger before
+      // React unmounts the row that had it, which is rule 368 — and the trigger
+      // is the right destination because reopening the menu is what undoes this.
       if (item.closeOnChange) close();
     }
   }
