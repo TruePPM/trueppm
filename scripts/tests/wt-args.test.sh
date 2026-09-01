@@ -148,6 +148,28 @@ D4="$TMP/case4"; mk_repo "$D4"
 run "$D4" bash "$WT" new --force; rc="$RUN_RC"
 check "wt new --force reaches cmd_new (exit 1, not 2)" "$([[ "$rc" -eq 1 ]]; echo $?)"
 
+# `subcmd_flags` is a SECOND copy of what each parser accepts, so it can drift
+# from the parser it mirrors — and drift here is not cosmetic, it is a working
+# flag the guard now refuses before the subcommand runs. It drifted on the first
+# draft of #3283 in both directions: `prune-dbs` was declared --force when it
+# gates on --yes, and `remove` was declared nothing at all though it reads
+# --force as its second positional. Neither `wt new --force` nor an exit-code
+# check on one subcommand can see that. Every real flag gets a line here.
+while IFS= read -r argv; do
+  [[ -n "$argv" ]] || continue
+  # shellcheck disable=SC2086  # argv is a test-authored literal, split on purpose
+  run "$D4" bash "$WT" $argv; r="$RUN_RC"; o="$RUN_OUT"
+  check "wt $argv reaches its own parser, not the guard" \
+        "$( [[ "$r" -ne 2 ]] && ! printf '%s' "$o" | grep -q 'unknown option'; echo $? )"
+done <<'ARGS'
+new --adr
+new --no-adr
+claim --force
+remove no-such-worktree --force
+prune --force
+prune-dbs --yes
+ARGS
+
 # --- Case 5: a stash message may begin with a dash ------------------------
 # Only `stash`'s sub-subcommand is guarded; the message is data. A guard applied
 # to every token would make this message unusable.

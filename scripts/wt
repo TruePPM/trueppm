@@ -1418,9 +1418,9 @@ subcmd_usage() {
     release-reservation) echo "usage: wt release-reservation <branch>" ;;
     stash)     echo "usage: wt stash [push [message] | pop | apply | list | drop | show]" ;;
     list)      echo "usage: wt list" ;;
-    remove)    echo "usage: wt remove <issue|name>" ;;
+    remove)    echo "usage: wt remove <issue|name> [--force]" ;;
     prune)     echo "usage: wt prune [--force]" ;;
-    prune-dbs) echo "usage: wt prune-dbs [--force]" ;;
+    prune-dbs) echo "usage: wt prune-dbs [--yes]" ;;
     doctor)    echo "usage: wt doctor" ;;
     *)         echo "usage: wt <subcommand> — run 'wt help' for the full list" ;;
   esac
@@ -1428,11 +1428,16 @@ subcmd_usage() {
 
 # Flags a given subcommand actually understands. Anything else beginning with a
 # dash is a typo, not an argument.
+#
+# Read this off each cmd_* function's own parser, not off the header comment:
+# `prune-dbs` gates on --yes (it prompts, it does not guard), while `remove`
+# takes --force as its second positional. A flag missing here is not a cosmetic
+# gap — the guard rejects it before the subcommand ever runs.
 subcmd_flags() {
   case "$1" in
     new)                 echo "--force --adr --no-adr" ;;
-    claim)               echo "--force" ;;
-    prune|prune-dbs)     echo "--force" ;;
+    claim|prune|remove)  echo "--force" ;;
+    prune-dbs)           echo "--yes" ;;
     *)                   echo "" ;;
   esac
 }
