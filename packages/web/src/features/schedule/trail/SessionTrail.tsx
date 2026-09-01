@@ -80,7 +80,7 @@ export function SessionTrail({
         // reader user nothing (ux-review §6.1).
         aria-label={`${count} structural ${count === 1 ? 'change' : 'changes'} this session. Review.`}
         // `shrink-0 whitespace-nowrap` matches every one of its toolbar peers
-        // (`BuildModePill`, `AuthorModePill`, `ScheduleSummaryChip`). Without
+        // (`ScheduleModeChip`, `ScheduleSummaryChip`). Without
         // them this was the one flexible item in a `flex-nowrap` bar, so it
         // absorbed the whole overflow alone and its label wrapped inside a
         // 40px-tall strip — the visible artifact #3076 was filed for. It is

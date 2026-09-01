@@ -1,17 +1,29 @@
 /**
- * The Schedule toolbar's collapsed mode cluster (#3076).
+ * The Schedule toolbar's mode control — one control, every width (#3263).
  *
- * Below the width where `Build mode` and the `Read / Author` pill both fit,
- * they become one chip. The chip is **not** an overflow trigger and the cluster
- * is never demoted into `···`: a mode is the thing you must be able to read
- * before you start typing, and a mode indicator hidden inside a menu is a mode
- * you forget you are in. So the trigger keeps showing its *value* —
- * "Author · Build", "Read · Build off" — and only the two controls that change
- * it move into the popover.
+ * It shipped in #3076 as the *collapsed* form of a two-pill cluster: below the
+ * width where `Build mode` and the `Read / Author` pill both fit, they became
+ * one chip. #3263 removed the wide form. Two controls answering "what can I do
+ * to this plan right now" did not fit conceptually at any width either — a user
+ * asking whether they are allowed to edit got two answers in two places, and
+ * nothing on screen said how they composed. The narrow-width reading was the
+ * team having already found the collision; this is that reading applied
+ * everywhere.
  *
- * The accessible name carries the whole value for the same reason (rule 287,
- * and the design's "collapsed clusters announce the whole value"): a chip that
- * announced only "Mode" would be worse than the two buttons it replaced.
+ * **Build mode is not one of the two answers.** `buildModeActive` is
+ * `!isMobile` — a constant wherever this renders — so the old "Author · Build"
+ * / "Read · Build off" value had a half that could never say anything else.
+ * The spec promotes build mode out of the flag: it is a property of authoring
+ * on a pointer-and-keyboard machine, not a mode a person chooses. So the chip
+ * states the one mode that varies, and the retired `BuildModePill`'s actual
+ * job — being the always-on way in to the keyboard cheatsheet — is carried by
+ * the `Keyboard shortcuts…` item below.
+ *
+ * The cluster has no `overflow` state and never demotes into `···`: a mode you
+ * must open a menu to *read* is a mode you forget you are in, and the cost of
+ * that is typing into a plan you believe is read-only (rule 343(e)). The
+ * trigger therefore always shows its value, and the accessible name carries the
+ * whole value and the consequence, not just "Mode" (rule 287).
  */
 import { ToolbarOverflowMenu } from '@/components/toolbar/ToolbarOverflowMenu';
 import { formatChord } from '@/lib/platform';
@@ -20,31 +32,43 @@ import type { ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
 export interface ScheduleModeChipProps {
   mode: ScheduleAuthorMode;
   onToggleMode: () => void;
-  /** Whether keyboard build mode is live — the second half of the chip's value. */
-  buildModeActive: boolean;
   onShowCheatsheet: () => void;
 }
 
 export function ScheduleModeChip({
   mode,
   onToggleMode,
-  buildModeActive,
   onShowCheatsheet,
 }: ScheduleModeChipProps) {
   const isRead = mode === 'read';
   const modeWord = isRead ? 'Read' : 'Author';
-  const buildWord = buildModeActive ? 'Build' : 'Build off';
-  const value = `${modeWord} · ${buildWord}`;
+  // Derived, never spelled — the same rule 326(b)/339(b) reason as the menu row
+  // below. A hard-coded "Alt+A" here would have a Mac user HEAR "Alt+A" from the
+  // trigger and READ "⌥A" from the row two lines down, for one binding.
+  const chord = formatChord('alt+a');
 
   return (
     <ToolbarOverflowMenu
-      triggerAriaLabel={`Mode: ${modeWord}, keyboard build mode ${buildModeActive ? 'on' : 'off'}`}
-      // No leading glyph. The two words *are* the signal (rule 6 — colour is
-      // never the sole carrier), and there is no house icon for "read" —
+      triggerTestId="schedule-mode-chip"
+      // The chord belongs on the trigger too, not only on the row inside the
+      // popover: rule 343(f) requires a control keep its name AND its
+      // `aria-keyshortcuts`, and a chord you must open a menu to discover is not
+      // discoverable from the control.
+      triggerAriaKeyShortcuts="Alt+A"
+      // States the consequence, not just the state: "Read" alone does not tell
+      // a screen-reader user that their edits are blocked, and the chord is the
+      // one-keystroke way out that the pointer path costs two interactions.
+      triggerAriaLabel={
+        isRead
+          ? `Mode: Read — edits are blocked. ${chord} switches to Author.`
+          : `Mode: Author — edits are allowed. ${chord} switches to Read.`
+      }
+      // No leading glyph. The word *is* the signal (rule 6 — colour is never
+      // the sole carrier), and there is no house icon for "read" —
       // `EyeOffIcon` means hidden, and an emoji is a rule-242 violation, so a
       // chip that needed one would have to mint a glyph to say what the label
       // already says.
-      triggerLabel={<span className="whitespace-nowrap">{value}</span>}
+      triggerLabel={<span className="whitespace-nowrap">{modeWord}</span>}
       triggerClassName={[
         'inline-flex shrink-0 items-center gap-1.5 h-7 px-2 rounded-control border',
         'text-xs font-medium whitespace-nowrap',
@@ -61,21 +85,24 @@ export function ScheduleModeChip({
       items={[
         {
           // A checkbox, not two actions: "am I allowed to type" is one boolean,
-          // and `aria-checked` is what carries the current answer. This is the
-          // same state the expanded `AuthorModePill` publishes as `aria-label` —
-          // one value, correct role for whichever container it is in.
+          // and `aria-checked` is what carries the current answer.
           kind: 'checkbox',
           id: 'author-mode',
           label: 'Author mode',
           checked: !isRead,
           onChange: onToggleMode,
-          // Derived, never spelled: a literal chord tells every Windows and
-          // Linux user the Mac binding on the one surface they cannot correct
-          // it against (rule 326(b)/339(b)).
-          shortcut: formatChord('alt+a'),
+          // The only checkbox in this menu, so "stay open to toggle several"
+          // buys nothing and costs a third interaction — and an open popover
+          // covers the trigger whose value just changed.
+          closeOnChange: true,
+          shortcut: chord,
           ariaKeyShortcuts: 'Alt+A',
         },
         {
+          // The retired `BuildModePill`'s job. #3115 removed the toolbar
+          // Milestone button on the strength of a replacement; this entry is
+          // the replacement for the pill, and it ships in the same change that
+          // removes it rather than being owed.
           kind: 'action',
           id: 'cheatsheet',
           label: 'Keyboard shortcuts…',

@@ -253,6 +253,33 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     await expect(menu.getByRole('menuitemcheckbox', { name: /Author mode/ })).toHaveCount(0);
   });
 
+  test('the locked rows describe the shape the bar actually has (#3263, rule 369)', async ({
+    page,
+  }) => {
+    // These two rows are the product's only answer to "where did my button go"
+    // (rule 343(f)), and until #3263 nothing asserted them — so when that change
+    // stopped the mode collapsing, the row saying it collapses stayed true-looking
+    // through a full green suite. Rule 368(b) is this assertion.
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+
+    await page.getByRole('button', { name: /^Display/ }).click();
+    const menu = page.getByRole('menu', { name: 'Display options' });
+
+    // The mode is tier-A: always in the bar, and NOT among the things that
+    // collapse when narrow. This viewport is the narrow one, so a chip that had
+    // collapsed would be visible here.
+    await expect(menu.getByText(/Item, Grid \/ Timeline, Display, ···, mode/)).toBeVisible();
+    await expect(menu.getByText('Zoom, engine status', { exact: true })).toBeVisible();
+    await expect(menu.getByText(/Zoom, mode, engine status/)).toHaveCount(0);
+    await expect(menu.getByText(/collapse to a chip when narrow/)).toHaveCount(0);
+
+    // …and the chip is in the bar at this width, stating its value — the fact
+    // the row above claims.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('schedule-mode-chip')).toBeVisible();
+  });
+
   test('the insert sentence stays in the accessibility tree after its ink is rationed', async ({
     page,
   }) => {

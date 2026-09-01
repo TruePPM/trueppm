@@ -87,8 +87,8 @@ test.describe('Schedule authoring gate — can_author (#3034)', () => {
     await expect(page.getByTestId('schedule-view-only')).toBeVisible();
 
     // Nothing that would let this reader start authoring.
-    await expect(page.getByTestId('author-mode-pill')).toHaveCount(0);
-    await expect(page.getByTestId('build-mode-pill')).toHaveCount(0);
+    // One control since #3263 — so one absence to assert, not two.
+    await expect(page.getByTestId('schedule-mode-chip')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '+ Milestone' })).toHaveCount(0);
 
     // …but the schedule itself still reads. This hides authoring, not data.
@@ -106,7 +106,7 @@ test.describe('Schedule authoring gate — can_author (#3034)', () => {
 
     await page.goto(BASE_URL);
 
-    await expect(page.getByTestId('author-mode-pill')).toBeVisible();
+    await expect(page.getByTestId('schedule-mode-chip')).toBeVisible();
     await expect(page.getByTestId('schedule-view-only')).toHaveCount(0);
   });
 });
