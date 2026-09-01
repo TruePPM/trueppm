@@ -436,6 +436,47 @@ _TOKEN_REFUSED_RESPONSE = {
     },
 }
 
+#: The 400 every operation that accepts a request body can return (#3286).
+#:
+#: Modelled on what the API actually emits rather than on one tidy shape, because
+#: ``docs/api/errors.md`` documents two and DRF contributes a third:
+#:
+#:   ``{"detail": "..."}``                       Shape 1 — a bare refusal
+#:   ``{"code": "...", "detail": "..."}``        Shape 2 — ``code`` is the contract
+#:   ``{"name": ["This field is required."]}``   DRF's field-keyed serializer errors
+#:
+#: ``additionalProperties`` carries the third. Declaring only ``detail`` would be
+#: the more comfortable lie: a generated client would type the uncommon case and
+#: mis-type field validation, which is the majority of real 400s.
+_VALIDATION_RESPONSE = {
+    "description": (
+        "The request was rejected. Either a field failed validation — in which case "
+        "the body is keyed by field name with a list of messages — or the request was "
+        "refused as a whole, in which case it carries ``detail`` and, when the failure "
+        "is one a client is expected to handle rather than merely report, a stable "
+        "``code``. Branch on ``code``; ``detail`` is prose and may be reworded at any "
+        "time. See the error reference for the code vocabulary."
+    ),
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string",
+                        "example": "Request body must be a JSON object.",
+                    },
+                    "code": {"type": "string", "example": "invalid_body"},
+                },
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            }
+        }
+    },
+}
+
 _THROTTLE_RESPONSE = {
     "description": (
         "Rate limit exceeded. The client is issuing requests faster than the "
@@ -564,6 +605,20 @@ class TruePPMAutoSchema(AutoSchema):
         if throttle_classes:
             responses = operation.setdefault("responses", {})
             responses.setdefault("429", dict(_THROTTLE_RESPONSE))
+        # A 400 is declarable exactly where there is a body to reject (#3286). The
+        # predicate is READ OFF the operation drf-spectacular just built rather than
+        # guessed from the view: `requestBody` is present precisely when the
+        # generator resolved a serializer or a raw-body declaration for this method,
+        # which is the same condition under which DRF can raise ValidationError. An
+        # unsafe method with no body — a POST action that works from the URL alone —
+        # gets nothing, because advertising a refusal an endpoint cannot produce is
+        # the same defect as omitting one it can, pointing the other way.
+        #
+        # `setdefault`, so an operation declaring its own richer 400 (the
+        # refusal-code enums in `refusal_codes.py`, say) keeps it.
+        if method not in SAFE_METHODS and "requestBody" in operation:
+            responses = operation.setdefault("responses", {})
+            responses.setdefault("400", dict(_VALIDATION_RESPONSE))
         if self._token_callers_refused():
             # Declared here rather than by decorating each view for the same reason as
             # the 429 above: the fact lives in a view attribute the schema dict cannot
