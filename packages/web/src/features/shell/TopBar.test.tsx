@@ -191,11 +191,11 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
 
   it('toggles the rail and reflects state via aria-expanded', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    const toggle = screen.getByRole('button', { name: 'Hide navigation' });
+    const toggle = screen.getByRole('button', { name: 'Collapse navigation' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(toggle);
     expect(useShellStore.getState().sidebarCollapsed).toBe(true);
-    expect(screen.getByRole('button', { name: 'Show navigation' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Expand navigation' })).toHaveAttribute(
       'aria-expanded',
       'false',
     );
