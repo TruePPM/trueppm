@@ -248,6 +248,7 @@ import {
   type UngroupTarget,
 } from './buildMode/groupOutcome';
 import { GroupOutcomeNotice } from './GroupOutcomeNotice';
+import { MIN_BAR_TRACK, SPLITTER_WIDTH, outlinePaneWidthFor } from './paneFloors';
 import { ScheduleStructureButtons } from './ScheduleStructureButtons';
 import { newestUndoableEntry, useTrailStore } from './trail/trailStore';
 import { SessionTrail } from './trail/SessionTrail';
@@ -415,8 +416,13 @@ interface PanelSplitterProps {
   maxTaskWidth: number;
 }
 
-/** Floor on the bar track's width — below this the timeline stops being one. */
-export const MIN_BAR_TRACK = 320;
+/**
+ * Re-exported so existing callers and `scheduleSurface.test.tsx` keep one import
+ * site; the definitions live in `paneFloors.ts` because the E2E spec has to read
+ * them without pulling this module's graph into the e2e tsconfig.
+ */
+export { MIN_BAR_TRACK, SPLITTER_WIDTH, outlinePaneWidthFor } from './paneFloors';
+
 /** Lower bound on the name column; mirrors the store's `MIN_COL_WIDTHS.task`. */
 const MIN_TASK_WIDTH = 120;
 /** Absolute upper bound, before the container's own room narrows it further. */
@@ -437,6 +443,10 @@ const MAX_TASK_WIDTH = 600;
  * a current 220 would announce `valuemax < valuenow` (a WCAG 4.1.2 failure no
  * visual check sees) and collapse the column 220 → 120 on the first ArrowLeft.
  * An upper bound is permission to grow, never an instruction to shrink.
+ *
+ * This governs GROWING only. What stops the outline crowding the bar track out
+ * of existence when the pane shrinks is `outlinePaneWidthFor` in `paneFloors.ts`
+ * — a separate clamp precisely because this one must not reach backwards (#3279).
  */
 export function maxTaskWidthFor(
   containerWidth: number,
@@ -6307,6 +6317,10 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   const itl = useIterationLabel(projectId ?? undefined);
   const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
   const maxTaskWidth = maxTaskWidthFor(paneWidth, totalWidth - widths.task, widths.task);
+  // The bar track's floor, taken out of the pane before the outline gets the rest
+  // (#3279). Only the Timeline surface passes this — the Grid has no bar track, so
+  // there is nothing there for the outline to crowd out.
+  const outlinePaneWidth = outlinePaneWidthFor(paneWidth, totalWidth, SPLITTER_WIDTH);
 
   if (isMobile) {
     // Dedicated mobile-first Schedule surface (#1671, ADR-0348) — a DOM
@@ -6351,6 +6365,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               visible={visible}
               setWidth={setWidth}
               totalWidth={totalWidth}
+              renderedWidth={outlinePaneWidth}
               maxTaskWidth={maxTaskWidth}
               summaryIds={summaryIds}
               childCountById={childCountById}

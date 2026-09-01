@@ -186,7 +186,22 @@ once it joins a band that name is simply wrong.
 
 You can tailor the rail with **Customize views** (hide the views you don't use);
 hidden views stay reachable from the command palette. **Dashboard** and **Settings**
-can never be hidden, so your navigation can never end up empty. See
+can never be hidden, so your navigation can never end up empty.
+
+### Collapsing the rail
+
+Press **⌘B / Ctrl+B**, or use the **≡** in the shell bar, to collapse the rail to a
+narrow icon rail. Collapsed, it keeps every row as an icon with its name on hover and
+for screen readers, keeps the band structure, and keeps any counts — so you can still
+see where you are and whether anything is waiting for you without giving up the width.
+Press the same chord again to expand it.
+
+Two things do not appear at icon width: the **Customize views** control and the
+**Browse projects and programs** switcher, both of which need more room than the rail
+has. ⌘K reaches everything the switcher does, and expanding is one keystroke.
+
+The rail never disappears entirely. If you want the maximum canvas for a wide
+Schedule, that is a separate need and is not what collapse does. See
 [View focus](/features/view-focus/) for the role-based lens that re-orders and
 re-points these surfaces for you — it re-orders the three verb bands only, and leaves
 Workspace alone.
