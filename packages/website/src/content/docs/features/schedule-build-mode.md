@@ -43,6 +43,8 @@ Build mode adds a toolbar pill and a single **teaching band** under the plan:
   - The **how-to bar**, while nothing in the outline is selected. Three lines covering indent, grouping, and the row controls that only appear when you hover a row — the things you cannot discover by looking. Hide it with its **×**; bring it back from **Display → Outline → How-to bar**.
   - The **hint strip**, from the moment you focus a row. It shows the three most relevant hotkeys for the state you are in, and swaps to selection actions — group, delete, clear — once more than one row is selected.
 
+  If you have read-only access to the project, the band still appears and the **`?` All shortcuts** button still works, but the strip shows only what you can actually do — move between rows, and open a row's details. It never names an edit you would not be allowed to make.
+
 Pressing `?` opens the full cheatsheet from anywhere on the page, and the band's own **`?` All shortcuts** button does the same.
 
 Neither appears on a plan with no rows: a blank project opens with a live row already holding the cursor, which is the only thing there is to teach at that point.

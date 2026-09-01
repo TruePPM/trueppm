@@ -28,6 +28,46 @@ const HINTS_BY_MODE: Record<FocusMode, HintEntry[]> = {
 };
 
 /**
+ * What a reader is taught, in every focus state and at every selection size
+ * (#3231).
+ *
+ * `buildModeActive = !isMobile`, and `tryBuildModeFocusMove` has no rights gate,
+ * so a Viewer does reach `RowFocused` and used to be shown `HINTS_BY_MODE`'s
+ * three mutations — `⏎ New row below`, indent, `F2 Edit` — none of which they
+ * can perform. Web rule 302: a control a reader is not offered is **absent**,
+ * not dimmed, and a hint for an act that cannot happen is worse than a dimmed
+ * control because there is nothing on screen to look disabled. #3020 made the
+ * argument for the two dead keystroke chips: a user who tries the thing the bar
+ * teaches and gets nothing concludes the *feature* is broken, not the hint.
+ *
+ * Both entries are read off the row reducer's own reader branch
+ * (`TaskListRow.tsx`, the `if (!canEdit)` arm) rather than chosen for tone:
+ *
+ *  - `↑↓` moves row focus through `tryBuildModeFocusMove`, which gates on
+ *    `buildMode` alone — identical for a reader. The label is the one the
+ *    shipped `NoSelection` set already uses, so the strip does not coin a
+ *    second phrase for one act.
+ *  - `⏎` falls into the reader branch, which sets `selectedTaskId` — the store
+ *    the task drawer renders from. So it opens details; it does not insert.
+ *    The cheatsheet already calls this act "Open the focused row's details".
+ *
+ * Deliberately *not* here: `Esc Clear selection`. Escape is handled inside the
+ * authoring branch, so it is not a verified reader act, and a hint set whose
+ * whole point is that every glyph resolves must not itself guess.
+ *
+ * Scope note: this branches on **edit rights**, not on `readOnly`. An author who
+ * pressed the Read pill is a different state — the apparatus is genuinely theirs
+ * and is one keystroke away (`ScheduleView` documents the distinction at
+ * `hasEditRights`), and `shouldRenderCoachBar` already takes rights alone. What
+ * that mode should teach is a live question owned by the mode-pill work, not
+ * settled quietly here.
+ */
+const READER_HINTS: HintEntry[] = [
+  { key: '↑↓', label: 'Select row' },
+  { key: '⏎', label: 'Open details' },
+];
+
+/**
  * Shown whenever a multi-row selection exists, in place of the mode hints and
  * regardless of `mode` (#2987).
  *
@@ -48,6 +88,12 @@ const SELECTION_HINTS: HintEntry[] = [
 
 export interface BuildModeHintStripProps {
   mode: FocusMode;
+  /**
+   * This reader may author. False replaces every mode/selection hint with
+   * `READER_HINTS` — see there for why the strip stays up rather than being
+   * withheld from a reader entirely (#3231).
+   */
+  hasEditRights: boolean;
   /**
    * Size of the current multi-row selection. Above 1 the strip shows the
    * selection hints instead of the mode hints — the mode is still RowFocused,
@@ -94,12 +140,19 @@ function HintChip({ entry }: { entry: HintEntry }) {
  */
 export function BuildModeHintStrip({
   mode,
+  hasEditRights,
   selectionCount = 0,
   onBulkEdit,
   onShowCheatsheet,
 }: BuildModeHintStripProps) {
   const multiSelect = selectionCount > 1;
-  const hints = multiSelect ? SELECTION_HINTS : HINTS_BY_MODE[mode];
+  // Rights first: a reader gets the same two navigation hints in every focus
+  // state, because the mode and selection sets are entirely mutations for them.
+  const hints = !hasEditRights
+    ? READER_HINTS
+    : multiSelect
+      ? SELECTION_HINTS
+      : HINTS_BY_MODE[mode];
   return (
     <div
       // No live-region semantics (web rule 194): now that ScheduleView mounts
@@ -112,6 +165,7 @@ export function BuildModeHintStrip({
       // own accessible name, so nothing is hidden — it just isn't auto-spoken.
       data-testid="build-mode-hint-strip"
       data-mode={mode}
+      data-hints={!hasEditRights ? 'reader' : multiSelect ? 'selection' : mode}
       data-selection-count={selectionCount}
       className="hidden md:flex h-7 items-center gap-4 px-3
         bg-chrome-surface-raised border-t border-chrome-border
@@ -123,7 +177,7 @@ export function BuildModeHintStrip({
       </span>
       <span className="text-chrome-text-secondary" aria-hidden="true">·</span>
       <div className="flex items-center gap-4 flex-1 min-w-0 overflow-hidden">
-        {multiSelect && onBulkEdit && (
+        {hasEditRights && multiSelect && onBulkEdit && (
           <button
             type="button"
             onClick={onBulkEdit}
