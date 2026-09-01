@@ -140,6 +140,13 @@ EOL dates and regulatory deadlines are primary and verifiable. Percentage statis
 circulating from the State of Agile and Gartner reach us via secondary aggregators and
 are directional only — **no conclusion in this file rests on a single such figure.**
 
+These limits are not only history. `/voice-of-customer` Step 0a(ii) and `/sunset-check`
+Step 1 search this same external ground on every run, and they restate the constraints
+above so an agent does not rediscover them one wasted search at a time. What those steps
+bring back is evidence about the **category**, and it may never raise a persona's grounding
+tier — see the tier table below: T0 → T1 requires a real report about TruePPM, cited in
+`.claude/persona-calibration.md`.
+
 ### Grounding tier
 
 Each persona carries a grounding tier stating how much real evidence stands behind it.
