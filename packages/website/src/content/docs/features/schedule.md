@@ -232,6 +232,15 @@ Split-pane: a virtualized task list on the left (eight columns — WBS, Task, Li
 The task list is [Schedule build mode](/features/schedule-build-mode/) — a keyboard-first construction surface, on by default: type a task, `Alt + →` to indent, `Space` to complete, `F2` to edit. It builds the schedule; sprint planning still lives on the [Board](/features/board/).
 :::
 
+### On a narrow desktop window
+
+The outline and the bar track share one row, and the track is what makes the view a
+timeline — so on a window too narrow to hold both at their full width, the **outline
+gives ground first**. It keeps the columns you sized and clips the rightmost ones;
+the bar track holds a 320px floor and stays readable. Nothing you set is changed:
+widen the window, or collapse the left rail, and your outline comes back exactly as
+it was. Drag the divider if you would rather spend the width the other way.
+
 ### On a phone
 
 Below the `md` breakpoint the split-pane canvas gives way to a dedicated
