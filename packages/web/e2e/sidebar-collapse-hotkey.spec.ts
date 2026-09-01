@@ -3,8 +3,13 @@
  *
  * The collapse button's tooltip has always advertised ⌘/Ctrl+B, but the chord
  * was never bound. This asserts the binding now honors the advertised shortcut:
- * it hides the rail and shows it again, and it yields the chord (= bold) while a
- * text field is focused.
+ * it collapses the rail and expands it again, and it yields the chord (= bold)
+ * while a text field is focused.
+ *
+ * Since ADR-0979 the collapsed rail is icon-only at 64px, not hidden, so the
+ * assertion moved from "the rail is gone" to "the rail narrowed and is still
+ * there". The old form was `toHaveCount(0)` — which passed only because the
+ * 0px rail was `aria-hidden` and therefore absent from the accessibility tree.
  */
 import { test, expect } from './fixtures/coverage';
 import { paletteSearch, setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -29,7 +34,7 @@ async function setup(page: import('@playwright/test').Page) {
 }
 
 test.describe('sidebar collapse hotkey (#1193)', () => {
-  test('⌘/Ctrl+B hides the rail and shows it again', async ({ page }) => {
+  test('⌘/Ctrl+B collapses the rail to the icon rail and expands it again', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
@@ -38,8 +43,11 @@ test.describe('sidebar collapse hotkey (#1193)', () => {
 
     // ControlOrMeta resolves to ⌘ on macOS and Ctrl elsewhere — matches the hook.
     await page.keyboard.press('ControlOrMeta+b');
-    await expect(rail).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Show navigation' })).toBeVisible();
+    // WAS: await expect(rail).toHaveCount(0);
+    // The rail stays in the accessibility tree — that is the ADR-0979 contract.
+    await expect(rail).toBeVisible();
+    await expect(rail).toHaveAttribute('data-collapsed', 'true');
+    await expect(page.getByRole('button', { name: 'Expand navigation' })).toBeVisible();
 
     await page.keyboard.press('ControlOrMeta+b');
     await expect(rail).toBeVisible();

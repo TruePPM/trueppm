@@ -11,7 +11,7 @@ Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+
 ## Toolbar layout
 
 ```
-[ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the ··· menu by default )   [ Build mode pill ]
+[ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the ··· menu by default )   [ Author ▾ ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
 [ {N} items · {S} in sprints · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
@@ -27,19 +27,19 @@ It concedes in two stages, and the first is always spent before the second:
 1. **Things shorten in place.** The summary chip drops its lowest-priority token, then
    its words before its numbers (`142 items · 12 in sprints · 9 critical · CPM ✓` →
    `142 · 9 ▲ · ✓` → `CPM ✓`), the insert sentence
-   shortens, the zoom stepper becomes a `Month ▾` menu, and Read/Author and Build mode
-   merge into one `Author · Build ▾` chip. Nothing has left the toolbar at this point —
-   each control still shows its current value, and the parts that no longer fit are in
-   its own menu.
+   shortens, and the zoom stepper becomes a `Month ▾` menu. Nothing has left the
+   toolbar at this point — each control still shows its current value, and the parts
+   that no longer fit are in its own menu.
 2. **Then commands move into `···`.** Export PDF goes first, then Milestone, and
    **Today** last of all. A control that moves keeps its name and its keyboard shortcut,
    and the menu says why it moved: **From the toolbar — no room at this width** for one
    the window squeezed out, **Not in the toolbar** for one you unpinned yourself.
 
-The mode chip is never one of them. Whether you are in Read or Author mode stays visible
-in the toolbar at every width, because a mode you cannot see is a mode you will be
-surprised by. The same goes for the session-trail count and the recalculating indicator:
-they compact to a glyph, but they never move behind a click.
+The mode chip is never one of them, and it never collapses either — it is one control,
+the same size, at every width. Whether you are in Read or Author mode stays visible in
+the toolbar always, because a mode you cannot see is a mode you will be surprised by.
+The same goes for the session-trail count and the recalculating indicator: they compact
+to a glyph, but they never move behind a click.
 
 Widening the window gives everything back, in reverse.
 
@@ -58,7 +58,7 @@ makes this the one place that answers "where did my button go".
 | Today | in the toolbar |
 
 Two rows at the bottom are shown but cannot be changed: `+ Item`, `Grid / Timeline`,
-`Display` and `···` are always in the toolbar, and zoom, the mode chip and the engine
+`Display`, `···` and the mode chip are always in the toolbar, and zoom and the engine
 status are always present but collapse when the bar is narrow. They are listed so the
 inventory is complete rather than leaving you to guess what happened to them.
 

@@ -17,6 +17,12 @@ a non-object body is genuinely unreachable — a view whose ``parser_classes`` a
 multipart-only, or one whose envelope serializer has already rejected a
 non-mapping — narrow with a ``cast`` and say *why* in a comment instead; a guard
 that can never fire is untestable and reads as protection that is not there.
+
+Note the neighbour with the opposite rule: ``_task_body_mapping()`` in
+``apps/projects/views.py`` coerces a non-mapping to ``{}`` rather than refusing
+it. That is safe only because a ``ModelSerializer`` has already rejected non-dicts
+at both its call sites — do not copy the pattern to a handler that reads
+``request.data`` first.
 """
 
 from __future__ import annotations
@@ -27,6 +33,17 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 
+#: The one body every non-object refusal puts on the wire (#3281).
+#:
+#: A **dict** ``default_detail``, not a string, and that is the whole mechanism:
+#: DRF's handler passes a ``dict``/``list`` detail through verbatim and only wraps
+#: a *string* one as ``{"detail": ...}``. A string here therefore drops
+#: ``default_code`` on the floor — it stays on the ``ErrorDetail`` object and the
+#: client never sees it, which is exactly what #3278 shipped and what left one
+#: refusal speaking three different bodies.
+INVALID_BODY_DETAIL = "Request body must be a JSON object."
+INVALID_BODY_CODE = "invalid_body"
+
 
 class InvalidRequestBody(APIException):
     """400 for a JSON body that parsed fine but is not an object.
@@ -35,18 +52,20 @@ class InvalidRequestBody(APIException):
     the message in a list under a field key and describe a *field* problem, and
     this is a problem with the envelope — no field is at fault.
 
-    The body on the wire is the flat ``{"detail": ...}`` DRF's stock handler
-    renders for an ``APIException``; ``default_code`` stays on the ``ErrorDetail``
-    and never reaches the client. That matches the reparent guard
-    (``projects/views.py``) and **not** the group/ungroup one, which returns
-    ``{"code": "invalid_body", "detail": ...}`` and has a test asserting the
-    ``code``. Converging the two is a client-visible break and is deliberately
-    not done here — see the MR notes.
+    Shape 2 (``docs/api/errors.md``) — ``{"code", "detail"}`` — because the page
+    reserves the ``code`` for failures a client is expected to *handle*
+    differently rather than merely report, and a body the caller constructed
+    wrongly is a bug in its request construction, not a rejected field value.
+
+    Converging **upward** is what makes this non-breaking: ``detail`` is still
+    present everywhere it already was, so no client that reads it breaks, and the
+    group/ungroup guard that already emitted ``code`` is byte-identical. Stripping
+    ``code`` to match the other two would have been the client-visible direction.
     """
 
     status_code = status.HTTP_400_BAD_REQUEST
-    default_detail = "Request body must be a JSON object."
-    default_code = "invalid_body"
+    default_detail = {"code": INVALID_BODY_CODE, "detail": INVALID_BODY_DETAIL}  # noqa: RUF012
+    default_code = INVALID_BODY_CODE
 
 
 def object_body(request: Request) -> dict[str, Any]:

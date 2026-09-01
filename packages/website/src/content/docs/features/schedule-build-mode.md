@@ -36,9 +36,9 @@ before you start.
 
 ## What you see on the Schedule view
 
-Build mode adds a toolbar pill and a single **teaching band** under the plan:
+Build mode adds an entry to the toolbar's mode chip and a single **teaching band** under the plan:
 
-- A **`⌨ Build mode` pill** in the toolbar (left side, next to the + Item button). It is always there, and clicking it opens the keyboard cheatsheet.
+- The toolbar's **mode chip** — the control that reads `Author` or `Read`. It is always there, and its **`Keyboard shortcuts…`** entry opens the cheatsheet. There is no separate `Build mode` pill: build mode is not something you switch on, so a control that only ever said "on" was reporting a constant. Whether you can type into the plan is the one thing that varies, and that is what the chip states.
 - A **teaching band** directly under the plan. It shows one of two things, never both at once:
   - The **how-to bar**, while nothing in the outline is selected. Three lines covering indent, grouping, and the row controls that only appear when you hover a row — the things you cannot discover by looking. Hide it with its **×**; bring it back from **Display → Outline → How-to bar**.
   - The **hint strip**, from the moment you focus a row. It shows the three most relevant hotkeys for the state you are in, and swaps to selection actions — group, delete, clear — once more than one row is selected.

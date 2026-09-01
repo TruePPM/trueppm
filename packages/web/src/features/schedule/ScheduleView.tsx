@@ -173,8 +173,6 @@ import {
   BuildModeHintStrip,
   BuildModeCheatsheet,
   BlankProjectCanvas,
-  BuildModePill,
-  AuthorModePill,
   hasUnresolvedOwnerToken,
   findRowByPredicate,
   usePasteMany,
@@ -248,6 +246,7 @@ import {
   type UngroupTarget,
 } from './buildMode/groupOutcome';
 import { GroupOutcomeNotice } from './GroupOutcomeNotice';
+import { MIN_BAR_TRACK, SPLITTER_WIDTH, outlinePaneWidthFor } from './paneFloors';
 import { ScheduleStructureButtons } from './ScheduleStructureButtons';
 import { newestUndoableEntry, useTrailStore } from './trail/trailStore';
 import { SessionTrail } from './trail/SessionTrail';
@@ -415,8 +414,13 @@ interface PanelSplitterProps {
   maxTaskWidth: number;
 }
 
-/** Floor on the bar track's width — below this the timeline stops being one. */
-export const MIN_BAR_TRACK = 320;
+/**
+ * Re-exported so existing callers and `scheduleSurface.test.tsx` keep one import
+ * site; the definitions live in `paneFloors.ts` because the E2E spec has to read
+ * them without pulling this module's graph into the e2e tsconfig.
+ */
+export { MIN_BAR_TRACK, SPLITTER_WIDTH, outlinePaneWidthFor } from './paneFloors';
+
 /** Lower bound on the name column; mirrors the store's `MIN_COL_WIDTHS.task`. */
 const MIN_TASK_WIDTH = 120;
 /** Absolute upper bound, before the container's own room narrows it further. */
@@ -437,6 +441,10 @@ const MAX_TASK_WIDTH = 600;
  * a current 220 would announce `valuemax < valuenow` (a WCAG 4.1.2 failure no
  * visual check sees) and collapse the column 220 → 120 on the first ArrowLeft.
  * An upper bound is permission to grow, never an instruction to shrink.
+ *
+ * This governs GROWING only. What stops the outline crowding the bar track out
+ * of existence when the pane shrinks is `outlinePaneWidthFor` in `paneFloors.ts`
+ * — a separate clamp precisely because this one must not reach backwards (#3279).
  */
 export function maxTaskWidthFor(
   containerWidth: number,
@@ -3842,6 +3850,21 @@ export function ScheduleView() {
       // Alt+A Author/Read toggle (#2727, ADR-0776 §5).
       out['alt+a'] = (e) => {
         e.preventDefault();
+        // Stated, never silent (rule 311(c)). The pointer path announces itself
+        // for free — focus sits on the `menuitemcheckbox` whose `aria-checked`
+        // flips — but the chord had no feedback at all, and #3263 made that
+        // acute rather than academic: merging the two pills lengthened the
+        // pointer path, so the mode chip's own accessible name now routes people
+        // HERE. Steering someone onto the one path with no confirmation, when
+        // the consequence is that every authoring control silently goes
+        // `disabled`, is the shape rule 311(c) exists to stop.
+        const next = authorMode.mode === 'read' ? 'author' : 'read';
+        const said =
+          next === 'read'
+            ? 'Read mode. Edits are blocked.'
+            : 'Author mode. Edits are allowed.';
+        if (ariaLiveRef.current) ariaLiveRef.current.textContent = said;
+        setScheduleActionToast({ message: said });
         toggleAuthorMode();
       };
       // ⌘⇧M / Ctrl+Shift+M (#2736): declare the hybrid split for the focused
@@ -4005,6 +4028,8 @@ export function ScheduleView() {
     handleUngroupRow,
     buildModeActive,
     toggleAuthorMode,
+    authorMode.mode,
+    setScheduleActionToast,
     focus,
     visibleTasks,
     resourcePool,
@@ -4365,7 +4390,8 @@ export function ScheduleView() {
           is actively engaged (RowFocused / CellEdit). When idle (NoSelection) the
           strip is unmounted so ScheduleForecastBar sits flush at the bottom and the
           P50/P80/P95 signal isn't subordinated by always-on discoverability chrome.
-          The always-on BuildModePill in the toolbar remains the discovery affordance. */}
+          The always-on mode chip in the toolbar remains the discovery affordance —
+          its `Keyboard shortcuts…` item is the way in (#3263). */}
       {/* The coach teaches the gestures a static screen cannot show — the row
           controls only appear on hover, so nothing else can announce them
           (#2959). Dismissible, and restorable from Display options; the strip it
@@ -5712,24 +5738,17 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           })}
         />
       )}
-      {/* Mode cluster (#3076 rung 8). Split into two pills while there is room;
-          one chip that still shows its value when there is not. It has no
-          `overflow` state at all — a mode you have to open a menu to read is a
-          mode you forget you are in, and the cost of that is typing into a plan
-          you believe is read-only. */}
-      {buildModeActive && hasEditRights && composition.mode === 'split' && (
-        <>
-          <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
-          {/* The Read/Author toggle is meaningless without rights: there is no
-              mode to leave. It goes, and the View-only badge takes its place. */}
-          <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />
-        </>
-      )}
-      {buildModeActive && hasEditRights && composition.mode === 'chip' && (
+      {/* The mode control (#3076 rung 8, merged to one control in #3263). One
+          chip at every width, always showing its value. It has no `overflow`
+          state at all — a mode you have to open a menu to read is a mode you
+          forget you are in, and the cost of that is typing into a plan you
+          believe is read-only. Absent without edit rights: a Read/Author toggle
+          is meaningless when there is no mode to leave, and the View-only badge
+          takes its place. */}
+      {buildModeActive && hasEditRights && (
         <ScheduleModeChip
           mode={authorMode}
           onToggleMode={onToggleAuthorMode}
-          buildModeActive={buildModeActive}
           onShowCheatsheet={() => setCheatsheetOpen(true)}
         />
       )}
@@ -5875,7 +5894,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                     // `+ Item`, so listing it as "always in the toolbar" would
                     // be a claim about a control that is not there.
                     label: hasEditRights
-                      ? 'Item, Grid / Timeline, Display, ···'
+                      ? 'Item, Grid / Timeline, Display, ···, mode'
                       : 'Grid / Timeline, Display, ···',
                     sub: 'Always in the toolbar.',
                     checked: true,
@@ -5884,10 +5903,15 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                   },
                   {
                     id: 'locked-state',
-                    label: hasEditRights
-                      ? 'Zoom, mode, engine status'
-                      : 'Zoom, engine status',
-                    sub: 'Always present; collapse to a chip when narrow.',
+                    // `mode` moved up to the tier-A row in #3263 and is no longer
+                    // in this one's ternary — it is one chip at every width now,
+                    // so "collapse when narrow" stopped being true of it. This
+                    // popover is the product's only answer to "where did my
+                    // button go" (rule 343(f)), so a stale sentence here sends
+                    // someone resizing a window for a shape change that will
+                    // never come.
+                    label: 'Zoom, engine status',
+                    sub: 'Always present; collapse when narrow.',
                     checked: true,
                     where: 'always',
                     locked: true,
@@ -6307,6 +6331,10 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   const itl = useIterationLabel(projectId ?? undefined);
   const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
   const maxTaskWidth = maxTaskWidthFor(paneWidth, totalWidth - widths.task, widths.task);
+  // The bar track's floor, taken out of the pane before the outline gets the rest
+  // (#3279). Only the Timeline surface passes this — the Grid has no bar track, so
+  // there is nothing there for the outline to crowd out.
+  const outlinePaneWidth = outlinePaneWidthFor(paneWidth, totalWidth, SPLITTER_WIDTH);
 
   if (isMobile) {
     // Dedicated mobile-first Schedule surface (#1671, ADR-0348) — a DOM
@@ -6351,6 +6379,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               visible={visible}
               setWidth={setWidth}
               totalWidth={totalWidth}
+              renderedWidth={outlinePaneWidth}
               maxTaskWidth={maxTaskWidth}
               summaryIds={summaryIds}
               childCountById={childCountById}

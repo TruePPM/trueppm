@@ -207,6 +207,71 @@ def test_throttled_endpoints_document_429(schema: dict) -> None:
         )
 
 
+def test_every_body_bearing_write_declares_a_400(schema: dict) -> None:
+    """A request body that can be rejected must say so in the schema (#3286).
+
+    The predicate is the one the injection uses: an unsafe method **with a
+    `requestBody`**. That is exactly the condition under which DRF can raise
+    ValidationError, and it is read off the generated operation rather than
+    guessed from the view — so a serializer added tomorrow is covered without
+    touching this.
+
+    Asserted as a whole-schema sweep rather than a sample of paths, because the
+    failure this guards is a *new* endpoint arriving undeclared, which a
+    named-path list can never see.
+    """
+    WRITE = ("post", "put", "patch", "delete")
+    missing = [
+        f"{method.upper()} {path}"
+        for path, ops in schema["paths"].items()
+        for method, op in ops.items()
+        if method in WRITE and "requestBody" in op and "400" not in op.get("responses", {})
+    ]
+    assert not missing, (
+        "every write operation that accepts a request body must declare a 400 "
+        f"(#3286); missing on {len(missing)}: {missing[:5]}"
+    )
+
+
+def test_the_400_is_not_advertised_where_there_is_no_body_to_reject(schema: dict) -> None:
+    """The other direction, and the reason the predicate is not "every write".
+
+    Advertising a refusal an endpoint cannot produce is the same defect as
+    omitting one it can, pointing the other way — a generated client grows a
+    branch that is unreachable. A bodyless write may still declare a 400 by hand
+    (a state conflict is a real 400), so this asserts the *injection* did not
+    invent one, by checking no bodyless operation carries the injected
+    description.
+    """
+    INJECTED = "The request was rejected. Either a field failed validation"
+    invented = [
+        f"{method.upper()} {path}"
+        for path, ops in schema["paths"].items()
+        for method, op in ops.items()
+        if method in ("post", "put", "patch", "delete")
+        and "requestBody" not in op
+        and INJECTED in (op.get("responses", {}).get("400", {}).get("description") or "")
+    ]
+    assert not invented, (
+        f"the 400 injection reached {len(invented)} operation(s) with no request "
+        f"body to reject (#3286): {invented[:5]}"
+    )
+
+
+def test_the_declared_400_admits_the_shapes_the_api_actually_returns(schema: dict) -> None:
+    """`errors.md` documents two shapes and DRF adds a third; all three must fit.
+
+    A schema declaring only `detail` would type the uncommon case and mis-type
+    field validation, which is the majority of real 400s.
+    """
+    op = schema["paths"]["/api/v1/projects/"]["post"]
+    body = op["responses"]["400"]["content"]["application/json"]["schema"]
+    assert body["properties"]["detail"]["type"] == "string"  # Shape 1
+    assert body["properties"]["code"]["type"] == "string"  # Shape 2 — the contract
+    # DRF's `{"field": ["msg", ...]}`.
+    assert body["additionalProperties"] == {"type": "array", "items": {"type": "string"}}
+
+
 # ---------------------------------------------------------------------------
 # #2127 — response-schema conformance fixes. Schemathesis flagged read/write
 # endpoints whose real response bodies violated the committed schema. Each

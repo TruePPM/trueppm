@@ -61,6 +61,11 @@ if [[ -n "$dupes" ]]; then
   echo "  Renumber the one with FEWER external citations — grep 'rule <N>' across" >&2
   echo "  packages/ and docs/ first. The number that other files already point at" >&2
   echo "  is load-bearing; the other one is free to move." >&2
+  echo "" >&2
+  echo "  Next time: 'scripts/wt reserve rule' claims the number up front, across" >&2
+  echo "  worktrees AND against origin/main (#3284). This check stays as the" >&2
+  echo "  backstop for a branch that did not — but it can only fire after the rule" >&2
+  echo "  is written and cited, which is the expensive moment to find out." >&2
   exit 1
 fi
 
