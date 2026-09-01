@@ -129,10 +129,20 @@ export const useShellStore = create<ShellState>()((set) => ({
 }));
 
 /**
- * Derived rail width. v2 rail is 248px expanded; collapsing now fully HIDES it
- * (0px, "hide-to-context-bar" per ADR-0127) — the re-open ≡ lives in the context
- * bar, with ⌘K as the jump-to power-nav. This supersedes the old 60px icon rail.
+ * Derived rail width. The v2 rail is 248px expanded and **64px icon-only**
+ * collapsed (ADR-0979), which reverses ADR-0127 Decision D's 0px hide and
+ * ADR-0942 §10.
+ *
+ * The union is the contract, not a decoration: at 0px the collapsed rail was an
+ * `inert`, `aria-hidden` subtree — genuinely absent for every user — and at 64px
+ * it is a live navigation landmark. ADR-0979 §2 is why: ⌘K answers "take me to
+ * X" for someone who can already name X, and a rail answers "where am I, what
+ * else is there, is anything waiting for me" for someone who is not asking a
+ * question yet. A zero-width rail answers none of the three.
+ *
+ * Changing either arm changes what a collapsed rail *means*, so change it
+ * against an ADR — see `Sidebar.tsx` for the a11y contract that rides on it.
  */
-export function selectSidebarWidth(state: ShellState): 0 | 248 {
-  return state.sidebarCollapsed ? 0 : 248;
+export function selectSidebarWidth(state: ShellState): 64 | 248 {
+  return state.sidebarCollapsed ? 64 : 248;
 }

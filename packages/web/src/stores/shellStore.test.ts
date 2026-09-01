@@ -58,8 +58,24 @@ describe('selectSidebarWidth', () => {
     useShellStore.setState(state);
   });
 
-  it('returns 0 when collapsed (hide-to-context-bar, ADR-0127)', () => {
+  it('returns 64 when collapsed — icon-only, not hidden (ADR-0979)', () => {
+    // Replaces the ADR-0127 assertion that this returned 0. Recorded as a
+    // reversal rather than edited quietly: 0 meant the collapsed rail was an
+    // `inert`, `aria-hidden` subtree that was absent for every user, and 64
+    // means it is a live navigation landmark. Two Accepted ADRs (0127 D and
+    // 0942 §10) were reversed to get here; if this assertion ever flips back,
+    // it needs an ADR of its own, not a patch.
     useShellStore.setState({ sidebarCollapsed: true });
-    expect(selectSidebarWidth(useShellStore.getState())).toBe(0);
+    expect(selectSidebarWidth(useShellStore.getState())).toBe(64);
+  });
+
+  it('never returns 0 — collapse no longer reclaims the full canvas (ADR-0979 §3)', () => {
+    // The full-bleed need (the Schedule at export width) is deliberately NOT
+    // served by the global collapse state any more; it wants its own focus mode.
+    // Pinned so a future "just make it 0 again" is a visible decision.
+    for (const sidebarCollapsed of [true, false]) {
+      useShellStore.setState({ sidebarCollapsed });
+      expect(selectSidebarWidth(useShellStore.getState())).toBeGreaterThan(0);
+    }
   });
 });
