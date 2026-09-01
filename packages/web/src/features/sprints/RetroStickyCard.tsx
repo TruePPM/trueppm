@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { RetroBoardItem } from '@/hooks/useRetroBoard';
+import { PencilIcon } from '@/components/Icons';
 import { RetroStickyEditor } from './RetroStickyEditor';
 
 interface Props {
@@ -143,7 +144,7 @@ export function RetroStickyCard({
                 hover:text-brand-primary
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
-              <span aria-hidden="true">✎</span>
+              <PencilIcon className="h-4 w-4" aria-hidden="true" />
             </button>
             <button
               type="button"

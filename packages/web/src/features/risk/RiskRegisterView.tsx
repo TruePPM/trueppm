@@ -2,6 +2,7 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import type { Risk } from '@/api/types';
 import { useProjectId } from '@/hooks/useProjectId';
 import { RiskImportModal } from './RiskImportModal';
+import { PencilIcon } from '@/components/Icons';
 import { RiskChip } from './RiskChip';
 import { RiskMatrix } from './RiskMatrix';
 import { RiskDrawer } from './RiskDrawer';
@@ -157,7 +158,7 @@ function RiskTableRow({
                             focus:outline-none focus:ring-2
                             focus:ring-brand-primary focus:ring-offset-1"
         >
-          ✎
+          <PencilIcon className="h-4 w-4" aria-hidden="true" />
         </button>
       </td>
     </tr>

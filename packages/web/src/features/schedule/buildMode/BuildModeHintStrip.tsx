@@ -106,8 +106,8 @@ export function BuildModeHintStrip({
       // this strip contextually, a `role="status"` would re-announce on every
       // NoSelection→RowFocused / RowFocused↔CellEdit transition — aria-live
       // churn for decorative discovery chrome. The build-mode signal AT users
-      // need is the always-on toolbar pill (clear aria-label) and the fully
-      // accessible cheatsheet; the chips here are visual reinforcement. The
+      // need is the always-on toolbar mode control (clear aria-label) and the
+      // fully accessible cheatsheet; the chips here are visual reinforcement. The
       // strip stays in the reading order and its cheatsheet button keeps its
       // own accessible name, so nothing is hidden — it just isn't auto-spoken.
       data-testid="build-mode-hint-strip"
@@ -117,11 +117,6 @@ export function BuildModeHintStrip({
         bg-chrome-surface-raised border-t border-chrome-border
         motion-safe:animate-save-bar-slide"
     >
-      <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-widest text-chrome-text-secondary">
-        <span aria-hidden="true">⌨</span>
-        Build mode
-      </span>
-      <span className="text-chrome-text-secondary" aria-hidden="true">·</span>
       <div className="flex items-center gap-4 flex-1 min-w-0 overflow-hidden">
         {multiSelect && onBulkEdit && (
           <button
