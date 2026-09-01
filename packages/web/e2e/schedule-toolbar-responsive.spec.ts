@@ -11,8 +11,11 @@
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 // Imported rather than repeated: a copied 320 here would keep asserting the old
-// floor the day somebody changes the real one.
-import { MIN_BAR_TRACK } from '../src/features/schedule/ScheduleView';
+// floor the day somebody changes the real one. From `paneFloors` and not from
+// `ScheduleView` — this tree compiles under `tsconfig.e2e.json`, which has no
+// vite client types, so reaching through the component would drag its whole
+// graph into a project where `import.meta.env` does not type-check.
+import { MIN_BAR_TRACK } from '../src/features/schedule/paneFloors';
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000568';
 
