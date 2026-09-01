@@ -582,6 +582,7 @@ scripts:test:
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
+        - scripts/tests/wt-args.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
@@ -612,6 +613,7 @@ scripts:test:
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
+        - scripts/tests/wt-args.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
@@ -629,6 +631,7 @@ scripts:test:
     - bash scripts/tests/assemble-changelog.test.sh
     - bash scripts/tests/release-staging.test.sh
     - bash scripts/tests/release-preflight.test.sh
+    - bash scripts/tests/wt-args.test.sh
     - bash scripts/tests/wt-reserve.test.sh
     - bash scripts/tests/wt-stash.test.sh
     - bash scripts/tests/wt-testdb.test.sh

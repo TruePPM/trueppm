@@ -20,6 +20,10 @@
 #                                         worktree yet (you picked it up but haven't
 #                                         started). Same lock as `new`.
 #   scripts/wt release <issue>            Release an issue check-out (clear the label).
+#   scripts/wt release-reservation <branch>
+#                                         Drop ledger reservations held by a branch
+#                                         that no longer exists (what `wt doctor`
+#                                         reports). Refuses while the branch is live.
 #   scripts/wt stash [push] [msg]         Stash this worktree's changes PRIVATELY.
 #                                         `git stash` is NOT worktree-scoped: it uses
 #                                         refs/stash in the shared git common dir, so
@@ -450,6 +454,30 @@ ledger_release_branch() {
     rm -f "$tmp"
   fi
   ledger_unlock
+}
+
+# Reservation rows whose branch no longer exists anywhere (#3283).
+#
+# `wt remove` and `wt prune` both call `ledger_release_branch`, so the ordinary
+# paths clean up after themselves. This finds what a path that BYPASSED wt left
+# behind — a raw `git worktree remove`, a hand-deleted branch, a `wt new`
+# interrupted after the reservation and before the worktree. Same reasoning as the
+# orphaned-test-database check (#3270): the release path working is not the same
+# as nothing ever being stranded.
+#
+# Conservative on purpose. A row is orphaned only when its branch is absent from
+# ALL of: the worktree list, local refs, and origin. A branch that is merely
+# unpushed is not orphaned — that is the common case for a live worktree, and
+# reporting it would train people to ignore this.
+orphan_reservations() {
+  [[ -f "$WT_LEDGER" ]] || return 0
+  local kind key number branch rest
+  while IFS=$'\t' read -r kind key number branch rest; do
+    [[ -n "${branch:-}" && "$branch" != "-" ]] || continue
+    git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch" && continue
+    git -C "$REPO_ROOT" show-ref --verify --quiet "refs/remotes/origin/$branch" && continue
+    printf '%s\t%s\t%s\t%s\n' "$kind" "$key" "$number" "$branch"
+  done < "$WT_LEDGER"
 }
 
 # Record a reservation into a worktree's untracked .wt-reservation marker so the
@@ -1110,6 +1138,23 @@ cmd_doctor() {
   # caused to exist, but that only stops the bleeding — anything stranded by an
   # interrupted pytest run, or by a worktree removed before this shipped, is
   # still on disk with nothing pointing at it. This is the half that finds them.
+  # Orphaned reservations (#3283). A leaked row still counts toward the next
+  # free number — `next_adr_number` maxes over the tree, origin/main AND the
+  # ledger — so it silently pushes every future ADR up by one, attributed to a
+  # branch nobody can find.
+  say ""
+  local res_orphans res_count
+  res_orphans="$(orphan_reservations)"
+  res_count="$(printf '%s' "$res_orphans" | grep -c . || true)"
+  if [[ "${res_count:-0}" -gt 0 ]]; then
+    warn "  ${res_count} reservation(s) held by a branch that no longer exists:"
+    printf '%s\n' "$res_orphans" \
+      | awk -F'\t' '{ printf "      %s %s (%s) — branch %s\n", $1, $3, ($2=="-"?"—":$2), $4 }' >&2
+    warn "  each one still raises the next free number. Release with: scripts/wt release-reservation <branch>"
+  else
+    ok "  no orphaned reservations"
+  fi
+
   say ""
   if db_available; then
     local orphans orphan_count in_list
@@ -1205,6 +1250,26 @@ cmd_claim() {
 
 # Manually release an issue check-out (e.g. a `claim` you never turned into a
 # worktree, or a stale lock from a crashed session).
+# The actionable half of doctor's orphan-reservation warning. A warning that
+# names no way out is a direction to an empty page.
+cmd_release_reservation() {
+  [[ $# -ge 1 ]] || die "usage: wt release-reservation <branch>"
+  local branch="$1"
+  [[ -f "$WT_LEDGER" ]] || { ok "no reservation ledger — nothing to release"; return 0; }
+  local rows
+  rows="$(awk -F'\t' -v b="$branch" '$4 == b' "$WT_LEDGER" 2>/dev/null || true)"
+  [[ -n "$rows" ]] || die "no reservation rows for branch '$branch'"
+  # Refuse while the branch still exists: the row is doing its job then, and
+  # releasing it would hand the same number to the next worktree.
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch" \
+     || git -C "$REPO_ROOT" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    die "branch '$branch' still exists — its reservation is live. Use 'wt remove' instead."
+  fi
+  printf '%s\n' "$rows" | awk -F'\t' '{ printf "  releasing %s %s (branch %s)\n", $1, $3, $4 }' >&2
+  ledger_release_branch "$branch"
+  ok "released $(printf '%s\n' "$rows" | grep -c .) reservation row(s) for '$branch'"
+}
+
 cmd_release() {
   [[ $# -ge 1 ]] || die "usage: wt release <issue-number>"
   local issue="$1"
@@ -1342,21 +1407,90 @@ cmd_help() {
   sed -n '2,/^$/p' "$0" | sed -E 's/^# ?//'
 }
 
+# The one-line usage for a single subcommand. `cmd_help` prints the whole header
+# block; this is what `wt <sub> --help` and a rejected flag show.
+subcmd_usage() {
+  case "$1" in
+    new)       echo "usage: wt new <issue|branch-name> [--force] [--adr|--no-adr]" ;;
+    reserve)   echo "usage: wt reserve <adr | migration <app>>" ;;
+    claim)     echo "usage: wt claim <issue-number> [--force]" ;;
+    release)   echo "usage: wt release <issue-number>" ;;
+    release-reservation) echo "usage: wt release-reservation <branch>" ;;
+    stash)     echo "usage: wt stash [push [message] | pop | apply | list | drop | show]" ;;
+    list)      echo "usage: wt list" ;;
+    remove)    echo "usage: wt remove <issue|name> [--force]" ;;
+    prune)     echo "usage: wt prune [--force]" ;;
+    prune-dbs) echo "usage: wt prune-dbs [--yes]" ;;
+    doctor)    echo "usage: wt doctor" ;;
+    *)         echo "usage: wt <subcommand> — run 'wt help' for the full list" ;;
+  esac
+}
+
+# Flags a given subcommand actually understands. Anything else beginning with a
+# dash is a typo, not an argument.
+#
+# Read this off each cmd_* function's own parser, not off the header comment:
+# `prune-dbs` gates on --yes (it prompts, it does not guard), while `remove`
+# takes --force as its second positional. A flag missing here is not a cosmetic
+# gap — the guard rejects it before the subcommand ever runs.
+subcmd_flags() {
+  case "$1" in
+    new)                 echo "--force --adr --no-adr" ;;
+    claim|prune|remove)  echo "--force" ;;
+    prune-dbs)           echo "--yes" ;;
+    *)                   echo "" ;;
+  esac
+}
+
+# Guard a subcommand's arguments BEFORE its own parser sees them (#3283).
+#
+# Every parser below ends in a `*)` catch-all that takes an unrecognised token as
+# the branch name / issue / needle. That is what made `wt new --help` create a
+# branch called `feat/help`, a worktree, and an ADR reservation instead of
+# printing usage — the top-level dispatcher does handle `--help`, but only as the
+# FIRST argument.
+#
+# Two rules, and the second matters more than the one that prompted this: `--help`
+# and `-h` print usage and exit 0, and **any other leading-dash token the
+# subcommand does not declare is rejected**. A mistyped `--forse` silently
+# becoming a branch name is the same bug wearing a worse name, and it would not
+# have been caught by special-casing help alone.
+wt_arg_guard() {
+  local sub="$1"; shift
+  local known; known=" $(subcmd_flags "$sub") "
+  local a
+  for a in "$@"; do
+    case "$a" in
+      -h|--help) subcmd_usage "$sub"; exit 0 ;;
+      --)        return 0 ;;
+      -*)
+        [[ "$known" == *" $a "* ]] && continue
+        err "unknown option: $a"
+        subcmd_usage "$sub" >&2
+        exit 2
+        ;;
+    esac
+  done
+}
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
 case "${1:-help}" in
-  new)     shift; cmd_new "$@" ;;
-  reserve) shift; cmd_reserve "$@" ;;
-  claim)   shift; cmd_claim "$@" ;;
-  stash)   shift; cmd_stash "$@" ;;
-  release) shift; cmd_release "$@" ;;
-  list|ls) cmd_list ;;
-  remove|rm) shift; cmd_remove "$@" ;;
-  prune)   shift; cmd_prune "$@" ;;
-  prune-dbs) shift; cmd_prune_dbs "$@" ;;
-  doctor)  cmd_doctor ;;
+  new)     shift; wt_arg_guard new "$@";       cmd_new "$@" ;;
+  reserve) shift; wt_arg_guard reserve "$@";   cmd_reserve "$@" ;;
+  claim)   shift; wt_arg_guard claim "$@";     cmd_claim "$@" ;;
+  # Only the sub-subcommand is guarded: `wt stash push "-- rebase notes"` is a
+  # legitimate message, and a message is not a flag.
+  stash)   shift; wt_arg_guard stash "${1:-}"; cmd_stash "$@" ;;
+  release) shift; wt_arg_guard release "$@";   cmd_release "$@" ;;
+  release-reservation) shift; wt_arg_guard release-reservation "$@"; cmd_release_reservation "$@" ;;
+  list|ls) shift; wt_arg_guard list "$@";      cmd_list ;;
+  remove|rm) shift; wt_arg_guard remove "$@";  cmd_remove "$@" ;;
+  prune)   shift; wt_arg_guard prune "$@";     cmd_prune "$@" ;;
+  prune-dbs) shift; wt_arg_guard prune-dbs "$@"; cmd_prune_dbs "$@" ;;
+  doctor)  shift; wt_arg_guard doctor "$@";    cmd_doctor ;;
   help|--help|-h) cmd_help ;;
   *)       err "unknown subcommand: $1"; cmd_help; exit 2 ;;
 esac
