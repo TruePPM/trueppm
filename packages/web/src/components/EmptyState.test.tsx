@@ -7,13 +7,15 @@ import { ListIcon } from './Icons';
 describe('EmptyState', () => {
   it('renders the icon (decorative), title, and description', () => {
     render(<EmptyState icon={ListIcon} title="No tasks yet" description="Add your first task." />);
-    const status = screen.getByRole('status');
-    expect(status).toHaveTextContent('No tasks yet');
-    expect(status).toHaveTextContent('Add your first task.');
+    // The block carries no role of its own since #3198 — the announcement is the
+    // shell's persistent region's job (ADR-0989), so specs scope on the testid.
+    const block = screen.getByTestId('empty-state');
+    expect(block).toHaveTextContent('No tasks yet');
+    expect(block).toHaveTextContent('Add your first task.');
     // Heading is a real h2 for the document outline.
     expect(screen.getByRole('heading', { name: 'No tasks yet' })).toBeInTheDocument();
     // The icon is decorative — not exposed to the a11y tree.
-    expect(status.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    expect(block.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('omits the description and action blocks when not provided', () => {
@@ -38,11 +40,13 @@ describe('EmptyState', () => {
     render(<EmptyState icon={ListIcon} title="No tasks yet" />);
     // The entrance is gated behind motion-safe: so prefers-reduced-motion users
     // get the content with no animation (v2 motion contract — motion, never content).
-    expect(screen.getByRole('status').className).toContain('motion-safe:animate-empty-state-in');
+    expect(screen.getByTestId('empty-state').className).toContain(
+      'motion-safe:animate-empty-state-in',
+    );
   });
 
   it('accepts a className for hosts that must fill their area', () => {
     render(<EmptyState icon={ListIcon} title="x" className="h-full" />);
-    expect(screen.getByRole('status').className).toContain('h-full');
+    expect(screen.getByTestId('empty-state').className).toContain('h-full');
   });
 });

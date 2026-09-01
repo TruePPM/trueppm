@@ -845,8 +845,11 @@ test.describe('Programs — directory filter & sort (#1796)', () => {
       .getByRole('searchbox', { name: /Filter programs by name/i })
       .fill('nonexistent-program');
     await expect(page.getByText(/No programs match your filter/i)).toBeVisible();
-    // Recovering via the empty-state action restores the full directory.
-    await page.getByRole('status').getByRole('button', { name: /Clear filter/i }).click();
+    // Recovering via the empty-state action restores the full directory. Scope to
+    // the empty-state block — the search box also exposes a "Clear filter"
+    // affordance while a query is active. Scoped by testid since #3198: the block
+    // no longer carries a role of its own (ADR-0989).
+    await page.getByTestId('empty-state').getByRole('button', { name: /Clear filter/i }).click();
     await expect(cardNames(page)).toHaveCount(3);
   });
 

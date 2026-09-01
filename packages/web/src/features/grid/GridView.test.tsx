@@ -1631,7 +1631,7 @@ describe('GridView — zero-result diagnosis drops (#2387)', () => {
   it('summarizes a multi-value facet as "first +N" and drops the search that recovers most', async () => {
     const user = userEvent.setup();
     await renderGrid(['/projects/proj-1/grid?q=zzz-no-match&owner=r1,r2']);
-    const diagnosis = within(await screen.findByRole('status'));
+    const diagnosis = within(await screen.findByTestId('grid-filtered-empty'));
     expect(diagnosis.getByText(/No tasks match both filters/)).toBeInTheDocument();
     // Two owners are compacted rather than listed in full.
     expect(diagnosis.getByText('Owner: Alice Smith +1')).toBeInTheDocument();
@@ -1654,7 +1654,7 @@ describe('GridView — zero-result diagnosis drops (#2387)', () => {
   it('drops the Label facet when no loaded row carries the selected label', async () => {
     const user = userEvent.setup();
     await renderGrid(['/projects/proj-1/grid?owner=r1&fl=l1']);
-    const diagnosis = within(await screen.findByRole('status'));
+    const diagnosis = within(await screen.findByTestId('grid-filtered-empty'));
     expect(diagnosis.getByText(/No tasks match both filters/)).toBeInTheDocument();
     expect(diagnosis.getByText('Label: Needs review')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Drop Label: Needs review' }));
@@ -1666,7 +1666,7 @@ describe('GridView — zero-result diagnosis drops (#2387)', () => {
     const user = userEvent.setup();
     scheduleTasksMockReturn = { tasks: futureTasks, links: [], isLoading: false, error: null };
     await renderGrid(['/projects/proj-1/grid?due=overdue&owner=r1']);
-    const diagnosis = within(await screen.findByRole('status'));
+    const diagnosis = within(await screen.findByTestId('grid-filtered-empty'));
     expect(diagnosis.getByText(/No tasks match both filters/)).toBeInTheDocument();
     expect(diagnosis.getByText('Overdue')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Drop Overdue' }));

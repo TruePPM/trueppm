@@ -1,7 +1,9 @@
 /**
  * Empty states for /me/work (v2 warm refresh, ADR-0129).
  *
- * Three flavors, all `role="status"`:
+ * Three flavors. None carries a role or a live region of its own — each
+ * announces its heading through the shell's persistent polite region on the
+ * transition into empty (ADR-0989, #3198):
  *   - Flavor A — user has no project memberships at all (brand-new). Warm
  *     welcome + an "Explore a demo project" primary CTA (load-sample, reused
  *     across the app) plus a "Learn more" docs link, so a first-time user has an
@@ -18,6 +20,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Button } from '@/components/Button';
+import { useEmptyStateAnnouncement } from '@/components/emptyStateAnnouncements';
 import { InboxIcon } from '@/components/Icons';
 import { docsUrl } from '@/lib/docsUrl';
 import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
@@ -137,13 +140,22 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
   // opened it, so a user who clicked "Import from a spreadsheet" is not asked to
   // pick the secondary button once the modal is up (#2710).
   const [importFirst, setImportFirst] = useState(false);
+  // One hook call for all three flavors — the early returns below mean a
+  // per-branch call would be conditional. The heading each flavor renders is
+  // also the sentence the shell's persistent region speaks (ADR-0989), and a
+  // flavor change (reconnecting, or the first project landing) rewrites it, so
+  // the new state announces while a plain remount of the same flavor does not.
+  useEmptyStateAnnouncement(
+    offline
+      ? "You're offline"
+      : hasProjects
+        ? "You're all caught up"
+        : 'Welcome to TruePPM — let\u2019s get you started',
+  );
 
   if (offline) {
     return (
-      <div
-        role="status"
-        className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center"
-      >
+      <div className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center">
         <InboxIcon aria-hidden="true" className="h-10 w-10 text-navy-700 dark:text-reversed" />
         <h2 className="text-base font-medium text-neutral-text-primary">You&rsquo;re offline</h2>
         <p className="max-w-md text-sm text-neutral-text-secondary">
@@ -157,10 +169,7 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
 
   if (!hasProjects) {
     return (
-      <div
-        role="status"
-        className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center"
-      >
+      <div className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center">
         <InboxIcon aria-hidden="true" className="h-10 w-10 text-navy-700 dark:text-reversed" />
         <h2 className="text-base font-medium text-neutral-text-primary">
           Welcome to TruePPM — let&rsquo;s get you started
@@ -217,10 +226,7 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
   }
 
   return (
-    <div
-      role="status"
-      className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center"
-    >
+    <div className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center">
       <InboxIcon aria-hidden="true" className="h-10 w-10 text-navy-700 dark:text-reversed" />
       <h2 className="text-base font-medium text-neutral-text-primary">
         You&rsquo;re all caught up
