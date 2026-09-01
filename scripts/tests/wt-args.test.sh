@@ -204,10 +204,21 @@ printf 'adr\t-\t0999\tfeat/gone\t2026-01-01T00:00:00Z\n' >> "$led7"
 run "$D7" bash "$WT" release-reservation feat/gone; rc="$RUN_RC"
 check "releases an orphaned branch's rows"        "$([[ "$rc" -eq 0 ]]; echo $?)"
 check "…and the row is gone"                      "$(grep -q 'feat/gone' "$led7" && echo 1 || echo 0)"
+
+# A live branch that is NOT this worktree's is still refused: releasing it would
+# hand its number to whoever reserves next, while its owner is still holding it.
+git -C "$D7" branch -q feat/someone-elses-live-branch
+printf 'adr\t-\t0998\tfeat/someone-elses-live-branch\t2026-01-01T00:00:00Z\n' >> "$led7"
+run "$D7" bash "$WT" release-reservation feat/someone-elses-live-branch; rc="$RUN_RC"
+check "refuses another worktree's live branch"    "$([[ "$rc" -ne 0 ]]; echo $?)"
+check "…leaving its reservation intact"           "$(grep -q "	feat/someone-elses-live-branch	" "$led7"; echo $?)"
+
+# Your OWN branch is the exception (#3284): a number you reserved and decided
+# against has to be returnable without deleting the branch to do it.
 live7="$(git -C "$D7" rev-parse --abbrev-ref HEAD)"
 run "$D7" bash "$WT" release-reservation "$live7"; rc="$RUN_RC"
-check "refuses a branch that still exists"        "$([[ "$rc" -ne 0 ]]; echo $?)"
-check "…leaving its reservation intact"           "$(grep -q "	${live7}	" "$led7"; echo $?)"
+check "releases this worktree's own branch"       "$([[ "$rc" -eq 0 ]]; echo $?)"
+check "…and that row is gone"                     "$(grep -q "	${live7}	" "$led7" && echo 1 || echo 0)"
 
 # --- Case 8: bash 3.2 cleanliness (static) --------------------------------
 # CI runs bash 5 and cannot catch a 3.2 regression functionally; the release
