@@ -107,6 +107,25 @@ function HealthDot({ state }: { state: HealthState }) {
 // Section-header typography (rule 36). Split out so the Programs header can
 // reuse the type tokens on its <h2> while the inner NavLink owns the padding,
 // touch target, and active/hover state.
+/**
+ * A row's visible label, or its screen-reader-only self at 64px (ADR-0979 §5).
+ *
+ * `sr-only` and not conditional rendering: the label is the row's accessible
+ * name, so dropping it from the DOM would leave a nameless link and make a
+ * screen-reader user's traversal of the collapsed rail *different* from the
+ * expanded one — which is the exact property the ADR requires to be identical.
+ */
+function labelClass(collapsed: boolean): string {
+  return collapsed ? 'sr-only' : 'min-w-0 truncate';
+}
+
+/**
+ * A band heading (`PLAN` / `DELIVER` / `TRACK` / `WORKSPACE`). Already
+ * `aria-hidden` in both states — the accessible name is the `role="group"`'s
+ * `aria-label` (ADR-0942 §11 correction B) — so hiding it visually at 64px
+ * changes nothing for assistive tech and everything for the 48px of width the
+ * uppercase word does not fit in.
+ */
 const GROUP_LABEL_TEXT = 'text-xs font-semibold uppercase tracking-widest';
 const GROUP_LABEL = `px-3 pt-3 pb-1 ${GROUP_LABEL_TEXT} text-chrome-text-secondary`;
 
@@ -118,9 +137,15 @@ const GROUP_LABEL = `px-3 pt-3 pb-1 ${GROUP_LABEL_TEXT} text-chrome-text-seconda
 // would paint a hairline of the rail's ground inside the band as a mismatched halo.
 // Everything else is identical by design (ADR-0942 §2) — a scope band's rows differ
 // from a verb band's in nothing a user can see.
-function rowClass(active: boolean, onRaisedGround = false): string {
+function rowClass(active: boolean, onRaisedGround = false, collapsed = false): string {
   return [
-    'group flex items-center gap-2 w-full pl-2.5 pr-2 py-2 rounded-control text-sm transition-colors',
+    'group flex items-center w-full py-2 rounded-control text-sm transition-colors',
+    // Icon-only (ADR-0979): the row centers its 16px mark in the 48px the 64px
+    // rail leaves inside its `px-2` nav, and the label rides along as `sr-only`
+    // rather than being dropped — that is what keeps screen-reader traversal
+    // identical in both states. `relative` is the anchor for a count badge that
+    // has no room to sit inline any more.
+    collapsed ? 'relative justify-center gap-0 px-0' : 'gap-2 pl-2.5 pr-2',
     'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
     onRaisedGround ? 'focus:ring-offset-chrome-surface-raised' : 'focus:ring-offset-chrome-surface',
     active
@@ -158,9 +183,12 @@ const PROGRAM_VIEWS: {
 // rule-37 sage tint: the active row reads as a lifted neutral surface via a
 // BORDER, never a shadow (rule 1). Idle rows match `rowClass` so the card and
 // the rest of the rail stay visually coherent.
-function youRowClass(active: boolean): string {
+function youRowClass(active: boolean, collapsed = false): string {
   return [
-    'group flex items-center gap-2 w-full px-2 py-2 rounded-control text-sm transition-colors',
+    'group flex items-center w-full py-2 rounded-control text-sm transition-colors',
+    // Icon-only (ADR-0979). `relative` anchors the count badge, which has no
+    // inline room left once the label goes `sr-only`.
+    collapsed ? 'relative justify-center gap-0 px-0' : 'gap-2 px-2',
     'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
     active
       ? 'bg-neutral-surface border border-neutral-border text-chrome-text-primary font-medium'
@@ -171,6 +199,15 @@ function youRowClass(active: boolean): string {
 // Auto-collapse the desktop rail below `lg` unless the user took manual control
 // (preserved from the prior sidebar). Isolated from the component so the rail body
 // stays a thin orchestrator (issue 2369).
+//
+// Under ADR-0979 this now SHRINKS the rail to 64px where it used to hide it, and
+// the hook needed no change to do so: it only ever set `sidebarCollapsed`, and
+// what that state renders as is `selectSidebarWidth`'s business. Worth stating
+// because the ADR lists the behavior change as a deliverable, and a reader
+// looking for the code that implements it will not find any here — which is the
+// right outcome, not an omission. It also matters most in exactly this path: a
+// narrow viewport is where auto-collapse fires, and it is where losing the whole
+// rail was worst.
 function useAutoCollapseSidebar(
   isDrawer: boolean,
   sidebarUserControlled: boolean,
@@ -251,8 +288,8 @@ function useBrowseSwitcherDismiss(
  *      that hosts the relocated Organization / Programs tree / standalone Projects.
  *
  * Kept the export name `Sidebar` + the isDrawer/onClose props so AppShell and the
- * mobile drawer are unchanged. On desktop the rail is expanded (248px) or fully
- * hidden (0px, `inert` + aria-hidden — ADR-0127); the shell bar's ≡ re-opens it.
+ * mobile drawer are unchanged. On desktop the rail is expanded (248px) or
+ * **icon-only (64px, ADR-0979)** — never hidden; the shell bar's ≡ toggles it.
  * In the drawer every tier is expanded and row clicks call `onClose()`.
  */
 export function Sidebar({ isDrawer = false, onClose }: Props) {
@@ -314,11 +351,16 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const switchPanelRef = useRef<HTMLDivElement>(null);
 
   // The drawer is always expanded. On desktop the rail is either expanded (248px)
-  // or fully hidden (0px, "hide-to-context-bar" per ADR-0127) — there is no icon
-  // rail. When hidden the rail is `inert` so its content leaves the tab order and
-  // the a11y tree; the re-open ≡ lives in the unified shell bar.
+  // or **icon-only (64px)** — ADR-0979 reversed ADR-0127 Decision D's 0px hide
+  // and ADR-0942 §10. Collapsed no longer means "not there": the rail keeps its
+  // tab stops, its labels (as `sr-only`) and its band structure, and the ≡ in the
+  // shell bar is now a toggle rather than a rescue from lost nav (ADR-0979 §6).
+  //
+  // `showFull` governs the LABEL, `collapsed` governs the LAYOUT. They are not
+  // each other's negation once the drawer is in play — the drawer is collapsed
+  // by neither measure — which is why both exist rather than one flag and a `!`.
   const showFull = !sidebarCollapsed || isDrawer;
-  const hidden = sidebarCollapsed && !isDrawer;
+  const collapsed = sidebarCollapsed && !isDrawer;
 
   const projectById = useMemo(() => {
     const m = new Map<string, NonNullable<typeof projects>[number]>();
@@ -449,8 +491,13 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       <aside
         id="primary-nav-rail"
         aria-label="Primary navigation"
-        aria-hidden={hidden || undefined}
-        inert={hidden || undefined}
+        // No `aria-hidden` / `inert` (ADR-0979 §5). A visible, pointer-clickable
+        // 64px nav that assistive tech cannot see is a WCAG 4.1.2 defect, which
+        // that ADR rejects outright rather than treating as a smaller diff. The
+        // consequence is deliberate and is a CHANGE of contract, not a strict
+        // improvement: the tab order now grows by the rail's item count in a
+        // state where it previously grew by zero.
+        data-collapsed={collapsed || undefined}
         style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
         className={[
           'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
@@ -458,7 +505,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           isDrawer ? 'w-[248px]' : '',
         ].join(' ')}
       >
-        <SidebarBrand isDrawer={isDrawer} onToggle={toggleSidebar} />
+        <SidebarBrand isDrawer={isDrawer} collapsed={collapsed} onToggle={toggleSidebar} />
 
         {/* Scrollable body. The brand header (above) and settings footer (below)
             stay pinned; this column holds Tier 1–3. On the mobile drawer it scrolls
@@ -473,16 +520,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             isDrawer ? 'overflow-y-auto overflow-x-hidden' : '',
           ].join(' ')}
         >
-          {/* Tier 1 — You: identity + the personal destinations. */}
-          {showFull && (
-            <YouTier
-              user={user}
-              roleLabel={roleLabel}
-              dueTodayCount={dueTodayCount}
-              unreadCount={unreadCount}
-              closeDrawer={closeDrawer}
-            />
-          )}
+          {/* Tier 1 — You: identity + the personal destinations. Renders collapsed
+              too (ADR-0979 §2): "is anything waiting for me" is one of the three
+              questions the icon rail exists to answer, and the counts that answer
+              it live here. The identity block itself is suppressed at 64px — an
+              avatar with no name states nothing the footer gear does not. */}
+          <YouTier
+            collapsed={collapsed}
+            user={user}
+            roleLabel={roleLabel}
+            dueTodayCount={dueTodayCount}
+            unreadCount={unreadCount}
+            closeDrawer={closeDrawer}
+          />
 
           {/* Tier 2 — This project (grouped views) or, off a project, the pinned list.
             This is the rail's primary in-context landmark (`Workspace navigation`). */}
@@ -495,12 +545,30 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden',
             ].join(' ')}
           >
-            {showFull &&
-              (projectId ? (
-                <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
-              ) : programId ? (
-                <ProgramViewsTier programId={programId} isDrawer={isDrawer} onClose={onClose} />
-              ) : (
+            {(projectId ? (
+              <ProjectViewsTier
+                projectId={projectId}
+                isDrawer={isDrawer}
+                collapsed={collapsed}
+                onClose={onClose}
+              />
+            ) : programId ? (
+              <ProgramViewsTier
+                programId={programId}
+                isDrawer={isDrawer}
+                collapsed={collapsed}
+                onClose={onClose}
+              />
+            ) : collapsed ? (
+              // The pinned list is the off-project fallback and its rows are
+              // user-named projects and programs, not taxonomy items. ADR-0979 §4
+              // scopes the collapsed rail to "the taxonomy's own items at icon
+              // size", and a pinned project has no authored icon — only an
+              // initial square, which at 16px is a letter, not a mark. Suppressed
+              // rather than guessed at; the Browse switcher and ⌘K both reach
+              // them, and expanding is one keystroke.
+              null
+            ) : (
                 <PinnedTier
                   setNewProjectImportFirst={setNewProjectImportFirst}
                   hasPins={hasPins}
@@ -520,7 +588,16 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
           {/* Tier 3 — Jump: ⌘K search + the Browse switcher (drawer inlines it).
             Desktop keeps `shrink-0` (fixed bottom bar); in the drawer it is in-flow
-            content inside the scroll wrapper so its inlined browse tree scrolls. */}
+            content inside the scroll wrapper so its inlined browse tree scrolls.
+
+            Absent at 64px, and this is the one tier where that is the right
+            answer. Its two members are a ⌘K trigger — which ADR-0979 §2 grants is
+            genuinely covered by the chord, and which the shell bar also renders —
+            and a disclosure whose panel is a full project/program tree. A popover
+            that opens wider than the rail it hangs off is a different design, and
+            ADR-0979 delegated per-item design at 64px to this issue rather than
+            settling it; a tree hanging off a 64px rail is the part that needs
+            designing, not implementing. */}
           {showFull && (
             <JumpTier
               isDrawer={isDrawer}
@@ -575,29 +652,57 @@ type PinnedProjectRow = {
 };
 type SidebarUser = Parameters<typeof labelForUser>[0];
 
-/** Brand mark + the desktop collapse control (≡ in the unified shell bar re-opens
- *  when hidden). Extracted so the rail body stays a thin orchestrator (issue 2369). */
-function SidebarBrand({ isDrawer, onToggle }: { isDrawer: boolean; onToggle: () => void }) {
+/** Brand mark + the desktop collapse toggle. Extracted so the rail body stays a
+ *  thin orchestrator (issue 2369).
+ *
+ *  The control is a TOGGLE, not a rescue (ADR-0979 §6). ADR-0127 made a
+ *  persistent re-open non-negotiable because nav could be lost at 0px; at 64px
+ *  nav is never lost, so that rationale expired — but the button stays, because
+ *  removing it would leave expand-from-icon-only with no explicit affordance.
+ *  Its name and glyph now state the direction it will move, which a one-way
+ *  "Collapse sidebar" could not do once collapsed became a state you sit in. */
+function SidebarBrand({
+  isDrawer,
+  collapsed,
+  onToggle,
+}: {
+  isDrawer: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
+    <div
+      className={[
+        'flex items-center h-12 shrink-0 border-b border-chrome-border/8',
+        collapsed ? 'flex-col justify-center gap-0 px-0' : 'gap-2 px-3',
+      ].join(' ')}
+    >
       <NavLink
         to="/me/work"
         aria-label="TruePPM — My Work"
         className="flex items-center gap-2 min-w-0"
       >
         <LogoMark size={22} className="shrink-0" />
-        <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
+        {/* The wordmark is 60px of type in 48px of rail. `sr-only` rather than
+            removed so the link keeps the same accessible name in both states. */}
+        <span
+          className={
+            collapsed
+              ? 'sr-only'
+              : 'font-display text-base font-bold tracking-[-0.02em] leading-none truncate'
+          }
+        >
           <span className="text-navy-700 dark:text-reversed">True</span>
           <span className="text-brand-primary">PPM</span>
         </span>
       </NavLink>
-      <div className="flex-1" />
-      {!isDrawer && (
+      {!collapsed && <div className="flex-1" />}
+      {!isDrawer && !collapsed && (
         <button
           type="button"
           onClick={onToggle}
           aria-label="Collapse sidebar"
-          title={`Hide sidebar (${modifierKeyLabel()}B)`}
+          title={`Collapse sidebar (${modifierKeyLabel()}B)`}
           className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
         >
           <span aria-hidden="true" className="text-base leading-none">
@@ -612,12 +717,15 @@ function SidebarBrand({ isDrawer, onToggle }: { isDrawer: boolean; onToggle: () 
 /** Tier 1 "You" — identity + the personal destinations (My Work, Timesheet, My
  *  Assets, Notifications) framed as a card. */
 function YouTier({
+  collapsed = false,
   user,
   roleLabel,
   dueTodayCount,
   unreadCount,
   closeDrawer,
 }: {
+  /** Icon-only rail (ADR-0979): identity block off, destination rows stay. */
+  collapsed?: boolean;
   user: SidebarUser;
   roleLabel: string | null | undefined;
   dueTodayCount: number;
@@ -625,7 +733,20 @@ function YouTier({
   closeDrawer: () => void;
 }) {
   return (
-    <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
+    <div
+      className={
+        collapsed
+          ? 'mx-2 my-2'
+          : 'm-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2'
+      }
+    >
+      {/* Identity is suppressed at 64px: initials with no name and no role line
+          are an image of a person, not a statement about one, and the footer's
+          settings gear is already the identity-adjacent control. The DESTINATION
+          rows below stay, because "is anything waiting for me" is one of the
+          three questions ADR-0979 §2 says the icon rail answers, and the counts
+          that answer it live on them. */}
+      {!collapsed && (
       <div className="flex items-center gap-2 px-1 pb-1.5">
         <AvatarInitials initials={initialsForUser(user)} size="md" />
         <div className="min-w-0">
@@ -639,11 +760,12 @@ function YouTier({
           )}
         </div>
       </div>
+      )}
       <NavLink
         to="/me/work"
         aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
         onClick={closeDrawer}
-        className={({ isActive }) => youRowClass(isActive)}
+        className={({ isActive }) => youRowClass(isActive, collapsed)}
       >
         <svg
           width="16"
@@ -655,18 +777,34 @@ function YouTier({
         >
           <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
         </svg>
-        <span className="min-w-0 truncate">My Work</span>
+        <span className={labelClass(collapsed)}>My Work</span>
         {dueTodayCount > 0 && (
+          collapsed ? (
+            // At 64px the count becomes a DOT, not smaller digits. Two reasons,
+            // and the second is the load-bearing one: 48px of row cannot hold a
+            // three-digit pill at the 12px type floor, and shrinking the type to
+            // fit would breach rule 50 — which permits sub-floor sizes only for a
+            // decorative single-glyph indicator whose meaning is carried
+            // elsewhere. It is carried elsewhere: the row's `aria-label` already
+            // reads "My Work, 3 due today", so the exact number is never lost,
+            // and the dot answers the only question the icon rail owes at this
+            // width — "is anything waiting for me" (ADR-0979 §2).
+            <span
+              aria-hidden="true"
+              className="absolute right-1 top-1 h-2 w-2 rounded-full bg-semantic-critical"
+            />
+          ) : (
           <span className="tppm-mono ml-auto shrink-0 rounded-full bg-semantic-critical-bg px-1.5 py-0.5 text-xs text-semantic-critical">
             {dueTodayCount}
           </span>
+          )
         )}
       </NavLink>
       <NavLink
         to="/me/timesheet"
         aria-label="Timesheet"
         onClick={closeDrawer}
-        className={({ isActive }) => youRowClass(isActive)}
+        className={({ isActive }) => youRowClass(isActive, collapsed)}
       >
         <svg
           width="16"
@@ -681,13 +819,13 @@ function YouTier({
           <rect x="1.5" y="2" width="11" height="10" rx="1" />
           <path d="M1.5 5h11M5 5v7M9 5v7" />
         </svg>
-        <span className="min-w-0 truncate">Timesheet</span>
+        <span className={labelClass(collapsed)}>Timesheet</span>
       </NavLink>
       <NavLink
         to="/me/assets"
         aria-label="My Assets"
         onClick={closeDrawer}
-        className={({ isActive }) => youRowClass(isActive)}
+        className={({ isActive }) => youRowClass(isActive, collapsed)}
       >
         <svg
           width="16"
@@ -703,13 +841,13 @@ function YouTier({
         >
           <path d="M12 6.5 6.9 11.6a2.5 2.5 0 0 1-3.5-3.5l5-5a1.6 1.6 0 0 1 2.3 2.3l-5 5a.7.7 0 0 1-1-1L9.5 5" />
         </svg>
-        <span className="min-w-0 truncate">My Assets</span>
+        <span className={labelClass(collapsed)}>My Assets</span>
       </NavLink>
       <NavLink
         to="/me/notifications"
         aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
         onClick={closeDrawer}
-        className={({ isActive }) => youRowClass(isActive)}
+        className={({ isActive }) => youRowClass(isActive, collapsed)}
       >
         <svg
           width="16"
@@ -721,11 +859,20 @@ function YouTier({
         >
           <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
         </svg>
-        <span className="min-w-0 truncate">Notifications</span>
+        <span className={labelClass(collapsed)}>Notifications</span>
         {unreadCount > 0 && (
+          collapsed ? (
+            // Same reasoning as the due-today dot above (rule 50 / ADR-0979 §2):
+            // the unread count is already on the row's accessible name.
+            <span
+              aria-hidden="true"
+              className="absolute right-1 top-1 h-2 w-2 rounded-full bg-brand-primary"
+            />
+          ) : (
           <span className="tppm-mono ml-auto shrink-0 rounded-full bg-brand-primary px-1.5 py-0.5 text-xs text-neutral-text-inverse">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
+          )
         )}
       </NavLink>
     </div>
@@ -1340,10 +1487,13 @@ function BrowseContent({
 function ProjectViewsTier({
   projectId,
   isDrawer,
+  collapsed = false,
   onClose,
 }: {
   projectId: string;
   isDrawer: boolean;
+  /** Icon-only rail (ADR-0979): labels go `sr-only`, band headings hide visually. */
+  collapsed?: boolean;
   onClose?: () => void;
 }) {
   const { groups, labelFor } = useGroupedProjectViews(projectId);
@@ -1390,10 +1540,11 @@ function ProjectViewsTier({
         key={view}
         to={`/projects/${projectId}/${view}`}
         onClick={closeDrawer}
-        className={({ isActive }) => rowClass(isActive, onRaisedGround)}
+        title={collapsed ? labelFor(view) : undefined}
+        className={({ isActive }) => rowClass(isActive, onRaisedGround, collapsed)}
       >
         <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 truncate">{labelFor(view)}</span>
+        <span className={labelClass(collapsed)}>{labelFor(view)}</span>
       </NavLink>
     );
   };
@@ -1411,14 +1562,49 @@ function ProjectViewsTier({
           at the right and its in-flow `basis-full` panel wraps to a full-width line
           beneath, pushing the card down (the rail's overflow would clip a floating
           menu). */}
-      <div className="flex flex-wrap items-center justify-between gap-y-1 pr-1">
-        <h2 className={GROUP_LABEL}>This project</h2>
-        <ViewsMenu />
-      </div>
+      {/* The tier heading and the Customize-views gear are both prose-width and
+          have nothing to render in the 48px the collapsed rail leaves. Suppressed
+          rather than shrunk: ADR-0942 §2 forbids encoding rank by size, so a
+          quarter-size gear here would say something about Settings that is not
+          true. Customize-views is reached by expanding — one keystroke. */}
+      {!collapsed && (
+        <div className="flex flex-wrap items-center justify-between gap-y-1 pr-1">
+          <h2 className={GROUP_LABEL}>This project</h2>
+          <ViewsMenu />
+        </div>
+      )}
       {/* Project header card — program identity SQUARE (rule 158), name + a
           program·methodology subtitle (the methodology label relocated from the bar
           in #1680, web-rule 196), and a right-aligned health CIRCLE whose word rides
           its aria-label (rule 6). Never a shadow for the raise (rule 1). */}
+      {collapsed ? (
+        /* "Where am I" is the first of the three questions ADR-0979 §2 says an
+           icon rail exists to answer, and the identity square plus the health dot
+           are the two marks that answer it without prose. The square keeps its
+           own meaning at 24px (rule 158 — color + code); the health dot rides its
+           corner rather than a second row, and the whole block carries one
+           accessible name so a screen reader hears the project and its health as
+           one fact instead of two adjacent images. */
+        <div className="mb-1 flex justify-center">
+          <span
+            role="img"
+            aria-label={`${name} — ${HEALTH_LABEL[health]}`}
+            title={`${name} — ${HEALTH_LABEL[health]}`}
+            className="relative inline-flex"
+          >
+            <ProgramIdentitySquare
+              program={program ?? { color: null, code: '', name: programName ?? name }}
+              size="sm"
+            />
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-0.5 -right-0.5 rounded-full bg-chrome-surface p-[1px]"
+            >
+              <HealthDot state={health} />
+            </span>
+          </span>
+        </div>
+      ) : (
       <div className="mb-1 flex items-center gap-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
         <ProgramIdentitySquare
           program={program ?? { color: null, code: '', name: programName ?? name }}
@@ -1449,6 +1635,7 @@ function ProjectViewsTier({
           <HealthDot state={health} />
         </span>
       </div>
+      )}
 
       {/* The project view links live in their own `View` navigation landmark — the same
           name the TopBar's view-tab strip carried before #1643 removed it. Moving the
@@ -1470,7 +1657,7 @@ function ProjectViewsTier({
           .filter((group) => group.kind === 'verb')
           .map((group) => (
             <div key={group.id} role="group" aria-label={`${group.label} views`}>
-              <h2 aria-hidden="true" className={GROUP_LABEL}>
+              <h2 aria-hidden="true" className={collapsed ? 'sr-only' : GROUP_LABEL}>
                 {group.id}
               </h2>
               {group.visibleViews.map((view) => viewRow(view))}
@@ -1504,7 +1691,7 @@ function ProjectViewsTier({
               aria-label={`${group.label} views`}
               className="-mx-2 mt-auto max-h-[40vh] overflow-y-auto border-t border-chrome-border/25 bg-chrome-surface-raised px-2 pb-2 md:sticky md:bottom-0"
             >
-              <h2 aria-hidden="true" className={GROUP_LABEL}>
+              <h2 aria-hidden="true" className={collapsed ? 'sr-only' : GROUP_LABEL}>
                 {group.id}
               </h2>
               {group.visibleViews.map((view) => viewRow(view, true))}
@@ -1540,10 +1727,13 @@ function ProjectViewsTier({
 function ProgramViewsTier({
   programId,
   isDrawer,
+  collapsed = false,
   onClose,
 }: {
   programId: string;
   isDrawer: boolean;
+  /** Icon-only rail (ADR-0979): labels go `sr-only`, band headings hide visually. */
+  collapsed?: boolean;
   onClose?: () => void;
 }) {
   const { data: programs } = usePrograms();
@@ -1555,16 +1745,26 @@ function ProgramViewsTier({
 
   return (
     <>
-      <h2 className={GROUP_LABEL}>This program</h2>
+      {!collapsed && <h2 className={GROUP_LABEL}>This program</h2>}
       {/* Program header card — identity SQUARE (rule 158) + name, raised by a
           BORDER not a shadow (rule 1), mirroring the project header card so the
-          two in-context tiers read as siblings. */}
-      <div className="mb-1 flex items-center gap-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
-        <ProgramIdentitySquare program={program ?? { color: null, code: '', name }} size="sm" />
-        <p className="min-w-0 flex-1 truncate text-sm font-medium text-chrome-text-primary">
-          {name}
-        </p>
-      </div>
+          two in-context tiers read as siblings. Collapsed, it reduces to the
+          square alone with the name on its accessible name — the same treatment
+          the project tier gets, minus a health dot programs do not carry here. */}
+      {collapsed ? (
+        <div className="mb-1 flex justify-center">
+          <span role="img" aria-label={name} title={name} className="inline-flex">
+            <ProgramIdentitySquare program={program ?? { color: null, code: '', name }} size="sm" />
+          </span>
+        </div>
+      ) : (
+        <div className="mb-1 flex items-center gap-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
+          <ProgramIdentitySquare program={program ?? { color: null, code: '', name }} size="sm" />
+          <p className="min-w-0 flex-1 truncate text-sm font-medium text-chrome-text-primary">
+            {name}
+          </p>
+        </div>
+      )}
 
       {/* Program view links — the sole nav home for these views since #1920 moved
           them off the TopBar. Keeps the `Program` landmark name (see the tier
@@ -1576,10 +1776,11 @@ function ProgramViewsTier({
             key={view}
             to={`/programs/${programId}/${view}`}
             onClick={closeDrawer}
-            className={({ isActive }) => rowClass(isActive)}
+            title={collapsed ? label : undefined}
+            className={({ isActive }) => rowClass(isActive, false, collapsed)}
           >
             <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 truncate">{label}</span>
+            <span className={labelClass(collapsed)}>{label}</span>
           </NavLink>
         ))}
       </nav>

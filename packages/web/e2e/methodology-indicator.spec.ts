@@ -97,7 +97,7 @@ test.describe('Always-visible methodology indicator — 768–1023px band (#1907
     });
 
     // Re-open the rail (the ≡ affordance re-shows it per ADR-0127 Decision D).
-    await page.getByRole('button', { name: 'Show navigation' }).click();
+    await page.getByRole('button', { name: 'Expand navigation' }).click();
     const rail = page.getByRole('complementary', { name: 'Primary navigation' });
     await expect(rail).toBeVisible();
     await expect(rail).toContainText('Waterfall methodology');
@@ -134,8 +134,10 @@ test.describe('Methodology indicator at the rail-open default (≥1024px) — no
     const rail = page.getByRole('complementary', { name: 'Primary navigation' });
     await expect(rail).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Hide navigation' }).click();
-    await expect(rail).toHaveCount(0);
+    await page.getByRole('button', { name: 'Collapse navigation' }).click();
+    // ADR-0979: collapsing narrows the rail to a 64px icon rail; it no longer
+    // leaves the accessibility tree, so the old `toHaveCount(0)` is wrong.
+    await expect(rail).toHaveAttribute('data-collapsed', 'true');
 
     const badge = page.getByRole('img', { name: 'Waterfall methodology' });
     await expect(badge).toBeVisible();

@@ -9,7 +9,13 @@ import {
   surfaceToggleableColumns,
 } from './scheduleSurface';
 import { resolveOutlineGripReserve, resolveOutlineLeftReserve } from './scheduleConstants';
-import { maxTaskWidthFor, clampTaskWidth, MIN_BAR_TRACK } from './ScheduleView';
+import {
+  maxTaskWidthFor,
+  clampTaskWidth,
+  outlinePaneWidthFor,
+  MIN_BAR_TRACK,
+  SPLITTER_WIDTH,
+} from './ScheduleView';
 import { TaskListPanel } from './TaskListPanel';
 import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
 
@@ -176,6 +182,54 @@ describe('The shared task-column bound (#2960)', () => {
     expect(clampTaskWidth(10_000, max)).toBe(max);
     expect(clampTaskWidth(-500, max)).toBe(120);
     expect(clampTaskWidth(300, max)).toBe(300);
+  });
+});
+
+describe('The bar track keeps its floor when the pane shrinks (#3279)', () => {
+  it('leaves the outline alone whenever both fit', () => {
+    // The common case, and the one that must stay untouched: a wide pane holds
+    // the outline the user sized and the track's floor with room to spare.
+    expect(outlinePaneWidthFor(1920, 738)).toBe(738);
+    // Exactly enough is still enough — the floor is a floor, not a margin.
+    expect(outlinePaneWidthFor(738 + MIN_BAR_TRACK, 738)).toBe(738);
+  });
+
+  it('counts the splitter, which is shrink-0 too', () => {
+    // The 4px `PanelSplitter` sits between the two and yields nothing either, so
+    // a reserve that forgets it hands the track 4px less than its floor — small
+    // enough to pass every visual check and still fail the assertion that means
+    // anything. At exactly-enough-plus-the-splitter nothing yields yet.
+    expect(outlinePaneWidthFor(738 + MIN_BAR_TRACK + SPLITTER_WIDTH, 738, SPLITTER_WIDTH)).toBe(738);
+    // One pixel tighter and the outline starts paying for it.
+    expect(outlinePaneWidthFor(738 + MIN_BAR_TRACK, 738, SPLITTER_WIDTH)).toBe(738 - SPLITTER_WIDTH);
+  });
+
+  it('makes the OUTLINE yield, not the track, once they no longer both fit', () => {
+    // The regression this exists for. At 768px with a 64px rail the pane is
+    // 704px against a 738px outline: the outline is `flex-shrink-0` and the
+    // canvas `flex-1 min-w-0`, so every missing pixel came out of the track
+    // until it reached zero and disappeared.
+    expect(outlinePaneWidthFor(704, 738)).toBe(704 - MIN_BAR_TRACK);
+    // And it was ALREADY broken before the rail took its 64px — 768px against
+    // the same outline left the track 30px, which no test could tell from
+    // healthy because `toBeVisible()` accepts any non-empty box.
+    expect(outlinePaneWidthFor(768, 738)).toBe(768 - MIN_BAR_TRACK);
+  });
+
+  it('never trades a useless track for a useless outline', () => {
+    // Below roughly 480px of pane there is no split worth making, so the
+    // outline stops yielding rather than shrinking to a column of ellipses.
+    // (The desktop surface does not render this narrow — below md the Schedule
+    // swaps to MobileSchedule — but the floor must not depend on that.)
+    expect(outlinePaneWidthFor(400, 738)).toBe(240);
+    expect(outlinePaneWidthFor(0 + 1, 738)).toBe(240);
+  });
+
+  it('renders what the columns ask for before the pane has been measured', () => {
+    // 0 means "not laid out yet" (first paint, jsdom), never "no room". Clamping
+    // against it would park the outline at its floor in every environment that
+    // never lays out — the same trap rule 343 records for the toolbar.
+    expect(outlinePaneWidthFor(0, 738)).toBe(738);
   });
 });
 

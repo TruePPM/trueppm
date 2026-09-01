@@ -3,7 +3,7 @@ import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import { registry } from '@/lib/widget-registry';
-import { useShellStore } from '@/stores/shellStore';
+import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { Sidebar } from './Sidebar';
 
@@ -891,14 +891,151 @@ describe('Sidebar rail — preserved behaviors', () => {
     ).toBeInTheDocument();
   });
 
-  it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127)', () => {
+  // ── The collapsed-rail contract, REVERSED by ADR-0979 ────────────────────
+  //
+  // These replace a single test that asserted the rail was `inert`,
+  // `aria-hidden`, and absent from the a11y tree when collapsed (ADR-0127
+  // Decision D's 0px hide). The old assertions are written out below rather than
+  // deleted, because ADR-0979 §5 is explicit that this is a CHANGE of contract
+  // and not a strict improvement: "collapsed" stops meaning "not there", and the
+  // tab order now grows by the rail's item count in a state where it previously
+  // grew by zero. A reader bisecting to here should find the reversal argued,
+  // not discover it as a silent flip.
+  //
+  // The ADR also names this as the risk most likely to be got wrong and least
+  // likely to be caught: the old tests keep PASSING against a wrong
+  // implementation, because "is not in the a11y tree" is satisfied by a rail
+  // that renders nothing at all.
+
+  it('keeps the collapsed rail in the a11y tree — no inert, no aria-hidden (ADR-0979 §5)', () => {
     useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
     renderRail();
     const rail = document.getElementById('primary-nav-rail');
-    expect(rail).toHaveAttribute('aria-hidden', 'true');
-    expect(rail).toHaveAttribute('inert');
-    // Content leaves the accessibility tree.
-    expect(screen.queryByRole('link', { name: /My Work/ })).not.toBeInTheDocument();
+    // WAS: expect(rail).toHaveAttribute('aria-hidden', 'true');
+    // WAS: expect(rail).toHaveAttribute('inert');
+    expect(rail).not.toHaveAttribute('aria-hidden');
+    expect(rail).not.toHaveAttribute('inert');
+    expect(rail).toHaveAttribute('data-collapsed');
+  });
+
+  it('keeps every collapsed row reachable AND named — the icons are not mystery meat', () => {
+    useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
+    renderRail();
+    // WAS: expect(screen.queryByRole('link', { name: /My Work/ })).not.toBeInTheDocument();
+    //
+    // The label is `sr-only`, not dropped — that is what makes screen-reader
+    // traversal identical in both states. Asserting the accessible NAME (rather
+    // than merely that some link exists) is the whole point: a 64px rail of
+    // unnamed icons would satisfy "reachable" and fail WCAG 4.1.2, which is the
+    // combination ADR-0979 rejects outright.
+    // `exact` matters here: the brand link is named "TruePPM — My Work", so a
+    // substring match on /My Work/ resolves to two elements and the assertion
+    // stops being about the Tier-1 row it was written for.
+    expect(screen.getByRole('link', { name: 'Timesheet' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'My Assets' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+    // And the COUNT survives collapse, on the accessible name rather than only
+    // as a corner pill. "Is anything waiting for me" is one of the three
+    // questions ADR-0979 §2 says the icon rail exists to answer, and it is the
+    // one a screen-reader user would lose if the badge were merely visual.
+    expect(
+      screen.getByRole('link', { name: 'My Work, 3 due today' }),
+    ).toBeInTheDocument();
+  });
+
+  it('renders a screen reader the SAME rows collapsed and expanded (ADR-0979 §5)', () => {
+    // The identical-traversal property, asserted as an identity rather than as a
+    // list anyone has to keep in sync by hand.
+    const names = () =>
+      screen
+        .getAllByRole('link')
+        .map((el) => el.getAttribute('aria-label') ?? el.textContent?.trim() ?? '');
+
+    useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: true });
+    const expanded = renderRail();
+    const expandedNames = names();
+    expanded.unmount();
+
+    useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
+    renderRail();
+
+    // Tier 3's Browse switcher is a BUTTON, not a link, so it does not appear in
+    // either list; the tiers that differ collapsed are covered by their own tests
+    // below. Every link the expanded rail offers is offered collapsed too.
+    for (const name of expandedNames) {
+      expect(names()).toContain(name);
+    }
+  });
+
+  it('names the Tier-2 view rows at 64px, where the LABEL is the accessible name', () => {
+    // Tier-1's rows carry an explicit `aria-label`, so their accessible name
+    // survives however the visible label is hidden. The VIEW rows have no
+    // `aria-label` — their name IS the span — so this is the tier where the
+    // choice of hiding mechanism is load-bearing.
+    //
+    // Read the class assertion below as the real point, and note what this file
+    // CANNOT check: jsdom applies no stylesheet, so `sr-only` and `hidden` are
+    // indistinguishable here — both leave the text in the DOM and in the
+    // computed accessible name. Mutating `labelClass` to `hidden` leaves this
+    // whole suite green, which is measured, not assumed. The behavioral
+    // assertion therefore lives in `e2e/sidebar-collapsed-rail.spec.ts`, which
+    // reads the label's COMPUTED display in a real browser — and note it has to
+    // check that rather than the accessible name, because each row also carries
+    // a `title` tooltip and `title` is an accname fallback, so the name resolves
+    // either way. `title` carrying it alone is the weak contract we are avoiding.
+    //
+    // This is exactly the failure mode ADR-0979 §Risks names: the tests keep
+    // passing against a wrong implementation, so a green run here is evidence
+    // about the DOM and not about the accessibility tree.
+    useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
+    mockUseProjectId.mockReturnValue('p1');
+    renderRail();
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
+    // The bands keep their accessible names too, so group traversal is
+    // unchanged — only the visible uppercase word goes.
+    expect(screen.getByRole('group', { name: 'Plan views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Workspace views' })).toBeInTheDocument();
+    // Pin the MECHANISM, since the behavior is unobservable in jsdom: the label
+    // must be clipped (`sr-only`), never `display:none`.
+    const label = screen.getByRole('link', { name: 'Schedule' }).querySelector('span');
+    expect(label).toHaveClass('sr-only');
+    expect(label).not.toHaveClass('hidden');
+  });
+
+  it('auto-collapse below lg SHRINKS the rail rather than hiding it (ADR-0979)', () => {
+    // The auto-collapse path is the one where losing the rail hurt most — a
+    // narrow viewport is exactly when a user needs to keep their bearings — and
+    // it is the arm least likely to be exercised by hand. `useAutoCollapseSidebar`
+    // needed no change: it sets `sidebarCollapsed` and the width derives.
+    const realMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(max-width: 1023px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      renderRail();
+      expect(useShellStore.getState().sidebarCollapsed).toBe(true);
+      // Shrunk, not gone: still a landmark, still holding its rows.
+      expect(document.getElementById('primary-nav-rail')).toBeInTheDocument();
+      expect(selectSidebarWidth(useShellStore.getState())).toBe(64);
+    } finally {
+      // `finally`, not a trailing line: a failed assertion above would otherwise
+      // leave every later test in this file running against a stubbed
+      // matchMedia, which reports as five unrelated failures in the modal specs.
+      window.matchMedia = realMatchMedia;
+    }
+  });
+
+  it('drops the Jump tier at 64px — its panel is wider than the rail it hangs off', () => {
+    // WAS asserted as part of "content leaves the accessibility tree", which
+    // conflated two different reasons for absence. This one is a design call
+    // (ADR-0979 delegated per-item design at 64px to #3279), not an a11y
+    // contract, and it is the ONLY tier that goes away.
+    useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
+    renderRail();
     expect(screen.queryByRole('button', { name: /Search or jump to/i })).not.toBeInTheDocument();
   });
 });

@@ -101,15 +101,22 @@ export function TopBar({ onHamburgerClick }: Props) {
         </svg>
       </button>
 
-      {/* Desktop rail re-open ≡ — always visible: the only affordance that re-opens
-          the 0px-hidden rail (ADR-0127 Decision D); ⌘/Ctrl+B and ⌘K also reach it. */}
+      {/* Desktop rail ≡ — always visible. Kept as a TOGGLE, not a rescue
+          (ADR-0979 §6): ADR-0127 made it non-negotiable because nav could be lost
+          at 0px, and at 64px nav is never lost — but expand-from-icon-only would
+          otherwise have no explicit affordance, and the cost is one button in a
+          bar that already renders it. ⌘/Ctrl+B reaches the same toggle.
+
+          The copy states the DIRECTION, not a disappearance: since ADR-0979 the
+          rail never hides, so "Hide navigation" would name an outcome that no
+          longer happens. */}
       <button
         type="button"
         onClick={toggleSidebar}
-        aria-label={sidebarCollapsed ? 'Show navigation' : 'Hide navigation'}
+        aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
         aria-controls="primary-nav-rail"
         aria-expanded={!sidebarCollapsed}
-        title={`${sidebarCollapsed ? 'Show' : 'Hide'} navigation (${modifierKeyLabel()}B)`}
+        title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} navigation (${modifierKeyLabel()}B)`}
         className="hidden md:inline-flex shrink-0 w-8 h-8 items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
       >
         <svg
