@@ -168,6 +168,14 @@ interface Props {
   visible: ColumnWidths['visible'];
   setWidth: ColumnWidths['setWidth'];
   totalWidth: number;
+  /**
+   * What the panel is allowed to PAINT into, when that is less than the columns
+   * ask for (#3279). Defaults to `totalWidth` — the Grid, where the outline is
+   * the whole surface and has nothing to crowd out. The Timeline passes
+   * `outlinePaneWidthFor(...)`, which reserves the bar track's floor first; the
+   * columns keep their own widths and the rightmost ones clip.
+   */
+  renderedWidth?: number;
   /** Set of task IDs that have children (are summary tasks). */
   summaryIds: Set<string>;
   /** Set of expanded task IDs for collapse/expand. */
@@ -312,6 +320,7 @@ export function TaskListPanel({
   visible,
   setWidth,
   totalWidth,
+  renderedWidth,
   summaryIds,
   expandedIds,
   childCountById,
@@ -532,10 +541,18 @@ export function TaskListPanel({
   // under a list of one live row is clutter rather than a second place to act.
   const showAppendFooter = onAppendTaskAtEnd !== undefined && tasks.length > 0;
 
+  // Clipped only when the pane made the outline yield (#3279). Unconditional
+  // `overflow-hidden` would also clip the header's resize handles at their full
+  // width, where there is room for them and nothing to fix.
+  const paintWidth = renderedWidth ?? totalWidth;
+  const clipped = paintWidth < totalWidth;
+
   return (
     <div
-      style={{ width: totalWidth }}
-      className="flex flex-col flex-shrink-0 border-r border-neutral-border h-full bg-neutral-surface"
+      style={{ width: paintWidth }}
+      className={`flex flex-col flex-shrink-0 border-r border-neutral-border h-full bg-neutral-surface${
+        clipped ? ' overflow-hidden' : ''
+      }`}
       // treegrid, not grid (#2727, ADR-0776 §"Treegrid ARIA"): rows carry a
       // real aria-level (WBS depth) and aria-expanded (summary rows only) —
       // the semantics `grid` doesn't define but `treegrid` does.
