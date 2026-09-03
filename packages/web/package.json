@@ -2,7 +2,7 @@
   "name": "@trueppm/web",
   "version": "0.4.0-beta.1",
   "license": "Apache-2.0",
-  "//": "dompurify (transitive via jspdf ≥4) is dual-licensed MPL-2.0/Apache-2.0; TruePPM elects Apache-2.0 (permissive, no copyleft obligation). Pinned to ^3.4.12 via overrides to clear GHSA-c2j3-45gr-mqc4 (#2359); satisfies jspdf's ^3.3.1 range. undici (transitive via jsdom) is pinned to ^7.29.0 via overrides to clear GHSA-4cwx-7wf7-3272 and GHSA-8xcm-r25x-g524 (cache-interceptor and retry-interceptor response-integrity issues).",
+  "//": "dompurify (transitive via jspdf ≥4) is dual-licensed MPL-2.0/Apache-2.0; TruePPM elects Apache-2.0 (permissive, no copyleft obligation). Pinned to ^3.4.12 via overrides to clear GHSA-c2j3-45gr-mqc4 (#2359); satisfies jspdf's ^3.3.1 range. undici (transitive via jsdom) is pinned to ^7.29.0 via overrides to clear GHSA-4cwx-7wf7-3272 and GHSA-8xcm-r25x-g524 (cache-interceptor and retry-interceptor response-integrity issues). fflate (transitive via jspdf and @vitest/ui) is pinned to ^0.8.3 via overrides to clear GHSA-px8p-9vwx-vf98 (#3329); both dependents' carets already admitted the fix, so the pin exists to stop a future resolve from dropping back under it. @humanfs/node (transitive via eslint, which declares ^0.16.6) is pinned to ^0.16.8 via overrides to clear GHSA-p498-v437-472g (#3326), a recursive copy that follows symlinks out of the source tree; the lockfile already resolved the fix, so the pin exists to keep a future resolve from dropping back to 0.16.7.",
   "type": "module",
   "files": [
     "dist"
@@ -85,6 +85,8 @@
   "overrides": {
     "js-yaml": "^4.3.1",
     "dompurify": "^3.4.13",
-    "undici": "^7.29.0"
+    "undici": "^7.29.0",
+    "fflate": "^0.8.3",
+    "@humanfs/node": "^0.16.8"
   }
 }

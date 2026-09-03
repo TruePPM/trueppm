@@ -75,13 +75,20 @@ check-dts-camelcase.sh	reads the wasm-pack .d.ts, which exists only after a wasm
 
 opt_out_reason() {
     # Field-split on tab so a reason containing spaces survives.
-    printf '%s\n' "$OPT_OUT" | while IFS=$'\t' read -r name reason; do
+    #
+    # Reads OPT_OUT from a here-string, NOT a pipe (#3321). The `return` below exits on
+    # the FIRST match, so a piped reader leaves the writer blocked on a full pipe; it
+    # takes SIGPIPE, `set -o pipefail` promotes 141, and `set -e` aborts the gate before
+    # it prints anything. The sibling gate shipped that shape and reddened `main` with an
+    # empty job log; this one carries seven entries, a larger payload than the two that
+    # fired there.
+    while IFS=$'\t' read -r name reason; do
         [ -n "$name" ] || continue
         if [ "$name" = "$1" ]; then
             printf '%s' "$reason"
             return
         fi
-    done
+    done <<< "$OPT_OUT"
 }
 
 run_scan() {
@@ -174,6 +181,26 @@ self_test() {
     # match would read this as unmirrored and the gate would be noise.
     printf 'wasm:zz:\n  script:\n    - cd packages/wasm-scheduler && ./scripts/check-zz-probe.sh\n' > "$tmp/relpath.yml"
     _case "gate invoked under a different path in each file" expect-pass "$tmp/relpath.yml" "$tmp/mirrored.mk"
+
+    # #3321: opt_out_reason must not read OPT_OUT through a pipe. Its `return` fires on
+    # the FIRST match, so a piped writer still holding the rest takes SIGPIPE, pipefail
+    # promotes that to 141, and set -e aborts the gate with no output at all. The race is
+    # payload-sized, which is why the sibling gate passed every other case in its own
+    # self-test on the broken code. This one plants an OPT_OUT past the pipe buffer to
+    # make it deterministic, under `set -e` inside a command substitution — exactly how
+    # run_scan calls it.
+    local padded_out padded_rc=0
+    padded_out="$(
+        set -euo pipefail
+        OPT_OUT="check-issue-boundary.sh"$'\t'"reads the tracker"$'\n'"$(printf 'filler-%s\tpad\n' {1..20000})"
+        opt_out_reason check-issue-boundary.sh
+    )" || padded_rc=$?
+    if [ "$padded_rc" -eq 0 ] && [ "$padded_out" = "reads the tracker" ]; then
+        echo "SELF-TEST OK: opt_out_reason survives an OPT_OUT larger than the pipe buffer."
+    else
+        echo "SELF-TEST FAILED: opt_out_reason exited $padded_rc returning '$padded_out' on a padded OPT_OUT (the #3321 SIGPIPE race)." >&2
+        rc=1
+    fi
 
     [ "$rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
     return "$rc"
