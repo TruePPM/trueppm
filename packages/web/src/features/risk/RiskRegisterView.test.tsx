@@ -237,7 +237,7 @@ describe('RiskRegisterView', () => {
     expect(heatmapToggle).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('renders owner avatar, overdue badge, and opens the drawer in edit mode from the ✎ button', () => {
+  it('renders owner avatar, overdue badge, and opens the drawer in edit mode from the edit button', () => {
     const ASSIGNED_OVERDUE: Risk = {
       ...FIXTURE_RISK,
       id: 'risk-003',

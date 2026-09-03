@@ -64,6 +64,7 @@ failure of its HTTP status class.
 
 | Code | Meaning | Extra keys |
 |------|---------|-----------|
+| `invalid_body` | The request body parsed as valid JSON but is not an **object** — a top-level array, string, or number. No field is at fault; the envelope is the wrong shape. See [Non-object request bodies](#non-object-request-bodies) | — |
 | `progress_requires_anchor` | Progress was set on a task with no date to anchor it to | — |
 | `milestone_rollup_locked` | The value is rolled up to the milestone and cannot be set directly | — |
 | `child_of_milestone` | A milestone is a zero-duration gate and cannot be given children | — |
@@ -77,6 +78,32 @@ failure of its HTTP status class.
 | `self_reference` | A task in the graph depends on itself | `offending` |
 | `cyclic_dependency` | The dependencies form a cycle | `offending` |
 | `subtree_too_large` | The targeted subtree exceeds the per-request cascade cap | `matched`, `max` |
+
+### Non-object request bodies
+
+Every write endpoint that reads named fields from the body expects a JSON
+**object**. A top-level array is legal JSON, so it reaches the endpoint and is
+refused with `invalid_body`:
+
+```console
+$ curl -X POST .../api/v1/sprint-task-outcomes/{id}/toggle-demo/ \
+    -H 'Content-Type: application/json' -d '[{"demo_ready": true}]'
+400
+{"code": "invalid_body", "detail": "Request body must be a JSON object."}
+```
+
+This is a **client-construction** error, not a validation failure: no field is
+named because the request has no fields to name. The usual cause is a client that
+serializes a one-element list where the endpoint takes a single object, or a shell
+pipeline that wrapped a payload in `[…]`. Send the object itself.
+
+Two consequences worth knowing:
+
+- **An empty object `{}` is a valid envelope** and is *not* refused here — it
+  proceeds to per-field validation, which may then report a required field. `{}`
+  and `[]` are different errors and say so.
+- Endpoints that take multipart uploads (CSV and MS Project import) reject a JSON
+  body earlier, with **415 Unsupported Media Type**, and never reach this code.
 
 `invalid_graph_input` is refused as a **whole batch**: a malformed graph has no
 identified cycle path, so there is no principled subset of edges to reject.

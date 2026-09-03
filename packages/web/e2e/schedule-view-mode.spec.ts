@@ -19,7 +19,13 @@
  * The specs that DO assert DOM state after a write use it (#2752).
  */
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  modeChip,
+  toggleAuthorMode,
+} from './fixtures';
 import { resolveOutlineLeftReserve } from '../src/features/schedule/scheduleConstants';
 
 const PROJECT_ID = 'e2e-vm-00000000-0000-0000-0000-000000002960';
@@ -176,11 +182,12 @@ test.describe('Grid ↔ Timeline — one row model, two surfaces (#2960)', () =>
 });
 
 test.describe('Grid ↔ Timeline — the layout follows the mode (#3114)', () => {
-  // Wide enough that the mode control stays the full pill rather than
-  // collapsing to `ScheduleModeChip` — this spec drives the pill by test id.
+  // Since #3263 the mode control is `ScheduleModeChip` at every width, so the
+  // viewport no longer decides which control this spec is driving. Kept wide so
+  // the rest of the toolbar is not competing for the same clicks.
   test.use({ viewport: { width: 1600, height: 900 } });
 
-  const pill = (page: Page) => page.getByTestId('author-mode-pill');
+  const pill = (page: Page) => modeChip(page);
   const checked = (page: Page, name: 'Grid' | 'Timeline') =>
     expect(layout(page).getByRole('radio', { name })).toHaveAttribute('aria-checked', 'true');
 
@@ -192,17 +199,17 @@ test.describe('Grid ↔ Timeline — the layout follows the mode (#3114)', () =>
     // The Schedule mounts in Author. Drop to Read first so the Timeline choice
     // below is made in reading mode, which is the situation this is about: a
     // planner reviewing a plan who decides to start editing.
-    await pill(page).click();
+    await toggleAuthorMode(page);
     await expect(pill(page)).toHaveText(/Read/);
 
     await layout(page).getByRole('radio', { name: 'Timeline' }).click();
     await checked(page, 'Timeline');
 
-    await pill(page).click();
+    await toggleAuthorMode(page);
     await expect(pill(page)).toHaveText(/Author/);
     await checked(page, 'Grid');
 
-    await pill(page).click();
+    await toggleAuthorMode(page);
     await expect(pill(page)).toHaveText(/Read/);
     await checked(page, 'Timeline');
   });
@@ -213,15 +220,15 @@ test.describe('Grid ↔ Timeline — the layout follows the mode (#3114)', () =>
     // the manual choice ('timeline') differ; if they matched, remembering and
     // forgetting would look identical.
     await checked(page, 'Grid');
-    await pill(page).click();
+    await toggleAuthorMode(page);
     await expect(pill(page)).toHaveText(/Read/);
-    await pill(page).click();
+    await toggleAuthorMode(page);
     await expect(pill(page)).toHaveText(/Author/);
 
     await layout(page).getByRole('radio', { name: 'Timeline' }).click();
     await checked(page, 'Timeline');
 
-    await pill(page).click();
+    await toggleAuthorMode(page);
     await expect(pill(page)).toHaveText(/Read/);
     await checked(page, 'Timeline');
   });

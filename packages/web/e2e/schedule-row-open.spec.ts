@@ -19,7 +19,13 @@
  * `data-row-id` and the layout radiogroup are the same handles #2960's spec uses.
  */
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  useFullToolbar,
+  openScheduleCheatsheet,
+} from './fixtures';
 
 const PROJECT_ID = 'e2e-open-0000-0000-0000-000000002979';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -124,9 +130,8 @@ test.describe('Schedule row — the Open affordance (#2979)', () => {
   test('the cheatsheet names the binding, so it is findable rather than folklore', async ({
     page,
   }) => {
-    await page.getByTestId('build-mode-pill').click();
+    await openScheduleCheatsheet(page);
     const sheet = page.getByRole('dialog', { name: 'Schedule shortcuts' });
-    await expect(sheet).toBeVisible();
     await expect(sheet.getByText('Open the focused row’s details')).toBeVisible();
   });
 });

@@ -237,9 +237,12 @@ check "reports a total size"           "$(grep -q '123 MB total' <<<"$out4"; ech
 check "points at the drop command"     "$(grep -q 'scripts/wt prune-dbs' <<<"$out4"; echo $?)"
 
 # doctor must not claim a clean bill of health when it cannot see the database.
+# Scoped to the database all-clear specifically: doctor's other checks (orphaned
+# reservations, #3283) read the ledger, not Postgres, so their all-clears are
+# still true with the stack down and must not fail this.
 out4b="$( cd "$D4" && TRUEPPM_WT_BASE="$B4" DB_STUB_UP=0 PATH="$STUB_BIN:$PATH" bash "$WT" doctor 2>&1 || true )"
 check "stack down: says skipped, not clean" "$(grep -q 'skipped test-DB orphan check' <<<"$out4b"; echo $?)"
-check "stack down: no false all-clear"      "$(! grep -q 'no orphaned' <<<"$out4b"; echo $?)"
+check "stack down: no false all-clear"      "$(! grep -q 'no orphaned .*databases' <<<"$out4b"; echo $?)"
 
 # --- Case 5: prune-dbs drops orphans and spares everything else ------------
 echo "Case 5: prune-dbs drops only orphaned databases"
@@ -277,7 +280,7 @@ check "remove reads the DB name before removal" "$(grep -q 'rm_test_db="\$(workt
 check "remove drops the family"                 "$(grep -q 'drop_worktree_test_dbs "\$rm_test_db"' "$WT"; echo $?)"
 check "prune drops the family"                  "$(grep -q 'drop_worktree_test_dbs "\$prune_test_db"' "$WT"; echo $?)"
 check "doctor reports orphans"                  "$(grep -q 'orphan_test_dbs' "$WT"; echo $?)"
-check "prune-dbs is dispatched"                 "$(grep -q 'prune-dbs) shift; cmd_prune_dbs' "$WT"; echo $?)"
+check "prune-dbs is dispatched"                 "$(grep -qE 'prune-dbs\).*cmd_prune_dbs' "$WT"; echo $?)"
 check "drop is prefix-guarded"                  "$(grep -q 'is_wt_test_db "\$name" ||' "$WT"; echo $?)"
 check "drop checks pg_stat_activity"            "$(grep -q 'pg_stat_activity' "$WT"; echo $?)"
 # The prefix guard must require something AFTER the prefix, or the shared

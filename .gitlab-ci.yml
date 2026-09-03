@@ -83,7 +83,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-37f4c719e3b6"
+  CI_API_TAG: "py3.11-80534530e1f3"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -582,6 +582,7 @@ scripts:test:
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
+        - scripts/tests/wt-args.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
@@ -612,6 +613,7 @@ scripts:test:
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
+        - scripts/tests/wt-args.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
@@ -629,6 +631,7 @@ scripts:test:
     - bash scripts/tests/assemble-changelog.test.sh
     - bash scripts/tests/release-staging.test.sh
     - bash scripts/tests/release-preflight.test.sh
+    - bash scripts/tests/wt-args.test.sh
     - bash scripts/tests/wt-reserve.test.sh
     - bash scripts/tests/wt-stash.test.sh
     - bash scripts/tests/wt-testdb.test.sh
@@ -1552,6 +1555,39 @@ scheduler:lint:
     - cd packages/scheduler
     - ruff check src/ tests/
     - ruff format --check src/ tests/
+
+api:request-body-guards:
+  extends: .fast-job
+  # A `request.data` read must be narrowed before it happens (#3280).
+  #
+  # DRF types `Request.data` as `dict | list` because a top-level JSON array is a
+  # legal body. An unguarded `.get`/`[...]` on one raises AttributeError/TypeError
+  # and DRF renders that as a 500 — the caller is told the server broke rather
+  # than that their request was malformed.
+  #
+  # This class was repaired four times (#2126, #2213, #2795, #3278) with a
+  # complete manual sweep each time and nothing to stop the next instance. Unlike
+  # most review findings the predicate is syntactic, so it can simply be checked.
+  #
+  # Membership counts as a READ, not a guard: `"x" in request.data` also tests a
+  # list's ELEMENTS, so it passes for the wrong shape and defers the failure to
+  # the next line — which is exactly how two of #3278's sites got through, one of
+  # them returning a wrong 200 rather than crashing.
+  #
+  # AST walk over packages/api/src; ~1s. Needs python3, not grep.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash python3
+  script:
+    # Self-test FIRST — prove the gate still rejects a bare `.get`, still refuses
+    # to accept `in` as a guard, and still ignores a guard placed AFTER the read,
+    # before believing it found none (#3195).
+    - bash scripts/check-request-body-guards.sh --self-test
+    - bash scripts/check-request-body-guards.sh
 
 api:extension-signals:
   extends: .fast-job

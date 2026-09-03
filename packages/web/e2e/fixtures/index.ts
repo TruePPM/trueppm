@@ -22,3 +22,4 @@ export {
   type BoardColumnConfig,
 } from './api-mocks';
 export { useFullToolbar, FULL_TOOLBAR_VIEWPORT } from './toolbar-width';
+export { modeChip, toggleAuthorMode, openScheduleCheatsheet } from './schedule-mode';

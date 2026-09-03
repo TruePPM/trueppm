@@ -4,9 +4,20 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { BuildModeHintStrip } from './BuildModeHintStrip';
 
 describe('BuildModeHintStrip', () => {
-  it('renders the build-mode label', () => {
+  it('states no mode — build mode is not one (#3285)', () => {
+    // The strip used to lead with `⌨ Build mode`. Both halves went: the glyph
+    // was a rule-242 emoji, and the label was a readout of a constant —
+    // `buildModeActive` is `!isMobile`, so on the only surface that renders this
+    // it can never say anything else. #3263 removed the toolbar pill making the
+    // same claim and the docs now say there is no such mode to switch on; a
+    // teaching surface repeating it would be the product contradicting itself.
+    // The chips below are self-describing, and by the time this strip mounts the
+    // user is already doing the thing a label would have named.
     render(<BuildModeHintStrip mode="NoSelection" hasEditRights onShowCheatsheet={vi.fn()} />);
-    expect(screen.getByText('Build mode')).toBeInTheDocument();
+    expect(screen.queryByText('Build mode')).not.toBeInTheDocument();
+    expect(screen.queryByText('⌨')).not.toBeInTheDocument();
+    // …and the strip still renders what it is for.
+    expect(screen.getByText('Select row')).toBeInTheDocument();
   });
 
   it('shows NoSelection hints when mode is NoSelection', () => {

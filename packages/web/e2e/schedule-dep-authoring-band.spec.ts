@@ -278,7 +278,7 @@ test.describe('Schedule — the dependency band is not the task-content band (#3
     // Gate on a "page rendered" signal before asserting absence (#1190) — and
     // this one doubles as the proof the reader IS an author of task content, so
     // a false pass cannot come from the page having refused them outright.
-    await expect(page.getByTestId('author-mode-pill')).toBeVisible();
+    await expect(page.getByTestId('schedule-mode-chip')).toBeVisible();
 
     // The legend's standing instruction goes with the handle. Leaving "drag the
     // ◌ handle…" up while the engine declines to paint it sends this reader

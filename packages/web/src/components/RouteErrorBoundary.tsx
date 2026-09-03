@@ -110,9 +110,9 @@ function DiscardPendingWritesDialog({
  *  - the DEVELOPER still gets the real error + stack on the console (where React
  *    Router used to print its hint), so nothing is lost for debugging.
  *
- * `role="alert"` (not the EmptyState `role="status"`) so assistive tech announces
- * the failure assertively — this is an error the user landed in, not a calm empty
- * view. Recovery: **Reload** re-fetches the failed chunk (the actual remedy for a
+ * `role="alert"` so assistive tech announces the failure assertively — this is an
+ * error the user landed in, not a calm empty view. (An empty state carries no
+ * region of its own since ADR-0989; it announces politely through the shell.) Recovery: **Reload** re-fetches the failed chunk (the actual remedy for a
  * stale/failed dynamic import); **Go to home** hard-navigates to `/` for the case
  * where the current route itself is the problem.
  *

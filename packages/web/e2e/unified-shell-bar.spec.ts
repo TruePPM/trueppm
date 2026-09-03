@@ -85,20 +85,26 @@ test.describe('v2 unified shell bar (#1204)', () => {
     const rail = page.getByRole('complementary', { name: 'Primary navigation' });
     await expect(rail).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: 'Hide navigation' }).click();
-    await expect(rail).toHaveCount(0);
+    await page.getByRole('button', { name: 'Collapse navigation' }).click();
+    // ADR-0979: collapsing narrows the rail to a 64px icon rail; it no longer
+    // leaves the accessibility tree, so the old `toHaveCount(0)` is wrong.
+    await expect(rail).toHaveAttribute('data-collapsed', 'true');
 
-    await page.getByRole('button', { name: 'Show navigation' }).click();
+    await page.getByRole('button', { name: 'Expand navigation' }).click();
     await expect(rail).toBeVisible();
 
     // Hide again, then reload: the deliberate collapse is restored from localStorage.
-    await page.getByRole('button', { name: 'Hide navigation' }).click();
-    await expect(rail).toHaveCount(0);
+    await page.getByRole('button', { name: 'Collapse navigation' }).click();
+    // ADR-0979: collapsing narrows the rail to a 64px icon rail; it no longer
+    // leaves the accessibility tree, so the old `toHaveCount(0)` is wrong.
+    await expect(rail).toHaveAttribute('data-collapsed', 'true');
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Show navigation' })).toBeVisible({
+    await expect(page.getByRole('button', { name: 'Expand navigation' })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(rail).toHaveCount(0);
+    // ADR-0979: collapsing narrows the rail to a 64px icon rail; it no longer
+    // leaves the accessibility tree, so the old `toHaveCount(0)` is wrong.
+    await expect(rail).toHaveAttribute('data-collapsed', 'true');
   });
 
   test('presence avatars render in the bar on a project route, excluding self (#1180)', async ({
@@ -257,7 +263,7 @@ test.describe('context-bar status cluster overflow (#2533)', () => {
     // (#1907) — a real, in-product +1 segment. The bar is full-width above the
     // rail (AppShell), so the rail's own width is not a confound: the only thing
     // that changed is the cluster's content width.
-    await page.getByRole('button', { name: 'Hide navigation' }).click();
+    await page.getByRole('button', { name: 'Collapse navigation' }).click();
     await expect(bar.getByRole('img', { name: /methodology$/i })).toBeVisible();
 
     const after = await location.boundingBox();
