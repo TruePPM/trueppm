@@ -155,22 +155,25 @@ describe('shouldRenderHintStrip', () => {
     expect(shouldRenderHintStrip({ ...ENGAGED, visibleRowCount: 0 })).toBe(true);
   });
 
-  it('takes no rights term either — which is SHIPPED BEHAVIOR, not a decision (#3231)', () => {
-    // Separated from the row-count assertion above on purpose. One sentence was
-    // covering both, and it only argues the row-count half: "do not strand an
-    // editor mid-edit" says nothing about a Viewer, who is not editing.
+  it('takes no rights term — a DECIDED split, not the accident it used to be (#3231)', () => {
+    // This assertion is byte-identical to the one #3134 left here and means the
+    // opposite thing, which is exactly why it is being rewritten rather than
+    // left alone. It used to record a defect and name its issue; it now records
+    // that issue's answer.
     //
-    // The behavior is a real defect. `buildModeActive = !isMobile` and
-    // `tryBuildModeFocusMove` has no rights gate, so a Viewer reaches
-    // `RowFocused` and is taught `⏎ New row below` / indent / `F2 Edit` — three
-    // mutations they cannot perform, against web rule 302. #3134 restated the
-    // shipped predicate faithfully and deliberately changed nothing here,
-    // because the fix needs a call that branch had no mandate to make (no strip
-    // at all, or a read-appropriate hint set?).
+    // #3231 asked whether a Viewer gets no strip or a read-appropriate hint set,
+    // and chose the hint set. The rights term therefore lives in the strip's
+    // CONTENT (`READER_HINTS` in `BuildModeHintStrip`) and not in this
+    // predicate: rule 302 is about what a reader is taught, and the strip now
+    // teaches only `↑↓ Select row` / `⏎ Open details`, both read off the row
+    // reducer's own `!canEdit` branch. Withholding the strip would also take the
+    // `? All shortcuts` route with it — the one job it has that survives without
+    // rights — and leave a reader arrowing the outline with no hints at all.
     //
-    // So this assertion records the status quo and names its issue rather than
-    // blessing it. When #3231 lands it must be UPDATED, not merely inverted —
-    // an unexplained flip would read as a regression to whoever bisects here.
+    // So this function stays a pure statement about which surface owns the
+    // column, and that question genuinely does not depend on rights. The
+    // rights-aware assertions live in `BuildModeHintStrip.test.tsx`; if this
+    // one ever fails, the fix is almost certainly there and not here.
     expect(shouldRenderHintStrip({ ...ENGAGED, hasEditRights: false })).toBe(true);
   });
 
