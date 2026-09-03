@@ -16,6 +16,8 @@ You are running a persona-level review of a **shipped** TruePPM surface — not 
 
 If a finding does not fit one of those, drop it. voc-audit is not a generic UX critique, not a security audit, not an architectural review — those have their own skills.
 
+**One boundary is worth naming, because this skill cannot cross it.** Every voc-audit finding is an improvement to make; the matrix has no cell for "this should not exist." If the audit keeps concluding that a surface is not worth fixing — it is half-built, oversold in the docs, or nobody's workflow needs it — that is a different question and it belongs to `/sunset-check`, which inverts the panel to ask what breaks if the surface is removed and can return a removal verdict. Hand it over rather than filing improvement issues against something that should be deleted.
+
 **Anti-pattern to refuse.** Running voc-audit with no surface argument and producing a wishlist for "TruePPM in general." Persona feedback drifts into noise without a concrete artifact to react to. If the user invokes voc-audit with no argument, ask them to pick one shipped surface — do not proceed.
 
 ---
