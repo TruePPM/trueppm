@@ -32,6 +32,24 @@
 #   RELEASE_ASSUME_YES=1) to accept the computed version non-interactively;
 #   without it, a non-TTY run fails closed rather than auto-cutting a tag.
 #
+# No backport path, on purpose (#3318):
+#   Every bump above is computed off the CURRENT version on main. There is no
+#   from-tag mode, so there is no way to cut 0.3.1 from v0.3.0-alpha.3 with a
+#   cherry-picked fix — and if you are here during a security incident looking
+#   for one, that is the answer, not a gap to work around. Pre-1.0, security
+#   fixes are FIXED FORWARD: merged to main, shipped by the next release.
+#
+#   The trigger for cutting one out of band is whether the fix changes the
+#   artifact a user on the latest tag is RUNNING — not its severity. A HIGH in
+#   build tooling (a devDependency, a lockfile transitive under eslint/babel/
+#   metro/Astro, anything only the docs site reaches) never entered the bundle
+#   and needs no release; a MODERATE in shipped runtime code does. SECURITY.md
+#   states this publicly; docs/maintainers/security-release-cadence.md carries
+#   the rule, the edge cases, and the triage behind it.
+#
+#   A from-tag mode becomes necessary at 1.0.0, when SECURITY.md starts
+#   promising backports for the two most recent minors. Build it then.
+#
 # Early-promotion guard (#2824):
 #   Cutting a tag runs scripts/remove-ships-in-callouts.sh --apply, which
 #   deletes every "Ships in 0.X" / "Coming in 0.X" docs callout once 0.X sits

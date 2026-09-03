@@ -7,9 +7,13 @@ description: >
   Executive Sponsor (C-Suite, conditional), Delivery Lead (Scrum Master / Agile Delivery
   Lead), Product Owner, and AI-Native Technical Operator — plus three conditional
   specialist evaluators (integration/API developer, self-hosting operator, and
-  engine-library consumer) and the AI-agent actor constraint. Use when
-  evaluating features, prioritizing backlog, writing user stories, reviewing UX designs,
-  or testing whether a feature resonates with the target market.
+  engine-library consumer) and the AI-agent actor constraint. Grounds the panel
+  before convening it by searching for real evidence — our own tracker first, then
+  external practitioner discourse about the functional category — and records the
+  evidence tier it reached. Use when evaluating features, prioritizing backlog, writing
+  user stories, reviewing UX designs, or testing whether a feature resonates with the
+  target market. For a removal question, use sunset-check instead — this skill scores
+  predicted adoption of an addition and cannot answer whether to delete something.
 ---
 
 # Voice of Customer Skill
@@ -80,10 +84,13 @@ from an unexamined guess about the data produces a confident recommendation abou
 that does not exist, and the write-up cannot repair that — by then the recommendation is
 already made.
 
-#### Step 0a — Check for real signal first
+#### Step 0a — Establish what evidence already exists
 
-Spend one search establishing whether anyone real has already spoken on this question.
-Modeled opinion is the fallback, not the default.
+Modeled opinion is the fallback, not the default. Three sources are checked, in ascending
+order of cost. Record which of them produced anything — the answer sets the run's
+**evidence tier**, which goes in the banner.
+
+**(i) Our own tracker** — has anyone real already spoken on this question?
 
 ```bash
 # Real reports and requests touching this surface
@@ -93,22 +100,76 @@ glab issue list --repo trueppm/trueppm --search "<feature keywords>" -P 20
 glab issue list --repo trueppm/trueppm --label "user-report" -P 20
 ```
 
-Also read `.claude/persona-calibration.md`. If a prior cycle recorded that a persona
-mispredicted this class of question, weight that persona's verdict down and say so in
-the panel verdict — a persona with a bad track record on a topic does not get to keep
-its full voice on it.
+**(ii) External practitioner evidence** — what do people who do this job for a living say
+about this *class* of functionality?
 
-Record the result as one of:
+This is the step that keeps the skill honest pre-beta. Our tracker is structurally empty
+until a beta lands, so (i) alone returns nothing on every run and the panel proceeds on
+pure simulation while the banner reports "no real signal" as though the world had been
+searched. Public practitioner discourse about the category is real human speech, and it
+costs two or three `WebSearch` calls.
 
-- **Real signal exists and covers the question** — do not convene the panel. Report the
-  real evidence and stop. Running a simulation over an answered question manufactures
-  false corroboration.
-- **Real signal exists and covers part of the question** — state what it says, then run
-  the panel scoped to the remainder only. The panel may not contradict the real signal;
-  where it does, the real signal wins and the contradiction is logged to
-  `.claude/persona-calibration.md` as a miss.
-- **No real signal** — run the full panel, and say so explicitly in the banner. This is
-  the normal pre-beta case and it is fine; it just has to be stated.
+Search the **functional category, never the product** — nobody outside this repo has heard
+of TruePPM, so a product-name search returns zero and that zero reads as "no evidence":
+
+- ✅ "do agile teams use facilitated live planning sessions", "collaborative estimation
+  tool complaints", "why teams stopped using <category>"
+- ❌ "TruePPM workshop mode", "TruePPM reviews"
+
+Where to look, and the known limits. These are recorded in `.claude/personas.md`
+("What changed in the 2026-07 revision, and what did not") and are repeated here so that
+nobody rediscovers them one wasted search at a time:
+
+- **Reddit and Quora block our crawler.** r/projectmanagement, r/agile, r/scrum and
+  r/selfhosted cannot be read directly. Do not spend searches on them.
+- **Substitutes that do work**: Hacker News threads, published practitioner surveys (State
+  of Agile, Scrum.org, PMI), vendor review sites (G2, Capterra) where a reviewer describes
+  their workflow rather than scores it, engineering blogs, and **competitor changelogs and
+  deprecation notices** — a competitor removing the same capability is strong evidence and
+  is usually a public post.
+- **Percentage statistics reaching us through secondary aggregators are directional only.**
+  No recommendation may rest on a single such figure.
+
+**(iii) The calibration ledger** — read `.claude/persona-calibration.md`. If a prior cycle
+recorded that a persona mispredicted this class of question, weight that persona's verdict
+down and say so in the panel verdict. A persona with a bad track record on a topic does not
+get to keep its full voice on it.
+
+##### Record the evidence tier
+
+The old binary — "real signal found" or "none found" — collapsed *"we looked in the one
+place that is structurally empty pre-beta"* into *"there is no evidence anywhere."* Record
+a tier instead, and carry it into the banner:
+
+| Tier | Meaning | Effect on the run |
+|---|---|---|
+| **E0** | Nothing found in (i) or (ii) | Full panel. State the tier plainly — this is the honest pre-beta position, not a failure |
+| **E1** | External category evidence only — practitioners discussing this class of functionality, nobody speaking about TruePPM | Panel runs; E1 findings enter as **established facts** (Step 0b) and the panel may not reason against them |
+| **E2** | Our tracker carries a real report bearing on this question | Real signal supersedes the panel — scope the panel to the residue only |
+| **E3** | A named real user or a measured behavior answers the question | Do not convene. Report the evidence and stop |
+
+At **E2 or E3** the real signal decides, and the panel may not contradict it; where it
+does, the real signal wins and the contradiction is logged to
+`.claude/persona-calibration.md` as a miss. Running a simulation over an answered question
+manufactures false corroboration.
+
+##### External evidence may not raise a grounding tier
+
+This is the rule that stops E1 from quietly becoming corroboration.
+
+A forum thread, a survey figure, or a competitor's deprecation notice is evidence about
+**the category**. It is not a report from a user of this product. It may inform the panel,
+and it may be quoted in the write-up with its source. It may **not**:
+
+- raise any persona's grounding tier in `.claude/personas.md`. T0 → T1 requires a real
+  report *about TruePPM*, cited, and recorded in `.claude/persona-calibration.md` — that
+  ledger is the only place a tier moves;
+- be described as corroborating a persona, or as a persona having been "validated";
+- be represented outside a VoC context as customer feedback, exactly as the modeled
+  verdicts may not be.
+
+Cite it as what it is — *"practitioners on \<source\> describe X"* — never *"our users say
+X."* The distinction is the whole reason the tier ladder exists.
 
 #### Step 0b — Name the empirical unknowns, then answer the cheap ones
 
@@ -185,8 +246,11 @@ Feature under review:
 
 Established facts (checked before this panel convened — treat these as given; do not
 reason against them or restate them as open questions):
-<paste the Step 0 findings: the real signal, and each answered empirical unknown with
-its answer. Write "none established" if Step 0 found nothing worth answering.>
+<paste the Step 0 findings: the evidence tier and what each source returned, each item
+of external practitioner evidence with its source, and each answered empirical unknown
+with its answer. Label external evidence as being about the category, not about TruePPM
+users — a persona reasoning from it must not treat it as somebody having reviewed this
+product. Write "none established" if Step 0 found nothing worth answering.>
 
 You are modeling a composite persona, not reporting what a real person said. Your score
 is a predicted adoption likelihood derived from this persona's documented criteria — not
@@ -231,8 +295,10 @@ delegate aggregation — synthesizing across personas is the value-add of this s
 > interviewed, surveyed, or observed. All personas are currently grounding tier T0
 > (modeled, no real-user contact). Scores are predicted adoption likelihood against
 > documented criteria, not measured sentiment.
-> **Real signal:** <none found | summarize what Step 0a found and note that it supersedes
-> the panel wherever they disagree>
+> **Evidence tier:** <E0 | E1 | E2 | E3> — <what each source in Step 0a returned. At E1,
+> name the sources and cite them as evidence about the *category*, never as reports from
+> TruePPM users. At E2/E3, summarize the real signal and note that it supersedes the panel
+> wherever they disagree.>
 > **Grounding:** <each empirical unknown Step 0b answered, with its answer and its
 > source, as put in front of the panel — or "no unknown identified would have changed a
 > recommendation">
@@ -365,4 +431,12 @@ constraint (personas.md) — it is checked, not scored.
 - **It does not let a falsification line die in the transcript.** Every finding that
   leaves this panel carries its line and the persona that raised it; a finding filed
   without them is `unscoreable` at calibration and counts against the panel
+- **It does not treat external category evidence as corroboration.** Practitioner forums,
+  survey figures and competitor deprecation notices inform the panel and are cited as
+  evidence about the category; they never raise a persona's grounding tier, which moves
+  only in `.claude/persona-calibration.md`
+- **It does not decide whether to remove something.** Its rubric scores predicted adoption
+  of a proposed *addition*, so on "should we delete this?" a low score is ambiguous — it
+  cannot separate "removing this would be bad" from "this thing is bad". Use
+  `sunset-check`, which inverts the question and carries removal verbs
 - **It does not validate itself.** Whether these personas predict anything is measured by `/voc-audit` against real reports and recorded in `.claude/persona-calibration.md`. A panel's own confidence is not evidence about the panel
