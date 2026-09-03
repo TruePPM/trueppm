@@ -1,0 +1,1 @@
+Upgrade the web app's transitive `fflate` dependency from 0.8.2 to 0.8.3, clearing GHSA-px8p-9vwx-vf98 (CVSS 7.5) — an infinite loop in `unzipSync()` on malformed ZIP64 archives — and pin the floor at `^0.8.3` in `overrides` so a future resolve cannot drop back under the fix.
