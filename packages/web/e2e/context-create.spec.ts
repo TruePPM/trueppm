@@ -292,7 +292,9 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     await dialog.getByRole('textbox', { name: /name/i }).fill('Now Standalone');
     await dialog.getByRole('button', { name: /create project/i }).click();
 
-    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
+    // Blank is the default way, and a blank create lands on the Schedule outline
+    // the Start sheet's Blank card names (#3311) — not Overview.
+    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/schedule`);
     expect(capturedBody).not.toBeNull();
     expect(capturedBody).not.toHaveProperty('program');
   });
