@@ -8685,12 +8685,7 @@ class TaskReparentView(IdempotencyMixin, APIView):
         # unhandled AttributeError (#2213). A guard mapping to None is wrong here:
         # new_parent_id=None is a *valid* request ("move to project root"), so a
         # malformed list/scalar body must 400, not silently reparent to root.
-        if not isinstance(request.data, dict):
-            return Response(
-                {"detail": "Request body must be a JSON object."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        new_parent_id = request.data.get("new_parent_id")
+        new_parent_id = object_body(request).get("new_parent_id")
 
         with transaction.atomic():
             task = get_object_or_404(
@@ -8820,13 +8815,14 @@ class _TaskGroupingViewBase(IdempotencyMixin, APIView):
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        if not isinstance(request.data, dict):
-            # A list or scalar body has no `.get`, and reaching for one is a 500 rather
-            # than a 400 (#2795). Guarded before any field is read.
-            return Response(
-                {"code": "invalid_body", "detail": "Request body must be a JSON object."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # A list or scalar body has no `.get`, and reaching for one is a 500 rather
+        # than a 400 (#2795). Guarded before any field is read. This endpoint's
+        # hand-rolled version is what set the house shape; `object_body` now emits
+        # the identical body, so the two cannot drift again (#3281). Bound, not
+        # called-and-discarded: the narrowing is the return value, and the reads
+        # below have to go through it or mypy is right that they can still be a
+        # list.
+        payload = object_body(request)
 
         project_id = str(project.pk)
         try:
@@ -8837,10 +8833,10 @@ class _TaskGroupingViewBase(IdempotencyMixin, APIView):
             with transaction.atomic():
                 if operation == "group":
                     body = perform_group(
-                        project, request, request.data.get("task_ids"), request.data.get("name")
+                        project, request, payload.get("task_ids"), payload.get("name")
                     )
                 else:
-                    body = perform_ungroup(project, request, request.data.get("task_id"))
+                    body = perform_ungroup(project, request, payload.get("task_id"))
 
                 transaction.on_commit(lambda: _enqueue_recalculate(project_id))
                 transaction.on_commit(

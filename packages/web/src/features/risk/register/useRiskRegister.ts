@@ -102,7 +102,7 @@ export function useRiskRegister(projectId: string) {
   const [hiddenSeverities, setHiddenSeverities] = useState<Set<SeverityBand>>(readHiddenSeverities);
   // null = drawer closed, undefined = create mode, Risk = edit mode
   const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
-  // When true the drawer opens directly in edit mode (✎ quick-edit affordance)
+  // When true the drawer opens directly in edit mode (the row's edit button)
   const [editMode, setEditMode] = useState(false);
 
   // `?risk=<id>` deep-link ⇄ open-drawer round-trip (issue #2046).

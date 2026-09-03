@@ -1,5 +1,7 @@
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 
+import { useEmptyStateAnnouncement } from './emptyStateAnnouncements';
+
 export interface EmptyStateProps {
   /** Surface icon (from components/Icons) — rendered decoratively in a circle. */
   icon: ComponentType<SVGProps<SVGSVGElement>>;
@@ -24,7 +26,13 @@ export interface EmptyStateProps {
  * Motion: the whole block does a single subtle fade+lift on mount via
  * `motion-safe:animate-empty-state-in`, so it never animates under
  * `prefers-reduced-motion` (the v2 motion contract — motion only, never content).
- * `role="status"` announces the state to assistive tech; the icon is decorative.
+ * Announcement: the block itself carries **no role and no live region**. It
+ * announces its title through the shell's one persistent polite region
+ * (`EmptyStateAnnouncer`, ADR-0989) on the transition *into* empty, so a
+ * remount at unchanged emptiness — a route change, a project switch, a filter
+ * edit that leaves the surface empty — says nothing, and four empty blocks on
+ * one surface say it once. The icon stays decorative and the `<h2>` stays a
+ * real heading, reachable by heading navigation (#3198).
  */
 export function EmptyState({
   icon: Icon,
@@ -33,9 +41,13 @@ export function EmptyState({
   action,
   className = '',
 }: EmptyStateProps) {
+  useEmptyStateAnnouncement(title);
+
   return (
     <div
-      role="status"
+      // Stable handle for specs that used to scope on the removed `role="status"`
+      // (rule 242's re-anchor recipe). The block has no role of its own by design.
+      data-testid="empty-state"
       className={`flex flex-1 flex-col items-center justify-center px-6 py-16 text-center motion-safe:animate-empty-state-in ${className}`}
     >
       <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full border border-neutral-border bg-neutral-surface-raised text-neutral-text-secondary">

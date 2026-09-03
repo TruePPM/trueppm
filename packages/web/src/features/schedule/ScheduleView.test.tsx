@@ -554,25 +554,58 @@ type StubItem = {
   label: string;
   disabled?: boolean;
   onSelect?: () => void;
+  checked?: boolean;
+  onChange?: (v: boolean) => void;
 };
 // The real component takes EITHER a flat `items` list or grouped `sections`
 // (#3076). A stub that reads only `items` throws the moment the Schedule
 // toolbar starts passing sections — which is exactly what happened, so it
 // flattens both here rather than knowing which API the caller used.
+//
+// It also renders the TRIGGER and the CHECKBOX items, which it did not until
+// #3263. Both omissions were invisible while every cluster using this component
+// was a menu whose trigger was an anonymous `···` — but the mode chip's trigger
+// *is* the control (it carries the value and the test id), and its Read/Author
+// item is a checkbox. A stub that drops them makes the mode unfindable and
+// unclickable in jsdom while the real toolbar renders it fine.
 vi.mock('@/components/toolbar/ToolbarOverflowMenu', () => ({
   ToolbarOverflowMenu: ({
     triggerAriaLabel,
+    triggerLabel,
+    triggerTestId,
     items,
     sections,
   }: {
     triggerAriaLabel: string;
+    triggerLabel?: ReactNode;
+    triggerTestId?: string;
     items?: StubItem[];
     sections?: { id: string; label: string; items: StubItem[] }[];
   }) => (
     <div role="group" aria-label={triggerAriaLabel}>
+      <button type="button" data-testid={triggerTestId} aria-label={triggerAriaLabel}>
+        {triggerLabel}
+      </button>
       {(sections ? sections.flatMap((s) => s.items) : (items ?? [])).map((it) =>
         it.kind === 'action' ? (
-          <button key={it.id} type="button" disabled={it.disabled} onClick={it.onSelect}>
+          <button
+            key={it.id}
+            type="button"
+            role="menuitem"
+            disabled={it.disabled}
+            onClick={it.onSelect}
+          >
+            {it.label}
+          </button>
+        ) : it.kind === 'checkbox' ? (
+          <button
+            key={it.id}
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={it.checked}
+            disabled={it.disabled}
+            onClick={() => it.onChange?.(!it.checked)}
+          >
             {it.label}
           </button>
         ) : null,
@@ -736,6 +769,19 @@ function enableStructureButtons(): void {
  * regression nets, and without this they would pass on the default placement
  * instead of on the gate, which is a green test proving nothing.
  */
+/**
+ * Flip Read ⇄ Author through the merged mode chip (#3263).
+ *
+ * The chip STATES the mode on its trigger and CHANGES it from its popover, so a
+ * toggle is two acts rather than the one click `AuthorModePill` took. Wrapped so
+ * the ~10 call sites assert on the mode's behaviour rather than each re-encoding
+ * the chip's composition.
+ */
+async function toggleAuthorMode(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByTestId('schedule-mode-chip'));
+  await user.click(screen.getByRole('menuitemcheckbox', { name: /Author mode/ }));
+}
+
 function pinMilestoneButton(): void {
   seedDisplayOptions({ pinMilestone: true });
 }
@@ -1011,7 +1057,7 @@ describe('ScheduleView — read-only vs authoring gates', () => {
     expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Phase' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-mode-chip')).not.toBeInTheDocument();
   });
 
   it('tells a viewer what to do instead, once', () => {
@@ -1029,8 +1075,8 @@ describe('ScheduleView — read-only vs authoring gates', () => {
     const user = userEvent.setup();
     mockRole = ROLE_MEMBER;
     renderSchedule();
-    await user.click(screen.getByTestId('author-mode-pill'));
-    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    await toggleAuthorMode(user);
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
     expect(screen.queryByTestId('schedule-view-only')).not.toBeInTheDocument();
   });
@@ -1087,7 +1133,7 @@ describe('ScheduleView — three insert affordances (#2957)', () => {
     const user = userEvent.setup();
     mockRole = ROLE_MEMBER;
     renderSchedule();
-    await user.click(screen.getByTestId('author-mode-pill'));
+    await toggleAuthorMode(user);
     expect(screen.getByRole('button', { name: 'append-at-end' })).toHaveAttribute(
       'data-read-only',
       'true',
@@ -1100,7 +1146,7 @@ describe('ScheduleView — three insert affordances (#2957)', () => {
     const user = userEvent.setup();
     mockRole = ROLE_MEMBER;
     renderSchedule();
-    await user.click(screen.getByTestId('author-mode-pill'));
+    await toggleAuthorMode(user);
     createTaskMutate.mockClear();
     await user.click(screen.getByRole('button', { name: 'append-at-end' }));
     expect(createTaskMutate).not.toHaveBeenCalled();
@@ -1184,7 +1230,7 @@ describe('ScheduleView — project actions menu (role-gated)', () => {
   it('fires the MS Project export from the actions menu', async () => {
     const user = userEvent.setup();
     renderSchedule();
-    await user.click(screen.getByRole('button', { name: 'Export to MS Project (.xml)' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Export to MS Project (.xml)' }));
     expect(exportProjectMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1192,7 +1238,7 @@ describe('ScheduleView — project actions menu (role-gated)', () => {
     const user = userEvent.setup();
     mockRole = ROLE_ADMIN;
     renderSchedule();
-    await user.click(screen.getByRole('button', { name: 'Import from MS Project…' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Import from MS Project…' }));
     expect(screen.getByRole('dialog', { name: 'Import modal' })).toBeInTheDocument();
   });
 });
@@ -1792,7 +1838,7 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     // explaining a refusal to them is noise about a button they cannot see.
     const user = userEvent.setup();
     renderSchedule();
-    await user.click(screen.getByTestId('author-mode-pill'));
+    await toggleAuthorMode(user);
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
     expect(groupTasksMutate).not.toHaveBeenCalled();
@@ -2383,12 +2429,16 @@ describe('ScheduleView — milestone created side effect', () => {
 });
 
 describe('ScheduleView — build mode (default on desktop, #2682)', () => {
-  it('shows the build-mode pill and opens the cheatsheet on click', async () => {
+  it('opens the cheatsheet from the mode chip (#3263 — the retired pill\'s job)', async () => {
+    // #3263 merged `BuildModePill` into the mode chip. The pill's only act was
+    // opening this dialog, so the replacement ships in the same change that
+    // removes it — the way IN to the keyboard surface must not become owed.
     const user = userEvent.setup();
     renderSchedule();
-    const pill = screen.getByTestId('build-mode-pill');
-    expect(pill).toBeInTheDocument();
-    await user.click(pill);
+    const chip = screen.getByTestId('schedule-mode-chip');
+    expect(chip).toBeInTheDocument();
+    await user.click(chip);
+    await user.click(screen.getByRole('menuitem', { name: /Keyboard shortcuts/ }));
     expect(screen.getByRole('dialog', { name: /schedule shortcuts/i })).toBeInTheDocument();
   });
 
@@ -2430,7 +2480,7 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
   it('defaults to Author mode: pill reads "Author" and create controls stay enabled', () => {
     pinMilestoneButton();
     renderSchedule();
-    const pill = screen.getByTestId('author-mode-pill');
+    const pill = screen.getByTestId('schedule-mode-chip');
     expect(pill).toHaveTextContent('Author');
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeEnabled();
   });
@@ -2440,8 +2490,8 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
     const user = userEvent.setup();
     enableStructureButtons();
     renderSchedule();
-    await user.click(screen.getByTestId('author-mode-pill'));
-    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    await toggleAuthorMode(user);
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '+ Phase' })).toBeDisabled();
     // Present and inert, not absent — one key gets this editor back (#2949).
@@ -2451,14 +2501,14 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
 
   it('Alt+A toggles the same as clicking the pill', () => {
     renderSchedule();
-    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Author');
     const preventDefault = vi.fn();
     const e = { preventDefault } as unknown as KeyboardEvent;
     act(() => capturedKeyBindings['alt+a']?.(e));
     expect(preventDefault).toHaveBeenCalled();
-    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
     act(() => capturedKeyBindings['alt+a']?.(e));
-    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Author');
   });
 
   it('is not a permission change — the server role gate still applies independently', () => {
@@ -2470,19 +2520,19 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
     // #2949 that shows up as the apparatus being absent rather than disabled,
     // and the toggle itself is gone: there is no mode for a viewer to be in.
     expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-mode-chip')).not.toBeInTheDocument();
     expect(screen.getByTestId('schedule-view-only')).toBeInTheDocument();
   });
 
   it('persists the preference per-user per-project across a remount', async () => {
     const user = userEvent.setup();
     const { unmount } = renderSchedule();
-    await user.click(screen.getByTestId('author-mode-pill'));
-    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    await toggleAuthorMode(user);
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
     unmount();
     renderSchedule();
     await waitFor(() =>
-      expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read'),
+      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read'),
     );
   });
 });
@@ -2503,7 +2553,7 @@ describe('ScheduleView — the authoring gate is the server\'s can_author (#3034
     pinMilestoneButton();
     mockRole = ROLE_SCHEDULER;
     renderSchedule();
-    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-mode-chip')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
     expect(screen.getByTestId('schedule-view-only')).toBeInTheDocument();
   });
@@ -2519,7 +2569,7 @@ describe('ScheduleView — the authoring gate is the server\'s can_author (#3034
   it('a Member is unaffected — the band exclusion is not a raised floor', () => {
     mockRole = ROLE_MEMBER;
     renderSchedule();
-    expect(screen.getByTestId('author-mode-pill')).toBeInTheDocument();
+    expect(screen.getByTestId('schedule-mode-chip')).toBeInTheDocument();
     expect(screen.queryByTestId('schedule-view-only')).not.toBeInTheDocument();
   });
 
@@ -2531,13 +2581,13 @@ describe('ScheduleView — the authoring gate is the server\'s can_author (#3034
     mockRole = ROLE_ADMIN;
     mockCanAuthorOverride = 'unresolved';
     renderSchedule();
-    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-mode-chip')).not.toBeInTheDocument();
     expect(screen.getByTestId('schedule-view-only')).toBeInTheDocument();
 
     cleanup();
     mockCanAuthorOverride = undefined; // resolved; derives true from ROLE_ADMIN
     renderSchedule();
-    expect(screen.getByTestId('author-mode-pill')).toBeInTheDocument();
+    expect(screen.getByTestId('schedule-mode-chip')).toBeInTheDocument();
   });
 });
 
