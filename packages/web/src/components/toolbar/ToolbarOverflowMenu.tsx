@@ -13,8 +13,10 @@
  *  - `Escape` closes the menu and returns focus to the trigger
  *  - Click outside closes the menu without activation
  *
- * Per rule 112 the trigger should be rendered with `md:hidden` by callers —
- * the menu must not appear at `lg:` viewports.
+ * Callers using this as a pure overflow menu render the trigger with `md:hidden`
+ * per rule 112. Callers whose trigger IS the control — the mode chip, the zoom
+ * cluster — pass no responsive class and are present at every width; for them the
+ * popover holds the control's *acts*, and is not an overflow at all (#3263).
  */
 import {
   useCallback,
@@ -59,6 +61,14 @@ export type ToolbarOverflowItem =
       kind: 'checkbox';
       checked: boolean;
       onChange: (next: boolean) => void;
+      /**
+       * Close the popover after the toggle. Off by default because the usual
+       * checkbox run is a set of filters someone flips several of in a row —
+       * but a menu holding exactly ONE checkbox has no "in a row", and leaving
+       * it open there costs a third interaction (open, toggle, dismiss) and
+       * covers the trigger whose value just changed (#3263).
+       */
+      closeOnChange?: boolean;
     });
 
 /**
@@ -91,8 +101,8 @@ export interface ToolbarOverflowMenuProps {
   /**
    * Visible trigger content. Omitted renders the `⋯` glyph in a square button.
    * Supplied renders a labeled button — used by the collapsed clusters (#3076),
-   * whose triggers must keep showing their *value* ("Month ▾", "Author · Build ▾")
-   * rather than becoming an anonymous overflow dot.
+   * whose triggers must keep showing their *value* ("Month ▾", "Author") rather
+   * than becoming an anonymous overflow dot.
    */
   triggerLabel?: ReactNode;
   /** Extra classes for the wrapping `<div>`. Use to control responsive
@@ -103,6 +113,19 @@ export interface ToolbarOverflowMenuProps {
   align?: 'left' | 'right';
   /** Extra classes for the trigger button itself. */
   triggerClassName?: string;
+  /**
+   * `data-testid` for the trigger. Set it when the trigger IS the control —
+   * a cluster whose trigger carries the value (`ScheduleModeChip`) is what a
+   * spec drives, and locating it by accessible name couples every such spec to
+   * the label's exact wording.
+   */
+  triggerTestId?: string;
+  /**
+   * `aria-keyshortcuts` for the TRIGGER. Rule 343(f) requires a control keep its
+   * name *and* its chord; on a value-bearing trigger the chord would otherwise
+   * live only on a row inside the popover, unreachable without opening it.
+   */
+  triggerAriaKeyShortcuts?: string;
   /** Rendered under the last section — the way out of the menu (#3076). */
   footer?: ReactNode;
   /**
@@ -120,6 +143,8 @@ export function ToolbarOverflowMenu({
   className,
   align = 'right',
   triggerClassName,
+  triggerTestId,
+  triggerAriaKeyShortcuts,
   footer,
   triggerRef: externalTriggerRef,
 }: ToolbarOverflowMenuProps) {
@@ -215,7 +240,14 @@ export function ToolbarOverflowMenu({
       triggerRef.current?.focus();
     } else {
       item.onChange(!item.checked);
-      // Checkbox items stay open so the user can toggle multiple in a row.
+      // Checkbox items stay open so the user can toggle multiple in a row —
+      // unless the caller says this one is the only thing in the menu worth
+      // toggling, in which case staying open is just a dismissal to perform.
+      //
+      // `close()` and not `setOpen(false)`: it moves focus to the trigger before
+      // React unmounts the row that had it, which is rule 368 — and the trigger
+      // is the right destination because reopening the menu is what undoes this.
+      if (item.closeOnChange) close();
     }
   }
 
@@ -224,7 +256,9 @@ export function ToolbarOverflowMenu({
       <button
         ref={triggerRef}
         type="button"
+        data-testid={triggerTestId}
         aria-label={triggerAriaLabel}
+        aria-keyshortcuts={triggerAriaKeyShortcuts}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

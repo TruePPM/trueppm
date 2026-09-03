@@ -356,7 +356,10 @@ def test_add_member_rejects_a_non_object_body(
         format="json",
     )
     assert resp.status_code == 400, resp.content
-    assert resp.data == {"detail": "Request body must be a JSON object."}
+    assert resp.data == {
+        "code": "invalid_body",
+        "detail": "Request body must be a JSON object.",
+    }
 
 
 @pytest.mark.django_db

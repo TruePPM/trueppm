@@ -22,7 +22,18 @@ authors = [
 dependencies = [
     "trueppm-scheduler>=0.1.0a0,<1",
     "django>=5.2.17,<6.0",
-    "djangorestframework>=3.15,<4.0",
+    # Floor is 3.17.2, not 3.15: every earlier release is affected by
+    # GHSA-g47c-3xmw-q6m2 (AdminRenderer leaks GET-protected data) and
+    # GHSA-2m8g-3cmr-wg3w (request.data bypasses DATA_UPLOAD_MAX_MEMORY_SIZE).
+    # Pinning the lock alone would leave a fresh resolve free to pick an
+    # affected version.
+    #
+    # Ceiling is <3.18 because 3.18.0 changes `many=True` serializer errors to
+    # dict format and narrows `set_rollback` to initialized connections only —
+    # both need verifying against our error contract and our ATOMIC_REQUESTS
+    # refusal paths before we take them. uv resolves to 3.18.0 without this.
+    # Tracked in #3323; lift the ceiling there, not here.
+    "djangorestframework>=3.17.2,<3.18",
     "djangorestframework-simplejwt>=5.3,<6.0",
     "django-allauth>=65.18.0,<66.0",
     "defusedxml>=0.7,<0.8",

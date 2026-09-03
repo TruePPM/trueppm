@@ -253,9 +253,10 @@ describe('ProgramListPage', () => {
       );
       expect(await screen.findByText(/No programs match your filter/i)).toBeInTheDocument();
 
-      // Scope to the empty-state status region — the search box also exposes a
-      // "Clear filter" affordance while a query is active.
-      const emptyState = screen.getByRole('status');
+      // Scope to the empty-state block — the search box also exposes a "Clear
+      // filter" affordance while a query is active. Scoped by testid since
+      // #3198: the block no longer carries a role of its own (ADR-0989).
+      const emptyState = screen.getByTestId('empty-state');
       await user.click(within(emptyState).getByRole('button', { name: /Clear filter/i }));
       expect(screen.getByRole('list', { name: 'Programs' })).toBeInTheDocument();
       expect(screen.getByText('Alpha')).toBeInTheDocument();

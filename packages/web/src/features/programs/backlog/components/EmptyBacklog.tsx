@@ -2,7 +2,8 @@
  * Full-page empty state when the program has no backlog items at all (distinct
  * from <NoResults>, which is the filtered-to-zero case). Replaces the toolbar,
  * list, and right pane entirely. Built on the shared <EmptyState> anatomy
- * (web-rule 177 — `role="status"`, decorative icon, warm copy). (The "Import
+ * (web-rule 177 — role-less block, decorative icon, warm copy; it announces
+ * through the shell's persistent region per ADR-0989). (The "Import
  * CSV" CTA is hidden until CSV import ships — #1045/#746; a visible "coming
  * soon" dead-end damages first-impression trust on a new surface.)
  */

@@ -13,7 +13,15 @@
  * a **mode** may only collapse into something that still shows its value; and
  * tier-A controls demote last or never. Treating `Read / Author` as an
  * overflowable command is how a user ends up typing into a plan they believe
- * is read-only, so `mode` has no `overflow` state to reach at all.
+ * is read-only, so the mode has no `overflow` state to reach at all.
+ *
+ * Since #3263 the mode is not a rung either, and does not appear in the
+ * composition. There was a `mode-chip` rung because the mode had a wide form
+ * (two pills) and a narrow one (one chip); the wide form is gone, so the
+ * concession is already spent before the loop starts. The bar's natural width
+ * loses the same ~148px the rung used to save, which is why removing a rung
+ * does not cost the ladder anything: it is the identical saving, taken once
+ * and unconditionally instead of at step 6.
  *
  * Pins layer on top and never override the ladder: an unpinned promotable
  * starts in `···`, and a pinned control still demotes before any tier-A one.
@@ -30,8 +38,6 @@ export type Placement = 'bar' | 'overflow';
 /** The structure trio collapses to one `Structure ▾` trigger before it demotes. */
 export type StructurePlacement = 'bar' | 'collapsed' | 'overflow';
 export type ZoomDensity = 'full' | 'collapsed';
-/** A mode: collapses to a chip that still shows its value. Never `overflow`. */
-export type ModeDensity = 'split' | 'chip';
 export type TrailDensity = 'full' | 'min';
 export type RecalcDensity = 'full' | 'min';
 
@@ -43,7 +49,6 @@ export interface ToolbarComposition {
   structure: StructurePlacement;
   zoom: ZoomDensity;
   milestone: Placement;
-  mode: ModeDensity;
   trail: TrailDensity;
   today: Placement;
   recalc: RecalcDensity;
@@ -149,7 +154,6 @@ export const TOOLBAR_LADDER: readonly LadderRung[] = [
   { id: 'structure-collapse', estimate: 152, apply: (c) => { if (c.structure === 'bar') c.structure = 'collapsed'; } },
   { id: 'zoom-collapse', estimate: 180, apply: (c) => { c.zoom = 'collapsed'; } },
   { id: 'counts-min', estimate: 34, apply: (c) => { if (c.counts === 'mid') c.counts = 'min'; } },
-  { id: 'mode-chip', estimate: 148, apply: (c) => { c.mode = 'chip'; } },
   { id: 'trail-min', estimate: 86, apply: (c) => { c.trail = 'min'; } },
   { id: 'recalc-min', estimate: 90, apply: (c) => { c.recalc = 'min'; } },
   { id: 'sentence-drop', estimate: 104, apply: (c) => { c.sentence = 'none'; } },
@@ -179,7 +183,6 @@ export function baseComposition(pins: ToolbarPins): ToolbarComposition {
     structure: pins.structure ? 'bar' : 'overflow',
     zoom: 'full',
     milestone: pins.milestone ? 'bar' : 'overflow',
-    mode: 'split',
     trail: 'full',
     today: pins.today ? 'bar' : 'overflow',
     recalc: 'full',

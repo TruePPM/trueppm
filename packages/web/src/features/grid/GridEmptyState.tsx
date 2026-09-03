@@ -1,4 +1,5 @@
 import { EmptyState } from '@/components/EmptyState';
+import { useEmptyStateAnnouncement } from '@/components/emptyStateAnnouncements';
 import { Button } from '@/components/Button';
 import { ListIcon } from '@/components/Icons';
 
@@ -65,16 +66,26 @@ export function GridFilteredEmptyState({
     ? facets.reduce((a, b) => (b.recoveredCount > a.recoveredCount ? b : a), facets[0])
     : undefined;
   const countWord = COUNT_WORD[facets.length] ?? `all ${facets.length}`;
+  const headline = diagnose
+    ? `No tasks match ${countWord} filters`
+    : 'No tasks match these filters';
+
+  // Announced through the shell's persistent region on the transition into
+  // empty (ADR-0989), not by a `role="status"` mounted with its own text.
+  // `populated → filtered-empty` is the arm that must keep announcing, and it
+  // does: the headline is absent from the previous settle. Re-editing a filter
+  // that leaves the surface empty at the same facet count is silent, which is
+  // the defect #3198 was filed for; a facet count change rewrites the headline
+  // and therefore does announce, because that is genuinely new information.
+  useEmptyStateAnnouncement(headline);
 
   return (
     <div
-      role="status"
+      data-testid="grid-filtered-empty"
       className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface px-6
         text-center"
     >
-      <p className="text-sm text-neutral-text-primary font-medium">
-        {diagnose ? `No tasks match ${countWord} filters` : 'No tasks match these filters'}
-      </p>
+      <p className="text-sm text-neutral-text-primary font-medium">{headline}</p>
       {diagnose && (
         <p className="max-w-md text-xs text-neutral-text-secondary">
           Each filter has rows on its own —{' '}
