@@ -27,9 +27,9 @@
     "esbuild": "0.28.1",
     "js-yaml": "^4.3.1",
     "yaml": "^2.8.3",
-    "fast-uri": "^3.1.5"
+    "fast-uri": "^3.1.6"
   },
-  "//": "fast-uri (transitive via ajv) is pinned to ^3.1.5 via overrides to clear GHSA-7p8r-x3mc-p8w7 (backslash host-confusion / SSRF-filter bypass).",
+  "//": "fast-uri (transitive via ajv) is pinned to ^3.1.6 via overrides. Originally ^3.1.5 for GHSA-7p8r-x3mc-p8w7 (backslash host-confusion / SSRF-filter bypass); raised to ^3.1.6 for the four HIGH advisories published 2026-09-02 that 3.1.5 is vulnerable to — GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp (IDN/percent-encoding host confusion and IPv6/repeated-hostname SSRF), all fixed in 3.1.6.",
   "//playwright": "EXACT pin, no caret (#2797). rehype-mermaid drives this Playwright to render ```mermaid fences to inline SVG at build time (ADR-0198), and website:build/pages run inside the mcr.microsoft.com/playwright image pinned by PLAYWRIGHT_BASE_TAG in .gitlab-ci.yml — which ships browsers for that version ONLY. A caret let `npm ci` float to 1.61.1 against a v1.58.2-noble image, so the browser launch failed, Astro dropped the whole page body, and the build still exited 0: three docs pages published blank for 19 days. Must equal PLAYWRIGHT_BASE_TAG; scripts/check-playwright-pins.sh enforces it.",
   "engines": {
     "node": ">=22.12.0"
