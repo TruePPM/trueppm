@@ -222,11 +222,19 @@ def test_list_body_is_rejected_with_400(
 def test_the_rejection_names_the_envelope_not_a_field(
     client: APIClient, outcome: SprintTaskOutcome
 ) -> None:
-    """The caller has to be able to tell "wrong shape" from "bad value"."""
+    """The caller has to be able to tell "wrong shape" from "bad value".
+
+    Shape 2 (`docs/api/errors.md`): `detail` is prose and may be reworded, `code`
+    is the contract. Asserted as an exact dict so a third shape cannot appear
+    without this failing — one refusal speaking three bodies is what #3281 fixed.
+    """
     resp = client.post(
         f"/api/v1/sprint-task-outcomes/{outcome.pk}/toggle-demo/", LIST_BODY, format="json"
     )
-    assert resp.data == {"detail": "Request body must be a JSON object."}
+    assert resp.data == {
+        "code": "invalid_body",
+        "detail": "Request body must be a JSON object.",
+    }
 
 
 def test_an_object_body_still_works(client: APIClient, outcome: SprintTaskOutcome) -> None:

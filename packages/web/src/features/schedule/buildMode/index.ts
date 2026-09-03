@@ -18,8 +18,6 @@ export {
 export { BuildModeCheatsheet } from './BuildModeCheatsheet';
 export { BlankProjectCanvas } from './BlankProjectCanvas';
 export { BlankOutlineDraftRow } from './BlankOutlineDraftRow';
-export { BuildModePill } from './BuildModePill';
-export { AuthorModePill } from './AuthorModePill';
 export { BuildModeProvider, useBuildMode, type BuildModeApi } from './BuildModeContext';
 export { NameAutocomplete } from './NameAutocomplete';
 export { OwnerAutocomplete } from './OwnerAutocomplete';

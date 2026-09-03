@@ -389,6 +389,33 @@ class TestReparentEndpoint:
         )
         assert r.status_code == 404
 
+    def test_reparent_rejects_a_non_object_body_with_the_shared_code(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """#3281 — reparent emits the same body as every other envelope refusal.
+
+        It had its own hand-written guard returning a bare `detail`, so the same
+        condition answered differently here than on `tasks/group`. The guard's
+        original reasoning still holds and is why this cannot map to `None`:
+        `new_parent_id: null` is a *valid* request meaning "move to project root",
+        so a malformed body must refuse rather than silently reparent to root —
+        which is what this asserts by checking the child did not move.
+        """
+        parent = Task.objects.create(project=project, name="P", duration=0, wbs_path="1")
+        child = Task.objects.create(project=project, name="C", duration=3, wbs_path="1.1")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{child.id}/reparent/",
+            [{"new_parent_id": str(parent.id)}],
+            format="json",
+        )
+        assert r.status_code == 400, r.content
+        assert r.data == {
+            "code": "invalid_body",
+            "detail": "Request body must be a JSON object.",
+        }
+        child.refresh_from_db()
+        assert child.wbs_path == "1.1"
+
     def test_reparent_same_parent_noop(
         self, client: APIClient, project: Project, membership: ProjectMembership
     ) -> None:

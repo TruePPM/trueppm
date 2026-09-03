@@ -55,6 +55,12 @@ mk_repo() {
   : > "$d/docs/adr/0216-existing-decision.md"
   : > "$d/packages/api/src/trueppm_api/apps/notifications/migrations/0006_seed.py"
   : > "$d/packages/api/src/trueppm_api/apps/scheduling/migrations/0002_seed.py"
+  # A web rule list for the #3284 rule-number sequence. Deliberately NOT
+  # zero-padded and of mixed width — that is how the real file writes them, and a
+  # matcher borrowed from the 4-digit ADR helper would score every one as zero.
+  mkdir -p "$d/packages/web"
+  printf '%s\n' '9. **An early rule.** Body.' '## Heading' '367. **The current highest.** Body.' \
+    > "$d/packages/web/CLAUDE.md"
   ( cd "$d"
     git init -q
     git config user.email t@t.co
@@ -188,6 +194,41 @@ if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n'; the
 check "no bash 4+ constructs (declare -A/mapfile/readarray/local -n)" "$r"
 if printf '%s\n' "$CODE" | grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\^'; then r=1; else r=0; fi
 check "no \${var^} case-conversion expansion" "$r"
+
+# --- Case 9: web rule numbers are a reservable sequence (#3284) ------------
+# The collision this prevents exists ONLY on the merged tree: #3134 and #3263 both
+# minted 368 while each was correct alone, and the rebase merged two distinct
+# adjacent lines with no conflict.
+echo "Case 9: web rule reservation"
+D9="$TMP/case9"; mk_repo "$D9"
+r1="$(cd "$D9" && bash "$WT" reserve rule 2>/dev/null)"
+r2="$(cd "$D9" && bash "$WT" reserve rule 2>/dev/null)"
+check "first rule is 368 (highest in the file + 1)" "$([[ "$r1" == "368" ]]; echo $?)"
+check "second advances to 369 (ledger-aware)"       "$([[ "$r2" == "369" ]]; echo $?)"
+# The bug a 4-digit matcher would cause: nothing matches, max stays 0, every
+# caller gets 1. Pinning the value rules that out; pinning "not 1" would not.
+check "…and NOT 1 (the 4-digit-matcher failure)"    "$([[ "$r1" != "1" ]]; echo $?)"
+check ".wt-reservation records the rule claim"      "$(grep -qx 'rule=368' "$D9/.wt-reservation"; echo $?)"
+
+# A heading like `## 9999 things` must not outrank the list: the matcher is
+# anchored to a line-leading `<n>.` for exactly this reason.
+printf '%s\n' '## 9999 things' >> "$D9/packages/web/CLAUDE.md"
+r3="$(cd "$D9" && bash "$WT" reserve rule 2>/dev/null)"
+check "a bare number in a heading does not outrank it" "$([[ "$r3" == "370" ]]; echo $?)"
+
+# --- Case 10: a reservation can be handed back ----------------------------
+echo "Case 10: releasing your own reservation"
+D10="$TMP/case10"; mk_repo "$D10"
+( cd "$D10" && bash "$WT" reserve rule ) >/dev/null 2>&1
+own="$( git -C "$D10" rev-parse --abbrev-ref HEAD )"
+set +e
+( cd "$D10" && bash "$WT" release-reservation "$own" ) >/dev/null 2>&1
+rc=$?
+set -e
+check "own branch's reservation is releasable"      "$([[ "$rc" -eq 0 ]]; echo $?)"
+# …and the number is genuinely free again, not merely unlisted.
+r4="$(cd "$D10" && bash "$WT" reserve rule 2>/dev/null)"
+check "the released number is handed out again"     "$([[ "$r4" == "368" ]]; echo $?)"
 
 echo ""
 echo "wt-reserve: $pass passed, $fail failed"

@@ -24,6 +24,7 @@ import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { CreateDispatcher } from './CreateDispatcher';
 import { GlobalTaskDrawer } from './GlobalTaskDrawer';
 import { ToastHost } from '@/components/Toast';
+import { EmptyStateAnnouncer } from '@/components/EmptyStateAnnouncer';
 import { DisplayFormatSync } from './DisplayFormatSync';
 import { useBlockerOffline } from '@/features/blocker/offline/useBlockerOffline';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -102,6 +103,13 @@ export function AppShell() {
       {/* Feedback dialog, opened from the user menu or ⌘K (#2392). Mounted once
           here and INSIDE the provider — it reads the workspace setting (#2298). */}
       <FeedbackDialogHost />
+      {/* The one polite region every empty surface speaks through (#3198,
+          ADR-0989). Mounted once and permanently, and empty, so a message is
+          injected into a node already in the accessibility tree — a region
+          mounted with its own text is announced inconsistently (rule 335).
+          Being single is also what makes four empty Board columns announce
+          once. */}
+      <EmptyStateAnnouncer />
       <div className="flex flex-col h-screen overflow-hidden">
         {/* Skip link (WCAG 2.4.1 Bypass Blocks) — first focusable element; lets
             keyboard users jump past the sidebar/topbar straight to content. */}

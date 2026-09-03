@@ -87,36 +87,41 @@ describe('the insert sentence occupies the rungs everything else cites (#3134 T6
    *
    * - **rung 2 / 94px — correct.** `sentence-short`.
    * - **rung 11 / 104px — stale.** 104px is right and rung 11 is not: the
-   *   sentence stops being drawn at **rung 9** (`sentence-drop`). Rung 11 is
+   *   sentence stops being drawn at **rung 8** (`sentence-drop`). Rung 10 is
    *   `milestone-overflow`, at 116px.
    *
-   * The two disagree for a documented reason, not a typo. The design's ladder
-   * interleaved collapses and demotions — it demoted Export PDF at rung 3 —
-   * and the shipped one spends every collapse before any demotion (see
-   * `TOOLBAR_LADDER`'s own comment, and the test below that pins it). That
-   * reordering moves `sentence-drop` two rungs earlier. Any amendment quoting
-   * rung 11 for the sentence is therefore describing a ladder that was never
-   * built, and must be re-indexed to 9 before it is applied.
+   * The two disagree for two documented reasons, neither a typo. First, the
+   * design's ladder interleaved collapses and demotions — it demoted Export PDF
+   * at rung 3 — and the shipped one spends every collapse before any demotion
+   * (see `TOOLBAR_LADDER`'s own comment, and the test below that pins it),
+   * which moved `sentence-drop` two rungs earlier, to 9. Then #3263 merged the
+   * two mode pills into one chip and deleted the `mode-chip` rung that used to
+   * sit at 6, moving everything below it up by one again — so 9 became **8**
+   * and `milestone-overflow` became **10**. Any amendment quoting rung 11 for
+   * the sentence is describing a ladder that was never built, and must be
+   * re-indexed to 8 before it is applied.
    *
    * Pinned here rather than left as a note in an MR because the next citation
    * will come from a handoff too, and a prose finding cannot be re-checked. If
    * a future rung reorders these, this fails and names the new indices.
    */
-  it('shortens at rung 2 and stops being drawn at rung 9 — not rung 11', () => {
+  it('shortens at rung 2 and stops being drawn at rung 8 — not rung 11', () => {
     const ids = TOOLBAR_LADDER.map((r) => r.id);
     const short = ids.indexOf('sentence-short');
     const drop = ids.indexOf('sentence-drop');
 
     // 1-indexed, the way every rung reference outside this file is written.
     expect(short + 1).toBe(2);
-    expect(drop + 1).toBe(9);
+    expect(drop + 1).toBe(8);
     expect(TOOLBAR_LADDER[short].estimate).toBe(94);
     expect(TOOLBAR_LADDER[drop].estimate).toBe(104);
 
     // The rung the design's numbering pointed at, so a reader who arrives with
     // the handoff in hand sees what 11 actually is instead of assuming a typo.
-    expect(ids[10]).toBe('milestone-overflow');
-    expect(TOOLBAR_LADDER[10].estimate).toBe(116);
+    // It is 10 since #3263 removed `mode-chip`; 11 is now past the end.
+    expect(ids[9]).toBe('milestone-overflow');
+    expect(TOOLBAR_LADDER[9].estimate).toBe(116);
+    expect(ids).toHaveLength(11);
   });
 
   it('rations the sentence in that order and never un-rations it on the way down', () => {
@@ -124,8 +129,8 @@ describe('the insert sentence occupies the rungs everything else cites (#3134 T6
     // claim to — an id could be renamed into place and still act on nothing.
     expect(resolveComposition(ALL_PINNED, 1).sentence).toBe('full');
     expect(resolveComposition(ALL_PINNED, 2).sentence).toBe('short');
-    expect(resolveComposition(ALL_PINNED, 8).sentence).toBe('short');
-    expect(resolveComposition(ALL_PINNED, 9).sentence).toBe('none');
+    expect(resolveComposition(ALL_PINNED, 7).sentence).toBe('short');
+    expect(resolveComposition(ALL_PINNED, 8).sentence).toBe('none');
     expect(resolveComposition(ALL_PINNED, MAX_LADDER_STEP).sentence).toBe('none');
   });
 });
@@ -141,7 +146,6 @@ describe('resolveComposition', () => {
     expect(one.counts).toBe('mid');
     expect(one.pdf).toBe('bar');
     expect(one.today).toBe('bar');
-    expect(one.mode).toBe('split');
 
     // Export PDF — a weekly, session-ending act — is the first COMMAND to go,
     // and still goes before Milestone.
@@ -170,17 +174,26 @@ describe('resolveComposition', () => {
     expect(allCollapsed.today).toBe('bar');
   });
 
-  it('never gives the mode or the trail an overflow state at ANY step', () => {
+  it('never gives the trail an overflow state at ANY step', () => {
     // The invariant that keeps someone from typing into a plan they believe is
-    // read-only: a mode collapses to a chip that still shows its value, and a
-    // readout compacts. Neither can end up behind a click.
+    // read-only: a readout compacts, and neither it nor the mode can end up
+    // behind a click.
     for (let step = 0; step <= MAX_LADDER_STEP; step += 1) {
       const c = resolveComposition(ALL_PINNED, step);
-      expect(['split', 'chip']).toContain(c.mode);
       expect(['full', 'min']).toContain(c.trail);
       expect(['full', 'min']).toContain(c.recalc);
       expect(['full', 'mid', 'min', 'hidden']).toContain(c.counts);
     }
+  });
+
+  it('gives the mode no rung to stand on at all (#3263)', () => {
+    // Stronger than the old `['split','chip']` range check, and it is the
+    // reason that one could go: the mode is not a member of the composition,
+    // so there is no value the ladder could set and no step at which it could
+    // move. Asserted against the rung ids rather than a type, because the type
+    // is what a future edit would change first.
+    expect(TOOLBAR_LADDER.some((r) => r.id.startsWith('mode'))).toBe(false);
+    expect(Object.keys(baseComposition(ALL_PINNED))).not.toContain('mode');
   });
 
   it('demotes Today LAST — it is the final rung on the ladder', () => {
