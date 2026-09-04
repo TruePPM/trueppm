@@ -458,6 +458,56 @@ def test_blocked_does_not_notify_a_revoked_project_member_holding_the_sm_facet(
 
 
 @pytest.mark.django_db
+def test_blocked_does_not_notify_an_assignee_whose_membership_was_revoked(
+    project: Project,
+    admin: Any,
+    bob: Any,
+    memberships: None,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A revoked member still named as the assignee gets no impediment notice (#3334).
+
+    The third arm, and the one whose staleness has nothing to do with the ADR-0078
+    mirror. ``TaskSerializer._validate_assignee_membership`` (#684) refuses to *set*
+    an assignee who is not a live project member, so the invariant exists — but
+    revoking a membership does not clear ``Task.assignee``, and nothing re-checks it,
+    so the field simply goes stale and the notice kept naming the task to someone who
+    can no longer open it.
+
+    The PM still gets it. That is the half that makes this a narrowing rather than a
+    silencing: a blocker on an orphaned task must still reach someone who can act
+    (ADR-0124 §Risks), and if the assertion below ever collapses to an empty set the
+    guard has gone too far.
+    """
+    carol = User.objects.create_user(username="carol", password="pw", email="carol@x.io")
+    ProjectMembership.objects.create(project=project, user=carol, role=Role.ADMIN)
+
+    task = Task.objects.create(project=project, name="Foundation pour", duration=1, assignee=bob)
+    ProjectMembership.objects.filter(project=project, user=bob).update(is_deleted=True)
+    # The precondition: revocation left the task pointing at the departed user.
+    task.refresh_from_db()
+    assert task.assignee_id == bob.pk
+
+    actor_client = APIClient()
+    actor_client.force_authenticate(user=carol)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = actor_client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"blocked_reason": "Waiting on the permit", "blocker_type": "vendor"},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+
+    recipients = set(
+        Notification.objects.filter(event_type="task.blocked").values_list(
+            "recipient__username", flat=True
+        )
+    )
+    assert "bob" not in recipients
+    assert recipients == {"ev_admin"}
+
+
+@pytest.mark.django_db
 def test_blocked_notification_body_never_contains_reason(
     client: APIClient,
     project: Project,

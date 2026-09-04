@@ -142,13 +142,12 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
     If a project has no team / no SM facet set, the resolver still returns the
     PM(s) — so a blocker always reaches someone who can act (ADR-0124 §Risks).
 
-    **The two role/facet arms are scoped to live ``ProjectMembership`` (#3334); the
-    assignee arm is not, and that asymmetry is stated rather than papered over.** The
-    PM arm always filtered live membership. The SM arm reached the facet through a
-    hand-rolled ``TeamMembership`` query that filtered neither the project row nor
-    ``Team.is_deleted``, so a member whose project membership had been revoked — or
-    one holding the facet on a soft-deleted team — kept receiving a notice naming a
-    specific task on a project they can no longer open. It now routes through
+    **All three arms are scoped to live ``ProjectMembership`` (#3334).** The PM arm
+    always was. The SM arm reached the facet through a hand-rolled ``TeamMembership``
+    query that filtered neither the project row nor ``Team.is_deleted``, so a member
+    whose project membership had been revoked — or one holding the facet on a
+    soft-deleted team — kept receiving a notice naming a specific task on a project
+    they can no longer open. It now routes through
     :func:`~trueppm_api.apps.teams.services.facet_holder_user_ids`, where that guard
     lives once for all facet-sourced cohorts rather than being re-remembered per
     call site. Two consequences of reading the shared helper: the facet is taken from
@@ -157,16 +156,19 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
     restriction keeps this cohort SM-only. A Product Owner is not an
     impediment-clearer and ADR-0124 does not route to them.
 
-    The assignee arm carries no membership floor: a revoked member still named as
-    ``task.assignee`` is still told their own task was flagged. Nothing clears
-    ``assignee`` on revocation, so this is reachable — it is left as-is deliberately
-    because it is a different question (does the owner of a blocker hear about their
-    own blocker) than the one #3334 answers, and narrowing it silently under a
-    privacy fix would be the same over-reach in the other direction. Do not read the
-    heading above as covering it; the sibling
-    :func:`~trueppm_api.apps.projects.config_notice.assigned_recipient_ids` *does*
-    floor its assignee cohort, so the two genuinely differ and the difference is
-    unresolved rather than decided.
+    The assignee arm needed the floor too, for a reason worth stating because it is
+    not the facet story. ``TaskSerializer._validate_assignee_membership`` (#684)
+    already refuses to *set* an assignee who is not a live project member, so "the
+    assignee is a member" is an invariant the write path enforces. Nothing re-checks
+    it afterwards, and revoking a membership does not clear ``Task.assignee`` — so
+    the value simply goes stale, and reading it unguarded meant an offboarded
+    assignee kept being told their own task was flagged. Flooring it here enforces at
+    read what #684 already enforces at write, and brings this resolver in step with
+    its sibling :func:`~trueppm_api.apps.projects.config_notice.assigned_recipient_ids`,
+    which floors its assignee cohort for the same reason.
+
+    One ``ProjectMembership`` read serves both the assignee floor and the PM arm, so
+    the query count is unchanged at two.
 
     Args:
         task: The task that was just flagged blocked.
@@ -178,20 +180,21 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
     from trueppm_api.apps.access.models import ProjectMembership, Role
     from trueppm_api.apps.teams.services import facet_holder_user_ids
 
+    live_roles: dict[Any, int] = dict(
+        ProjectMembership.objects.filter(project_id=task.project_id, is_deleted=False).values_list(
+            "user_id", "role"
+        )
+    )
+
     recipients: set[Any] = set()
 
-    if task.assignee_id is not None:
+    if task.assignee_id is not None and task.assignee_id in live_roles:
         recipients.add(task.assignee_id)
 
     recipients.update(facet_holder_user_ids(task.project_id, facets=("is_scrum_master",)))
 
     # PM(s): project membership at ADMIN or above (Project Manager / Project Admin).
-    pm_ids = ProjectMembership.objects.filter(
-        project_id=task.project_id,
-        role__gte=Role.ADMIN,
-        is_deleted=False,
-    ).values_list("user_id", flat=True)
-    recipients.update(pm_ids)
+    recipients.update(uid for uid, role in live_roles.items() if role >= Role.ADMIN)
 
     return recipients
 
