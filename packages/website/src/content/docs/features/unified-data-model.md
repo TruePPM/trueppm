@@ -21,7 +21,7 @@ Task
  │
  ├── Taxonomy (work-item type + governance overlay)
  │     type             epic | story | task | bug | spike  (epic is structural, excluded from CPM)
- │     governance_class flow | gated | hybrid              (which overlay governs the subtree)
+ │     governance_class flow | gated | hybrid              (declares how the subtree is governed)
  │     delivery_mode    waterfall | scrum | kanban | milestone  (how the task rolls up)
  │
  ├── Scheduling (CPM — Waterfall + Hybrid)
