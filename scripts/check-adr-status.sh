@@ -36,7 +36,8 @@
 #               a green pipeline — "it passed" is not evidence that it can fail.
 #
 # Exit:   0 all cited ADRs decided · 1 at least one cited ADR still Proposed
-#         (or a stale index statistic) · 2 invocation error
+#         (or an index statistic that is stale, missing, or whose page was deleted)
+#         · 2 invocation error
 
 set -euo pipefail
 
@@ -96,10 +97,19 @@ if [ "${1:-}" = "--self-test" ]; then
       > "$1/packages/website/src/content/docs/architecture/decisions.md"
   }
 
+  st_ok_index() { # <root> <count> <lo> <hi> <unused> <gaps>
+    # An index stating all four statistics correctly for the fixture's own tree.
+    # Every fixture needs one now that a missing index fails rather than skips
+    # Part 2 (#3379) — without it the Part 1 fixtures would fail for a Part 2
+    # reason, which is exactly the kind of cross-talk that makes a self-test lie.
+    st_index "$1" "The corpus holds $2 numbered ADRs spanning $3-$4; $5 numbers are unused across $6 gap ranges."
+  }
+
   # --- Part 1: an ADR cited from shipped source must not say "Proposed". -----
   d="$st_tmp/accepted"; st_src "$d" 9998
   st_adr "$d" 9998 '## Status
 Accepted — status corrected 2026-01-01 after ADR audit (#9998, verified: shipped).'
+  st_ok_index "$d" 1 9998 9998 0 0
   st_probe "citation of an Accepted ADR" expect-pass "$d"
 
   # All FOUR header shapes the corpus uses must be parsed. An unparseable header
@@ -108,25 +118,34 @@ Accepted — status corrected 2026-01-01 after ADR audit (#9998, verified: shipp
   d="$st_tmp/proposed-block"; st_src "$d" 9999
   st_adr "$d" 9999 '## Status
 Proposed'
+  st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — '## Status' block header" expect-fail "$d"
 
   d="$st_tmp/proposed-inline"; st_src "$d" 9999
   st_adr "$d" 9999 '## Status: Proposed'
+  st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — '## Status:' inline header" expect-fail "$d"
 
   d="$st_tmp/proposed-bullet"; st_src "$d" 9999
   st_adr "$d" 9999 '- **Status:** Proposed'
+  st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — bullet front-matter header" expect-fail "$d"
 
   d="$st_tmp/proposed-bold"; st_src "$d" 9999
   st_adr "$d" 9999 '**Status:** Proposed'
+  st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — bold inline header" expect-fail "$d"
 
   # The documented non-failure: a citation pointing at no ADR is a broken
   # reference, a different defect from status drift, and is WARNed not failed.
   # Asserting it keeps a future "tighten the gate" from changing the contract by
   # accident rather than on purpose.
+  # ADR-0001 exists only so the corpus is non-empty; the cited number (9999) is
+  # still the one with no file, which is what this case is about.
   d="$st_tmp/unresolved"; st_src "$d" 9999
+  st_adr "$d" 0001 '## Status
+Accepted'
+  st_ok_index "$d" 1 0001 0001 0 0
   st_probe "ADR-9999 cited with no ADR file (unresolved reference, WARN only)" expect-pass "$d"
 
   # The escape hatch has to hold too, or the gate becomes noisy enough to get
@@ -134,6 +153,7 @@ Proposed'
   d="$st_tmp/allowlisted"; st_src "$d" 0096
   st_adr "$d" 0096 '## Status
 Proposed'
+  st_ok_index "$d" 1 0096 0096 0 0
   st_probe "Proposed ADR cited but present in ADR_STATUS_ALLOWLIST (0096)" expect-pass "$d"
 
   # --- Part 2: the published index must not misstate the corpus statistics. --
@@ -154,9 +174,32 @@ Accepted'
   st_index "$d" 'The corpus holds 301 numbered ADRs spanning 0001-0003; 1 numbers are unused across 1 gap ranges.'
   st_probe "index quoting a stale ADR count" expect-fail "$d"
 
+  # One "the sentence is gone" fixture per statistic. Until #3379 only the span
+  # had one, and only the span failed closed: the other three compared the index
+  # against the tree *only when a number was found*, so rewording the sentence out
+  # of existence was the one edit Part 2 could not see. Each of these four must
+  # stay expect-fail — a statistic that can be deleted is a statistic that is not
+  # checked.
+  d="$st_tmp/stats-nocount"; st_stats_tree "$d"
+  st_index "$d" 'The corpus holds a couple of ADRs spanning 0001-0003; 1 numbers are unused across 1 gap ranges.'
+  st_probe "index that never states the ADR count" expect-fail "$d"
+
+  d="$st_tmp/stats-nounused"; st_stats_tree "$d"
+  st_index "$d" 'The corpus holds 2 numbered ADRs spanning 0001-0003, with 1 gap ranges.'
+  st_probe "index that never states the unused-number count" expect-fail "$d"
+
+  d="$st_tmp/stats-nogaps"; st_stats_tree "$d"
+  st_index "$d" 'The corpus holds 2 numbered ADRs spanning 0001-0003; 1 numbers are unused.'
+  st_probe "index that never states the gap-range count" expect-fail "$d"
+
   d="$st_tmp/stats-nospan"; st_stats_tree "$d"
   st_index "$d" 'The corpus holds 2 numbered ADRs; 1 numbers are unused across 1 gap ranges.'
   st_probe "index that never states the current ADR span" expect-fail "$d"
+
+  # Deleting the page entirely was the strongest form of the same drift and the
+  # only form that exited 0, because Part 2 was wrapped in `[ -f "$INDEX" ]`.
+  d="$st_tmp/stats-noindex"; st_stats_tree "$d"
+  st_probe "published index deleted altogether" expect-fail "$d"
 
   [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
@@ -301,11 +344,22 @@ done
 # across 64 gap ranges" while the tree held 314 spanning 0001-0766 with 452 unused
 # across 74 ranges. Those four figures are the kind that are written once and never
 # revisited, so they are checked rather than regenerated (#2685).
+#
+# All four fail closed on *absence* as well as on drift (#3379). The earlier form
+# compared only when a number was found and skipped the whole part when the page was
+# missing, so the two edits that remove a statistic outright — rewording the sentence,
+# and deleting decisions.md — were the two this part could not see. An absent figure is
+# not "nothing to check": it is the published description of the corpus going away.
 # ---------------------------------------------------------------------------
 INDEX="packages/website/src/content/docs/architecture/decisions.md"
 stats_violations=0
 
-if [ -f "$INDEX" ]; then
+if [ ! -f "$INDEX" ]; then
+  echo "check-adr-status: FAIL  ${INDEX} does not exist; the published ADR index is the"
+  echo "                        only place the corpus statistics are stated, and this part"
+  echo "                        of the gate has nothing left to check."
+  stats_violations=$((stats_violations + 1))
+else
   stats="$(python3 - "$ADR_DIR" <<'PY'
 import glob, re, sys
 adr_dir = sys.argv[1]
@@ -332,8 +386,16 @@ PY
   check_stat() {
     local label="$1" expected="$2" pattern="$3"
     local found
-    found="$(grep -ohE "$pattern" "$INDEX" | head -1 | grep -oE '[0-9]+' | head -1)"
-    if [ -n "$found" ] && [ "$found" != "$expected" ]; then
+    # `|| true` is load-bearing twice over: grep exits 1 when the sentence is gone,
+    # and `| head -1` can SIGPIPE the producer to 141 — either one would abort the
+    # script under `set -euo pipefail` before the branch below could report anything.
+    # That is what the old form actually did: a deleted statistic exited 1 with no
+    # message at all, skipping the span check and the summary line (#3379).
+    found="$(grep -ohE "$pattern" "$INDEX" | grep -oE '[0-9]+' | head -1 || true)"
+    if [ -z "$found" ]; then
+      echo "check-adr-status: FAIL  ${INDEX} no longer states ${label}; the tree has ${expected}"
+      stats_violations=$((stats_violations + 1))
+    elif [ "$found" != "$expected" ]; then
       echo "check-adr-status: FAIL  ${INDEX} says ${label} is ${found}; the tree has ${expected}"
       stats_violations=$((stats_violations + 1))
     fi
@@ -351,8 +413,10 @@ fi
 
 echo
 echo "check-adr-status: ${cited_count} ADRs cited from packages/*/src; ${violations} still marked Proposed; ${missing} unresolved reference(s); ${stats_violations} stale index statistic(s)."
-violations=$((violations + stats_violations))
 
+# Print only the remedy for the part that actually failed. Now that a missing statistic
+# is reachable rather than an abort, a stats-only failure used to be answered with
+# advice about ADR Status headers, which sends the reader to the wrong file.
 if [ "$violations" -gt 0 ]; then
   cat <<'EOF'
 
@@ -366,6 +430,20 @@ a dated correction, matching the convention established by the #2539 audit:
 If the citation really is forward-looking, add the ADR to ADR_STATUS_ALLOWLIST in this
 script with a reason.
 EOF
+fi
+
+if [ "$stats_violations" -gt 0 ]; then
+  cat <<'EOF'
+
+The published ADR index must state four figures about the corpus and keep them true:
+the ADR count, the span, the unused-number count, and the gap-range count. Update the
+sentences in packages/website/src/content/docs/architecture/decisions.md to the numbers
+this run reported. Deleting a sentence — or the page — is not a fix: an absent figure
+fails here for the same reason a wrong one does.
+EOF
+fi
+
+if [ "$((violations + stats_violations))" -gt 0 ]; then
   exit 1
 fi
 

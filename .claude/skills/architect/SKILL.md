@@ -112,6 +112,12 @@ Save to `docs/adr/NNNN-<title>.md`:
 ## Status
 Proposed | Accepted | Deprecated | Superseded by ADR-XXXX
 
+<!-- Optional, and required whenever Accepted does not mean shipped. A blockquote,
+     directly under the Status text — never a field line inside `## Status`. See
+     "Implementation status" below. -->
+> **Implementation status (YYYY-MM-DD ADR audit, #NNNN):** the *decision* stands, but
+> <what is and is not on `main`, verified against named files — not asserted>.
+
 ## Context
 What is the problem or decision to be made? What forces are at play?
 
@@ -155,6 +161,50 @@ What is the chosen approach?
       correction note. Record the count, including zero.
 ```
 
+## Implementation status — the blockquote, and why it is a blockquote
+
+`Accepted` records that the **decision** is settled. It says nothing about whether the
+code exists, and a reader of `docs/adr/` or of the published index cannot tell a shipped
+ADR from a design-only one without opening it and inferring from prose. Several ADRs are
+deliberately design-only — they close a question so an implementer meets the record
+instead of re-deriving it, and no endpoint, model, or page ships with them.
+
+**When `Accepted` does not mean shipped, say so in an `Implementation status`
+blockquote, placed directly under the Status text.** ADR-0177 is the model; ADR-0190,
+ADR-0913, ADR-0941, and ADR-0963 follow it.
+
+```markdown
+## Status
+
+Accepted (2026-08-29)
+
+> **Implementation status (2026-09-04 ADR audit, #3379):** the *decision* stands, but
+> **no endpoint, model, or page ships with this ADR** — verified 2026-09-04, there is no
+> wiki model, route, or component anywhere under `packages/api/src` or `packages/web/src`.
+```
+
+Three rules, each load-bearing:
+
+1. **Blockquote, not a field line.** A line like `Implementation: not built` *inside*
+   `## Status` becomes the parsed status for both readers of that section —
+   `scripts/check-adr-status.sh` takes the first non-blank line after `## Status`
+   (`adr_status()`), and `scripts/adr-accepted-issue-sweep.py` joins the first two
+   non-blockquote lines. A field line therefore replaces or pollutes the status, does
+   **not** match the `Proposed*` arm, and a genuinely `Proposed` ADR cited from shipped
+   source would sail past `docs:adr-status`. Both parsers skip `>` lines by
+   construction, so a blockquote is invisible to them and cannot do this.
+2. **Do not invent a new status value.** `Proposed | Accepted | Deprecated | Superseded`
+   is quoted in at least five ungated prose places (this template, the published index,
+   the two parsers' comments). A fifth value needs edits in all of them, none of which
+   any gate reads, and it would drift.
+3. **State what you verified, not what you assume.** Name the files you checked and what
+   you found in them. "Ships no code" asserted from memory is the same defect as a stale
+   `Proposed` — a claim about the tree that nothing checked. If you cannot verify a
+   piece of it, say that instead of guessing.
+
+Refresh the blockquote when the implementation lands, and delete it when the ADR is
+fully built.
+
 ## When an ADR moves to Accepted
 
 An issue that says *"implements ADR-NNNN"* is almost always written **before** the ADR
@@ -163,7 +213,7 @@ are **rejected**, and the issue is never re-read. The delta between the issue th
 proposed it and the ADR that settled it is exactly **the set of rejected options** — the
 most expensive thing to accidentally implement.
 
-Nothing in the pipeline can catch this. `boundary:check` reads labels, `docs:adr-index`
+Nothing in the pipeline can catch this. `boundary:check` reads labels, `docs:adr-status`
 reads ADR statistics; **no gate has ever read an issue body against an ADR**, and
 building one would be a poor trade (it cannot distinguish a divergence from an issue
 that legitimately implements one section). So this is a checklist step at a moment that
