@@ -202,10 +202,6 @@ vi.mock('@/hooks/useCurrentUser', () => ({
   }),
 }));
 
-vi.mock('@/hooks/usePhaseReorder', () => ({
-  usePhaseReorder: () => ({ mutate: vi.fn(), isPending: false }),
-}));
-
 // Board batch 6 — stub saved views hook so BoardViewDropdown doesn't make network calls.
 // mockSavedViews / mockCreateMutate are mutable (issue 1918) so individual tests can
 // inject a saved view with filter facets and assert on what "Save current view" sends.
