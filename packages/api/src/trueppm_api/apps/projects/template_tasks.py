@@ -100,6 +100,26 @@ def apply_template(self: Any, application_id: str) -> dict[str, Any]:
                 # loudly rather than silently succeeding with zero rows — the user
                 # asked for a skeleton and did not get one.
                 raise TemplateStructureError("Template no longer exists.")
+            if application.project.is_archived:
+                # The project was archived between enqueue and dispatch (#3354).
+                # `enqueue_template_apply` refuses an already-archived target, but
+                # the window here is wide, not theoretical: dispatch is deferred to
+                # `on_commit`, and the drain re-dispatches a still-`pending`
+                # application every 30s for as long as it stays pending — so a
+                # broker outage at enqueue time can put this write minutes or hours
+                # after the check that admitted it. Seeding now would write a whole
+                # skeleton into a plan every other endpoint refuses writes to.
+                #
+                # Raised as a `TemplateStructureError` for the same reason the
+                # deleted-template branch above is: it is the file's established
+                # non-retryable channel — the atomic rolls back (releasing the
+                # `running` claim), `_mark_failed` records the reason outside it,
+                # and the drain does not resurrect it. Retrying would be wrong
+                # regardless: unarchiving is a human act on no schedule, and three
+                # retries 30s apart cannot wait for one.
+                raise TemplateStructureError(
+                    "This project is archived and cannot be modified. Unarchive it first."
+                )
             project_id = str(application.project_id)
             result = materialize_structure(
                 application.template,

@@ -12,6 +12,7 @@ later" in both cases.
 from __future__ import annotations
 
 import base64
+import uuid
 from datetime import date
 from typing import Any
 from unittest.mock import patch
@@ -892,3 +893,274 @@ def test_import_fix_undo_broadcasts_and_recalculates(
     assert args[0] == str(project.pk)
     assert args[1] == "tasks_bulk_mutated"
     assert len(args[2]["task_ids"]) == 7
+
+
+# ---------------------------------------------------------------------------
+# Archived-project floor (#3354)
+#
+# `PasteManyOperationViewSet` and `CascadeClassificationOperationViewSet` shipped
+# with `permission_classes = [IsAuthenticated]` only, while every sibling write in
+# this family (`StructuralOperationViewSet`, `CsvImportUndoView`, `TaskBulkView`,
+# `TaskClassificationView`) carried `IsProjectNotArchived`. So an Admin could
+# hard-delete rows in an archived project through the undo route.
+#
+# The floor is about project *state*, not role — hence the Owner in these tests,
+# the highest role there is. A test that used a Member would pass on the broken
+# build for the wrong reason.
+# ---------------------------------------------------------------------------
+
+
+def _archive(project: Project) -> None:
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+
+@pytest.mark.django_db
+def test_paste_many_undo_is_refused_once_the_project_is_archived(
+    owner_client: APIClient, project: Project
+) -> None:
+    ops = [{"op": "create", "data": {"name": f"Row {i}", "duration": 1}} for i in range(3)]
+    owner_client.post(bulk_url(project), {"operations": ops}, format="json")
+    operation = PasteManyOperation.objects.get(project=project)
+    _archive(project)
+
+    resp = owner_client.post(
+        f"/api/v1/paste-many-operations/{operation.pk}/undo/", {}, format="json"
+    )
+
+    assert resp.status_code == 403, resp.data
+    # The refusal has to be inert, not just non-200: the undo hard-deletes rows, so
+    # a 403 that still ran the service would be the same data loss with a worse
+    # status code.
+    assert Task.objects.filter(project=project, is_deleted=False).count() == 3
+    operation.refresh_from_db()
+    assert operation.status == SyncBatchOperationStatus.ACTIVE
+    assert operation.undone_at is None
+
+
+@pytest.mark.django_db
+def test_cascade_undo_is_refused_once_the_project_is_archived(
+    owner_client: APIClient, project: Project
+) -> None:
+    root = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=5, governance_class="flow"
+    )
+    with _no_recalc():
+        owner_client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "gated"},
+            format="json",
+        )
+    operation = CascadeClassificationOperation.objects.get(project=project)
+    _archive(project)
+
+    resp = owner_client.post(
+        f"/api/v1/cascade-classification-operations/{operation.pk}/undo/", {}, format="json"
+    )
+
+    assert resp.status_code == 403, resp.data
+    root.refresh_from_db()
+    # Still the cascaded value — the undo did not write the "before" snapshot back.
+    assert root.governance_class == GovernanceClass.GATED
+    operation.refresh_from_db()
+    assert operation.status == SyncBatchOperationStatus.ACTIVE
+
+
+@pytest.mark.django_db
+def test_paste_many_undo_still_works_when_the_project_is_not_archived(
+    owner_client: APIClient, project: Project
+) -> None:
+    """Negative control for the two refusals above.
+
+    Identical setup minus the archive step. Without this, a permission class wired
+    to refuse unconditionally would pass both refusal tests.
+    """
+    ops = [{"op": "create", "data": {"name": f"Row {i}", "duration": 1}} for i in range(3)]
+    owner_client.post(bulk_url(project), {"operations": ops}, format="json")
+    operation = PasteManyOperation.objects.get(project=project)
+
+    resp = owner_client.post(
+        f"/api/v1/paste-many-operations/{operation.pk}/undo/", {}, format="json"
+    )
+
+    assert resp.status_code == 200, resp.data
+    assert Task.objects.filter(project=project, is_deleted=False).count() == 0
+
+
+@pytest.mark.django_db
+def test_cascade_undo_still_works_when_the_project_is_not_archived(
+    owner_client: APIClient, project: Project
+) -> None:
+    root = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=5, governance_class="flow"
+    )
+    with _no_recalc():
+        owner_client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "gated"},
+            format="json",
+        )
+    operation = CascadeClassificationOperation.objects.get(project=project)
+
+    resp = owner_client.post(
+        f"/api/v1/cascade-classification-operations/{operation.pk}/undo/", {}, format="json"
+    )
+
+    assert resp.status_code == 200, resp.data
+    root.refresh_from_db()
+    assert root.governance_class == GovernanceClass.FLOW
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "collection",
+    ["paste-many-operations", "cascade-classification-operations"],
+)
+def test_reading_a_ledger_row_still_works_on_an_archived_project(
+    owner_client: APIClient, project: Project, collection: str
+) -> None:
+    """`IsProjectNotArchived` passes every SAFE_METHOD, and it has to.
+
+    Archiving makes a plan read-only, not invisible. If the added permission class
+    also blocked GET, the Undo affordance's own polling would 403 on an archived
+    project — a regression the two refusal tests above cannot see.
+    """
+    if collection == "paste-many-operations":
+        operation_pk = PasteManyOperation.objects.create(
+            project=project, created_task_versions={}
+        ).pk
+    else:
+        operation_pk = CascadeClassificationOperation.objects.create(
+            project=project, subtree_id=uuid.uuid4(), task_snapshots={}
+        ).pk
+    _archive(project)
+
+    resp = owner_client.get(f"/api/v1/{collection}/{operation_pk}/")
+
+    assert resp.status_code == 200, resp.data
+
+
+# ---------------------------------------------------------------------------
+# The same floor underneath the view (#3354)
+#
+# The views are only one door. These call the services directly — the shape a
+# Celery task, a management command, or a future body-resolving endpoint would
+# take — and are what stop the hole being reintroduced by a non-view caller.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_undo_paste_many_service_refuses_an_archived_project(project: Project) -> None:
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.projects.task_batch_services import undo_paste_many_operation
+
+    task = Task.objects.create(project=project, name="Pasted", duration=1)
+    operation = PasteManyOperation.objects.create(
+        project=project, created_task_versions={str(task.pk): task.server_version}
+    )
+    _archive(project)
+
+    with pytest.raises(PermissionDenied):
+        undo_paste_many_operation(operation)
+
+    task.refresh_from_db()
+    assert task.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_undo_cascade_service_refuses_an_archived_project(project: Project) -> None:
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.projects.task_batch_services import (
+        undo_cascade_classification_operation,
+    )
+
+    task = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=1, governance_class="gated"
+    )
+    operation = CascadeClassificationOperation.objects.create(
+        project=project,
+        subtree_id=task.pk,
+        # The real shape the service reads: {"version": N, "before": {...fields}}.
+        # Getting this right is what makes the negative control honest — with a
+        # malformed snapshot the reverted build dies on a KeyError instead of
+        # actually reverting, and the test would be asserting the wrong failure.
+        task_snapshots={
+            str(task.pk): {
+                "version": task.server_version,
+                "before": {"governance_class": GovernanceClass.FLOW},
+            }
+        },
+    )
+    _archive(project)
+
+    with pytest.raises(PermissionDenied):
+        undo_cascade_classification_operation(operation)
+
+    task.refresh_from_db()
+    assert task.governance_class == GovernanceClass.GATED
+
+
+@pytest.mark.django_db
+def test_undo_import_fix_service_refuses_an_archived_project(project: Project) -> None:
+    """The third undo service in this file, held to the same floor as its two siblings.
+
+    `CsvImportUndoView` has always carried `IsProjectNotArchived`, so this closes no
+    open hole. It is here because a floor with one exception is not a floor — the
+    exception is the one a non-view caller reaches for.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+    summary = import_project(str(project.pk), parsed.project_data)
+    req = _make_request(project, status=CsvImportStatus.DONE)
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
+    _archive(project)
+
+    with pytest.raises(PermissionDenied):
+        undo_import_fix_operation(req)
+
+    assert Task.objects.filter(project=project, is_deleted=False).count() == 7
+    req.refresh_from_db()
+    assert req.status == CsvImportStatus.DONE
+
+
+# ---------------------------------------------------------------------------
+# The helper fails closed on input it cannot resolve (#3354)
+#
+# `Project.objects.filter(pk=None)` compiles to `id IS NULL`, matches nothing, and
+# would read as "not archived" — a silent fail-open in the one function whose whole
+# value is being unbypassable. An unparseable id reaches `UUIDField.to_python`,
+# which raises Django's ValidationError: not something DRF converts, so it would
+# surface as a 500 rather than a refusal (the #2785 class).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "bad", [None, "not-a-uuid", "", 12345, []], ids=["none", "garbage", "empty", "int", "list"]
+)
+def test_assert_project_not_archived_fails_closed_on_an_unresolvable_id(bad: Any) -> None:
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
+
+    with pytest.raises(PermissionDenied):
+        assert_project_not_archived(bad)
+
+
+@pytest.mark.django_db
+def test_assert_project_not_archived_passes_a_live_project(project: Project) -> None:
+    """Negative control — without this the test above passes on a function that
+    raises unconditionally."""
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
+
+    assert_project_not_archived(project.pk)
+    assert_project_not_archived(str(project.pk))
+
+    _archive(project)
+    from rest_framework.exceptions import PermissionDenied
+
+    with pytest.raises(PermissionDenied):
+        assert_project_not_archived(project.pk)

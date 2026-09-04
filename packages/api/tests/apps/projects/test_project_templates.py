@@ -1116,3 +1116,265 @@ def test_a_soft_deleted_row_does_not_push_the_offset_up(target_project: Project)
     materialize_structure(template, target_project)
 
     assert _live_paths(target_project) == ["1", "2"]
+
+
+# ---------------------------------------------------------------------------
+# Archived-project floor (#3354)
+#
+# Found by sweeping the family after #3354: `TemplateApplicationViewSet` had the
+# same gap as the two `batch_operation_views` ledgers — which were written to
+# mirror this viewset and inherited its omission. `apply` is the forward half and
+# the larger write of the two: it seeds a whole skeleton, and it resolves its
+# target project from the request *body*, which is why `IsProjectNotArchived`
+# cannot see it and the check has to be explicit.
+# ---------------------------------------------------------------------------
+
+
+def _archive(project: Project) -> None:
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+
+@pytest.mark.django_db
+def test_apply_is_refused_when_the_target_project_is_archived(
+    admin_client: APIClient, source_project: Project, target_project: Project
+) -> None:
+    _shape(source_project)
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+    _archive(target_project)
+
+    resp = admin_client.post(
+        f"/api/v1/project-templates/{template.pk}/apply/",
+        {"project": str(target_project.pk)},
+        format="json",
+    )
+
+    assert resp.status_code == 403, resp.data
+    # Inert, not merely refused: `enqueue_template_apply` writes the application row
+    # before it dispatches, so a 403 raised too late would still have queued a seed.
+    assert TemplateApplication.objects.filter(project=target_project).count() == 0
+
+
+@pytest.mark.django_db
+def test_apply_still_works_when_the_target_project_is_not_archived(
+    admin_client: APIClient, source_project: Project, target_project: Project
+) -> None:
+    """Negative control — identical setup minus the archive step."""
+    _shape(source_project)
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+
+    resp = admin_client.post(
+        f"/api/v1/project-templates/{template.pk}/apply/",
+        {"project": str(target_project.pk)},
+        format="json",
+    )
+
+    assert resp.status_code == 202, resp.data
+    assert TemplateApplication.objects.filter(project=target_project).count() == 1
+
+
+@pytest.mark.django_db
+def test_publish_is_still_allowed_from_an_archived_source_project(
+    admin_client: APIClient, source_project: Project
+) -> None:
+    """Deliberate asymmetry, stated so a later reader does not "fix" it.
+
+    Archived makes a plan read-only. Extracting a template out of one reads it and
+    writes a workspace-level `ProjectTemplate` row — nothing lands in the archived
+    project — so publish keeps working while apply does not.
+    """
+    _shape(source_project)
+    _archive(source_project)
+
+    resp = admin_client.post(
+        "/api/v1/project-templates/publish/",
+        {"project": str(source_project.pk), "name": "From an archived plan"},
+        format="json",
+    )
+
+    assert resp.status_code == 201, resp.data
+
+
+def _seeded_application(
+    source_project: Project, target_project: Project
+) -> tuple[ProjectTemplate, TemplateApplication]:
+    """A SUCCESS application over rows an undo would really delete.
+
+    Seeding through `materialize_structure` (`bulk_create`) is what makes the
+    assertions below non-vacuous: it leaves `edited_at` NULL, so the rows are
+    *untouched* and a leaked undo would soft-delete them. Building them with
+    `Task.objects.create()` instead stamps `edited_at` via `Task.save()`, undo keeps
+    them as typed work, and a refusal test then passes on the broken build too.
+    """
+    _shape(source_project)
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+    created = materialize_structure(template, target_project).task_ids
+    application = TemplateApplication.objects.create(
+        template=template,
+        project=target_project,
+        status=TemplateApplicationStatus.SUCCESS,
+        created_task_ids=created,
+    )
+    return template, application
+
+
+@pytest.mark.django_db
+def test_undo_endpoint_is_refused_when_the_project_is_archived(
+    admin_client: APIClient, source_project: Project, target_project: Project
+) -> None:
+    """The gate is about project state, not role — admin_client is Admin on this project."""
+    _, application = _seeded_application(source_project, target_project)
+    _archive(target_project)
+
+    resp = admin_client.post(
+        f"/api/v1/template-applications/{application.pk}/undo/", {}, format="json"
+    )
+
+    assert resp.status_code == 403, resp.data
+    assert Task.objects.filter(project=target_project, is_deleted=False).count() == 2
+    application.refresh_from_db()
+    assert application.status == TemplateApplicationStatus.SUCCESS
+    assert application.undone_at is None
+
+
+@pytest.mark.django_db
+def test_undo_endpoint_still_works_when_the_project_is_not_archived(
+    admin_client: APIClient, source_project: Project, target_project: Project
+) -> None:
+    """Negative control — identical setup minus the archive step.
+
+    This is the assertion that proves the refusal above is the archived floor and
+    not the undo declining to touch these rows for some other reason.
+    """
+    _, application = _seeded_application(source_project, target_project)
+
+    resp = admin_client.post(
+        f"/api/v1/template-applications/{application.pk}/undo/", {}, format="json"
+    )
+
+    assert resp.status_code == 200, resp.data
+    assert Task.objects.filter(project=target_project, is_deleted=False).count() == 0
+
+
+@pytest.mark.django_db
+def test_polling_an_application_still_works_on_an_archived_project(
+    admin_client: APIClient, source_project: Project, target_project: Project
+) -> None:
+    """`IsProjectNotArchived` passes every SAFE_METHOD, and the Start sheet needs it to.
+
+    The viewset's comment makes this claim specifically; without the assertion the
+    added permission class could start blocking GET and only the polling UI would
+    notice.
+    """
+    _, application = _seeded_application(source_project, target_project)
+    _archive(target_project)
+
+    resp = admin_client.get(f"/api/v1/template-applications/{application.pk}/")
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["status"] == TemplateApplicationStatus.SUCCESS
+
+
+@pytest.mark.django_db
+def test_template_services_refuse_an_archived_project_without_a_view(
+    source_project: Project, target_project: Project
+) -> None:
+    """The floor underneath the view — the shape a Celery task or command would take."""
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.projects.template_services import enqueue_template_apply
+
+    template, application = _seeded_application(source_project, target_project)
+    _archive(target_project)
+
+    with pytest.raises(PermissionDenied):
+        enqueue_template_apply(template, target_project)
+    with pytest.raises(PermissionDenied):
+        undo_template_application(application)
+
+    assert Task.objects.filter(project=target_project, is_deleted=False).count() == 2
+    # The apply refusal wrote no second application row, and the undo refusal left
+    # the first one intact.
+    assert TemplateApplication.objects.filter(project=target_project).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_seeding_task_refuses_a_project_archived_after_enqueue(
+    source_project: Project, target_project: Project
+) -> None:
+    """The one non-view write caller in this family, and the widest window (#3354).
+
+    `enqueue_template_apply` refuses an already-archived target, but dispatch is
+    deferred to `on_commit` and the drain re-dispatches a still-`pending`
+    application every 30s — so the write can land long after the check that
+    admitted it. Archiving between the two must not seed the plan.
+    """
+    from trueppm_api.apps.projects.template_tasks import apply_template
+
+    _shape(source_project)
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+    application = TemplateApplication.objects.create(template=template, project=target_project)
+    _archive(target_project)
+
+    result = apply_template.apply(args=[str(application.pk)]).get()
+
+    assert result["failed"] is True
+    assert result["tasks_created"] == 0
+    # Nothing seeded, and the row is terminal rather than left at `running` for the
+    # drain to resurrect on a project that will still be archived next time.
+    assert Task.objects.filter(project=target_project, is_deleted=False).count() == 0
+    application.refresh_from_db()
+    assert application.status == TemplateApplicationStatus.FAILED
+    assert "archived" in application.error_detail
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_seeding_task_still_seeds_when_the_project_is_not_archived(
+    source_project: Project, target_project: Project
+) -> None:
+    """Negative control — identical setup minus the archive step."""
+    from trueppm_api.apps.projects.template_tasks import apply_template
+
+    _shape(source_project)
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+    application = TemplateApplication.objects.create(template=template, project=target_project)
+
+    apply_template.apply(args=[str(application.pk)]).get()
+
+    application.refresh_from_db()
+    assert application.status == TemplateApplicationStatus.SUCCESS
+    assert Task.objects.filter(project=target_project, is_deleted=False).count() == 2
+
+
+@pytest.mark.django_db
+def test_apply_answers_400_not_500_for_a_malformed_project_id(
+    admin_client: APIClient, source_project: Project
+) -> None:
+    """`UUIDField.to_python` raises Django's ValidationError, which DRF does not convert.
+
+    This line runs before `_require_project_admin`, so the 500 was reachable by any
+    authenticated user. `publish_preview` already caught it; `apply` had drifted.
+    """
+    _shape(source_project)
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+
+    resp = admin_client.post(
+        f"/api/v1/project-templates/{template.pk}/apply/",
+        {"project": "not-a-uuid"},
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.data
+    assert TemplateApplication.objects.count() == 0

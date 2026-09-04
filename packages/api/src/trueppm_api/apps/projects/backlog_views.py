@@ -34,6 +34,7 @@ from trueppm_api.apps.access.permissions import (
     McpReadableViewMixin,
     McpScope,
     _membership_role,
+    assert_project_not_archived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.backlog_services import (
@@ -247,6 +248,15 @@ class BacklogItemViewSet(
                 {"detail": "You need at least Team Member role on the target project."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Archived target projects take no writes, and a pull creates a Task (#3354).
+        # `IsProgramNotClosed` in `get_permissions` gates the *program*; nothing was
+        # checking the project's own lifecycle. `IsProjectNotArchived` cannot cover
+        # this route: the target project comes from the request body, so there is no
+        # `project_pk` kwarg for `has_permission` and `get_object()` returns the
+        # `BacklogItem` — the same blind spot as `ProjectTemplateViewSet.apply`, and
+        # it needs the same explicit assert. Placed after the role check so a caller
+        # without project-write still gets the role refusal first.
+        assert_project_not_archived(project.pk)
 
         try:
             task = pull_to_project_backlog(item_id=str(pk), project=project, actor=request.user)

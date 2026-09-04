@@ -712,6 +712,13 @@ only tier that depends on who is asking.
 Publishing and applying both require **Project Manager (Admin)** or above on the
 project in question (ADR-0773). Reading the gallery requires only authentication.
 
+**Apply and undo are refused on an archived project** with a `403`, at every role
+including Owner — archiving makes a plan read-only, and that is a property of the
+plan rather than of the caller. Reads are unaffected: you can still list
+applications and poll one on an archived project. **Publishing from an archived
+project still works**, because extracting a template reads the source plan and
+writes nothing into it. Unarchive the target project first, then re-apply.
+
 Apply is rate-limited on the shared `seed_import` throttle scope — the same bound
 the seed and spreadsheet import paths carry.
 
@@ -1092,6 +1099,14 @@ Member the apply above admits. So a Member can receive a `200` here, with a real
 `operation_id`, and still be refused the undo. `can_undo` is that answer, computed
 from the same rule the undo endpoint enforces; read it rather than comparing role
 ordinals yourself, exactly as with `can_author` on the project resource.
+
+`can_undo` answers the **role** question only. The undo is separately refused with
+a `403` once the project is **archived**, at every role including Owner, and so is
+the paste-many undo at
+`POST /api/v1/paste-many-operations/{operation_id}/undo/`. Archiving makes a plan
+read-only; that is a property of the plan, not of the caller, so no role clears it.
+Reading a ledger row on an archived project still works — unarchive the project to
+undo.
 
 ### Task attachments
 

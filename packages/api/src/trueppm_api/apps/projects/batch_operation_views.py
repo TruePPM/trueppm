@@ -22,6 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from trueppm_api.apps.access.permissions import (
+    IsProjectNotArchived,
     _membership_role,
     role_can_undo_batch_operation,
 )
@@ -80,7 +81,18 @@ class PasteManyOperationViewSet(
     IdempotencyMixin, viewsets.ReadOnlyModelViewSet[PasteManyOperation]
 ):
     serializer_class = PasteManyOperationSerializer
-    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    # `undo` hard-deletes task rows, so this route is a write path and carries the
+    # archived floor every sibling in the family carries (`StructuralOperationViewSet`,
+    # `CsvImportUndoView`, `TaskBulkView`, `TaskClassificationView`). Reads are
+    # unaffected — `IsProjectNotArchived` passes every SAFE_METHOD, so polling a
+    # ledger row on an archived project still works (#3354).
+    #
+    # It resolves the project from the *object*, not a URL kwarg: this viewset is
+    # router-registered at the top level, so `has_permission` finds no `project_pk`
+    # and returns True, and the real check runs in `has_object_permission` off the
+    # operation's `project_id` during `get_object()`. Role authority stays in
+    # `_require_admin` below — this class enforces lifecycle state only.
+    permission_classes = [IsAuthenticated, IsProjectNotArchived]  # noqa: RUF012
 
     def get_queryset(self) -> QuerySet[PasteManyOperation]:
         qs = PasteManyOperation.objects.filter(project_id__in=_caller_project_ids(self.request))
@@ -138,7 +150,10 @@ class CascadeClassificationOperationViewSet(
     IdempotencyMixin, viewsets.ReadOnlyModelViewSet[CascadeClassificationOperation]
 ):
     serializer_class = CascadeClassificationOperationSerializer
-    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    # Same reasoning as `PasteManyOperationViewSet` above — `undo` writes
+    # classification fields back onto existing rows, so it is a write path and takes
+    # the archived floor (#3354).
+    permission_classes = [IsAuthenticated, IsProjectNotArchived]  # noqa: RUF012
 
     def get_queryset(self) -> QuerySet[CascadeClassificationOperation]:
         qs = CascadeClassificationOperation.objects.filter(

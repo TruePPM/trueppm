@@ -968,3 +968,37 @@ def test_pull_of_an_unranked_item_leaves_the_rank_null(
     )
     assert resp.status_code == 201
     assert Task.objects.get(pk=resp.data["task"]["id"]).priority_rank is None
+
+
+# ---------------------------------------------------------------------------
+# #3354 — the target project's own lifecycle, not just the program's
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_pull_is_refused_when_the_target_project_is_archived(
+    member: object, program: Program, project: Project
+) -> None:
+    """A pull creates a Task, and archived projects take no writes.
+
+    `IsProgramNotClosed` gates the *program*; nothing checked the project's own
+    archived flag. `IsProjectNotArchived` cannot cover this route either — the
+    target project arrives in the request body, so there is no `project_pk` kwarg
+    and `get_object()` returns the `BacklogItem`. Same blind spot as
+    `ProjectTemplateViewSet.apply`, same explicit fix.
+    """
+    item = _item(program, story_points=5)
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+
+    assert resp.status_code == 403, resp.data
+    assert Task.objects.filter(project=project).count() == 0
+    item.refresh_from_db()
+    assert item.status == BacklogItemStatus.PROPOSED
+    assert item.pulled_task_id is None

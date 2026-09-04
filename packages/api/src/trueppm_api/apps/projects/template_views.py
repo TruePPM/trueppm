@@ -22,7 +22,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from trueppm_api.apps.access.models import Role
-from trueppm_api.apps.access.permissions import _membership_role
+from trueppm_api.apps.access.permissions import (
+    IsProjectNotArchived,
+    _membership_role,
+    assert_project_not_archived,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     Methodology,
@@ -612,9 +616,28 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
             raise ValidationError({"project": "This field is required."})
         try:
             project = Project.objects.get(pk=cast("Any", project_id), is_deleted=False)
-        except (Project.DoesNotExist, ValueError, TypeError) as exc:
+        # `DjangoValidationError` is what `UUIDField.to_python` raises on a malformed
+        # pk, and DRF does not convert it — without it in this tuple a non-UUID
+        # `project` is a 500, reachable by any authenticated user because this line
+        # runs before `_require_project_admin`. `publish_preview` above already caught
+        # it; this call site had drifted (the #2785 class).
+        except (Project.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
             raise ValidationError({"project": _NO_SUCH_PROJECT_DETAIL}) from exc
         self._require_project_admin(project)
+        # The forward half of the same gap (#3354). `IsProjectNotArchived` cannot run
+        # on this action: it resolves its target project from the request *body*, so
+        # `has_permission` finds no `project_pk` kwarg and passes, and `get_object()`
+        # returns the `ProjectTemplate` — which carries no `project_id` — so
+        # `has_object_permission` reads None and passes too. Seeding a whole
+        # template's worth of rows into an archived plan is the largest write in this
+        # family and has to be refused explicitly. `enqueue_template_apply` repeats
+        # the check for non-view callers (ADR-0184 defense-in-depth).
+        #
+        # Deliberately NOT applied to `publish`/`publish_preview` above: those read
+        # the source project and write a workspace-level `ProjectTemplate` row. The
+        # archived flag makes a plan read-only, and extracting a template from one is
+        # a read of it.
+        assert_project_not_archived(project)
 
         # Re-validate here, not only at publish: `structure` is a JSONB column, so
         # the row can be edited by any path that reaches the database, and this is
@@ -643,7 +666,14 @@ class TemplateApplicationViewSet(
     """
 
     serializer_class = TemplateApplicationSerializer
-    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    # `undo` soft-deletes the task rows this application wrote, so this route is a
+    # write path and takes the archived floor — the same gap #3354 found on the two
+    # `batch_operation_views` ledgers, which were written to mirror this viewset's
+    # shape and inherited its omission along with it. Reads pass untouched
+    # (SAFE_METHODS), so the Start sheet can still poll an archived project's
+    # application row. The project resolves from the object's `project_id` in
+    # `has_object_permission`, not a URL kwarg — see `PasteManyOperationViewSet`.
+    permission_classes = [IsAuthenticated, IsProjectNotArchived]  # noqa: RUF012
 
     def get_queryset(self) -> QuerySet[TemplateApplication]:
         from trueppm_api.apps.access.models import ProjectMembership
