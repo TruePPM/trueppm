@@ -116,3 +116,22 @@ schema:NotificationPreferenceRequest
 # same commit. The new paths are present, only the old segments are removed.
 /api/v1/admin/failed-tasks/requeue_all/
 /api/v1/admin/failed-tasks/drop_all/
+
+# #3301 — Board Workshop Mode removed. The feature shipped single-user: the web
+# client's workshop mode was component-local state set only in the start
+# mutation's success handler, no join endpoint was ever built, and start is
+# ADMIN-gated and 409s while a session is active — so no second participant
+# could reach the session, and the presence apparatus behind these endpoints was
+# unreachable. Rebuilding it as a real-time estimation surface was evaluated and
+# rejected. This is a DELIBERATE BREAKING REMOVAL of four published paths and two
+# component schemas, not a phantom-component cleanup like most entries above:
+# anyone who generated a client from the schema loses them. It lands inside the
+# pre-0.9 window stability.md allows, and the changelog fragment names each path,
+# schema, and WS event type removed. The workshop_started / workshop_ended entries
+# are dropped from FROZEN_WS_EVENT_TYPES in the same commit.
+/api/v1/projects/{id}/workshop/current/
+/api/v1/projects/{id}/workshop/end/
+/api/v1/projects/{id}/workshop/force-end/
+/api/v1/projects/{id}/workshop/start/
+schema:WorkshopSession
+schema:WorkshopParticipant

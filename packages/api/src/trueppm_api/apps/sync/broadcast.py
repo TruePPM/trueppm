@@ -127,8 +127,7 @@ def _board_message(
 
     Shared by the sync and async broadcast helpers so the wire shape stays in
     one place — ``ProjectConsumer.board_event`` reads ``event_type``/``payload``
-    off the top level (unlike the workshop channel, which nests under
-    ``content``). The ``protocol_version`` field is the single source of the wire
+    off the top level. The ``protocol_version`` field is the single source of the wire
     version for every board event (#1325).
 
     ``seq`` is the BoardEvent sequence for a persisted (replayable) event, or
@@ -293,7 +292,7 @@ async def abroadcast_board_event(
 
 
 def evict_project_connection(project_id: str, user_id: str) -> None:
-    """Push a ``connection.evict`` to a project's board + workshop WS groups (#813).
+    """Push a ``connection.evict`` to a project's board WS group (#813).
 
     Project membership is checked only at ``websocket_connect``; once accepted, a
     socket keeps receiving every ``board_event`` until it disconnects. When a
@@ -303,9 +302,8 @@ def evict_project_connection(project_id: str, user_id: str) -> None:
     connection gap, the analog of #419). Each consumer whose authenticated user
     matches ``user_id`` closes with code 4003; sockets for other users ignore it.
 
-    Targets both the board group (``project_{id}``) and the workshop group
-    (``project_{id}_workshop``) since both gate on the same membership. Best-effort
-    like ``broadcast_board_event`` — callers defer it with ``transaction.on_commit``.
+    Best-effort like ``broadcast_board_event`` — callers defer it with
+    ``transaction.on_commit``.
     """
     from channels.layers import get_channel_layer
 
@@ -315,9 +313,8 @@ def evict_project_connection(project_id: str, user_id: str) -> None:
         return
 
     message = {"type": "connection.evict", "user_id": str(user_id)}
-    base = _group_name(project_id)
-    for group in (base, f"{base}_workshop"):
-        try:
-            async_to_sync(channel_layer.group_send)(group, message)
-        except Exception:
-            logger.exception("evict_project_connection: failed to evict %s from %s", user_id, group)
+    group = _group_name(project_id)
+    try:
+        async_to_sync(channel_layer.group_send)(group, message)
+    except Exception:
+        logger.exception("evict_project_connection: failed to evict %s from %s", user_id, group)
