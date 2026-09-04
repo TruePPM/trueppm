@@ -9,8 +9,15 @@ import globals from 'globals';
 // Mirrors packages/web/eslint.config.js (named-exports-only, no-explicit-any,
 // strict type-checked rules) adapted for React Native: React Native globals
 // instead of browser globals, and no jsx-a11y plugin (no DOM a11y roles on
-// native). The lint job is scoped to src/ exactly like web — config files,
-// metro/babel, and the Detox e2e/ tree are intentionally out of scope.
+// native). The lint job is scoped to src/ exactly like web, so config files and
+// metro/babel are out of scope.
+//
+// NOTE for #1599: there is no e2e/ tree today (#3367 deleted an un-runnable
+// Detox scaffold). When one returns it will match NEITHER this config nor
+// tsconfig.json, which is how the last one rotted unobserved — add an
+// `e2e/**/*.ts` block against a tsconfig.e2e.json, as packages/web did, and keep
+// @typescript-eslint/no-floating-promises on: an un-awaited Playwright/Detox
+// call is not a type error, it is a race.
 const NO_DEFAULT_EXPORT = {
   selector: 'ExportDefaultDeclaration',
   message: 'Default exports are not allowed. Use named exports instead.',

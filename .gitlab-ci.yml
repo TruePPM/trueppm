@@ -395,9 +395,10 @@ workflow:
 
 # Mobile (bare React Native) — node-only template for the lint/type-check gates.
 # Both run on the standard node runners (no emulator/Xcode/Gradle): they only
-# need the JS/TS toolchain. The native Detox e2e jobs are deferred — they need
-# an Android-emulator (KVM) + macOS runner that the shared runners don't provide
-# (issues #29/#30; ADR-0026 §Risks). Mirrors the `.web` cache strategy: cache
+# need the JS/TS toolchain. There is no mobile test job because there is no
+# runnable suite: #3367 deleted an un-runnable Detox scaffold, and #1599 restores
+# one together with the native projects and an emulator-capable (KVM) runner the
+# shared runners don't provide (issues #29/#30). Mirrors the `.web` cache strategy: cache
 # npm's content cache, not node_modules (npm ci reinstalls every run).
 .mobile:
   image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
@@ -1686,6 +1687,37 @@ web:playwright-pins:
     # "it passed" is not evidence that it can still fail.
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
+
+mobile:version-pin:
+  extends: .fast-job
+  # packages/mobile must stay at 0.0.0 until it ships (#3367).
+  #
+  # It is a scaffold — no native android/ or ios/ projects, no test runner,
+  # nothing published — so a release version on its manifest tells every reader
+  # that a shipping mobile artifact exists. It read "0.4.0-beta.1" for seven
+  # weeks and two internal audits caught it without it being acted on.
+  #
+  # scripts/release.sh was NOT the cause and has never bumped mobile; the cause
+  # was a hand-run "bump every manifest" commit that swept it in beside api and
+  # web. A comment in release.sh therefore cannot prevent a recurrence — it sits
+  # in the file the defect did not come from. This job is the guard that can.
+  #
+  # Runs unconditionally, not on a `changes:` rule: the failure mode is a commit
+  # that edits the manifest as a side effect of touching something else, which is
+  # exactly the diff a mobile-scoped rule would let through. Parse + compare, no
+  # install, no network, ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep python3
+  script:
+    # Self-test first: a gate only ever observed passing is indistinguishable
+    # from one whose pattern stopped matching.
+    - bash scripts/check-mobile-version.sh --self-test
+    - bash scripts/check-mobile-version.sh
 
 api:ci-api-tag:
   extends: .fast-job

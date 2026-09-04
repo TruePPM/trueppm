@@ -66,7 +66,7 @@ To see everything assigned to you across all your projects and sprints, use the 
 
 Changes you make appear instantly for everyone on the project. Changes others make appear instantly for you. No manual refresh.
 
-The sync protocol supports offline clients — it is built for the 0.5 mobile app, which will queue updates locally and replay them when the connection returns. The web app today requires a connection for writes.
+The sync protocol supports offline clients — it is built for the native mobile app, which lands in **0.6** and will queue updates locally and replay them when the connection returns. No client implements it yet; the installable PWA in **0.5** is the offline surface before it. The web app today requires a connection for writes.
 
 → See [Real-time collaboration](/features/real-time/), [Offline sync](/features/offline-sync/)
 

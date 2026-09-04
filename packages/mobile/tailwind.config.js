@@ -10,11 +10,14 @@
 // Editing tokens.json reskins mobile only. Closing that gap is design-system
 // work, not a config change (ADR-0026 assumed the parity that was never wired).
 //
-// The divergence is not cosmetic: the semantic values below are FILL/BORDER
-// weights. `warning` (#DE9326) fails WCAG 1.4.3 as text on light — web replaced
-// its text weight for exactly that reason (#1377, globals.css --semantic-*).
-// Do not use text-warning / text-critical until the mobile palette carries its
-// own AA-checked text weights.
+// The divergence is not cosmetic: the semantic values below, AND the brand
+// sage, are FILL/BORDER weights. On white: warning #DE9326 = 2.53:1 and
+// brand.sage #4FA884 = 2.89:1 — both fail WCAG 1.4.3 (4.5:1) as text. Web hit
+// this and moved its text weights to darker rungs (globals.css --semantic-* and
+// --brand-primary = sage-700 #316F57, 5.93:1; even sage-600 at 4.06:1 was too
+// low, #1377). Use text-sage-700 / text-slate-* for anything a user reads; do
+// not use text-warning, text-critical, or text-brand-sage until the mobile
+// palette carries its own AA-checked text weights.
 const tokens = require('../web/brand/tokens.json');
 
 const { color, fontSize, space, radius } = tokens;
@@ -22,7 +25,12 @@ const { color, fontSize, space, radius } = tokens;
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ['./src/**/*.{ts,tsx}'],
-  // NativeWind toggles dark mode via the `dark:` variant on a class.
+  // 'class' is NativeWind's MANUAL mode: `dark:` fires only after something
+  // calls colorScheme.set(). Nothing in src/ does, so no `dark:` variant can
+  // currently activate — the app renders light on a device in system dark theme.
+  // 0.6 has to pick one: 'media' (follow the OS), or keep 'class' and wire
+  // colorScheme.set(useColorScheme()) in App.tsx. Left as-is rather than flipped
+  // here because it is a theming decision, not a comment fix (#3367).
   darkMode: 'class',
   presets: [require('nativewind/preset')],
   theme: {

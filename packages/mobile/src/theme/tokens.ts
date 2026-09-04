@@ -28,13 +28,24 @@ export const space = tokens.space;
 export const radius = tokens.radius;
 
 /**
- * Flattened light-mode palette for the scaffold's StyleSheet usage. Feature
- * screens that need dark-mode adaptivity should use NativeWind `dark:` classes
- * (which read `color.dark.*` from the same source) rather than this static map.
+ * Flattened light-mode palette for the scaffold's StyleSheet usage.
+ *
+ * Light-mode ONLY, and there is no dark path behind it yet: `tailwind.config.js`
+ * sets `darkMode: 'class'`, which is NativeWind's *manual* mode, and nothing in
+ * this package calls `colorScheme.set()` — so a `dark:` class can never activate
+ * and `color.dark.*` is unreachable. Wiring that up is a decision the 0.6 work
+ * has to make (`darkMode: 'media'`, or `colorScheme.set(useColorScheme())` at the
+ * root); until it does, do not write `dark:` variants expecting them to fire.
+ *
+ * `sage` is the BRAND fill weight (#4FA884, 2.89:1 on white) — it fails WCAG
+ * 1.4.3 as text. Use `sageText` (sage-700, 5.93:1) for anything a user reads,
+ * exactly as web does (`globals.css` --brand-primary; the re-validation there
+ * found even sage-600 at 4.06:1 too low).
  */
 export const palette = {
   navy: color.brand.navy.value,
   sage: color.brand.sage.value,
+  sageText: color.sage['700'],
   reversed: color.brand.reversed.value,
   bg: color.light.bg,
   surface: color.light.surface,

@@ -19,6 +19,14 @@ number here can only mislead — it read `0.4.0-beta.1` from 2026-07-18 to
 `scripts/release.sh` does **not** bump this manifest and must not start: mobile
 does not ship on the OSS release train until the native Android app does.
 
+`scripts/check-mobile-version.sh` enforces this — `make pre-push` and the
+`mobile:version-pin` CI job both run it, and it fails on a version other than
+`0.0.0` in the manifest **or** either of the lockfile's two version fields, and
+on `release.sh` growing a `bump_manifest packages/mobile/` line. That is a gate
+rather than a comment on purpose: the version did not come from `release.sh`, so
+a note there could not have stopped it. **When mobile actually ships (#1599),
+delete the gate and add the manifest to `release.sh` — do not raise the pin.**
+
 ## What exists, and what is only a type
 
 | Path | State |
@@ -46,6 +54,17 @@ pointed at APKs under the `android/` directory that does not exist. Nothing
 linted or type-checked the tree, so it could not even be kept honest. **#1599
 restores it together with the native projects that make it runnable.**
 
+**A precondition on #1599, not an afterthought:** `eslint.config.mjs` scopes to
+`src/**/*.{ts,tsx}` and `tsconfig.json` includes only `nativewind-env.d.ts` and
+`src`, so a restored `e2e/` tree matches *neither* — which is how six files rotted
+here unobserved. `packages/web` had the identical hole and closed it with an
+`e2e/**/*.ts` eslint block checked against a `tsconfig.e2e.json` (see the root
+CLAUDE.md — `@typescript-eslint/no-floating-promises` on un-awaited Playwright
+calls is the rule that earns it). Restoring `e2e/` here without doing the same
+just resets the clock. No eslint block is added now, deliberately: a config
+matching zero files is dead config, and it belongs in the MR that brings the tree
+back.
+
 `eas.json` went with it. EAS Build remains the intended build service for both
 platforms (ADR-0026 §Build + CI), but its profiles configure builds of
 `android/` and `ios/`, no `eas-cli` was installed to read them, and the file's
@@ -55,7 +74,8 @@ regenerates it — minus the OTA channels — when the native projects land.
 
 ## Not Expo managed
 
-Bare React Native (ADR-0026): WatermelonDB and the WASM scheduler need native
+Bare React Native (ADR-0026 §Platform, not part of that ADR's supersession —
+see References): WatermelonDB and the WASM scheduler need native
 modules, and OTA updates are incompatible with app-store-only enterprise
 releases. Expo *modules* are used à la carte and EAS *Build* is the build
 service; neither makes this an Expo-managed app. Today the package has **no
@@ -90,8 +110,10 @@ it.
 
 ## Platform priority
 
-Android phones first, Android tablets second, iPhone deferred to 1.0 GA
-(ADR-0026). Mobile is on the 1.0 critical path.
+Android phones first, Android tablets second, iPhone deferred to 1.0 GA. The
+roadmap is the source of truth for this ordering and for the milestone — native
+Android is **0.6**; ADR-0026's own "Android 0.4 / iOS 1.0" text is the part of it
+that was superseded. Mobile is on the 1.0 critical path.
 
 ## Local commands
 
@@ -106,6 +128,9 @@ there are no native projects.
 
 ## References
 
-ADR-0026 (platform decision) · ADR-0191 (scaffold blueprint) · #41 (offline
-store + sync adapter) · #1599 (test suite + native projects) · #3367 (this
+ADR-0026 (platform decision — **Status: Superseded (2026-05-31)**, but only on
+the Detox iOS+Android E2E scope and milestone ordering, which the roadmap now
+owns; still the authority on bare RN, à-la-carte Expo modules, and EAS Build) ·
+ADR-0191 (scaffold blueprint; amended 2026-09-04 by #3367) · #41 (offline store
++ sync adapter) · #1599 (test suite + native projects) · #3367 (this
 correction).

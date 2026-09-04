@@ -80,8 +80,13 @@ export function RootTabs(): ReactNode {
       initialRouteName="Tasks"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: palette.sage,
-        tabBarInactiveTintColor: palette.textTertiary,
+        // Tab labels are normal text and need WCAG 1.4.3 AA (4.5:1) on the
+        // default light tab bar. The brand sage (#4FA884) is a FILL weight at
+        // 2.89:1 and textTertiary is 3.07:1 — both failed. sage-700 is 5.93:1
+        // and textSecondary 5.99:1, matching the weights web settled on for the
+        // identical finding (globals.css --brand-primary, #1377).
+        tabBarActiveTintColor: palette.sageText,
+        tabBarInactiveTintColor: palette.textSecondary,
       }}
     >
       <Tab.Screen

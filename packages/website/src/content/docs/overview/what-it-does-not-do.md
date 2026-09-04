@@ -115,7 +115,7 @@ today, and we are not going to pretend otherwise.
   is being built on, not as an unreleased app.
 - **0.5:** an installable PWA with an offline shell — add to home screen, time entry
   and board reads without a signal.
-- **0.6:** the in-progress React Native app above reaches GA on Android — Android
+- **0.6:** the scaffold above becomes a shipping app on Android — Android
   phones first, tablets second — as the first mobile release anyone outside the
   project can install.
 - **1.0:** iPhone and iPad parity.

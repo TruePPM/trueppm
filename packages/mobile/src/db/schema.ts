@@ -38,7 +38,8 @@ export interface VersionedRecord {
  * whenever you touch it.
  *
  * `programs` / `program_memberships` are NOT here: they come from the separate
- * program-sync endpoint (`ProgramSyncView`), not the project delta.
+ * user-program endpoint (`UserProgramSyncView`, `GET /api/v1/sync/user/programs/`),
+ * not the project delta.
  */
 export type SyncedTable =
   | 'projects'

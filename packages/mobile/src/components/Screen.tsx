@@ -5,7 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { palette } from '../theme/tokens';
 
 interface ScreenProps {
-  /** Test handle and accessibility anchor for the screen root. */
+  /** Test handle for the screen root. Maps to Android `resource-id` /
+   *  iOS `accessibilityIdentifier`; TalkBack and VoiceOver do NOT announce it. */
   testID: string;
   /** Screen title rendered in the header band. */
   title: string;
@@ -24,7 +25,11 @@ export function Screen({ testID, title, subtitle, children }: ScreenProps): Reac
   return (
     <SafeAreaView testID={testID} style={styles.root} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
+        {/* accessibilityRole="header" gives TalkBack/VoiceOver heading
+            navigation a target on every screen that uses this primitive. */}
+        <Text accessibilityRole="header" style={styles.title}>
+          {title}
+        </Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       <View style={styles.body}>{children}</View>
