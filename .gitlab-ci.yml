@@ -541,6 +541,16 @@ scripts:test:
   #     worktree shares one stack and a `pop` in one takes — and drops — whatever
   #     another pushed last (#3110). The test stages two real worktrees and
   #     replays that interleaving; run against `git stash` it fails.
+  #   - helm-celery-probe-overrides — the CELERY_PROBE_OVERRIDES array that
+  #     helm-install-drill.sh and helm-netpol-drill.sh must hold IDENTICALLY
+  #     (#3218, #3230). It was a prose "keep the two in sync" note with no
+  #     mechanism. Drift is invisible in the worst direction: the drill whose
+  #     override got weaker reverts toward chart defaults and goes bimodal, which
+  #     reads as a flake rather than as config drift. The test also checks each
+  #     override names a key values.schema.json still accepts — the chart root is
+  #     closed, so a renamed probe key makes `helm install` REFUSE, minutes into
+  #     the runtime job, with a message about the values file rather than the
+  #     rename.
   #   - wt-testdb: the per-worktree Postgres test DB lifecycle (#3270). `wt new`
   #     creates the DB name, pytest-django drops the DB only on a CLEAN exit, and
   #     nothing dropped it otherwise — 78 orphans, 1959 MB, 97% of the local
@@ -577,6 +587,8 @@ scripts:test:
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
+        - scripts/helm-install-drill.sh
+        - packages/helm/values.schema.json
         - scripts/check-release-images.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
@@ -591,6 +603,7 @@ scripts:test:
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
+        - scripts/tests/helm-celery-probe-overrides.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
         - scripts/tests/check-migration-constraint-safety.test.sh
@@ -608,6 +621,8 @@ scripts:test:
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
+        - scripts/helm-install-drill.sh
+        - packages/helm/values.schema.json
         - scripts/check-release-images.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
@@ -622,6 +637,7 @@ scripts:test:
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
+        - scripts/tests/helm-celery-probe-overrides.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
         - scripts/tests/check-migration-constraint-safety.test.sh
@@ -640,6 +656,7 @@ scripts:test:
     - bash scripts/tests/check-enterprise-imports.test.sh
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
+    - bash scripts/tests/helm-celery-probe-overrides.test.sh
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
 
