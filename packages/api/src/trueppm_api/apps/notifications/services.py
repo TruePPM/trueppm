@@ -1017,6 +1017,17 @@ def create_event_notifications(
     return len(notifications)
 
 
+#: Rows per INSERT for the event fan-outs below.
+#:
+#: ``Notification`` carries 18 columns, so a single unbounded ``bulk_create``
+#: crosses Postgres's 65535 bind-parameter ceiling at roughly 3,600 rows and
+#: raises. That was unreachable while every fan-out was scoped to one project's
+#: recipients; batching a program-matrix apply across up to ``MAX_BULK_TARGETS``
+#: projects into one call makes it reachable, and the emit's ``except Exception``
+#: would swallow the failure whole and drop every notice silently (#3335).
+NOTIFICATION_BULK_BATCH_SIZE = 500
+
+
 def create_event_notifications_batch(
     *,
     event_type: str,
@@ -1046,6 +1057,48 @@ def create_event_notifications_batch(
             recipients are skipped; ``task_id`` may be ``None`` for a row with no
             single task anchor (e.g. a multi-task summary).
 
+    Every row lands on the same ``project_id``. When one dispatch spans several
+    projects, call :func:`create_event_notifications_multi_project` — which this
+    delegates to — rather than looping this one, or the preference scan, the DND
+    scan and the insert all repeat per project.
+
+    Returns:
+        The number of Notification rows created.
+    """
+    return create_event_notifications_multi_project(
+        event_type=event_type,
+        rows=[(row[0], project_id, row[1], row[2], row[3]) for row in rows],
+    )
+
+
+def create_event_notifications_multi_project(
+    *,
+    event_type: str,
+    rows: Sequence[
+        tuple[int | str | None, uuid.UUID | str | None, str, str, uuid.UUID | str | None]
+    ],
+) -> int:
+    """Create per-recipient event Notification rows spanning **many** projects in
+    one preference lookup, one DND lookup and one ``bulk_create``.
+
+    The project-spanning form of :func:`create_event_notifications_batch`, which
+    delegates here: ``Notification`` already carries ``project_id`` per row, so a
+    fan-out over a batch of projects has no reason to issue one insert (and one
+    preference scan, and one DND scan) per project. The program settings matrix
+    applies one field map to as many as ``MAX_BULK_TARGETS`` projects and emits a
+    surface notice for each; looping the single-project form there cost three
+    queries per project for no gain (#3335).
+
+    Gating is identical and per **recipient**, not per project — the
+    ``NotificationPreference`` matrix and account-wide DND are account-scoped, so
+    one lookup over the union of recipients answers every row.
+
+    Args:
+        event_type: A ``NotificationEventType`` value.
+        rows: ``(recipient_id, project_id, subject, body, task_id)`` tuples.
+            ``None`` recipients are skipped; ``task_id`` may be ``None`` for a row
+            with no single task anchor.
+
     Returns:
         The number of Notification rows created.
     """
@@ -1071,7 +1124,7 @@ def create_event_notifications_batch(
     dnd_user_ids = load_dnd_user_ids(unique_ids)
 
     notifications: list[Notification] = []
-    for recipient_id, subject, body, task_id in rows:
+    for recipient_id, project_id, subject, body, task_id in rows:
         if recipient_id is None or not _allows(recipient_id, NotificationChannel.IN_APP.value):
             continue
         notifications.append(
@@ -1092,7 +1145,7 @@ def create_event_notifications_batch(
         )
     if not notifications:
         return 0
-    Notification.objects.bulk_create(notifications)
+    Notification.objects.bulk_create(notifications, batch_size=NOTIFICATION_BULK_BATCH_SIZE)
     return len(notifications)
 
 
