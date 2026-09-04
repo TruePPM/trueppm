@@ -83,7 +83,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-80534530e1f3"
+  CI_API_TAG: "py3.11-b122d717e199"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -3821,6 +3821,32 @@ api:test:
   # diff-coverage gate and the package soft floor. Mirrors the web:e2e shard →
   # web:e2e:report stitch pattern.
   parallel: 4
+  # Explicit ceiling so a wedged shard cannot hold a runner slot for the project
+  # default of 60 minutes (#3390). Because api:coverage `needs` all four shards,
+  # one stuck shard also parks the rest of the test stage behind it for that
+  # hour. The worst observed legitimate run is 833s (13.9m), so 20m is ~44%
+  # headroom. Paired with the --timeout=180 per-test ceiling in
+  # packages/api/pyproject.toml: that one names the offending test, this one
+  # bounds the cost when the hang is outside any single test (a deadlocked
+  # xdist worker, a wedged service container).
+  timeout: 20m
+  # ...and the retry override is what makes that ceiling real. `default.retry`
+  # (top of this file) retries `stuck_or_timeout_failure` up to twice, and
+  # hitting `timeout:` IS that class — so without this block a wedged shard runs
+  # 3 x 20m and parks the slot for exactly the 60 minutes the ceiling was added
+  # to prevent. Retrying a hang cannot help anyway: nothing about attempt 2
+  # differs from attempt 1. The genuinely transient runner/platform classes are
+  # kept, so this narrows the retry policy rather than disabling it. A hang
+  # INSIDE a test is `script_failure` (never retried) and is caught far earlier
+  # by --timeout=180 in packages/api/pyproject.toml.
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - api_failure
+      - scheduler_failure
+      - stale_schedule
+      - data_integrity_failure
   # needs lists only api:test's true data dependencies (#1121): the lint gate
   # (cheap fail-fast, keeps a full sharded run off obviously-broken code) and
   # the testdb-dump artifact it clones the template DB from. type-check,
@@ -3860,8 +3886,18 @@ api:test:
     - psql "postgres://trueppm:trueppm@postgres/migrated" -f "$CI_PROJECT_DIR/testdb-schema.sql"
   script:
     - cd packages/api
+    # --durations=25: the shard's own slow tail, printed in its own log. The
+    # reason #3390 needed offline simulation to diagnose at all is that a slow
+    # shard emitted nothing but progress markers — you could see it sit at 94%
+    # for nine minutes and not learn which tests were responsible. The recorded
+    # .test_durations baseline cannot answer it either: that job runs serially
+    # and WITHOUT coverage, so it measures a different thing than the sharded,
+    # coverage-instrumented run whose wall time actually gates the stage. This
+    # costs one line of output per run and makes the next investigation a read
+    # rather than a reconstruction.
     - python -m pytest tests/ --tb=short -q -n 4
         --splits "$CI_NODE_TOTAL" --group "$CI_NODE_INDEX"
+        --durations=25
         --cov=trueppm_api --cov-report=
   artifacts:
     paths:
@@ -3955,6 +3991,11 @@ api:coverage:
   # soft floor against legacy regressions. Runs in the same ci-api image the
   # shards used, so the coverage data format matches.
   extends: .api-no-db
+  # Same ceiling rationale as api:test above (#3390): this job needs all four
+  # shards, so a wedged `coverage combine` parks a runner slot for the 60m
+  # project default at the exact point the whole test stage is waiting on it.
+  # Combine + report is seconds; 10m is already generous.
+  timeout: 10m
   stage: test
   needs:
     - job: api:test
