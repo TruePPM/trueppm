@@ -13,7 +13,7 @@ For what a version bump may and may not change, see
 surface with its own retry semantics — see
 [Webhooks](/features/webhooks/#delivery-retries).
 
-## Shape 1 — field validation errors (no `code`)
+## Shape 1 — field validation errors (no refusal `code`)
 
 Serializer validation failures return a map of **field name → list of messages**,
 with the HTTP status `400`:
@@ -25,9 +25,12 @@ with the HTTP status `400`:
 }
 ```
 
-There is **no `code` key** in this shape, and the individual messages are not
+There is **no refusal `code`** in this shape, and the individual messages are not
 stable. Internally these errors do carry a code, but Django REST Framework
 serializes each one to its message string alone, so it never reaches the wire.
+
+A `code` key can still appear here — but as a *field name*, not as the envelope's
+machine code. See [When a field is named `code`](#when-a-field-is-named-code).
 
 **Branch on the field key. Never match on the message text.** The strings come
 from DRF and Django validators and can change with a framework upgrade.
@@ -85,6 +88,33 @@ Some codes carry extra keys; those are noted in the tables below.
 The codes on this page are the complete set of values that appear in this shape.
 If an endpoint returns a bare `detail` with no `code`, treat it as a generic
 failure of its HTTP status class.
+
+### When a field is named `code`
+
+The two shapes share a body, so a Shape 1 field key can collide with a Shape 2
+envelope key. Two fields in the API are named `code` — a program's and a
+project's short identifier — and one is named `detail`. When one of those fails
+validation, DRF keys its errors by field name like any other field, and the
+result reads like Shape 2 until you look at the type:
+
+```json
+{"code": ["Ensure this field has no more than 12 characters."]}
+```
+
+**Discriminate on the type, not on the key's presence.** A refusal `code` is
+always a **string** drawn from the vocabulary below. A list or object under
+`code` — or under `detail` — is Shape 1 field validation of the field of that
+name:
+
+```js
+const refusal = typeof body.code === "string" ? body.code : null;
+```
+
+`if (body.code)` is the form that breaks: on the twenty-one operations that
+accept a `code` field — `POST`, `PUT` and `PATCH` on programs and projects, plus
+the actions that reuse those request bodies — it hands you an array of human
+sentences where a stable identifier was expected. This affects only the two names
+the envelope uses; every other field key is unambiguous.
 
 ## Structured error codes
 
@@ -144,10 +174,21 @@ the end:
 ```json
 {
   "code": "cyclic_dependency",
-  "detail": "The dependency graph contains a cycle.",
-  "offending": ["A", "B", "A"]
+  "detail": "Circular dependency: 1.1 — Design → 1.3 — Build → 1.1 — Design. Remove one of those links to schedule this plan.",
+  "offending": [
+    "3f2a…",
+    "9b1c…",
+    "3f2a…"
+  ]
 }
 ```
+
+**`detail` is prose and `offending` is data — do not parse one for the other.**
+`detail` names each task by its WBS code and name, which is the reference the plan
+itself shows, so a person reading the refusal can find the tasks. It is bounded:
+past four members the chain elides its middle to `… (N more)`, so a long cycle
+never produces a proportionally long sentence. `offending` stays the raw, complete
+ordered id list — branch and highlight rows on that.
 
 `subtree_too_large` carries `matched` (how many descendants the request would
 have touched) and `max` (the cap), so a client can say how far over the limit it

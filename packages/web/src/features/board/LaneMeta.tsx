@@ -6,10 +6,6 @@
  *   ▌  ━━━━━━━━━━━━━━━━━━   8 items      (committed)
  *   ▌  —                    4 ideas      (nothing committed)
  *
- * Workshop variant (`workshop={true}`): background tinted with phase color,
- * phase name becomes contentEditable, drag handle rendered (ADR-0046).
- * Escape reverts to the saved name; Enter/blur commits by calling onPhaseRename.
- *
  * The earlier ProgressRing layout was replaced in epic #361 child E
  * (issue #385) — an inline bar carries the same signal in less vertical real
  * estate, and it composes cleanly with the phase-grid quieting (empty cells
@@ -26,7 +22,7 @@
  * horizontal room in a 188px cell that also holds a name, a count and a `+`.
  * The percentage moved to the accessible name and to a hover/focus tooltip.
  */
-import { type ReactNode, type KeyboardEvent, useRef, useCallback } from 'react';
+import { type ReactNode } from 'react';
 
 import { Tooltip } from '@/components/Tooltip';
 import { ROW_VOCABULARY, countRows } from '@/features/schedule/rowVocabulary';
@@ -56,22 +52,6 @@ export interface LaneMetaProps {
    * measurable here" is carried by the rail as well as by the slot.
    */
   railColor: string;
-  /** Workshop mode: tinted bg, editable name, drag handle. */
-  workshop?: boolean;
-  /** Called when the user commits a phase rename in workshop mode. */
-  onPhaseRename?: (newName: string) => void;
-  /**
-   * @dnd-kit listeners for the drag handle in workshop mode. When provided, the
-   * ⋮⋮ handle activates the sortable drag for phase reordering.
-   */
-  dragHandleListeners?: Record<string, unknown>;
-  /**
-   * @dnd-kit sortable attributes (role, tabIndex, aria-*) for the drag handle in
-   * workshop mode. These belong on the real ⋮⋮ handle button — not on the lane
-   * wrapper, which would turn the whole swimlane into one giant role="button" and
-   * leave the actual handle keyboard/SR-inert (#2201).
-   */
-  dragHandleAttributes?: Record<string, unknown>;
   onAddTask?: () => void;
   /**
    * Override for the "+" button's title and aria-label. Defaults to
@@ -127,10 +107,6 @@ export function LaneMeta({
   taskCount,
   committedTaskCount,
   railColor,
-  workshop = false,
-  onPhaseRename,
-  dragHandleListeners,
-  dragHandleAttributes,
   onAddTask,
   addTaskLabel,
   collapseToggle,
@@ -140,34 +116,6 @@ export function LaneMeta({
   phaseActualCost = null,
 }: LaneMetaProps) {
   const pct = Math.max(0, Math.min(100, avgProgress));
-  const editableRef = useRef<HTMLSpanElement>(null);
-
-  const handleBlur = useCallback(() => {
-    if (!editableRef.current || !onPhaseRename) return;
-    const newName = editableRef.current.textContent?.trim() ?? '';
-    if (newName && newName !== phaseName) {
-      onPhaseRename(newName);
-    } else {
-      // Revert if empty or unchanged
-      editableRef.current.textContent = phaseName;
-    }
-  }, [phaseName, onPhaseRename]);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLSpanElement>) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        editableRef.current?.blur();
-      } else if (e.key === 'Escape') {
-        if (editableRef.current) {
-          editableRef.current.textContent = phaseName;
-        }
-        editableRef.current?.blur();
-      }
-    },
-    [phaseName],
-  );
-
   // The one gate on the progress slot. `committedTaskCount` distinguishes "has
   // cards but none committed" (an idea inbox) from "has committed delivery";
   // omitting it means zero, never taskCount — see the prop docblock (#3148).
@@ -205,10 +153,7 @@ export function LaneMeta({
       : `No committed work yet — ${countIdeas(taskCount)}`;
 
   return (
-    <div
-      className="relative"
-      style={workshop ? { background: `color-mix(in srgb, ${railColor} 5%, var(--neutral-surface, white))` } : undefined}
-    >
+    <div className="relative">
       {/* 3px color rail. An uncommitted lane drops the phase accent for a
           neutral so the "nothing measurable here" state is legible from the
           rail alone, at the scale where a stack of lanes is scanned rather
@@ -228,45 +173,11 @@ export function LaneMeta({
 
         {/* Header row: name + add button */}
         <div className="flex items-center gap-2 min-w-0">
-          {workshop && (
-            <button
-              type="button"
-              aria-label={`Reorder phase: ${phaseName}`}
-              className="text-neutral-text-disabled text-sm cursor-grab active:cursor-grabbing select-none flex-shrink-0"
-              title="Drag to reorder phase"
-              {...(dragHandleAttributes as Record<string, unknown>)}
-              {...(dragHandleListeners as Record<string, (e: unknown) => void>)}
-            >
-              ⋮⋮
-            </button>
-          )}
-
           {collapseToggle}
 
-          {workshop ? (
-            <span
-              ref={editableRef}
-              role="textbox"
-              tabIndex={0}
-              contentEditable
-              suppressContentEditableWarning
-              aria-label={`Phase name: ${phaseName}`}
-              onBlur={handleBlur}
-              onKeyDown={handleKeyDown}
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              className="flex-1 text-xs font-semibold text-neutral-text-primary
-                outline-none border border-dashed border-neutral-border rounded-control px-[6px] py-[3px]
-                bg-neutral-surface focus-visible:ring-2 focus-visible:ring-brand-primary"
-            >
-              {phaseName}
-            </span>
-          ) : (
-            <span className="flex-1 text-xs font-semibold text-neutral-text-primary truncate">
-              {phaseName}
-            </span>
-          )}
+          <span className="flex-1 text-xs font-semibold text-neutral-text-primary truncate">
+            {phaseName}
+          </span>
 
           {/* The add-task affordance is phase-authoring: it parents a new task
               under this lane's summary. Assignee-grouped lanes (324) pass no
