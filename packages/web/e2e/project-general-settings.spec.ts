@@ -205,13 +205,16 @@ test.describe('Project Settings → General', () => {
       'true',
     );
 
-    // Timezone + default view seed from the response.
+    // Timezone + default view seed from the response. `exact` on BOTH: each row
+    // carries a FieldHelp trigger named "About the {label} options", so a
+    // substring getByLabel matches the select and the ⓘ button (strict-mode
+    // collision). Default view gained its trigger in #3376.
     await expect(section.getByLabel('Timezone', { exact: true })).toHaveValue('Europe/London');
-    await expect(section.getByLabel('Default view')).toHaveValue('BOARD');
+    await expect(section.getByLabel('Default view', { exact: true })).toHaveValue('BOARD');
 
     // Flip a few fields and save.
     await section.getByRole('button', { name: 'On track' }).click();
-    await section.getByLabel('Default view').selectOption('TABLE');
+    await section.getByLabel('Default view', { exact: true }).selectOption('TABLE');
 
     await page.getByRole('button', { name: /Save changes/i }).click();
 

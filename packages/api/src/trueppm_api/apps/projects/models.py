@@ -723,13 +723,20 @@ class Visibility(models.TextChoices):
 
 
 class DefaultView(models.TextChoices):
-    """Default landing view for a project (issue #520).
+    """Stated landing-view preference for a project (issue #520).
 
-    Drives which workspace tab loads first when a project is opened without
-    an explicit view in the URL. The API surface is unchanged — every view
-    remains reachable by direct URL regardless of this preference. Per-user
-    overrides may layer on top in a future issue, matching the pattern used
-    for methodology defaults.
+    **Nothing navigational reads this.** Opening ``/projects/:id`` redirects on
+    the *viewer's own* role-context lens (``lensDefaultView(user.role_context)``
+    — PM to Schedule, Scrum Master to Board, ADR-0162), which is a per-user frame
+    and never consults this column. The only consumer is cosmetic: the web
+    blank-schedule facts strip names the value beside the horizon so an empty
+    ruler has something to explain it.
+
+    The field stays writable rather than disabled because it is a real
+    project-level statement of intent and the copy now says what it does and does
+    not do (#3376). Whether it should take precedence over the per-user lens is a
+    design question with three defensible answers, not a wiring bug — #3380 owns
+    it. Until that lands, do not describe this as "drives which tab loads first."
     """
 
     SCHEDULE = "SCHEDULE", "Schedule"
@@ -1312,13 +1319,24 @@ class Project(VersionedModel):
         choices=Visibility.choices,
         default=Visibility.WORKSPACE,
     )
-    # IANA timezone identifier used for due dates, Gantt rendering, and sprint
-    # cutovers (issue #520). Empty string defers to the workspace default.
+    # IANA timezone identifier (issue #520). It has exactly ONE reader:
+    # ``notifications.services._project_timezone``, which anchors the quiet-hours
+    # window so "no pings 22:00–07:00" means the project's clock (#3376).
+    #
+    # It does NOT drive due dates, Gantt rendering or sprint cutovers, and the
+    # earlier comment saying it did was wrong in a way worth naming: a task's
+    # start/finish are **calendar dates**, so they are timezone-independent by
+    # construction and no zone can move them. Instants that DO need a zone
+    # (timestamps, "2 hours ago") are rendered in the viewer's own frame from
+    # ``Profile.timezone`` (ADR-0410), not from this column.
+    #
+    # The real fallback chain is ``Project.timezone`` -> ``settings.TIME_ZONE``
+    # (hardcoded "UTC") -> "UTC". ``Workspace.timezone`` is NOT in it despite the
+    # UI's "Workspace default" option label — wiring that is #3377.
     # Stored as free text — full IANA validation is a future change.
     timezone = models.CharField(max_length=64, blank=True, default="")
-    # Default landing view when the project is opened without a specific view
-    # in the URL (issue #520). The API surface is unchanged; every view is
-    # reachable by direct URL regardless of this preference.
+    # Stated landing-view preference (issue #520). Read by nothing navigational —
+    # see the ``DefaultView`` docstring for the reader inventory and #3380.
     default_view = models.CharField(
         max_length=16,
         choices=DefaultView.choices,
@@ -1530,6 +1548,17 @@ class Project(VersionedModel):
     # data is always computed; these toggle chrome, not access. Not in
     # ``_HISTORY_EXCLUDED_BASE``, so every override write is captured (audit).
     show_reporting = models.BooleanField(null=True, blank=True)
+    # NOT ENFORCED (#3376). Its three siblings each have a reader — reporting in
+    # the tab filter, baselines in the drawer section, monte_carlo on the Schedule
+    # — and ``time_tracking`` has none, on web or mobile. ADR-0193 deferred the
+    # gate "until a web time-entry surface ships"; the surfaces that then shipped
+    # (#926/#1258 — the top-bar timer, Quick log, My Work, /me/timesheet) are all
+    # **user-scoped and cross-project**, so a per-project boolean has nothing to
+    # gate. Making it real needs a per-task delivery flag on the My Work payload,
+    # which is a feature nobody has filed, not a wiring fix. Until then the
+    # settings control renders inert with a bound note (Pattern A) and the
+    # config-change notice suppresses this arm — see
+    # ``config_notice.ENFORCED_SURFACE_KEYS``.
     show_time_tracking = models.BooleanField(null=True, blank=True)
     show_baselines = models.BooleanField(null=True, blank=True)
     show_monte_carlo = models.BooleanField(null=True, blank=True)

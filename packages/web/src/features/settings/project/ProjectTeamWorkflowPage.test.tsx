@@ -267,13 +267,22 @@ describe('<ProjectTeamWorkflowPage> the line the issue draws', () => {
   });
 
   it('scopes the Surfaces claim to the surfaces Surfaces actually toggles', () => {
-    // Settings → Surfaces exposes Reports, Time tracking, Baselines and the
-    // forecast (ADR-0193). It does NOT bring back Board / Schedule / Sprints, so
-    // "every surface it switches off can be turned back on under Surfaces" sent
-    // the reader to a screen that cannot do what they were promised.
+    // Settings → Surfaces exposes Reports, Baselines and the forecast (ADR-0193).
+    // It does NOT bring back Board / Schedule / Sprints, so "every surface it
+    // switches off can be turned back on under Surfaces" sent the reader to a
+    // screen that cannot do what they were promised. Time tracking is on that
+    // page but is not switched by it — nothing reads the column (#3376) — so
+    // naming it beside the three working toggles was the same defect in
+    // miniature. Assert the absence, not just the new list: dropping it from the
+    // sentence is the fix, and a positive-only check would pass on both.
     renderPage();
     const summary = screen.getByText(/A preset describes how this team works/);
-    expect(summary).toHaveTextContent(/Reports, Time tracking, Baselines/);
+    expect(summary).toHaveTextContent(/Reports, Baselines, the forecast/);
+    expect(summary).not.toHaveTextContent(/Reports,\s*Time tracking/);
+    // No "yet": a soft coming-soon is a version claim with no version behind it,
+    // and nothing is filed to build a per-project time surface.
+    expect(summary).toHaveTextContent(/Time tracking, a setting nothing reads\./);
+    expect(summary).not.toHaveTextContent(/nothing reads yet/);
     const link = screen.getByRole('link', { name: 'Surfaces' });
     expect(link).toHaveAttribute('href', '#surfaces');
   });

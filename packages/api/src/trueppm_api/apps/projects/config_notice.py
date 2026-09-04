@@ -10,7 +10,9 @@ Three properties, and the second is the one most likely to be eroded later:
 1. **It fires on the consequence, not the write.** A rename, a color, a WIP limit,
    an added lane, a reorder — none of these notify. Only a change that moves or
    hides work does. A notice on every save is noise, and noise gets muted, which
-   costs the signal this exists to carry.
+   costs the signal this exists to carry. This is why the leaf-surface arm speaks
+   only for :data:`ENFORCED_SURFACE_KEYS`: a toggle no client reads moves nothing
+   on screen, so announcing it is the write talking, not the consequence (#3376).
 2. **The body names what the change did to the recipient's own items.** "Board
    configuration updated" is precisely the notification this module exists to
    refuse. Each recipient's row is rendered for them, with their own count, and
@@ -50,13 +52,47 @@ logger = logging.getLogger(__name__)
 
 #: Human labels for the four leaf surfaces (``surface_visibility.SURFACE_KEYS``).
 #: Kept here rather than derived from the key so the notice reads as product copy
-#: ("Monte Carlo") rather than as a column name ("monte_carlo").
+#: ("Monte Carlo") rather than as a column name ("monte_carlo"). The map stays
+#: complete even though ``time_tracking`` is currently unreachable through
+#: :data:`ENFORCED_SURFACE_KEYS` — restoring that key is then a one-line change
+#: rather than a re-derivation.
 SURFACE_LABELS: dict[str, str] = {
     "reporting": "Reporting",
     "time_tracking": "Time tracking",
     "baselines": "Baselines",
     "monte_carlo": "Monte Carlo",
 }
+
+#: The surfaces whose visibility a client actually acts on — the subset of
+#: ``SURFACE_KEYS`` this module is allowed to speak about.
+#:
+#: ``time_tracking`` is deliberately absent (#3376). Nothing on web or mobile
+#: reads ``Project.show_time_tracking``, so hiding it moves nothing on anyone's
+#: screen — yet the notice told every assigned member, every facet holder and
+#: every Scheduler+ seat that "Dana hid Time tracking in this project." That is
+#: property 1 of this module inverted: it fired on the *write* rather than on the
+#: consequence, and a notice about a change with no consequence is exactly the
+#: noise that gets the signal muted.
+#:
+#: Filtering here rather than in the copy is deliberate — it is the single choke
+#: point. :func:`capture_project_surface` builds both snapshots, so restricting it
+#: suppresses the clause AND stops a time-tracking-only flip from being a
+#: :class:`SurfaceChange` at all (which would otherwise emit a notice whose only
+#: remaining sentence is "Nothing you own moved."). Add the key back the day a
+#: surface reads the flag; see ``Project.show_time_tracking``.
+#:
+#: **Known hole, tracked as #3400.** This set is the has-a-consumer fact, and it
+#: lives here — client-side of the API — so the REST surface still serves
+#: ``effective_surface_visibility.time_tracking`` as a bare boolean an agent reads
+#: as a real answer. #3400 moves the fact beside ``SURFACE_KEYS`` and serves it,
+#: which also collapses the three places that must currently be edited in lockstep
+#: (this set, the settings page's ``notEnforced`` string, and the docs section)
+#: into one. Do not add a fourth unbound copy; extend #3400 instead.
+#:
+#: Pinned against the live ``SURFACE_KEYS`` by ``test_config_change_notice``'s
+#: ``test_the_notice_speaks_for_every_surface_except_the_one_with_no_reader`` —
+#: an allowlist omits a NEW key by default, and that failure is silent.
+ENFORCED_SURFACE_KEYS: frozenset[str] = frozenset({"reporting", "baselines", "monte_carlo"})
 
 #: Projects whose surface notices are resolved, rendered and written together.
 #:
@@ -726,16 +762,34 @@ class ProjectSurfaceSnapshot(NamedTuple):
     """
 
     methodology: str
+    #: Effective visibility keyed by surface, restricted to
+    #: :data:`ENFORCED_SURFACE_KEYS` — NOT every key in ``SURFACE_KEYS``.
     visibility: dict[str, bool]
+    #: The surfaces :data:`ENFORCED_SURFACE_KEYS` leaves out. Captured for ONE
+    #: purpose — the diagnostic in :func:`collect_project_surface_change` — and
+    #: deliberately excluded from the change comparison, so it can never
+    #: resurrect the notice it exists to explain the absence of. Defaults to
+    #: empty for hand-built test snapshots; never mutated, so the shared default
+    #: is safe.
+    unenforced: dict[str, bool] = {}  # noqa: RUF012
 
 
 def capture_project_surface(project: Project, *, workspace: Any = None) -> ProjectSurfaceSnapshot:
-    """Snapshot ``project``'s preset and effective leaf-surface visibility."""
+    """Snapshot ``project``'s preset and its *enforced* leaf-surface visibility.
+
+    Narrowed to :data:`ENFORCED_SURFACE_KEYS`, so the snapshot carries only the
+    surfaces a client actually renders against. A surface nothing reads cannot
+    make the before/after differ, and therefore cannot produce a notice — which
+    is the whole guarantee, applied once here rather than restated in the diff
+    and again in the copy.
+    """
     from .surface_visibility import resolve_effective_visibility
 
+    resolved = resolve_effective_visibility(project, workspace=workspace)
     return ProjectSurfaceSnapshot(
         methodology=str(project.methodology or ""),
-        visibility=resolve_effective_visibility(project, workspace=workspace),
+        visibility={k: v for k, v in resolved.items() if k in ENFORCED_SURFACE_KEYS},
+        unenforced={k: v for k, v in resolved.items() if k not in ENFORCED_SURFACE_KEYS},
     )
 
 
@@ -859,6 +913,22 @@ def collect_project_surface_change(
     """
     after = capture_project_surface(project, workspace=workspace)
     if before.methodology == after.methodology and before.visibility == after.visibility:
+        # A suppressed notice is a silent non-event: an operator can see the write
+        # in ``HistoricalProject`` and see zero Notification rows, and nothing
+        # connects the two. Without this line the answer to "I hid Time tracking
+        # and nobody was told — is the notice system broken?" lives only in a
+        # frozenset in this file. Log the ONE case that is a deliberate
+        # suppression rather than a genuine no-op, so the decision is visible at
+        # the moment it takes effect (#3376).
+        moved = sorted(k for k, v in after.unenforced.items() if before.unenforced.get(k) != v)
+        if moved:
+            logger.info(
+                "surface notice suppressed for project %s: only unenforced surface(s) %s "
+                "moved — nothing reads them, so nothing on screen changed "
+                "(config_notice.ENFORCED_SURFACE_KEYS)",
+                project.pk,
+                moved,
+            )
         return None
     return SurfaceChange(project_id=str(project.pk), before=before, after=after)
 
