@@ -191,8 +191,13 @@ Three rules, each load-bearing:
    (`adr_status()`), and `scripts/adr-accepted-issue-sweep.py` joins the first two
    non-blockquote lines. A field line therefore replaces or pollutes the status, does
    **not** match the `Proposed*` arm, and a genuinely `Proposed` ADR cited from shipped
-   source would sail past `docs:adr-status`. Both parsers skip `>` lines by
-   construction, so a blockquote is invisible to them and cannot do this.
+   source would sail past `docs:adr-status`. Both parsers now skip `>` lines, so a
+   blockquote cannot do this **wherever you put it** — including above the status text.
+   That second half was not true until #3379: the shell parser took the first non-blank
+   line of any kind, so a blockquote placed between the heading and the status text
+   *became* the status and passed a Proposed ADR silently. It is closed, and the
+   `blockquote-above-status` self-test case keeps it closed. The convention is safe by
+   construction, not by where the author happened to put the blockquote.
 2. **Do not invent a new status value.** `Proposed | Accepted | Deprecated | Superseded`
    is quoted in at least five ungated prose places (this template, the published index,
    the two parsers' comments). A fifth value needs edits in all of them, none of which
@@ -200,10 +205,26 @@ Three rules, each load-bearing:
 3. **State what you verified, not what you assume.** Name the files you checked and what
    you found in them. "Ships no code" asserted from memory is the same defect as a stale
    `Proposed` — a claim about the tree that nothing checked. If you cannot verify a
-   piece of it, say that instead of guessing.
+   piece of it, say that instead of guessing. **Nothing enforces this.**
+   `docs:adr-status` checks that a *cited* ADR is not `Proposed` and that the published
+   index's four corpus statistics are true; it does not and cannot check whether a
+   design-only ADR carries this blockquote, or whether what the blockquote says is
+   still accurate. Naming the files you read is the only thing that makes the claim
+   auditable by the next reader.
 
 Refresh the blockquote when the implementation lands, and delete it when the ADR is
 fully built.
+
+**One marker, two uses — do not conflate them.** The blockquote described above sits
+**directly under the Status text** and describes the ADR's *overall* build state. The
+same `> **Implementation status …**` marker is also used **at body level**, next to a
+specific paragraph, to correct a sentence that turned out to be false —
+`docs/adr/0193-independent-leaf-surface-visibility-toggles.md` (#3376) is the example.
+That use is legitimate and stays. It just means the marker alone does not identify the
+status-level artifact: anything that later tries to *find* these blockquotes
+mechanically has to key on position (first blockquote after `## Status`), not on the
+string. There is no such check today, and this is why writing one is not as simple as
+it looks.
 
 ## When an ADR moves to Accepted
 
