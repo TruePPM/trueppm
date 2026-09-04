@@ -306,9 +306,20 @@ must be accepted and implemented first.
 > closed 0.1 bug, and no issue matching this description exists in the tracker in any
 > state — so the deferral above recorded a commitment that nothing tracked, and it went
 > unnoticed for three months. The digest itself is moot now that the feature is removed
-> (#3301). The underlying gap it was meant to close — that a resourcing ask made in a
-> planning session never reaches whoever owns capacity — is independent of this ADR and
-> belongs against the resourcing surface if it is still wanted.
+> (#3301).
+>
+> **Two things the deferral above still gets wrong, corrected here rather than deleted:**
+>
+> 1. **The stated prerequisite is already satisfied.** ADR-0031 was Accepted on
+>    2026-05-31 and implemented in #85 (`37b9c11d8`); `GET /api/v1/projects/{id}/resource-allocation/`
+>    has shipped since April 2026. #3289's own verification recorded it as "still
+>    Proposed" — that was incorrect. Nothing has been blocked on ADR-0031 for months.
+> 2. **The underlying gap is now tracked as #3362.** That a resourcing ask made during
+>    planning never reaches whoever owns the capacity is independent of this ADR and of
+>    Workshop Mode; it survives the removal. It is a design question — trigger, recipient,
+>    and surface are all undecided, and TruePPM models no "capacity owner" relation — so
+>    #3362 carries it with acceptance criteria of its own rather than leaving it as prose
+>    here. This footnote is not a commitment; #3362 is.
 
 ## Alternatives Considered
 
