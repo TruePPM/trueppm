@@ -35,6 +35,7 @@ from trueppm_api.apps.projects.models import (
     Task,
 )
 from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.teams.models import Team, TeamMembership
 
 User = get_user_model()
 
@@ -91,6 +92,45 @@ def member(project: Project, role: int, username: str) -> Any:
     user = User.objects.create_user(username=username, password="pw")
     ProjectMembership.objects.create(project=project, user=user, role=role)
     return user
+
+
+def default_team(project: Project) -> Team:
+    """The project's default team — the only team the ADR-0078 facets are read from."""
+    team, _ = Team.objects.get_or_create(
+        project=project, is_default=True, defaults={"name": "Default Team", "short_id": "T01"}
+    )
+    return team
+
+
+def facet_member(
+    project: Project,
+    role: int,
+    username: str,
+    *,
+    scrum_master: bool = False,
+    product_owner: bool = False,
+) -> Any:
+    """A project member who also holds a facet on the default team.
+
+    ``role`` is deliberately independent of the facet: the cohort #3291 is about is
+    the people seated *below* the write gate who nonetheless own the surface, which
+    is how a Product Owner is normally seated. A fixture that only ever pairs a
+    facet with ADMIN cannot see the bug.
+    """
+    user = member(project, role, username)
+    TeamMembership.objects.create(
+        team=default_team(project),
+        user=user,
+        is_scrum_master=scrum_master,
+        is_product_owner=product_owner,
+    )
+    return user
+
+
+def switch_preset(actor: Any, project: Project, to: str = Methodology.WATERFALL) -> Any:
+    return client_for(actor).patch(
+        f"/api/v1/projects/{project.pk}/", data={"methodology": to}, format="json"
+    )
 
 
 def client_for(user: Any) -> APIClient:
@@ -915,6 +955,277 @@ def test_one_task_counts_once_for_someone_who_is_both_assignee_and_resource(
 
 
 # ---------------------------------------------------------------------------
+# Surface recipients — the people who own the surface, not just the assignees
+# (#3291, the same class as #2897 at a new sink)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("scrum_master", "product_owner", "who"),
+    [
+        pytest.param(False, True, "product owner", id="product-owner"),
+        pytest.param(True, False, "scrum master", id="scrum-master"),
+    ],
+)
+def test_a_facet_holder_with_no_assigned_task_gets_the_surface_notice(
+    project: Project,
+    django_capture_on_commit_callbacks: Any,
+    scrum_master: bool,
+    product_owner: bool,
+    who: str,
+) -> None:
+    """The people the flip re-shapes hardest held none of the work it moved.
+
+    A Product Owner authors and prioritizes the backlog and is frequently assigned
+    none of it; a Scrum Master facilitates and is neither an assignee nor a booked
+    resource. Both are expected to explain the flip to everyone else, and the
+    assigned-only cohort was the only notification that existed — so they found
+    out at sprint planning, or by going looking for a tab.
+    """
+    actor = member(project, Role.ADMIN, "pm")
+    holder = facet_member(
+        project, Role.MEMBER, "holder", scrum_master=scrum_master, product_owner=product_owner
+    )
+    # Someone ELSE's task, so the assigned cohort is non-empty and the union path is
+    # genuinely exercised. On an empty project `assigned_recipient_ids` short-circuits,
+    # which would make the premise below true for the wrong reason.
+    task_for_assignee(project, member(project, Role.MEMBER, "other"), name="O0")
+    assert not Task.objects.filter(project=project, assignee=holder).exists()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    row = only(holder)
+    assert "from Agile to Waterfall" in row.body, f"the {who} was not told what changed"
+    assert row.subject == "This project now runs as Waterfall"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "role",
+    [
+        pytest.param(Role.SCHEDULER, id="scheduler"),
+        pytest.param(Role.ADMIN, id="admin"),
+        pytest.param(Role.OWNER, id="owner"),
+    ],
+)
+def test_a_scheduler_or_above_with_no_assigned_task_gets_the_surface_notice(
+    project: Project, django_capture_on_commit_callbacks: Any, role: int
+) -> None:
+    """Anyone who could have made this flip is told when somebody else makes it.
+
+    ``role >= SCHEDULER`` is the board-config write gate, and a PM who owns the
+    plan routinely assigns none of it to themselves — so the person accountable
+    for the schedule was structurally outside the only notice about it.
+    """
+    actor = member(project, Role.OWNER, "actor")
+    lead = member(project, role, f"lead{role}")
+    task_for_assignee(project, member(project, Role.MEMBER, "other"), name="O0")
+    assert not Task.objects.filter(project=project, assignee=lead).exists()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    assert "from Agile to Waterfall" in only(lead).body
+    assert inbox(actor) == [], "the person who made the change is never told about it"
+
+
+@pytest.mark.django_db
+def test_the_actor_is_excluded_even_when_they_qualify_on_every_cohort(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The actor exclusion has to survive the widening, and it nearly did not.
+
+    Before #3291 the actor could only enter the surface cohort by being assigned,
+    so ``assigned_recipient_ids``' own discard did the work. The Scheduler+ arm now
+    re-adds them on *every* flip — the actor of a ``perform_update`` surface change
+    is Scheduler+ essentially by definition — so the union's trailing ``discard``
+    is the only thing left stopping a self-notification. Every other test in this
+    section asserts on the recipient, so deleting that one line would leave the
+    whole suite green while every PM notified themselves about their own click.
+    """
+    actor = facet_member(project, Role.ADMIN, "pm", product_owner=True, scrum_master=True)
+    task_for_assignee(project, actor, name="A0")
+    witness = member(project, Role.MEMBER, "witness")
+    task_for_assignee(project, witness, name="W0")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    assert inbox(actor) == [], "the actor qualifies three ways and must still be excluded"
+    assert len(inbox(witness)) == 1, "the notice did fire — the assertion above is not vacuous"
+
+
+@pytest.mark.django_db
+def test_the_body_is_coherent_for_a_recipient_who_owns_nothing(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The zero-count clause is now the normal case, not an edge case.
+
+    Every recipient added by the widened cohort may own nothing, so the ownership
+    clause has to degrade to a sentence rather than be omitted — an omitted clause
+    reads as an unstated many, and this whole module exists to refuse a notice the
+    reader has to decode.
+    """
+    actor = member(project, Role.ADMIN, "pm")
+    po = facet_member(project, Role.MEMBER, "po", product_owner=True)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    body = only(po).body
+    assert body.endswith("Nothing you own moved.")
+    assert "Your 0 items" not in body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "role",
+    [pytest.param(Role.VIEWER, id="viewer"), pytest.param(Role.MEMBER, id="member")],
+)
+def test_a_bystander_below_the_gate_with_no_work_is_still_not_notified(
+    project: Project, django_capture_on_commit_callbacks: Any, role: int
+) -> None:
+    """The widening is bounded — it is not "notify the whole membership".
+
+    A Viewer or Member holding no work and no facet has no surface of their own
+    that the flip re-shapes, and a notice to them is the noise that gets the
+    channel muted, which costs the signal this module exists to carry.
+    """
+    actor = member(project, Role.ADMIN, "pm")
+    bystander = member(project, role, f"bystander{role}")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    assert inbox(bystander) == []
+
+
+@pytest.mark.django_db
+def test_a_facet_holder_whose_membership_was_revoked_is_not_notified(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The privacy floor has to survive the widening, and the facet half needs it.
+
+    The ADR-0078 §F mirror only ever *creates* team rows, so soft-deleting a
+    ``ProjectMembership`` leaves the ``TeamMembership`` live with its facet flags
+    intact. Unioning the facet cohort without re-intersecting live membership
+    would widen who keeps being told a project's internal structure after losing
+    access — a dead link and a scope leak (ADR-0104's back-door close).
+    """
+    actor = member(project, Role.ADMIN, "pm")
+    gone = facet_member(project, Role.MEMBER, "ex-po", product_owner=True)
+    ProjectMembership.objects.filter(project=project, user=gone).update(is_deleted=True)
+    assert TeamMembership.objects.filter(user=gone, is_deleted=False).exists()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    assert inbox(gone) == []
+
+
+@pytest.mark.django_db
+def test_someone_who_qualifies_three_ways_is_notified_exactly_once(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A set union rather than list concatenation is what makes this hold.
+
+    A Scheduler who holds the PO facet and owns a task qualifies on all three
+    cohorts; concatenating them would send the same person three inbox rows.
+    """
+    actor = member(project, Role.ADMIN, "pm")
+    triple = facet_member(project, Role.SCHEDULER, "triple", product_owner=True)
+    task_for_assignee(project, triple, name="T0")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    row = only(triple)
+    assert "Your 1 item keeps its status, dates and assignments" in row.body
+
+
+@pytest.mark.django_db
+def test_the_board_lane_notice_audience_is_unchanged(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The board notice stays assigned-only — its audience is genuinely correct.
+
+    A lane going away moves *cards*. A Product Owner or a Scheduler with no card
+    on the board has had nothing moved out from under them, so widening this sink
+    too would be the over-eager trigger the module's first property forbids. Both
+    sinks share ``PROJECT_CONFIG_CHANGED``, which is exactly how one could be
+    widened by accident.
+    """
+    actor = member(project, Role.ADMIN, "pm")
+    po = facet_member(project, Role.MEMBER, "po", product_owner=True)
+    lead = member(project, Role.SCHEDULER, "lead")
+    assigned = member(project, Role.MEMBER, "assigned")
+    task_for_assignee(project, assigned, name="A0", status="REVIEW", board_lane="qa")
+
+    BoardColumnConfig.objects.create(
+        project=project, columns=columns(lanes_by_status={"REVIEW": [lane("qa", "QA")]})
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(actor).put(
+            config_url(project), data={"columns": columns()}, format="json"
+        )
+    assert resp.status_code == 200
+
+    assert len(inbox(assigned)) == 1
+    assert inbox(po) == [], "the board notice must not be widened to non-assignees"
+    assert inbox(lead) == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN])
+@pytest.mark.parametrize(
+    ("scrum_master", "product_owner"),
+    [(False, False), (True, False), (False, True), (True, True)],
+)
+@pytest.mark.parametrize("holds_work", [False, True])
+def test_notified_set_covers_surface_owner_set(
+    project: Project,
+    django_capture_on_commit_callbacks: Any,
+    role: int,
+    scrum_master: bool,
+    product_owner: bool,
+    holds_work: bool,
+) -> None:
+    """Across the whole role x facet x assignment matrix: owns the surface => notified.
+
+    The anti-drift pin, in the shape of ``test_notified_set_covers_authorized_set``
+    (#2897). That one had a separate code predicate to compare against — the scope
+    gate — and this cohort has none, so the predicate is written out here
+    deliberately rather than read back from the implementation. Reading it from
+    ``surface_recipient_ids`` would make the test a tautology that stays green
+    through exactly the regression it exists to catch.
+
+    The converse (notified => owns the surface) is asserted separately and
+    narrowly by the bystander test above; here, owning-without-notice is the
+    defect, and it is the one that recurred twice.
+    """
+    actor = member(project, Role.OWNER, "actor")
+    subject = facet_member(
+        project, role, "subject", scrum_master=scrum_master, product_owner=product_owner
+    )
+    if holds_work:
+        task_for_assignee(project, subject, name="S0")
+
+    owns_surface = role >= Role.SCHEDULER or scrum_master or product_owner or holds_work
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert switch_preset(actor, project).status_code == 200
+
+    notified = Notification.objects.filter(recipient=subject, event_type=EVENT).exists()
+
+    assert not (owns_surface and not notified), (
+        f"role={role} scrum_master={scrum_master} product_owner={product_owner} "
+        f"holds_work={holds_work} works on this surface and was never told it changed"
+    )
+
+
+# ---------------------------------------------------------------------------
 # The bulk settings matrix — the OTHER way a preset gets switched
 # ---------------------------------------------------------------------------
 
@@ -969,6 +1280,47 @@ def test_the_program_settings_matrix_notifies_and_broadcasts(
     row = only(priya)
     assert "from Agile to Waterfall" in row.body
     assert (str(target.pk), "project_updated", {"id": str(target.pk)}) in broadcasts
+
+
+@pytest.mark.django_db
+def test_the_bulk_matrix_reaches_surface_owners_too(
+    calendar: Calendar, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The widened cohort has to hold at BOTH call sites, not just the settings page.
+
+    ``perform_update`` and the program bulk matrix are two entry points into one
+    emit, and #2972 already shipped a fix that reached only one route once. A PO
+    whose project is flipped from the program matrix is the same person with the
+    same missing notice.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
+
+    admin = User.objects.create_user(username="progadmin", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=admin, role=WorkspaceRole.ADMIN
+    )
+    program = Program.objects.create(name="Atlas Program")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.OWNER)
+
+    target = Project.objects.create(
+        name="In matrix",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        program=program,
+        methodology=Methodology.AGILE,
+    )
+    po = facet_member(target, Role.MEMBER, "po", product_owner=True)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(admin).post(
+            f"/api/v1/programs/{program.pk}/bulk-project-fields/",
+            {"ids": [str(target.pk)], "fields": {"methodology": Methodology.WATERFALL}},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.content
+
+    assert "from Agile to Waterfall" in only(po).body
 
 
 @pytest.mark.django_db
