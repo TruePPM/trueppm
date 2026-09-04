@@ -178,7 +178,12 @@ export function SeedFailureBanner({
           stripped one-shot on consume (rule 374(b)), so a reload cannot bring the
           reason back. A first tab stop that destroys the surface's payload is the
           wrong first tab stop. */}
-      <div className="flex shrink-0 items-center gap-1.5">
+      {/* `gap-2.5` (10px), not the sibling banners' `gap-1.5`, because both controls
+          below grow a 44px target around a 28px box (rule 330(a)). The dismiss
+          overhangs 8px per side, so a 6px gap would put its target — painted ABOVE
+          retry, being later in the DOM — over the last 2px of "Try again", and a tap
+          aimed at the recovery would dismiss the banner instead. 10px clears it. */}
+      <div className="flex shrink-0 items-center gap-2.5">
         {canRetry && (
           // No two-click confirm: `SeedBanner`'s `confirmingDelete` idiom guards
           // DESTRUCTIVE acts, and retrying is additive — it is precisely what the
@@ -190,8 +195,10 @@ export function SeedFailureBanner({
             onClick={handleRetry}
             disabled={applyMutation.isPending}
             data-testid="seed-failure-banner-retry"
-            className="h-7 rounded px-2.5 text-xs font-medium
+            className="relative h-7 rounded px-2.5 text-xs font-medium
               border border-semantic-critical/40 bg-neutral-surface text-semantic-critical
+              before:absolute before:inset-x-0 before:top-1/2 before:h-11
+              before:-translate-y-1/2 before:content-['']
               hover:bg-neutral-surface-raised disabled:opacity-60
               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
