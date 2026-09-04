@@ -2845,12 +2845,20 @@ def assert_scope_gate_for_project(project_id: Any, by: Any) -> None:
     without being a project Admin; the Scrum Master, who facilitates the ceremony,
     likewise qualifies.
 
-    Both axes resolve to a **real, explicitly-assigned membership row** (a
-    ``ProjectMembership`` for the role ordinal, a default-team ``TeamMembership``
-    with the facet flag for the facet). This preserves the ADR-0102 §3 back-door
-    close: an org-level/PMO principal arrives with neither a project membership nor
-    a team facet and is rejected here regardless of any role ordinal they hold
-    elsewhere — no Enterprise policy resolver can synthesize either row.
+    Both axes resolve to a **real, explicitly-assigned, live membership row** (a
+    non-soft-deleted ``ProjectMembership`` for the role ordinal; a default-team
+    ``TeamMembership`` with the facet flag, itself floored on a live
+    ``ProjectMembership``, for the facet — #3386). This preserves the ADR-0102 §3
+    back-door close: an org-level/PMO principal arrives with neither a project
+    membership nor a team facet and is rejected here regardless of any role ordinal
+    they hold elsewhere — no Enterprise policy resolver can synthesize either row.
+
+    The facet floor is what makes this gate stand alone as the docstring on
+    :class:`~trueppm_api.apps.access.permissions.IsProjectScopeManager` promises —
+    "even if a view forgets this class". Without it the facet arm fires exactly when
+    the role arm found nothing, so a revoked member's residual mirrored team row
+    (the ADR-0078 §F mirror is create-only) would pass here, and only the caller's
+    member-scoped queryset would stop them.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
     from trueppm_api.apps.teams.services import user_facets

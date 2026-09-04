@@ -8,6 +8,7 @@ are independent axes.
 
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from typing import Any
 
@@ -81,12 +82,21 @@ def test_facet_holder_user_ids_is_the_set_form_of_user_facets(
     Asserted as an equality against ``user_facets`` rather than against a hand-written
     expected set: the two answering the same question differently is the #2897 defect,
     and a hardcoded expectation would not catch a future divergence.
+
+    Every user here gets a real ``ProjectMembership`` as well as the team row. That is
+    not fixture boilerplate — since #3386 ``user_facets`` floors on live project
+    membership, and a team row with no matching project row is a state only a
+    *revocation* can produce in production. Building the fixture without it would be
+    asserting the equality on the revoked cohort rather than the live one.
     """
     sm = User.objects.create_user(username="sm", password="pw")
     po = User.objects.create_user(username="po2", password="pw")
     both = User.objects.create_user(username="both", password="pw")
     neither = User.objects.create_user(username="neither", password="pw")
     admin_no_facet = User.objects.create_user(username="admin-nf", password="pw")
+    for member in (sm, po, both, neither):
+        ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=admin_no_facet, role=Role.ADMIN)
 
     TeamMembership.objects.create(team=default_team, user=sm, is_scrum_master=True)
     TeamMembership.objects.create(team=default_team, user=po, is_product_owner=True)
@@ -101,6 +111,44 @@ def test_facet_holder_user_ids_is_the_set_form_of_user_facets(
 
     assert facet_holder_user_ids(project.pk) == expected
     assert facet_holder_user_ids(project.pk) == {sm.pk, po.pk, both.pk}
+
+
+def test_the_two_facet_seams_on_a_revoked_holder(project: Project, default_team: Team) -> None:
+    """Pins both seams' answer for a revoked facet holder, in either merge order.
+
+    The equality test above was made to keep passing by giving every fixture user a
+    live ``ProjectMembership`` — correct, because a team row without one is a state
+    only a revocation produces. But that edit means it now only ever asks the *live*
+    cohort, and the divergence it was written to catch (#2897: two seams answering the
+    same question differently) moved out of its view. So the revoked cohort is asserted
+    here instead of being fixtured away.
+
+    The awkward part is that the two seams are mid-migration and land in separate MRs:
+    #3386 floors ``user_facets``, #3334 floors ``facet_holder_user_ids``. A test that
+    hard-coded either state would be green on its own branch and red on ``main`` the
+    moment the other merged — a collision that exists only on the merged tree, which is
+    the failure mode worth designing out rather than leaving a note about. So the
+    expectation is **derived from the resolver's own signature**: once
+    ``facet_holder_user_ids`` grows the floor parameter, this asserts the floored
+    answer; until then it asserts the un-floored one. Either way ``user_facets``
+    excludes the revoked holder, which is the invariant #3386 actually owns.
+    """
+    revoked = User.objects.create_user(username="diverge", password="pw")
+    membership = ProjectMembership.objects.create(project=project, user=revoked, role=Role.MEMBER)
+    TeamMembership.objects.create(team=default_team, user=revoked, is_product_owner=True)
+    membership.is_deleted = True
+    membership.save(update_fields=["is_deleted"])
+
+    # The invariant this branch owns, true in both worlds.
+    assert user_facets(revoked, project.pk)["is_product_owner"] is False
+
+    set_seam_is_floored = (
+        "live_project_members_only" in inspect.signature(facet_holder_user_ids).parameters
+    )
+    if set_seam_is_floored:
+        assert revoked.pk not in facet_holder_user_ids(project.pk)
+    else:
+        assert revoked.pk in facet_holder_user_ids(project.pk)
 
 
 def test_facet_holder_user_ids_excludes_revoked_and_non_default_teams(
@@ -125,6 +173,35 @@ def test_facet_holder_user_ids_excludes_revoked_and_non_default_teams(
     TeamMembership.objects.create(team=other_team, user=off_team, is_scrum_master=True)
 
     assert facet_holder_user_ids(project.pk) == set()
+
+
+def test_user_facets_floors_on_live_project_membership(
+    project: Project, default_team: Team
+) -> None:
+    """A revoked project member's residual facet row resolves to no facets (#3386).
+
+    The ADR-0078 §F mirror is create-only, so soft-deleting the ``ProjectMembership``
+    leaves this ``TeamMembership`` live and flagged. Four write gates read this seam on
+    the branch that runs precisely when the role lookup returned ``None``, so without
+    the floor the revocation would *promote* the residual facet into the user's only
+    credential. The full gate-by-gate sweep lives in
+    ``tests/apps/access/test_facet_live_membership_floor.py``; this asserts the seam.
+    """
+    user = User.objects.create_user(username="revoked-po", password="pw")
+    membership = ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    TeamMembership.objects.create(
+        team=default_team, user=user, role=TeamRole.MEMBER, is_product_owner=True
+    )
+    assert has_team_facet(user, project.pk, "is_product_owner") is True  # control: live member
+
+    membership.is_deleted = True
+    membership.save(update_fields=["is_deleted"])
+
+    assert has_team_facet(user, project.pk, "is_product_owner") is False
+    assert user_facets(user, project.pk) == {"is_scrum_master": False, "is_product_owner": False}
+    # The opt-out still answers the raw "what does the team row say" question.
+    raw = user_facets(user, project.pk, live_project_members_only=False)
+    assert raw["is_product_owner"] is True
 
 
 def test_user_facets_for_anonymous_and_nonmember(project: Project, default_team: Team) -> None:
