@@ -20,7 +20,7 @@ This document classifies every `transaction.on_commit` callsite in
 | Bucket | Definition | Verdict |
 |---|---|---|
 | **outbox-protected** | Callback dispatches Celery work, but a durable outbox row was committed earlier in the same transaction. A Beat drain replays the row if dispatch fails. | Safe |
-| **best-effort by design** | Callback only pushes a WebSocket event (`broadcast_board_event` / `broadcast_workshop_event`). Loss is recoverable because clients re-fetch via the sync delta protocol on reconnect. | Safe (acceptable loss) |
+| **best-effort by design** | Callback only pushes a WebSocket event (`broadcast_board_event`). Loss is recoverable because clients re-fetch via the sync delta protocol on reconnect. | Safe (acceptable loss) |
 | **durability-hole** | Callback dispatches Celery work or performs an external write with **no** preceding outbox row and **no** client-pull recovery path. | Must fix |
 
 ### The outbox machinery (what "protected" means)
@@ -40,8 +40,8 @@ Any callback that calls one of these helpers is outbox-protected *by definition*
 
 ### The best-effort contract (why broadcasts are safe to lose)
 
-`broadcast_board_event` (`apps/sync/broadcast.py`) and `broadcast_workshop_event`
-(`apps/workshops/broadcast.py`) are **best-effort by design**. A broadcast is a
+`broadcast_board_event` (`apps/sync/broadcast.py`) is **best-effort by design**.
+A broadcast is a
 push optimization, not the source of truth: every event it carries is also
 durably persisted in the DB before the broadcast is scheduled, and clients
 reconcile their state by pulling the sync delta on (re)connect. If the channel
@@ -56,6 +56,13 @@ property of the broadcast mechanism, stated once at its definition).
 ## Result
 
 **91 callsites · 31 outbox-protected · 60 best-effort by design · 0 durability holes.**
+
+> **These totals are the 2026-05-23 snapshot and are stale.** #2473 records that the
+> real callsite count has drifted well past this figure with no gate enforcing the
+> outbox rule, so do not read them as current. Separately, the two `apps/workshops/*`
+> sections (5 best-effort callsites) were removed on 2026-09-03 with the workshops app
+> itself (#3301) — they were deleted rather than recounted, because leaving them would
+> point a reader at modules that no longer exist.
 
 No spot-fixes were required and no follow-up issues were filed: every
 Celery-dispatching callback is already preceded by a committed outbox row with a
@@ -232,26 +239,11 @@ below.
 > write (L159) inside the task body, not in the `on_commit` callback; only the
 > `sprint_closed` broadcast is deferred and best-effort.
 
-### `apps/workshops/services.py` — 0 protected · 3 best-effort
-
-| line | function | side effect | class |
-|---|---|---|---|
-| 36 | `start_workshop` | broadcast `workshop_started` | best-effort |
-| 66 | `end_workshop` | broadcast `workshop_ended` | best-effort |
-| 97 | `force_end_workshop` | broadcast `workshop_ended` | best-effort |
-
-### `apps/workshops/consumers.py` — 0 protected · 2 best-effort
-
-| line | function | side effect | class |
-|---|---|---|---|
-| 132 | `WorkshopConsumer._participant_join` | broadcast `participant_joined` (presence) | best-effort |
-| 162 | `WorkshopConsumer._participant_leave` | broadcast `participant_left` (presence) | best-effort |
-
 ## How to keep this audit true
 
 When you add a `transaction.on_commit` callback:
 
-- **Broadcast only** (`broadcast_board_event` / `broadcast_workshop_event`) → best-effort, no action needed; the durability contract is on the primitive.
+- **Broadcast only** (`broadcast_board_event`) → best-effort, no action needed; the durability contract is on the primitive.
 - **Dispatch Celery work** (`.delay()` / `.apply_async()`) → you **must** commit an outbox row first (`enqueue_recalculate`, `dispatch_webhooks`, `enqueue_import`, `enqueue_sprint_close`, or a new outbox model with its own drain). Never `.delay()` from `on_commit` without a durable row.
 - **External write** (HTTP, email) → route through an outbox + drain; never fire directly from `on_commit`.
 

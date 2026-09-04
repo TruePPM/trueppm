@@ -35,6 +35,10 @@ def _load_schema() -> dict:
 #: The recursive component the 400's field-keyed values reference (#3324).
 _ERROR_DETAIL = "ValidationErrorDetail"
 
+#: Opening of the description `TruePPMAutoSchema` injects on every 400 it adds. The
+#: only marker distinguishing an injected 400 from one an operation declared by hand.
+_INJECTED_400 = "The request was rejected. Either a field failed validation"
+
 
 @pytest.fixture(scope="module")
 def schema() -> dict:
@@ -248,14 +252,13 @@ def test_the_400_is_not_advertised_where_there_is_no_body_to_reject(schema: dict
     invent one, by checking no bodyless operation carries the injected
     description.
     """
-    INJECTED = "The request was rejected. Either a field failed validation"
     invented = [
         f"{method.upper()} {path}"
         for path, ops in schema["paths"].items()
         for method, op in ops.items()
         if method in ("post", "put", "patch", "delete")
         and "requestBody" not in op
-        and INJECTED in (op.get("responses", {}).get("400", {}).get("description") or "")
+        and _INJECTED_400 in (op.get("responses", {}).get("400", {}).get("description") or "")
     ]
     assert not invented, (
         f"the 400 injection reached {len(invented)} operation(s) with no request "
@@ -269,18 +272,215 @@ def test_the_declared_400_admits_the_shapes_the_api_actually_returns(schema: dic
     A schema declaring only `detail` would type the uncommon case and mis-type
     field validation, which is the majority of real 400s.
 
-    The field-keyed value is a `$ref` rather than an inline `array<string>` since
-    #3324: DRF nests, and this assertion previously pinned the flat form that made
-    the nightly `api:fuzz` fail three operations. The shapes themselves are
+    Every value in the body — the two envelope keys included — is the recursive
+    `ValidationErrorDetail`. This assertion used to pin `detail` and `code` to
+    `string`, which is what #3347 fixed: `additionalProperties` governs only keys
+    *not* named in `properties`, so #3324's widening stopped at the envelope's own
+    two names, and `code` is a name the API uses twice — the refusal code, and the
+    serializer field `Program.code` / `Project.code`. The shapes themselves are
     asserted against real bodies in
     `test_declared_400_validates_the_bodies_drf_actually_returns`.
     """
     op = schema["paths"]["/api/v1/projects/"]["post"]
     body = op["responses"]["400"]["content"]["application/json"]["schema"]
-    assert body["properties"]["detail"]["type"] == "string"  # Shape 1
-    assert body["properties"]["code"]["type"] == "string"  # Shape 2 — the contract
+    ref = {"$ref": f"#/components/schemas/{_ERROR_DETAIL}"}
+    # Shapes 1 and 2 — a string is `ValidationErrorDetail`'s first `oneOf` branch, so
+    # the envelope form still validates; `allOf` is how OpenAPI 3.0.3 carries the
+    # description and example, which a bare `$ref` discards (#3347).
+    assert body["properties"]["detail"]["allOf"] == [ref]
+    assert body["properties"]["code"]["allOf"] == [ref]
+    assert body["properties"]["code"]["example"] == "invalid_body"
     # DRF's field-keyed errors, flat or nested (#3324).
-    assert body["additionalProperties"] == {"$ref": f"#/components/schemas/{_ERROR_DETAIL}"}
+    assert body["additionalProperties"] == ref
+
+
+# ---------------------------------------------------------------------------
+# #3319 — the residue of #3286: bodies declared as absent, and refusals on state
+# ---------------------------------------------------------------------------
+
+#: Every bodyless write operation that declares a 400, and what makes it refuse.
+#:
+#: This list is the fix, not a description of it. #3286's rule is mechanical —
+#: `requestBody` present ⇔ DRF can raise ValidationError — and there is no
+#: equivalent signal for "this action refuses on the state of the thing it acts
+#: on": a `HTTP_400_BAD_REQUEST` grep is a heuristic over control flow that both
+#: misses refusals raised two calls down and fires on dead branches. So each entry
+#: here was read out of the handler by hand and is pinned in both directions:
+#: dropping a declaration fails, and adding one without reviewing this list fails
+#: too. The second direction is the one that matters — advertising a refusal an
+#: endpoint cannot produce grows an unreachable branch in every generated client,
+#: which is the same defect as omitting one, pointing the other way.
+_STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("delete", "/api/v1/me/connections/{source}/"),
+        ("delete", "/api/v1/me/credentials/{provider}/"),
+        ("delete", "/api/v1/me/timesheets/{week_start}/submit"),
+        ("delete", "/api/v1/programs/{program_pk}/members/{id}/"),
+        ("delete", "/api/v1/projects/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/members/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/phases/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/"),
+        (
+            "delete",
+            "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{id}/",
+        ),
+        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/"),
+        ("delete", "/api/v1/sprints/{id}/"),
+        ("delete", "/api/v1/workspace/"),
+        ("delete", "/api/v1/workspace/members/{user_id}/"),
+        ("post", "/api/v1/cascade-classification-operations/{id}/undo/"),
+        ("post", "/api/v1/dependencies/{id}/accept/"),
+        ("post", "/api/v1/dependencies/{id}/reject/"),
+        ("post", "/api/v1/me/api-tokens/"),
+        ("post", "/api/v1/me/connections/{source}/sync/"),
+        ("post", "/api/v1/me/timesheets/{week_start}/submit"),
+        ("post", "/api/v1/paste-many-operations/{id}/undo/"),
+        ("post", "/api/v1/programs/{program_pk}/api-tokens/"),
+        ("post", "/api/v1/projects/{id}/tasks/{task_id}/indent/"),
+        ("post", "/api/v1/projects/{id}/tasks/{task_id}/outdent/"),
+        ("post", "/api/v1/projects/{project_pk}/api-tokens/"),
+        ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
+        ("post", "/api/v1/template-applications/{id}/undo/"),
+        ("post", "/api/v1/workspace/email-settings/send-test/"),
+        # The seven that predate #3319 and were already hand-declared. #3286's
+        # `setdefault` leaves them alone; they are listed so this set is the whole
+        # truth about bodyless writes carrying a 400, not just the new ones.
+        ("post", "/api/v1/integrations/projects/{project_pk}/git-webhook/"),
+        ("post", "/api/v1/programs/{id}/pin/"),
+        ("delete", "/api/v1/programs/{id}/pin/"),
+        ("post", "/api/v1/projects/{id}/pin/"),
+        ("delete", "/api/v1/projects/{id}/pin/"),
+        ("post", "/api/v1/projects/{project_pk}/import/csv/{id}/undo/"),
+        ("post", "/api/v1/resources/{id}/restore/"),
+    }
+)
+
+
+def test_bodyless_writes_declaring_a_400_are_exactly_the_reviewed_set(schema: dict) -> None:
+    """Pin the hand-declared set in both directions (#3319).
+
+    A missing entry means a state refusal a generated client has no typed branch
+    for. An *extra* one means somebody blanket-declared a 400 on a write that
+    cannot produce one, which is the failure mode #3286 deliberately avoided and
+    the reason this could not be mechanized. Either way the list above is the
+    thing to change, and changing it is the moment the handler gets re-read.
+    """
+    declared = {
+        (method, path)
+        for path, ops in schema["paths"].items()
+        for method, op in ops.items()
+        if method in ("post", "put", "patch", "delete")
+        and "requestBody" not in op
+        and "400" in op.get("responses", {})
+    }
+    missing = sorted(_STATE_REFUSAL_OPERATIONS - declared)
+    unreviewed = sorted(declared - _STATE_REFUSAL_OPERATIONS)
+    assert not missing, f"bodyless writes that lost their declared 400 (#3319): {missing}"
+    assert not unreviewed, (
+        "a bodyless write declares a 400 that nobody reviewed against the handler "
+        f"(#3319) — read the handler, then add it to _STATE_REFUSAL_OPERATIONS: {unreviewed}"
+    )
+
+
+def test_every_state_refusal_400_uses_one_of_the_three_real_wire_shapes(schema: dict) -> None:
+    """The declared body must be a shape the API actually puts on the wire (#3319).
+
+    Three exist and they are not interchangeable. A flat ``{"detail"}`` object, a
+    field-keyed object, and — the one that is easy to declare wrongly — a
+    top-level **array**, which is what DRF emits for
+    ``ValidationError("a bare string")``: it wraps a string detail in a list, so
+    there is no enclosing object and no key to read the message under.
+
+    Two operations are exempt because they answer with their own documented
+    envelope rather than a refusal shape; both are asserted by name below rather
+    than waved through by a wildcard.
+    """
+    bespoke = {
+        # Answers {"sent": false, "error": "..."} on both its 400 and its 502 so a
+        # client renders one banner for either.
+        ("post", "/api/v1/workspace/email-settings/send-test/"),
+        # Signature/payload rejection on the webhook ingest surface (pre-#3319).
+        ("post", "/api/v1/integrations/projects/{project_pk}/git-webhook/"),
+    }
+    offenders = []
+    for method, path in sorted(_STATE_REFUSAL_OPERATIONS - bespoke):
+        response = schema["paths"][path][method]["responses"]["400"]
+        content = response.get("content")
+        if content is None:
+            # A description-only declaration types nothing for a client, but it is
+            # how the pre-#3319 pin/undo/restore sites were written; not a
+            # regression to introduce, so it is tolerated only where it already is.
+            continue
+        body = content["application/json"]["schema"]
+        # The pre-#3319 pin sites point at a named component; resolve it so the
+        # shape check reads the same thing a client generator would.
+        if "$ref" in body:
+            body = schema["components"]["schemas"][body["$ref"].rsplit("/", 1)[-1]]
+        is_messages = body.get("type") == "array" and body.get("items") == {"type": "string"}
+        is_detail = body.get("type") == "object" and "detail" in body.get("properties", {})
+        is_fields = body.get("type") == "object" and "additionalProperties" in body
+        if not (is_messages or is_detail or is_fields):
+            offenders.append(f"{method.upper()} {path}: {body}")
+    assert not offenders, f"400 declared in a shape the API never returns (#3319): {offenders}"
+
+
+def test_the_bare_array_refusal_shape_is_declared_where_drf_emits_it(schema: dict) -> None:
+    """``ValidationError("string")`` puts a JSON **array** on the wire (#3319).
+
+    Three view-level guards raise on a bare string, and DRF's exception handler
+    passes a list detail through verbatim. A client typed against an object throws
+    while parsing, before it can read the message — so this is the shape most worth
+    pinning, and the one a copy-pasted ``{"detail"}`` declaration would get wrong.
+    """
+    array_sites = [
+        ("post", "/api/v1/dependencies/{id}/accept/"),
+        ("post", "/api/v1/dependencies/{id}/reject/"),
+        ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
+    ]
+    for method, path in array_sites:
+        body = schema["paths"][path][method]["responses"]["400"]["content"]["application/json"][
+            "schema"
+        ]
+        assert body == {"type": "array", "items": {"type": "string"}}, (
+            f"{method.upper()} {path} returns a bare array of messages; declaring an "
+            "object there would make a generated client throw on parse (#3319)."
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "required_field"),
+    [
+        ("/api/v1/project-templates/publish/", "project"),
+        ("/api/v1/project-templates/{id}/apply/", "project"),
+    ],
+)
+def test_template_write_endpoints_declare_the_body_they_require(
+    schema: dict, path: str, required_field: str
+) -> None:
+    """Both were ``request=None`` while requiring a body (#3319, Part A).
+
+    Worse than a missing error branch: the contract said the endpoint accepts
+    nothing, so a generated client could not send the required field *at all*, and
+    ``apply`` answered ``{"project": "This field is required."}`` naming a field
+    the schema had never mentioned. Declaring the body also brings both operations
+    under #3286's automatic 400 injection, which is asserted here too — the 400
+    arriving is what proves the declaration is wired to the mechanism rather than
+    hand-written beside it.
+    """
+    op = schema["paths"][path]["post"]
+    assert "requestBody" in op, f"POST {path} requires a body and must declare one (#3319)."
+    ref = op["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+    assert required_field in component["properties"], (
+        f"POST {path} reads {required_field!r} off the body; the declared schema must name it."
+    )
+    assert required_field in component.get("required", []), (
+        f"POST {path} refuses without {required_field!r}, so the schema must mark it required."
+    )
+    assert "400" in op["responses"], (
+        f"POST {path} must inherit #3286's 400 once it declares a body (#3319)."
+    )
 
 
 def test_validation_error_detail_component_is_recursive(schema: dict) -> None:
@@ -334,6 +534,55 @@ def test_no_operation_declares_a_flat_field_error_map(schema: dict) -> None:
     )
 
 
+def test_no_400_declares_an_envelope_key_narrower_than_its_field_map(schema: dict) -> None:
+    """No named key in a 400 may reject what an unnamed key accepts (#3347).
+
+    The class guard, and the reason it sweeps rather than spot-checks the one
+    operation the nightly drew. `additionalProperties` governs only keys that
+    `properties` does not name, so every name the envelope adds is a hole punched
+    through the field-keyed map underneath it — silently, because a key named in
+    `properties` looks *more* specified, not less. #3286 punched two (`detail`,
+    `code`), #3324 widened the map and could not reach them, and `api:fuzz` found
+    `code` eleven weeks later on the one night Hypothesis generated a `Program.code`
+    over 40 characters.
+
+    Asserted behaviorally: a field-keyed value is fed under *every* declared name,
+    on every operation. A structural check ("each property must be an `allOf`
+    `$ref`") would pass a third narrow-but-differently-shaped declaration; this
+    cannot. The envelope's own string form is validated alongside it so that
+    "widen it" is not satisfied by deleting the keys the vocabulary depends on.
+
+    Denominator at the time of writing: 191 operations carry the injected 400, two
+    envelope keys each, both previously narrow. 21 operations expose a writable
+    serializer field named `code` (every `Program`/`Project` request body) and 0
+    expose one named `detail` — so `code` was the live instance and `detail` the
+    latent one, and both are covered here.
+    """
+    field_errors = ["Ensure this field has no more than 40 characters."]
+    offenders: list[str] = []
+    for path, ops in schema["paths"].items():
+        for method, op in ops.items():
+            if not isinstance(op, dict):
+                continue
+            response = (op.get("responses") or {}).get("400") or {}
+            declared = (response.get("content") or {}).get("application/json", {}).get("schema", {})
+            if _INJECTED_400 not in (response.get("description") or ""):
+                continue
+            validator = jsonschema.Draft202012Validator(
+                {**declared, "components": schema["components"]}
+            )
+            bodies = [{name: field_errors} for name in declared.get("properties", {})]
+            bodies.append({"detail": "Request body must be a JSON object.", "code": "invalid_body"})
+            for body in bodies:
+                if errors := sorted(validator.iter_errors(body), key=str):
+                    offenders.append(f"{method.upper()} {path} {body}: {errors[0].message}")
+    assert not offenders, (
+        "a key named in a 400's `properties` must admit everything "
+        f"`additionalProperties` does — DRF keys serializer errors by field name and "
+        f"does not skip the names the envelope happens to use (#3347): {offenders[:5]}"
+    )
+
+
 @pytest.mark.parametrize(
     ("label", "body"),
     [
@@ -351,6 +600,15 @@ def test_no_operation_declares_a_flat_field_error_map(schema: dict) -> None:
             "profile.hidden_views",
             {"hidden_views": {"0": ["Not a valid string."], "9": ["Not a valid string."]}},
         ),
+        # The two the 2026-09-04 nightly api:fuzz reported, verbatim in shape (#3347).
+        # `code` is both the refusal envelope's key and a serializer field name, and
+        # `properties.code` shadowed `additionalProperties` for the second meaning.
+        ("programs.code", {"code": ["Ensure this field has no more than 40 characters."]}),
+        ("projects.code", {"code": ["Ensure this field has no more than 12 characters."]}),
+        # `detail` had the identical declaration bug. No serializer has a writable
+        # field of that name today, so this is the latent half of the same class —
+        # pinned here so the fix is not quietly narrowed back to the live half.
+        ("detail as a field key", {"detail": ["This field is required."]}),
         # Shapes the flat declaration already admitted — kept so widening the
         # contract is not mistaken for abandoning it.
         ("flat field", {"name": ["This field is required."]}),

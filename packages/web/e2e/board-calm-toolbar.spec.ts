@@ -6,7 +6,7 @@
  *     options
  *   - Quiet pill toggles report aria-pressed state
  *   - Layout segmented control (Rail · Drawer · Queue) persists across reload
- *   - More⋯ overflow exposes Collapse/Expand/WIP/Tints/EVM/Columns/?/Workshop
+ *   - More⋯ overflow exposes Collapse/Expand/WIP/Tints/EVM/Columns/?
  *
  * Drag-and-drop and the actual lane-collapse behaviour are validated in the
  * BoardView unit tests + board-backlog-band.spec.ts; this spec asserts the
@@ -149,7 +149,6 @@ test.describe('Board calm toolbar (epic #361 child B, issue #382)', () => {
       page.getByRole('button', { name: 'Board columns & WIP limits' }),
     ).toBeVisible();
     await expect(page.getByRole('button', { name: '? Keyboard shortcuts' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Start workshop session' })).toBeVisible();
   });
 
   test('layout switcher persists Drawer selection across reload', async ({ page }) => {

@@ -10,6 +10,7 @@ import { useDrawerSectionStore } from '@/stores/drawerSectionStore';
 import { TaskDetailDrawer, SectionList } from './TaskDetailDrawer';
 import { useReportComposerDirty } from './ComposerDirtyContext';
 import { useTaskDraft } from './TaskDraftContext';
+import { axiosRefusal } from '@/test/axiosError';
 
 // `delay: null` dispatches keystrokes with no inter-event setTimeout so the
 // whole `user.type()` resolves within one flush. With the default delay, the
@@ -32,8 +33,27 @@ const mutate = vi.fn<(payload: SavePayload, opts?: { onSuccess?: () => void }) =
 // so the vi.mock factory may close over them.
 let mockIsSaving = false;
 let mockIsError = false;
+// The REAL error object, not a boolean: the drawer now shapes the refusal itself
+// (`describeWriteRefusal`), so a mock that only carried `isError` would exercise
+// the slot and never the wiring (#3332).
+let mockSaveError: unknown = null;
+// `reset` is the mutation's own, NOT `useDirtyDraft`'s — the drawer calls it to
+// retire a refusal when the subject changes or the draft is edited (web-rule 376).
+// Clearing the module-level `mockSaveError` is what makes the mock model TanStack's
+// actual behavior: without it the spy records the call and the error never goes away,
+// which would pass a call-count assertion while the defect is still on screen.
+const resetSaveMutation = vi.fn(() => {
+  mockIsError = false;
+  mockSaveError = null;
+});
 vi.mock('@/hooks/useTaskMutations', () => ({
-  useUpdateTask: () => ({ mutate, isPending: mockIsSaving, isError: mockIsError }),
+  useUpdateTask: () => ({
+    mutate,
+    isPending: mockIsSaving,
+    isError: mockIsError,
+    error: mockSaveError,
+    reset: resetSaveMutation,
+  }),
 }));
 
 // Spy on navigation so the Expand → full-page path is assertable while keeping
@@ -122,6 +142,8 @@ afterEach(() => {
   TASKS = [];
   mockIsSaving = false;
   mockIsError = false;
+  mockSaveError = null;
+  resetSaveMutation.mockClear();
   mockBreakpoint = 'lg';
   // The section open/reveal store is module-global and session-scoped by design,
   // so clear it between cases or a reveal leaks into the next test.
@@ -550,12 +572,7 @@ function renderDrawerHarness(task: Task | null): DrawerHarness {
   const onSwapCanceled = vi.fn();
   const ui = (t: Task | null) => (
     <MemoryRouter>
-      <TaskDetailDrawer
-        task={t}
-        projectId="p1"
-        onClose={onClose}
-        onSwapCanceled={onSwapCanceled}
-      />
+      <TaskDetailDrawer task={t} projectId="p1" onClose={onClose} onSwapCanceled={onSwapCanceled} />
     </MemoryRouter>
   );
   const { rerender } = render(ui(task));
@@ -630,15 +647,38 @@ describe('TaskDetailDrawer save bar branches', () => {
     expect(desktop().getByText(/to close/i)).toBeInTheDocument();
   });
 
-  it('surfaces the save-failed inline error from the mutation state', async () => {
+  it("surfaces the SERVER's refusal in the save bar, with no retry advice on a 400 (#3332)", async () => {
     const user = userEvent.setup({ delay: null });
-    mockIsError = true;
     const task = makeTask();
     TASKS = [task];
-    renderDrawer(task);
+    const { rerenderTask } = renderDrawerHarness(task);
+
+    // Dirty FIRST, then the refusal lands — the real order, and the only one that
+    // survives web-rule 376's "an edit retires the refusal" guard.
+    await user.type(desktop().getByLabelText('Task name'), ' oops');
+    mockIsError = true;
+    mockSaveError = axiosRefusal(400, { name: ['This field may not be blank.'] });
+    rerenderTask(task);
+    const alert = screen.getAllByTestId('dialog-footer-error')[0];
+    expect(alert).toHaveTextContent('This field may not be blank.');
+    // The hardcoded sentence this slot used to render, which discarded the field
+    // error above and then advised the one act a 400 has already ruled out.
+    expect(alert).not.toHaveTextContent(/try again/i);
+  });
+
+  it('falls back to a plain sentence when the failure carries no readable body', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask();
+    TASKS = [task];
+    const { rerenderTask } = renderDrawerHarness(task);
 
     await user.type(desktop().getByLabelText('Task name'), ' oops');
-    expect(screen.getAllByText("Couldn't save — try again")[0]).toBeInTheDocument();
+    mockIsError = true;
+    mockSaveError = new Error('Network Error');
+    rerenderTask(task);
+    expect(screen.getAllByTestId('dialog-footer-error')[0]).toHaveTextContent(
+      "Couldn't save the task.",
+    );
   });
 
   it('shows the Saving… label and disables Save while the mutation is in flight', async () => {
@@ -684,9 +724,7 @@ describe('TaskDetailDrawer save bar branches', () => {
     // Dirty via the name so the bar appears while the estimate triple stays invalid.
     await user.type(desktop().getByLabelText('Task name'), ' x');
     expect(desktop().getByRole('button', { name: 'Save' })).toBeDisabled();
-    expect(
-      screen.getAllByText(/Optimistic ≤ Most Likely ≤ Pessimistic/)[0],
-    ).toBeInTheDocument();
+    expect(screen.getAllByText(/Optimistic ≤ Most Likely ≤ Pessimistic/)[0]).toBeInTheDocument();
   });
 });
 
@@ -1487,14 +1525,15 @@ describe('TaskDetailDrawer swap guard edges (#1978)', () => {
     const task = makeTask({ id: 't1', name: 'Foundation' });
     const next = makeTask({ id: 't2', name: 'Framing' });
     TASKS = [task, next];
-    mockIsError = true;
     const { rerenderTask } = renderDrawerHarness(task);
 
     await user.type(desktop().getByLabelText('Task name'), ' edit');
+    mockIsError = true;
+    mockSaveError = axiosRefusal(403, { detail: 'You cannot edit this task.' });
     rerenderTask(next);
 
     const guard = within(screen.getByRole('alertdialog'));
-    expect(guard.getByRole('alert')).toHaveTextContent("Couldn't save — try again");
+    expect(guard.getByRole('alert')).toHaveTextContent('You cannot edit this task.');
     expect(guard.getByRole('button', { name: 'Save & open' })).toBeInTheDocument();
   });
 
@@ -1631,5 +1670,77 @@ describe('TaskDetailDrawer open / cache edges', () => {
     renderDrawer(task);
     // The mocked role is below MEMBER, so the client rule denies the edit.
     expect(desktop().getByText('View only')).toBeInTheDocument();
+  });
+});
+
+/**
+ * A refusal is a statement about the payload that was submitted (web-rule 376).
+ *
+ * These three all passed silently before #3332 and all became defects the moment
+ * the sentence got specific: `"Couldn't save — try again"` going stale is noise,
+ * `"You do not have permission to edit this task."` on a row the user never
+ * submitted is the product stating something false.
+ */
+describe('TaskDetailDrawer — retiring a stale refusal (#3332, web-rule 376)', () => {
+  it('does NOT carry task A’s refusal onto task B after a discard-and-open swap', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 't1', name: 'Foundation' });
+    const next = makeTask({ id: 't2', name: 'Framing' });
+    TASKS = [task, next];
+    const { rerenderTask } = renderDrawerHarness(task);
+
+    // Dirty A, refuse A's save, then point the drawer at B — the guard is raised.
+    await user.type(desktop().getByLabelText('Task name'), ' edit');
+    mockIsError = true;
+    mockSaveError = axiosRefusal(403, { detail: 'You cannot edit this task.' });
+    rerenderTask(next);
+    await user.click(screen.getByRole('button', { name: 'Discard & open' }));
+
+    // B is now the subject. Its first edit remounts the save bar — with nothing
+    // in it, because the refusal belonged to A and A is gone.
+    await user.type(desktop().getByLabelText('Task name'), ' edit');
+    expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
+    expect(screen.queryByText('You cannot edit this task.')).toBeNull();
+  });
+
+  it('retires the refusal on the very edit that could have fixed it', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask();
+    TASKS = [task];
+    const { rerenderTask } = renderDrawerHarness(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' oops');
+    mockIsError = true;
+    mockSaveError = axiosRefusal(400, { name: ['This field may not be blank.'] });
+    rerenderTask(task);
+    expect(screen.getAllByTestId('dialog-footer-error')[0]).toHaveTextContent(
+      'This field may not be blank.',
+    );
+
+    // The next keystroke is the user doing the thing the sentence asked for.
+    await user.type(desktop().getByLabelText('Task name'), 'a');
+    expect(resetSaveMutation).toHaveBeenCalled();
+    expect(screen.queryByText('This field may not be blank.')).toBeNull();
+  });
+
+  it('shows the refusal in the swap guard ONLY — never in both live regions at once', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ id: 't1', name: 'Foundation' });
+    const next = makeTask({ id: 't2', name: 'Framing' });
+    TASKS = [task, next];
+    const { rerenderTask } = renderDrawerHarness(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' edit');
+    mockIsError = true;
+    mockSaveError = axiosRefusal(403, { detail: 'You cannot edit this task.' });
+    rerenderTask(next);
+
+    // Both surfaces are mounted (the guard only fires while dirty, which is
+    // exactly when the save bar is up), so two copies would be announced twice.
+    expect(screen.getAllByText('You cannot edit this task.')).toHaveLength(1);
+    expect(within(screen.getByRole('alertdialog')).getByRole('alert')).toHaveTextContent(
+      'You cannot edit this task.',
+    );
+    expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
   });
 });

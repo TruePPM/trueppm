@@ -16,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_view,
     inline_serializer,
@@ -727,6 +728,47 @@ class WorkspaceEmailTestView(IdempotencyMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "email_settings_probe"
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description='Test message sent: ``{"sent": true, "recipient": "<email>"}``.',
+            ),
+            400: OpenApiResponse(
+                # NOT the standard ``{"detail"}`` refusal envelope: this endpoint
+                # answers with its own ``{"sent", "error"}`` pair on both the 400
+                # and the 502 so a client renders one banner either way. Declared
+                # as it is actually emitted rather than as the house shape, which
+                # is the whole point of checking each site (#3319).
+                response={
+                    "type": "object",
+                    "properties": {
+                        "sent": {"type": "boolean", "enum": [False]},
+                        "error": {"type": "string"},
+                    },
+                },
+                description=(
+                    "The requesting operator's account has no email address on file, "
+                    "so there is no server-derived recipient to send to. The recipient "
+                    "is never read from the request body."
+                ),
+            ),
+            502: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "sent": {"type": "boolean", "enum": [False]},
+                        "error": {"type": "string"},
+                    },
+                },
+                description=(
+                    "The configured transport refused or failed. The underlying "
+                    "exception is deliberately not surfaced — it can echo credentials."
+                ),
+            ),
+        },
+    )
     def post(self, request: Request) -> Response:
         from django.core.mail import EmailMessage
 

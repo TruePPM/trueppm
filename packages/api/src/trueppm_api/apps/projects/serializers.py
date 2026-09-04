@@ -6036,6 +6036,13 @@ class TaskClassificationResponseSerializer(serializers.Serializer[Any]):
     # no-op case) — nothing was recorded, so there is nothing to key an Undo
     # affordance off.
     operation_id = serializers.UUIDField(allow_null=True)
+    # #3304: whether the CALLER'S ROLE may undo — not whether this cascade left
+    # anything to undo, which is what `operation_id` above already says. Apply is
+    # `IsProjectPlanAuthor` and the undo endpoint is Admin+, so a Member gets a 200
+    # here and a 403 there; a client that offers Undo on the 200 alone offers a
+    # control that cannot work. Kept orthogonal to `operation_id` so a `false`
+    # never has to mean two different things.
+    can_undo = serializers.BooleanField()
 
 
 class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):

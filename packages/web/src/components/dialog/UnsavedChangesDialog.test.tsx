@@ -111,10 +111,10 @@ describe('UnsavedChangesDialog', () => {
           onKeepEditing={vi.fn()}
           onDiscard={vi.fn()}
           onSaveAndContinue={vi.fn()}
-          error="Couldn't save — try again"
+          error={{ message: 'Duration must be a positive number.', detail: null, retryable: false }}
         />,
       );
-      expect(screen.getByRole('alert')).toHaveTextContent("Couldn't save — try again");
+      expect(screen.getByRole('alert')).toHaveTextContent('Duration must be a positive number.');
       expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });
   });

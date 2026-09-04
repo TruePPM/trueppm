@@ -46,7 +46,7 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, Task
-from trueppm_api.core.openapi import suppress_list_pagination
+from trueppm_api.core.openapi import state_refusal_400, suppress_list_pagination
 
 from . import git_webhook_auth, providers
 from .encryption import CredentialEncryptionError, decrypt_secret
@@ -252,7 +252,16 @@ class IntegrationCredentialViewSet(
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(responses={204: None})
+    @extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "``provider`` does not name a registered task-link provider. The "
+                "path segment is free text, so an unregistered value reaches the "
+                "handler and is refused here rather than 404ing (#3319)."
+            ),
+        }
+    )
     def destroy(self, request: Request, provider: str | None = None) -> Response:
         """Revoke (delete) the credential for ``provider``.
 

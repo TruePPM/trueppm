@@ -57,6 +57,25 @@ export interface ClassificationReport {
    * §7 — nothing changed, so nothing was recorded).
    */
   operation_id: string | null;
+  /**
+   * Whether **this caller's role** may undo (#3304) — a second, higher floor than
+   * the one that let the cascade through.
+   *
+   * Applying is `IsProjectPlanAuthor` (Member+ minus the resource-management band);
+   * `POST /cascade-classification-operations/{id}/undo/` is Admin+. A Member
+   * therefore gets this 200 and a 403 on the undo, so `operation_id` alone is not
+   * enough to decide whether an Undo affordance can work.
+   *
+   * The server's own answer rather than a client-side ordinal test, for the reason
+   * `canAuthorPlan` takes `can_author`: the rule lives on the server, and a client
+   * copy of it drifts. It also rides the very response that raises the toast, so —
+   * unlike a `useCurrentUserRole` read — it can never be unsettled or racing at the
+   * moment the affordance is decided.
+   *
+   * Deliberately independent of `operation_id`: that field says whether there is
+   * anything to undo, this one says whether you may. Both are required.
+   */
+  can_undo: boolean;
 }
 
 export function useClassifySubtree() {

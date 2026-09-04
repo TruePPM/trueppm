@@ -322,3 +322,57 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     await expect(page.getByTestId('mode-chip')).toHaveCount(0);
   });
 });
+
+/**
+ * The Undo the caller's role may actually use (#3304).
+ *
+ * A separate describe because it needs a different `setupTaskStore` — the store
+ * has no role of its own, so the server's `can_undo` verdict is an option on it.
+ * The Admin case is already covered by the "⌘Z on the toast undoes the cascade"
+ * test above, which runs against the default `can_undo: true`.
+ *
+ * Asserted at the toast, not at the endpoint: the undo endpoint has always
+ * refused a Member correctly (pytest pins that). The defect was that the client
+ * offered the control anyway, in an 8-second window with no second route to the
+ * undo — so a spec that only drove the 403 would have passed on the broken build.
+ */
+test.describe('Classification undo — withheld when the server says the role cannot (#3304)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
+    // A Member: `IsProjectPlanAuthor` admits the cascade, Admin+ gates the undo.
+    await setupTaskStore(page, { tasks: TASKS, canUndoBatchOperations: false });
+  });
+
+  test('a Member gets the success toast with no Undo action', async ({ page }) => {
+    // Registered before navigation: nothing should ever reach the Admin-only undo
+    // route, and "no button" and "a button that quietly no-ops" look identical in a
+    // DOM assertion alone.
+    const undoAttempts: string[] = [];
+    await page.route(/\/api\/v1\/cascade-classification-operations\/[^/]+\/undo\/$/, (route) => {
+      undoAttempts.push(route.request().url());
+      return route.fallback();
+    });
+
+    await page.goto(BASE_URL);
+    await page.getByText('Control software').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+    await page.getByTestId('classification-cascade').uncheck();
+    await page.getByTestId('classification-preset-scrum').click();
+    await page.getByTestId('classification-apply').click();
+
+    // The cascade still happened, and the receipt still says so — this withholds
+    // the undo, it does not withhold the confirmation.
+    const row42 = page.getByRole('row').filter({ hasText: 'Control software' });
+    await expect(row42.getByTestId('mode-chip')).toHaveText('SCRUM');
+
+    const toast = page.getByRole('status').filter({ hasText: 'Classified' });
+    await expect(toast).toBeVisible();
+    // Gate on the toast being rendered (above) before asserting the button's
+    // absence, so this cannot pass by racing an empty DOM.
+    await expect(toast.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+    // …and the 403 the user would have hit never happens.
+    expect(undoAttempts).toHaveLength(0);
+  });
+});

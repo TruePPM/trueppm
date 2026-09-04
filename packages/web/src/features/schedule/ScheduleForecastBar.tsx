@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Task } from '@/types';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import { formatRelative } from '@/lib/formatRelative';
 import { useForecastPresentation } from './useForecastPresentation';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
@@ -117,7 +118,8 @@ function useForecastStaleness(
 interface ForecastEmptyStateProps {
   isLoading: boolean;
   loadFailed: boolean;
-  runMcIsError: boolean;
+  /** The server's refusal from a failed run, shaped once (#3332). */
+  runRefusal: WriteRefusal | null;
   runMcIsPending: boolean;
   onRun: () => void;
   onRetry: () => void;
@@ -133,7 +135,7 @@ interface ForecastEmptyStateProps {
 function ForecastEmptyState({
   isLoading,
   loadFailed,
-  runMcIsError,
+  runRefusal,
   runMcIsPending,
   onRun,
   onRetry,
@@ -149,15 +151,18 @@ function ForecastEmptyState({
     >
       <span className="text-xs font-semibold text-neutral-text-primary">Forecast</span>
       <span
-        className={`text-xs ${loadFailed ? 'text-semantic-critical' : 'text-neutral-text-secondary'}`}
-        {...(loadFailed ? { role: 'alert' } : {})}
+        className={`text-xs ${loadFailed || runRefusal ? 'text-semantic-critical' : 'text-neutral-text-secondary'}`}
+        {...(loadFailed || runRefusal ? { role: 'alert' } : {})}
       >
         {isLoading
           ? 'Loading forecast…'
           : loadFailed
             ? "Couldn't load the forecast."
-            : runMcIsError
-              ? 'Could not run simulation. Try again.'
+            : runRefusal
+              ? // The server's own sentence, not "Could not run simulation. Try
+                // again." — the desktop twin of `MobileMonteCarloCard` reads the
+                // same `useRunMonteCarlo` hook and had the same defect (#3332).
+                runRefusal.message
               : 'Run a simulation to see P50/P80/P95 finish-date probabilities.'}
       </span>
       {loadFailed ? (
@@ -198,6 +203,12 @@ function ForecastEmptyState({
 export function ScheduleForecastBar({ projectId, tasks, cpmFinish }: Props) {
   const { data: result, isLoading, error, refetch } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
+  // Same shaping as the mobile card — one definition, and "Run Monte Carlo"
+  // keeps its verb on a refusal a replay cannot fix (web-rule 372a).
+  const runRefusal = useMemo(
+    () => describeWriteRefusal(runMc.error, "Couldn't run the simulation."),
+    [runMc.error],
+  );
   const [expanded, setExpanded] = useState(readExpanded);
   const [detailOpen, setDetailOpen] = useState(false);
   const { offerRerun, notice } = useForecastStaleness(result, runMc.isPending);
@@ -217,7 +228,7 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish }: Props) {
       <ForecastEmptyState
         isLoading={isLoading}
         loadFailed={Boolean(error)}
-        runMcIsError={runMc.isError}
+        runRefusal={runRefusal}
         runMcIsPending={runMc.isPending}
         onRun={() => runMc.mutate({})}
         onRetry={() => refetch?.()}
