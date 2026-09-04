@@ -129,6 +129,29 @@ are preserved. Three of those numbers are worth understanding:
 After the cascade lands, a receipt names what the **server** actually wrote — not what the
 preview predicted — including any rows it skipped.
 
+### When the cascade is refused
+
+A cascade is all-or-nothing: if the server refuses it, nothing is written. The popover
+stays open with your choices intact and shows the server's own reason, not a generic
+failure — because each of the three reasons points at a different next step.
+
+- **Your role cannot author part of the subtree.** The message names how many of the
+  matched tasks you may not edit. Permission here is deliberately all-or-nothing:
+  applying a split to only the rows you happen to be assigned would leave the plan
+  asserting something that is not true. Narrow the scope to a branch you own, or ask a
+  project Admin or Owner to apply it.
+- **The subtree is above the row cap.** One cascade may resolve at most 2,000 tasks. The
+  message names how many it resolved and what the cap is, so you can clear **Cascade to
+  descendants** or start from a lower-level parent rather than guessing.
+- **The project's dependency graph is not schedulable.** A cascade writes no dependencies,
+  but it does queue a recalculation, so a plan carrying a cycle is refused here rather
+  than failing later in the scheduler. Fix the cycle first.
+
+The primary button offers **Retry** only for a failure a retry can actually clear — a lost
+connection or a server error. A refusal is a decision the server has already made, so the
+button keeps reading **Apply to subtree** and the way forward is to change the scope or the
+axis and apply again.
+
 ### Undo a cascade
 
 :::note[Ships in 0.4]
