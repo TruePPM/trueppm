@@ -58,6 +58,7 @@ from trueppm_api.apps.access.serializers import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
+from trueppm_api.core.openapi import state_refusal_400
 from trueppm_api.core.request_body import object_body
 
 _PK = str | uuid.UUID
@@ -197,7 +198,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         return role
 
     def _check_last_owner_guard(self, project_id: _PK, exclude_pk: _PK | None = None) -> None:
-        """Raise 422 if removing/demoting would strand the project without an Owner."""
+        """Raise **400** if removing/demoting would strand the project without an Owner."""
         qs = ProjectMembership.objects.filter(
             project_id=project_id, role=Role.OWNER, is_deleted=False
         )
@@ -360,6 +361,17 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
 
         return Response(ProjectMembershipReadSerializer(instance).data)
 
+    @extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "Refused on the membership's own state: the target's role is at or "
+                "above the caller's, or removing them would leave the project with "
+                "no Owner. Verified against the peer-role and last-Owner guards in "
+                "``destroy`` (#3319)."
+            ),
+        }
+    )
     def destroy(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         project = self._get_project_or_404()
         instance = self.get_object()
@@ -1127,7 +1139,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         return role
 
     def _check_last_owner_guard(self, program_id: _PK, exclude_pk: _PK | None = None) -> None:
-        """Raise 422 if removing/demoting would leave the program with zero Owners."""
+        """Raise **400** if removing/demoting would leave the program with zero Owners."""
         qs = ProgramMembership.objects.filter(
             program_id=program_id, role=Role.OWNER, is_deleted=False
         )
@@ -1245,6 +1257,17 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
 
         return Response(ProgramMembershipReadSerializer(instance).data)
 
+    @extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "Refused on the membership's own state: the target's role is at or "
+                "above the caller's, or removing them would leave the program with "
+                "no Owner. Verified against the peer-role and last-Owner guards in "
+                "``destroy`` (#3319)."
+            ),
+        }
+    )
     def destroy(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         program = self._get_program_or_404()
         instance = self.get_object()

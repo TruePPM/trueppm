@@ -156,7 +156,13 @@ describe('useBulkEdit — apply', () => {
     const { result } = setup(makeFocus({ rowId: 't1' }));
     act(() => result.current.open());
     act(() => result.current.apply({ ...EMPTY_BULK_EDIT_SPEC, deliveryMode: 'scrum' }));
-    expect(result.current.error).toBe('Couldn’t apply the changes.');
+    expect(result.current.error).toEqual({
+      message: 'Couldn’t apply the changes.',
+      detail: null,
+      // A bare Error is not an axios client rejection — the server never
+      // decided, so a replay may well land.
+      retryable: true,
+    });
     expect(result.current.isOpen).toBe(true);
     expect(result.current.result).toBeNull();
   });

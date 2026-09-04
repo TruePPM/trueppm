@@ -212,8 +212,8 @@ long-lived, so the same role check has to run at connect time and then survive
 until the socket closes — including surviving a role change that happens
 *while the socket is still open*.
 
-`ProjectConsumer` (the board/project real-time channel) and `WorkshopConsumer`
-(live collaboration) both gate the initial connection identically:
+`ProjectConsumer` (the board/project real-time channel) gates the initial
+connection like this:
 
 ```python
 role = await self._get_role(user, project_pk)
@@ -241,8 +241,8 @@ REST's request/response model doesn't otherwise touch.
 
 Close codes carry meaning: **4001** is "no valid credential" (see [Auth
 architecture](/architecture/auth/#the-websocket-ticket) for how that credential
-is minted and validated); **4003** is "authenticated, but role below Member";
-**4004** is Workshop-specific ("no active session").
+is minted and validated); and **4003** is "authenticated, but role below
+Member".
 
 ## Defense-in-depth: why the same rule sometimes appears twice
 

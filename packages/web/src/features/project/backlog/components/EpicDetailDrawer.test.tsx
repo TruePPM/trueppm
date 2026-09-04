@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Task } from '@/types';
 import { EpicDetailDrawer } from './EpicDetailDrawer';
+import { axiosRefusal } from '@/test/axiosError';
 
 // EpicDetailDrawer batches its name/description edits through usePatchEpic; mock the hook
 // so the test controls the outcome and asserts the batched PATCH payload.
@@ -14,7 +15,20 @@ const h = vi.hoisted(() => {
         opts?: { onSuccess?: () => void },
       ) => void
     >();
-  return { mutate, state: { mutate, isPending: false, isError: false } };
+  // `reset` models TanStack's: it CLEARS the error. A bare spy would let a
+  // call-count assertion pass while the stale sentence is still on screen
+  // (web-rule 376).
+  const state = {
+    mutate,
+    isPending: false,
+    isError: false,
+    error: null as unknown,
+    reset: () => {
+      state.isError = false;
+      state.error = null;
+    },
+  };
+  return { mutate, state };
 });
 
 vi.mock('../hooks/useProductBacklog', () => ({
@@ -52,6 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.state.isPending = false;
   h.state.isError = false;
+  h.state.error = null;
   // Default: resolve immediately so a Save commits the new snapshot (clears dirty).
   h.mutate.mockImplementation((_vars, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
 });
@@ -74,7 +89,10 @@ describe('EpicDetailDrawer (#1346)', () => {
     const user = userEvent.setup();
     renderDrawer(makeEpic());
 
-    setValue(screen.getByLabelText('Epic description'), 'Foundational platform work. Now with SSO.');
+    setValue(
+      screen.getByLabelText('Epic description'),
+      'Foundational platform work. Now with SSO.',
+    );
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(h.mutate).toHaveBeenCalledTimes(1);
@@ -146,12 +164,46 @@ describe('EpicDetailDrawer (#1346)', () => {
     expect(h.mutate).not.toHaveBeenCalled();
   });
 
-  it('surfaces a Save failed alert when the PATCH errored', () => {
-    h.state.isError = true;
-    renderDrawer(makeEpic());
-
+  it("surfaces the SERVER's refusal, and no retry advice on a 403 (#3332)", () => {
+    // Dirty FIRST, then the refusal lands. An edit RETIRES the refusal
+    // (web-rule 376), so a spec that seeds the error before typing retires its
+    // own fixture and reads as a rendering failure.
+    const epic = makeEpic();
+    const { rerender } = renderDrawer(epic);
     setValue(screen.getByLabelText('Epic description'), 'edited');
-    expect(screen.getByRole('alert')).toHaveTextContent('Save failed');
+    h.state.isError = true;
+    h.state.error = axiosRefusal(403, { detail: 'Only the PO can rename an epic.' });
+    rerender(<EpicDetailDrawer projectId="p1" epic={epic} onClose={vi.fn()} />);
+
+    const alert = screen.getByTestId('dialog-footer-error');
+    expect(alert).toHaveTextContent('Only the PO can rename an epic.');
+    // The hardcoded "Save failed" this slot used to render discarded the sentence
+    // above — the one thing that tells the PO why, and who can.
+    expect(alert).not.toHaveTextContent('Save failed');
+  });
+
+  it('falls back to a plain sentence when the failure carries no readable body', () => {
+    const epic = makeEpic();
+    const { rerender } = renderDrawer(epic);
+    setValue(screen.getByLabelText('Epic description'), 'edited');
+    h.state.isError = true;
+    h.state.error = new Error('Network Error');
+    rerender(<EpicDetailDrawer projectId="p1" epic={epic} onClose={vi.fn()} />);
+
+    expect(screen.getByTestId('dialog-footer-error')).toHaveTextContent("Couldn't save the epic.");
+  });
+
+  it('retires the refusal on the next edit — the one that could have fixed it (#3332)', () => {
+    const epic = makeEpic();
+    const { rerender } = renderDrawer(epic);
+    setValue(screen.getByLabelText('Epic description'), 'edited');
+    h.state.isError = true;
+    h.state.error = axiosRefusal(400, { name: ['This field may not be blank.'] });
+    rerender(<EpicDetailDrawer projectId="p1" epic={epic} onClose={vi.fn()} />);
+    expect(screen.getByTestId('dialog-footer-error')).toBeInTheDocument();
+
+    setValue(screen.getByLabelText('Epic description'), 'edited again');
+    expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
   });
 
   it('closing while dirty opens the styled discard dialog and Keep editing keeps the drawer open', async () => {

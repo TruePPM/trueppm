@@ -249,6 +249,40 @@ def facet_holder_user_ids(
     return set(queryset.values_list("user_id", flat=True))
 
 
+def facet_holder_user_ids_by_project(project_ids: Any) -> dict[Any, set[Any]]:
+    """``{project_id: {user_id, ...}}`` for a whole set of projects in one query.
+
+    The batch counterpart to :func:`facet_holder_user_ids`: same table, same
+    filters, grouped by project rather than scoped to one. A fan-out that spans
+    many projects — the program settings matrix applies one field map to as many
+    as ``MAX_BULK_TARGETS`` of them — would otherwise repeat the identical team
+    scan once per project inside its loop.
+
+    Projects with no facet holder are simply absent from the mapping; callers
+    read it with ``.get(pid, set())``. Keys come back as the ORM yields them
+    (``uuid.UUID``), so a caller holding stringified ids must normalize.
+
+    Liveness is the caller's, exactly as for :func:`facet_holder_user_ids`: this
+    returns the raw facet roster, and a recipient cohort that must not name a
+    member who has lost access intersects it with live ``ProjectMembership`` —
+    see :func:`~trueppm_api.apps.projects.config_notice.surface_recipient_ids_by_project`,
+    which does so from the membership map it already holds for its own cohorts.
+    """
+    holders: dict[Any, set[Any]] = {}
+    for project_id, user_id in (
+        TeamMembership.objects.filter(
+            team__project_id__in=project_ids,
+            team__is_default=True,
+            team__is_deleted=False,
+            is_deleted=False,
+        )
+        .filter(Q(is_scrum_master=True) | Q(is_product_owner=True))
+        .values_list("team__project_id", "user_id")
+    ):
+        holders.setdefault(project_id, set()).add(user_id)
+    return holders
+
+
 def is_team_member(user: AbstractBaseUser | AnonymousUser, project_id: Any) -> bool:
     """Whether ``user`` is on the project's default team (an eligible signal voter)."""
     if not getattr(user, "is_authenticated", False):

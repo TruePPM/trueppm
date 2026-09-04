@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import type { WriteRefusal } from '@/lib/writeRefusal';
+import { RefusalAlert } from './RefusalAlert';
 
 export interface UnsavedChangesDialogProps {
   /** Keep the surface open and return to editing (the safe path). */
@@ -27,8 +29,15 @@ export interface UnsavedChangesDialogProps {
   saveAndContinueLabel?: string;
   /** True while the save-and-continue mutation is in flight — disables the verbs. */
   saving?: boolean;
-  /** Inline error (e.g. a failed save) — announced via role="alert"; the dialog stays open. */
-  error?: string | null;
+  /**
+   * The refusal from a failed save-and-continue — announced via `role="alert"`;
+   * the dialog stays open.
+   *
+   * A {@link WriteRefusal} record rather than a string so the server's own reason
+   * reaches the user, instead of the hardcoded "Couldn't save — try again" that
+   * advised a retry the `4xx` had already ruled out (#3332, web-rule 372).
+   */
+  error?: WriteRefusal | null;
 }
 
 const PRIMARY_BTN =
@@ -106,11 +115,7 @@ export function UnsavedChangesDialog({
         <p id="unsaved-changes-body" className="text-xs text-neutral-text-secondary mb-4">
           {body}
         </p>
-        {error && (
-          <p role="alert" className="text-xs text-semantic-critical mb-3">
-            {error}
-          </p>
-        )}
+        <RefusalAlert refusal={error} testId="unsaved-changes-error" className="mb-3" />
         <div className="flex flex-wrap justify-end gap-2">
           <button
             type="button"

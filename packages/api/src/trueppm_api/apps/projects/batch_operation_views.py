@@ -21,8 +21,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from trueppm_api.apps.access.models import Role
-from trueppm_api.apps.access.permissions import _membership_role
+from trueppm_api.apps.access.permissions import (
+    _membership_role,
+    role_can_undo_batch_operation,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     CascadeClassificationOperation,
@@ -33,6 +35,7 @@ from trueppm_api.apps.projects.task_batch_services import (
     undo_cascade_classification_operation,
     undo_paste_many_operation,
 )
+from trueppm_api.core.openapi import state_refusal_400
 
 
 def _caller_project_ids(request: Request) -> QuerySet[Any]:
@@ -48,9 +51,12 @@ def _require_admin(request: Request, project_id: Any) -> None:
     (ADR-0773's "who may reverse a plan-shaping batch write" matrix). A plain
     Member may have authored the paste/cascade under Author mode, but undoing
     it removes work other collaborators may already be building on top of.
+
+    Defers the comparison to :func:`role_can_undo_batch_operation` rather than
+    testing the ordinal here, because the cascade's apply endpoint reports the
+    same rule to the client as ``can_undo`` and the two must not drift (#3304).
     """
-    role = _membership_role(request, project_id)
-    if role is None or role < Role.ADMIN:
+    if not role_can_undo_batch_operation(_membership_role(request, project_id)):
         raise PermissionDenied("You need at least Project Manager role to undo this.")
 
 
@@ -85,7 +91,13 @@ class PasteManyOperationViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: PasteManyOperationSerializer},
+        responses={
+            200: PasteManyOperationSerializer,
+            400: state_refusal_400(
+                "This batch has already been undone. Verified against the status "
+                "guard in ``undo`` (#3319)."
+            ),
+        },
         description=(
             "Undo this paste-many batch — removes the rows it created that nobody has edited."
         ),
@@ -139,7 +151,13 @@ class CascadeClassificationOperationViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: CascadeClassificationOperationSerializer},
+        responses={
+            200: CascadeClassificationOperationSerializer,
+            400: state_refusal_400(
+                "This cascade has already been undone. Verified against the status "
+                "guard in ``undo`` (#3319)."
+            ),
+        },
         description="Undo this cascade — restores each untouched row's prior classification.",
     )
     @action(detail=True, methods=["post"], url_path="undo")
