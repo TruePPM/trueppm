@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
+import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
@@ -27,7 +30,22 @@ import type { EstimationScale, MethodologyOverridePolicy, ProgramMethodology } f
  * Unlike the iteration-label policy radios, INHERIT is a first-class OSS option
  * here because methodology is NOT-NULL (there is no null "inherit" sentinel per
  * scope) — the workspace policy IS the inheritance switch.
+ *
+ * Role gate (#3314). `RequireWorkspaceAdmin` wraps this route but redirects only
+ * on a *positively resolved* non-admin (`useIsWorkspaceAdmin() === false`); a
+ * failed or malformed `/auth/me` yields `null` and the guard falls through, by
+ * design, so a real admin never flash-redirects. That default admits, so it
+ * cannot be the only control: this page fails **closed** on its own, treating
+ * anything but a positive `true` as read-only, mirroring `ProjectMethodologyPage`.
+ * Whether the route guard itself should fail closed is a separate, wider call
+ * (it affects every wrapped route) and is deliberately not changed here.
  */
+
+const POLICY_LABEL: Record<MethodologyOverridePolicy, string> = {
+  suggest: 'Suggest',
+  inherit: 'Inherit',
+  enforce: 'Enforce',
+};
 
 const METHODS: Array<{
   id: ProgramMethodology;
@@ -82,7 +100,7 @@ const METHODS: Array<{
 ];
 
 export function WorkspaceMethodologyPage() {
-  const { data: ws, isLoading } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
 
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
@@ -111,6 +129,11 @@ export function WorkspaceMethodologyPage() {
     setInitial(snap);
   }, [ws]);
 
+  // Fail closed: only a positively-resolved workspace admin may edit. `null`
+  // (loading, errored, or a payload without `workspace_role`) renders read-only
+  // rather than editable — see the role-gate note in the module docstring.
+  const canEdit = useIsWorkspaceAdmin() === true;
+
   const values = { methodology, overridePolicy, estimationScale };
 
   const onSave = useCallback(async () => {
@@ -128,13 +151,43 @@ export function WorkspaceMethodologyPage() {
     setEstimationScale(initial.estimationScale);
   }, [initial]);
 
-  useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
+  useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: canEdit });
+
+  // A failed GET must read as broken, not as a stuck skeleton (rule 246, #3298).
+  // Before this branch the page destructured only `data`/`isLoading`, so a dead
+  // request left `ws` undefined forever and rendered pulsing placeholders with no
+  // error and no retry — indistinguishable from a slow load, which is exactly the
+  // state that corrupts beta feedback and support triage.
+  //
+  // `inline` (polite, role="status") rather than `fill`: this is one section among
+  // a dozen on the consolidated workspace page, and GET /workspace/ backs several
+  // of them, so a single failed request would otherwise fire N assertive alerts
+  // that interrupt each other — the case rule 246 reserves the polite variant for.
+  // The title stays rendered because <SettingsSection>'s `aria-labelledby` points
+  // at the heading SettingsPageTitle emits; dropping it dangles that reference.
+  if (isError) {
+    return (
+      <div>
+        <SettingsPageTitle title="Methodology defaults" />
+        <div className="px-6 py-8">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load workspace settings."
+            onRetry={() => void refetch()}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !ws) {
     return (
       <div className="px-6 py-8 space-y-3">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-24 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div
+            key={i}
+            className="h-24 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse"
+          />
         ))}
       </div>
     );
@@ -163,78 +216,96 @@ export function WorkspaceMethodologyPage() {
               docHref="features/methodology-preset/#methodology-inheritance"
             />
           </div>
-          <div className="grid grid-cols-3 gap-3.5" role="radiogroup" aria-labelledby="method-heading">
-            {METHODS.map((m) => {
-              const isSelected = methodology === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setMethodology(m.id)}
-                  role="radio"
-                  aria-checked={isSelected}
-                  className={[
-                    'text-left rounded-card border p-4 transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                    isSelected
-                      ? 'border-2 border-[currentColor]'
-                      : 'border border-neutral-border bg-neutral-surface-raised hover:bg-neutral-surface-sunken',
-                  ].join(' ')}
-                  style={
-                    isSelected
-                      ? { borderColor: m.accent, background: m.accentBg, color: m.accent }
-                      : {}
-                  }
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip text-[11px] font-semibold"
-                      style={{ background: m.accentBg, color: m.accent }}
-                    >
+          {!canEdit ? (
+            <ReadOnlyIndicator
+              label="Default methodology"
+              value={METHODS.find((m) => m.id === methodology)?.label ?? methodology}
+              provenance="managed by a workspace admin"
+            />
+          ) : (
+            <div
+              className="grid grid-cols-3 gap-3.5"
+              role="radiogroup"
+              aria-labelledby="method-heading"
+            >
+              {METHODS.map((m) => {
+                const isSelected = methodology === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setMethodology(m.id)}
+                    role="radio"
+                    aria-checked={isSelected}
+                    className={[
+                      'text-left rounded-card border p-4 transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                      isSelected
+                        ? 'border-2 border-[currentColor]'
+                        : 'border border-neutral-border bg-neutral-surface-raised hover:bg-neutral-surface-sunken',
+                    ].join(' ')}
+                    style={
+                      isSelected
+                        ? { borderColor: m.accent, background: m.accentBg, color: m.accent }
+                        : {}
+                    }
+                  >
+                    <div className="flex items-center justify-between mb-2">
                       <span
-                        className="w-1.5 h-1.5 rounded-full bg-current opacity-60"
-                        aria-hidden="true"
-                      />
-                      {m.label}
-                    </span>
-                    {isSelected && (
-                      <span
-                        className="w-4 h-4 rounded-full flex items-center justify-center"
-                        style={{ background: m.accent, color: '#fff' }}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <path
-                            d="M3 8l4 4 6-7"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[12px] text-neutral-text-secondary mb-3 leading-snug">
-                    {m.tagline}
-                  </p>
-                  <ul className="space-y-1">
-                    {m.features.map((f) => (
-                      <li
-                        key={f}
-                        className="text-[11px] text-neutral-text-secondary flex items-start gap-1.5"
+                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip text-[11px] font-semibold"
+                        style={{ background: m.accentBg, color: m.accent }}
                       >
                         <span
-                          className="w-1 h-1 rounded-full bg-neutral-text-disabled mt-[5px] shrink-0"
+                          className="w-1.5 h-1.5 rounded-full bg-current opacity-60"
                           aria-hidden="true"
                         />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                </button>
-              );
-            })}
-          </div>
+                        {m.label}
+                      </span>
+                      {isSelected && (
+                        <span
+                          className="w-4 h-4 rounded-full flex items-center justify-center"
+                          style={{ background: m.accent, color: '#fff' }}
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M3 8l4 4 6-7"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-neutral-text-secondary mb-3 leading-snug">
+                      {m.tagline}
+                    </p>
+                    <ul className="space-y-1">
+                      {m.features.map((f) => (
+                        <li
+                          key={f}
+                          className="text-[11px] text-neutral-text-secondary flex items-start gap-1.5"
+                        >
+                          <span
+                            className="w-1 h-1 rounded-full bg-neutral-text-disabled mt-[5px] shrink-0"
+                            aria-hidden="true"
+                          />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Estimation scale (ADR-0510, #2027). The workspace is the non-null root; no
@@ -253,33 +324,49 @@ export function WorkspaceMethodologyPage() {
               docHref="features/methodology-preset/"
             />
           </div>
-          <div className="relative inline-block w-[280px]">
-            <label htmlFor="workspace-estimation-scale" className="sr-only">
-              Default estimation scale
-            </label>
-            <select
-              id="workspace-estimation-scale"
-              value={estimationScale}
-              onChange={(e) => setEstimationScale(e.target.value as EstimationScale)}
-              className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            >
-              {ESTIMATION_SCALE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <svg
-              className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
-              width="11"
-              height="11"
-              viewBox="0 0 16 16"
-              fill="none"
-              aria-hidden="true"
-            >
-              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </div>
+          {!canEdit ? (
+            <ReadOnlyIndicator
+              label="Default estimation scale"
+              value={
+                ESTIMATION_SCALE_OPTIONS.find((o) => o.value === estimationScale)?.label ??
+                estimationScale
+              }
+              provenance="managed by a workspace admin"
+            />
+          ) : (
+            <div className="relative inline-block w-[280px]">
+              <label htmlFor="workspace-estimation-scale" className="sr-only">
+                Default estimation scale
+              </label>
+              <select
+                id="workspace-estimation-scale"
+                value={estimationScale}
+                onChange={(e) => setEstimationScale(e.target.value as EstimationScale)}
+                className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              >
+                {ESTIMATION_SCALE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <svg
+                className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+                width="11"
+                height="11"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M4 6l4 4 4-4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          )}
           <p className="mt-1.5 text-[12px] text-neutral-text-secondary max-w-[480px]">
             {ESTIMATION_SCALE_HINT}
           </p>
@@ -292,7 +379,10 @@ export function WorkspaceMethodologyPage() {
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
             <div className="flex items-center gap-1.5">
-              <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+              <h2
+                id="policy-heading"
+                className="text-[13px] font-semibold text-neutral-text-primary"
+              >
                 Program &amp; project override policy
               </h2>
               <FieldHelp
@@ -305,94 +395,108 @@ export function WorkspaceMethodologyPage() {
               Controls how programs and projects deviate from the workspace default.
             </p>
           </div>
-          <div className="px-4 py-3 space-y-2">
-            {(
-              [
-                {
-                  id: 'suggest',
-                  label: 'Suggest (recommended)',
-                  hint: 'New programs and projects pre-fill the default but PMs can change it per scope.',
-                  enterprise: false,
-                },
-                {
-                  id: 'inherit',
-                  label: 'Inherit',
-                  hint: 'Every program and project follows the workspace default. Per-scope pickers are read-only.',
-                  enterprise: false,
-                },
-                {
-                  id: 'enforce',
-                  label: 'Enforce',
-                  hint: 'The workspace default is mandatory and cannot be overridden. Good for org-wide compliance.',
-                  enterprise: true,
-                },
-              ] as const
-            ).map((opt) => {
-              const checked = overridePolicy === opt.id;
-              const disabled = opt.enterprise;
-              return (
-                <label
-                  key={opt.id}
-                  className={[
-                    'flex items-start gap-2.5 rounded-card p-2 group',
-                    disabled
-                      ? 'cursor-not-allowed'
-                      : 'cursor-pointer hover:bg-neutral-surface-sunken',
-                  ].join(' ')}
-                >
-                  <span
+          {!canEdit ? (
+            <div className="px-4 py-3">
+              <ReadOnlyIndicator
+                label="Program and project override policy"
+                value={POLICY_LABEL[overridePolicy] ?? overridePolicy}
+                provenance="managed by a workspace admin"
+              />
+            </div>
+          ) : (
+            <div className="px-4 py-3 space-y-2">
+              {(
+                [
+                  {
+                    id: 'suggest',
+                    label: 'Suggest (recommended)',
+                    hint: 'New programs and projects pre-fill the default but PMs can change it per scope.',
+                    enterprise: false,
+                  },
+                  {
+                    id: 'inherit',
+                    label: 'Inherit',
+                    hint: 'Every program and project follows the workspace default. Per-scope pickers are read-only.',
+                    enterprise: false,
+                  },
+                  {
+                    id: 'enforce',
+                    label: 'Enforce',
+                    hint: 'The workspace default is mandatory and cannot be overridden. Good for org-wide compliance.',
+                    enterprise: true,
+                  },
+                ] as const
+              ).map((opt) => {
+                const checked = overridePolicy === opt.id;
+                const disabled = opt.enterprise;
+                return (
+                  <label
+                    key={opt.id}
                     className={[
-                      'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors',
-                      checked && !disabled
-                        ? 'border-brand-primary bg-brand-primary'
-                        : 'border-neutral-border bg-neutral-surface',
+                      'flex items-start gap-2.5 rounded-card p-2 group',
+                      disabled
+                        ? 'cursor-not-allowed'
+                        : 'cursor-pointer hover:bg-neutral-surface-sunken',
                     ].join(' ')}
-                    aria-hidden="true"
                   >
-                    {checked && !disabled && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                  </span>
-                  <input
-                    type="radio"
-                    name="methodology-override-policy"
-                    value={opt.id}
-                    checked={checked}
-                    disabled={disabled}
-                    readOnly={disabled}
-                    // A disabled radio conveys nothing to a screen reader beyond
-                    // "unavailable" — the visual EnterpriseBadge next to the label
-                    // doesn't reach non-visual users, so the reason is spelled out
-                    // via an sr-only span (accessibility gap fixed here, web-rule 265 / #2001).
-                    aria-describedby={disabled ? 'methodology-enforce-enterprise-hint' : undefined}
-                    onChange={() => {
-                      if (!disabled) setOverridePolicy(opt.id);
-                    }}
-                    className="sr-only"
-                  />
-                  <span className="flex flex-col">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span
-                        className={[
-                          'text-[13px] font-medium',
-                          disabled ? 'text-neutral-text-disabled' : 'text-neutral-text-primary',
-                        ].join(' ')}
-                      >
-                        {opt.label}
-                      </span>
-                      {/* ENFORCE is an Enterprise hard lock (ADR-0107); disabled on the
+                    <span
+                      className={[
+                        'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors',
+                        checked && !disabled
+                          ? 'border-brand-primary bg-brand-primary'
+                          : 'border-neutral-border bg-neutral-surface',
+                      ].join(' ')}
+                      aria-hidden="true"
+                    >
+                      {checked && !disabled && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                      )}
+                    </span>
+                    <input
+                      type="radio"
+                      name="methodology-override-policy"
+                      value={opt.id}
+                      checked={checked}
+                      disabled={disabled}
+                      readOnly={disabled}
+                      // A disabled radio conveys nothing to a screen reader beyond
+                      // "unavailable" — the visual EnterpriseBadge next to the label
+                      // doesn't reach non-visual users, so the reason is spelled out
+                      // via an sr-only span (accessibility gap fixed here, web-rule 265 / #2001).
+                      aria-describedby={
+                        disabled ? 'methodology-enforce-enterprise-hint' : undefined
+                      }
+                      onChange={() => {
+                        if (!disabled) setOverridePolicy(opt.id);
+                      }}
+                      className="sr-only"
+                    />
+                    <span className="flex flex-col">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={[
+                            'text-[13px] font-medium',
+                            disabled ? 'text-neutral-text-disabled' : 'text-neutral-text-primary',
+                          ].join(' ')}
+                        >
+                          {opt.label}
+                        </span>
+                        {/* ENFORCE is an Enterprise hard lock (ADR-0107); disabled on the
                           OSS surface with the community-only upsell badge. The server
                           degrades ENFORCE to SUGGEST when no enterprise provider is
                           registered, so storing it is harmless. */}
-                      {opt.enterprise && <EnterpriseBadge />}
+                        {opt.enterprise && <EnterpriseBadge />}
+                      </span>
+                      <span className="text-[12px] text-neutral-text-secondary">{opt.hint}</span>
                     </span>
-                    <span className="text-[12px] text-neutral-text-secondary">{opt.hint}</span>
-                  </span>
-                </label>
-              );
-            })}
-            <span id="methodology-enforce-enterprise-hint" className="sr-only">
-              Enforce requires TruePPM Enterprise.
-            </span>
-          </div>
+                  </label>
+                );
+              })}
+              <span id="methodology-enforce-enterprise-hint" className="sr-only">
+                Enforce requires TruePPM Enterprise.
+              </span>
+            </div>
+          )}
         </section>
       </div>
     </div>

@@ -1,13 +1,15 @@
 ---
 title: Task classification
-description: Set a task's type, governance class, and delivery mode — the work-item taxonomy that drives board lanes, rollups, and the hybrid overlay.
+description: Set a task's type, governance class, and delivery mode — what each field means, which of them the product reads today, and how the defaults follow your project's methodology.
 documentedFor: "0.4"
 ---
 
-Every task carries three classification fields — `type`, `governance_class`, and `delivery_mode` — that describe *what kind of work it is*, *which overlay governs it*, and *how it executes and rolls up*. They have always been part of the [unified data model](/features/unified-data-model/) and are set by the demo seeds, but until now there was no way to change them from the task editor.
+Every task carries three classification fields — `type`, `governance_class`, and `delivery_mode` — that describe *what kind of work it is*, *which governance model applies to it*, and *how it executes and rolls up*. They have always been part of the [unified data model](/features/unified-data-model/) and are set by the demo seeds, but until now there was no way to change them from the task editor.
+
+The three fields are not read to the same depth. `type` and `delivery_mode` are consumed across the product; `governance_class` is stored, cascaded, imported and exported faithfully, but only one place in the product currently branches on its value. Each section below says which.
 
 :::note[Added in 0.3]
-The **Classification** controls were added in **0.3** (the agile team). The fields are already stored and read everywhere; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
+The **Classification** controls were added in **0.3** (the agile team). The fields were already stored and set by the seeds; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
 :::
 
 :::note[Ships in 0.4]
@@ -41,7 +43,9 @@ Epic is special: it changes hierarchy rather than adding schedulable work, so ch
 
 ## Governance class — which overlay governs the subtree
 
-`governance_class` selects *which* governance model applies to a task and its subtree. It is distinct from delivery mode: governance is about oversight, delivery is about execution.
+`governance_class` records *which* governance model applies to a task and its subtree. It is distinct from delivery mode: governance is about oversight, delivery is about execution.
+
+**What reads it today.** One thing: a template's **gates** count, which tallies the milestones marked `gated` in the shape you are about to publish or adopt. Everything else stores the value and carries it faithfully — the classification cascade sets it across a subtree and reports how many overrides it kept, MS Project and seed import/export round-trip it, and the API returns it — but no board lane, rollup figure, forecast or schedule overlay currently changes because a task is `gated` rather than `flow`. Set it to describe your plan and to drive the template gate count; do not expect a different number anywhere else yet.
 
 | Governance class | Meaning |
 |------------------|---------|
@@ -129,6 +133,29 @@ are preserved. Three of those numbers are worth understanding:
 After the cascade lands, a receipt names what the **server** actually wrote — not what the
 preview predicted — including any rows it skipped.
 
+### When the cascade is refused
+
+A cascade is all-or-nothing: if the server refuses it, nothing is written. The popover
+stays open with your choices intact and shows the server's own reason, not a generic
+failure — because each of the three reasons points at a different next step.
+
+- **Your role cannot author part of the subtree.** The message names how many of the
+  matched tasks you may not edit. Permission here is deliberately all-or-nothing:
+  applying a split to only the rows you happen to be assigned would leave the plan
+  asserting something that is not true. Narrow the scope to a branch you own, or ask a
+  project Admin or Owner to apply it.
+- **The subtree is above the row cap.** One cascade may resolve at most 2,000 tasks. The
+  message names how many it resolved and what the cap is, so you can clear **Cascade to
+  descendants** or start from a lower-level parent rather than guessing.
+- **The project's dependency graph is not schedulable.** A cascade writes no dependencies,
+  but it does queue a recalculation, so a plan carrying a cycle is refused here rather
+  than failing later in the scheduler. Fix the cycle first.
+
+The primary button offers **Retry** only for a failure a retry can actually clear — a lost
+connection or a server error. A refusal is a decision the server has already made, so the
+button keeps reading **Apply to subtree** and the way forward is to change the scope or the
+axis and apply again.
+
 ### Undo a cascade
 
 :::note[Ships in 0.4]
@@ -141,6 +168,14 @@ rows nobody has reclassified again since. A row someone else recascaded, or that
 changed again yourself, is left as it is rather than being stomped; the undo toast says
 how many it kept. Undo is a single step per cascade — undoing an older cascade once a
 newer one has landed on the same subtree is not supported.
+
+**Undo is Admin or Owner.** Applying a cascade and reversing one sit on different roles:
+a Member may cascade a subtree they are assigned to, but reversing a batch write removes
+work other people may already be building on top of, so that stays with a project Admin
+or Owner. When your role cannot undo, the toast simply reports what the cascade wrote and
+carries no **Undo** action — rather than offering one that would be refused. The cascade
+itself is unaffected; to reverse it, ask an Admin or Owner, or reclassify the subtree back
+to its previous values.
 
 ## Seeing the split without auditing it
 

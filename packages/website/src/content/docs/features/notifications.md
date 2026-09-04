@@ -189,8 +189,8 @@ real-time channel — nobody else is told.
 Removing a board lane, hiding a board column, hiding one of the Reporting,
 Time tracking, Baselines or Monte Carlo views, or switching the methodology
 preset changes the surface **everyone** works on, not just the person who
-clicked. Those four changes send an inbox notice to everyone with work in the
-project.
+clicked. All four send an inbox notice — though who receives it depends on what
+moved.
 
 (Hiding a *tab* from your own navigation with
 [Customize views](/features/methodology-preset/#customize-views--your-personal-layer)
@@ -215,6 +215,21 @@ of what actually arrives:
 - *The views in this project changed* — "Dana hid Time tracking in this project.
   Your 7 items keep their status, dates and assignments — what changed is where
   you find them."
+- *This project now runs as Waterfall* — "Dana switched this project's planning
+  preset from Agile to Waterfall. Baselines and Monte Carlo are now shown.
+  Nothing you own moved." — the same change, as a Product Owner holding no
+  assigned task reads it. The count clause degrades to a plain sentence rather
+  than disappearing, because an omitted clause reads as an unstated many.
+
+**A preset or view change reaches further than a board change.** A Product Owner
+authors and prioritizes the backlog and is frequently assigned none of it; a
+Scrum Master facilitates and is neither an assignee nor a booked resource; a
+project manager who owns the plan routinely assigns none of it to themselves.
+Those are the three people a preset flip re-shapes hardest, and the ones everyone
+else asks to explain it. So the preset and view notices also reach the project's
+Scrum Master and Product Owner and everyone at **Scheduler or above**, whether or
+not they hold a task. Board-lane and board-column notices stay with the people
+whose cards actually moved.
 
 Who gets named is deliberate. A preset switch is the act, and the views that
 appear or disappear are its consequence — so the preset clause is attributed and
@@ -228,11 +243,13 @@ Three things this deliberately does **not** do:
   limit, an added lane, a column being un-hidden — none of these move or hide
   anyone's work, and none of them notify. A notice on every write is noise, and
   noise gets muted.
-- **It does not go to the whole membership.** Recipients are everyone with work
-  in the project — assigned as the task's owner *or* booked on it as a resource.
-  Someone with nothing assigned has nothing to be told about. A member who has
-  been removed from the project is never notified, even if work is still on their
-  name.
+- **It does not go to the whole membership.** A board change goes to everyone
+  with work on that board — assigned as the task's owner *or* booked on it as a
+  resource. A lane going away moves *cards*, so holding a card is what makes it
+  your business. A preset or view change adds the Scrum Master, the Product Owner
+  and everyone at Scheduler or above, as above. A Team Member or Viewer who holds
+  no work, no facet and no gate is still told nothing, and a member who has been
+  removed from the project is never notified, even if work is still on their name.
 - **It never fires from a rejected change.** If the change is refused — a Team
   Member trying to re-shape the board, a Resource Manager trying to hide a view —
   nothing was saved, so nobody is told.

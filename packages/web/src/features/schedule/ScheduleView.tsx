@@ -121,7 +121,10 @@ import { ClassificationPopover } from './classification/ClassificationPopover';
 import { BulkEditSheet } from './buildMode/bulkEdit/BulkEditSheet';
 import { useBulkEdit } from './buildMode/bulkEdit/useBulkEdit';
 import type { ClassificationApply } from '@/hooks/useTaskClassification';
-import { useClassificationPopover } from './classification/useClassificationPopover';
+import {
+  useClassificationPopover,
+  type ClassificationError,
+} from './classification/useClassificationPopover';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   ToolbarOverflowMenu,
@@ -4699,7 +4702,7 @@ interface ScheduleOverlayLayerProps {
   classifyState: { taskId: string; anchor: { x: number; y: number } } | null;
   classifyTarget: Task | null;
   classifyPending: boolean;
-  classifyError: string | null;
+  classifyError: ClassificationError | null;
   onClassifyApply: (spec: ClassificationApply) => void;
   onClassifyClose: () => void;
 }

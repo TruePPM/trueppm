@@ -10,6 +10,7 @@
  * mock would re-serve the pre-cascade fixture and the mode chip would appear
  * and then vanish — the #2752 class of flake, which no timeout can fix.
  */
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 import { setupTaskStore } from './fixtures/task-store';
@@ -205,7 +206,7 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     const phaseBar = page.locator('[role="option"][data-task-id="t4"]');
     await expect(phaseBar).toHaveAttribute('aria-label', /Mixed delivery/);
     // Names the constituents, not just that something is mixed.
-    await expect(phaseBar).toHaveAttribute('aria-label', /gated and scrum/);
+    await expect(phaseBar).toHaveAttribute('aria-label', /waterfall and scrum/);
 
     // And the leaf that was actually cascaded says the single mode, so the two
     // rows are distinguishable by speech alone.
@@ -213,13 +214,102 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     await expect(leafBar).toHaveAttribute('aria-label', /Scrum delivery/);
   });
 
-  test('a gated plan carries no mode chips at all', async ({ page }) => {
-    // The baseline draws nothing, matching the canvas. A 400-row gated plan
+  test('a waterfall plan carries no mode chips at all', async ({ page }) => {
+    // The baseline draws nothing, matching the canvas. A 400-row waterfall plan
     // must not carry 400 identical marks.
     await page.goto(BASE_URL);
     await expect(page.getByText('Build & integration')).toBeVisible();
     await expect(page.getByTestId('mode-chip')).toHaveCount(0);
     await expect(page.getByTestId('mode-gutter')).toHaveCount(0);
+  });
+
+  /**
+   * The refusal path (#3302).
+   *
+   * Registered inside each test rather than in `beforeEach`, so it lands AFTER
+   * `setupTaskStore`'s own classification route and wins — Playwright matches in
+   * reverse registration order. A stateless refusal is correct here: the cascade
+   * is rejected, nothing is written, and nothing refetches, so there is no
+   * post-write DOM state for a stateless mock to erase.
+   */
+  async function refuseCascade(
+    page: Page,
+    status: number,
+    body: Record<string, unknown>,
+  ): Promise<void> {
+    await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/classification\/$/, async (route) => {
+      if (route.request().method() !== 'PATCH') return route.fallback();
+      return route.fulfill({
+        status,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      });
+    });
+  }
+
+  async function openAndApply(page: Page): Promise<void> {
+    await page.goto(BASE_URL);
+    await page.getByText('Build & integration').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+    await expect(page.getByTestId('classification-popover')).toBeVisible();
+    await page.getByTestId('classification-preset-scrum').click();
+    await page.getByTestId('classification-apply').click();
+  }
+
+  test('a 403 reaches the planner as the server wrote it, with no Retry offered', async ({
+    page,
+  }) => {
+    await refuseCascade(page, 403, {
+      detail: 'Your role cannot author 3 of the 4 tasks in this subtree.',
+    });
+    await openAndApply(page);
+
+    // The sentence, not the generic fallback — a PM refused on a permission
+    // boundary can now see which part of the subtree blocked it.
+    const slot = page.getByTestId('classification-error');
+    await expect(slot).toContainText('Your role cannot author 3 of the 4 tasks in this subtree.');
+    // Announced as an alert, and NOT nested in the preview's atomic status region.
+    await expect(slot).toHaveAttribute('role', 'alert');
+    await expect(page.getByTestId('classification-preview')).not.toContainText(
+      'Your role cannot author',
+    );
+    // Retrying an authorization decision is refused identically, so it is not offered.
+    await expect(page.getByTestId('classification-apply')).toHaveText('Apply to subtree');
+    // The popover stays open holding the reason, and nothing pretends a write landed.
+    await expect(page.getByTestId('classification-popover')).toBeVisible();
+    await expect(page.getByTestId('mode-chip')).toHaveCount(0);
+  });
+
+  test('subtree_too_large renders the counts it refused on', async ({ page }) => {
+    await refuseCascade(page, 400, {
+      code: 'subtree_too_large',
+      detail: 'Subtree resolves 2500 tasks, above the 2000-task cap.',
+      matched: '2500',
+      max: '2000',
+    });
+    await openAndApply(page);
+
+    const slot = page.getByTestId('classification-error');
+    await expect(slot).toContainText('2500');
+    await expect(slot).toContainText('2000');
+    // And what to do about it, which the bare cap violation never said.
+    await expect(slot).toContainText('Cascade to descendants');
+    await expect(page.getByTestId('classification-apply')).toHaveText('Apply to subtree');
+
+    // Taking the remedy retires the message: it described a request the planner
+    // is no longer making, and the button has already recomputed.
+    await page.getByTestId('classification-cascade').uncheck();
+    await expect(slot).toHaveCount(0);
+    await expect(page.getByTestId('classification-apply')).toHaveText('Apply to task');
+  });
+
+  test('a 5xx still offers a Retry — the suppression is targeted, not blanket', async ({
+    page,
+  }) => {
+    await refuseCascade(page, 500, { detail: 'Server error.' });
+    await openAndApply(page);
+
+    await expect(page.getByTestId('classification-apply')).toHaveText('Retry');
   });
 
   test('Escape closes the popover without writing anything', async ({ page }) => {
@@ -230,5 +320,59 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('classification-popover')).toHaveCount(0);
     await expect(page.getByTestId('mode-chip')).toHaveCount(0);
+  });
+});
+
+/**
+ * The Undo the caller's role may actually use (#3304).
+ *
+ * A separate describe because it needs a different `setupTaskStore` — the store
+ * has no role of its own, so the server's `can_undo` verdict is an option on it.
+ * The Admin case is already covered by the "⌘Z on the toast undoes the cascade"
+ * test above, which runs against the default `can_undo: true`.
+ *
+ * Asserted at the toast, not at the endpoint: the undo endpoint has always
+ * refused a Member correctly (pytest pins that). The defect was that the client
+ * offered the control anyway, in an 8-second window with no second route to the
+ * undo — so a spec that only drove the 403 would have passed on the broken build.
+ */
+test.describe('Classification undo — withheld when the server says the role cannot (#3304)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
+    // A Member: `IsProjectPlanAuthor` admits the cascade, Admin+ gates the undo.
+    await setupTaskStore(page, { tasks: TASKS, canUndoBatchOperations: false });
+  });
+
+  test('a Member gets the success toast with no Undo action', async ({ page }) => {
+    // Registered before navigation: nothing should ever reach the Admin-only undo
+    // route, and "no button" and "a button that quietly no-ops" look identical in a
+    // DOM assertion alone.
+    const undoAttempts: string[] = [];
+    await page.route(/\/api\/v1\/cascade-classification-operations\/[^/]+\/undo\/$/, (route) => {
+      undoAttempts.push(route.request().url());
+      return route.fallback();
+    });
+
+    await page.goto(BASE_URL);
+    await page.getByText('Control software').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+    await page.getByTestId('classification-cascade').uncheck();
+    await page.getByTestId('classification-preset-scrum').click();
+    await page.getByTestId('classification-apply').click();
+
+    // The cascade still happened, and the receipt still says so — this withholds
+    // the undo, it does not withhold the confirmation.
+    const row42 = page.getByRole('row').filter({ hasText: 'Control software' });
+    await expect(row42.getByTestId('mode-chip')).toHaveText('SCRUM');
+
+    const toast = page.getByRole('status').filter({ hasText: 'Classified' });
+    await expect(toast).toBeVisible();
+    // Gate on the toast being rendered (above) before asserting the button's
+    // absence, so this cannot pass by racing an empty DOM.
+    await expect(toast.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+    // …and the 403 the user would have hit never happens.
+    expect(undoAttempts).toHaveLength(0);
   });
 });

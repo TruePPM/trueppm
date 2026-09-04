@@ -168,9 +168,6 @@ api/v1/projects/<pk>/tasks/classification/
 api/v1/projects/<pk>/tasks/group/
 api/v1/projects/<pk>/tasks/reorder/
 api/v1/projects/<pk>/tasks/ungroup/
-api/v1/projects/<pk>/workshop/end/
-api/v1/projects/<pk>/workshop/force-end/
-api/v1/projects/<pk>/workshop/start/
 api/v1/projects/<project_pk>/baselines/
 api/v1/projects/<project_pk>/baselines/<baseline_pk>/activate/
 api/v1/projects/<project_pk>/baselines/<pk>/

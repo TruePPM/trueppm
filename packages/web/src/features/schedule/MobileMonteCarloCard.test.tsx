@@ -6,6 +6,7 @@ import type { UseMonteCarloResultReturn } from '@/hooks/useMonteCarloResult';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { ADDED_TIME_FIXTURES, ADDED_TIME_STATES } from '@/fixtures/addedTime';
 import { addedTimePresentation, addedTimeShortForm } from '@/features/project/addedTime';
+import { axiosNetworkError, axiosRefusal } from '@/test/axiosError';
 
 const useMonteCarloResultSpy = vi.hoisted(() =>
   vi.fn<(projectId?: string) => UseMonteCarloResultReturn>(),
@@ -16,13 +17,18 @@ vi.mock('@/hooks/useMonteCarloResult', () => ({
 }));
 
 const runMutate = vi.hoisted(() => vi.fn());
-let runState: { isPending: boolean; isError: boolean } = { isPending: false, isError: false };
+let runState: { isPending: boolean; isError: boolean; error: unknown } = {
+  isPending: false,
+  isError: false,
+  error: null,
+};
 
 vi.mock('@/hooks/useRunMonteCarlo', () => ({
   useRunMonteCarlo: () => ({
     mutate: runMutate,
     isPending: runState.isPending,
     isError: runState.isError,
+    error: runState.error,
   }),
 }));
 
@@ -50,7 +56,7 @@ beforeEach(() => {
     error: null,
   });
   runMutate.mockReset();
-  runState = { isPending: false, isError: false };
+  runState = { isPending: false, isError: false, error: null };
 });
 
 describe('MobileMonteCarloCard (#33)', () => {
@@ -143,7 +149,7 @@ describe('MobileMonteCarloCard (#33)', () => {
     });
 
     it('disables the CTA and shows "Running…" while the mutation is pending', () => {
-      runState = { isPending: true, isError: false };
+      runState = { isPending: true, isError: false, error: null };
       renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
       const cta = screen.getByRole('button', {
         name: /Run Monte Carlo simulation to see confidence dates/i,
@@ -158,11 +164,47 @@ describe('MobileMonteCarloCard (#33)', () => {
       expect(screen.getByText(/Loading forecast…/i)).toBeInTheDocument();
     });
 
-    it('shows a retry message when the run mutation errored', () => {
-      runState = { isPending: false, isError: true };
+    it('offers "Try again" and announces the reason when the run failed on the WIRE (#3332)', () => {
+      runState = { isPending: false, isError: true, error: axiosNetworkError() };
       renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
-      expect(screen.getByText(/Could not run simulation\./i)).toBeInTheDocument();
+      expect(screen.getByTestId('mobile-mc-error')).toHaveAttribute('role', 'alert');
+      expect(screen.getByTestId('mobile-mc-error')).toHaveTextContent(
+        "Couldn't run the simulation.",
+      );
       expect(screen.getByRole('button')).toHaveTextContent(/Try again/);
+    });
+
+    it("shows the SERVER's reason and keeps the verb when a replay cannot help (#3332)", () => {
+      // Pressing "Try again" on a 403 earns the identical 403 — and the verb it
+      // overwrote is the only thing naming the act still available to the user.
+      runState = {
+        isPending: false,
+        isError: true,
+        error: axiosRefusal(403, { detail: 'Only a Scheduler can run a forecast.' }),
+      };
+      renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+      expect(screen.getByTestId('mobile-mc-error')).toHaveTextContent(
+        'Only a Scheduler can run a forecast.',
+      );
+      expect(screen.getByRole('button')).toHaveTextContent(/Run Monte Carlo/);
+      expect(screen.getByRole('button')).not.toHaveTextContent(/Try again/);
+    });
+
+    it('surfaces a 400 the planner can act on rather than a generic sentence', () => {
+      runState = {
+        isPending: false,
+        isError: true,
+        error: axiosRefusal(400, { detail: 'No tasks have three-point estimates yet.' }),
+      };
+      renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+      expect(screen.getByTestId('mobile-mc-error')).toHaveTextContent(
+        'No tasks have three-point estimates yet.',
+      );
+    });
+
+    it('renders no alert when the run has not failed', () => {
+      renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+      expect(screen.queryByTestId('mobile-mc-error')).toBeNull();
     });
   });
 });

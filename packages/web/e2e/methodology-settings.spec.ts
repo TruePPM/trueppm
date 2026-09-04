@@ -66,7 +66,7 @@ function projectDetail(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function baseSetup(page: Page) {
+async function baseSetup(page: Page, opts: { workspaceRole?: number | null } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -82,6 +82,12 @@ async function baseSetup(page: Page) {
   // being masked by a permissive 200-list body (the #1190 flake class).
   await setupCatchAll(page);
 
+  // `workspace_role` is a declared field on MeSerializer, so the real /auth/me
+  // always emits it (an int for any active user; null only for a deactivated
+  // membership). Omitting it here made the mock unrepresentable in production —
+  // and since #3314 the workspace methodology page fails closed on anything but
+  // a positively-resolved admin, so an absent field renders the whole section
+  // read-only and every editable-control assertion below fails. 300 = ADMIN.
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill(
       json({
@@ -90,6 +96,7 @@ async function baseSetup(page: Page) {
         display_name: 'Alice',
         initials: 'AL',
         email: 'alice@truescope.io',
+        workspace_role: opts.workspaceRole === undefined ? 300 : opts.workspaceRole,
       }),
     ),
   );
@@ -145,6 +152,84 @@ test.describe('Workspace methodology defaults', () => {
 
     await expect.poll(() => patchBody).not.toBeNull();
     expect(patchBody).toMatchObject({ methodology: 'AGILE', methodology_override_policy: 'inherit' });
+  });
+
+  // #3314 gave this page its own fail-closed role gate because `RequireWorkspaceAdmin`
+  // used to admit on a verdict-less /auth/me — `workspace_role: null` was the one
+  // non-admin verdict that reached the component through the route.
+  //
+  // #3330 closed the guard, so that route path no longer reaches the component at
+  // all: a null role is now `unknown` and the guard renders its error instead. This
+  // test therefore asserts the property it always cared about — a null role never
+  // yields an editable methodology form, and never issues a PATCH — at the layer that
+  // now decides it. The component's own fail-closed behavior (the #3314 fix, which is
+  // NOT being removed: it is defense in depth for any future non-routed mount) stays
+  // covered directly by `WorkspaceMethodologyPage.test.tsx`, parameterised over both
+  // `null` and `false`.
+  test('fails closed — a null workspace_role never reaches an editable methodology form', async ({
+    page,
+  }) => {
+    await baseSetup(page, { workspaceRole: null });
+
+    let patched = false;
+    await page.route('**/api/v1/workspace/', async (r) => {
+      if (r.request().method() === 'PATCH') {
+        patched = true;
+      }
+      await r.fulfill(json(workspace()));
+    });
+
+    await page.goto('/settings/methodology');
+
+    // The guard's no-verdict state, not the settings page and not a redirect.
+    await expect(
+      page.getByRole('alert').filter({ hasText: "Couldn't confirm your workspace role." }),
+    ).toBeVisible();
+
+    // The section never mounts, so there is nothing editable and no save bar.
+    await expect(page.locator('[data-settings-section="methodology"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Save changes/i })).toHaveCount(0);
+    expect(patched).toBe(false);
+  });
+
+  // #3298 — the page destructured only `data`/`isLoading`, so a failed GET left
+  // the section pulsing forever with no error and no way out (rule 246). Scoped to
+  // the section, since the consolidated page mounts every one of them and siblings
+  // reading the same GET render their own "Retry".
+  test('a failed workspace GET renders an error + Retry, not a perpetual skeleton', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+
+    let attempts = 0;
+    await page.route('**/api/v1/workspace/', async (r) => {
+      attempts += 1;
+      // The query client retries once (`failureCount < 1`), so the initial load is
+      // two attempts — fail both, then serve the request the Retry button fires.
+      if (attempts <= 2) {
+        await r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'boom' }),
+        });
+        return;
+      }
+      await r.fulfill(json(workspace()));
+    });
+
+    await page.goto('/settings/methodology');
+
+    const methodology = page.locator('[data-settings-section="methodology"]');
+    await expect(methodology.getByText("Couldn't load workspace settings.")).toBeVisible();
+    // The heading survives the error branch — <SettingsSection aria-labelledby>
+    // points at it, so dropping it would dangle that reference.
+    await expect(methodology.getByRole('heading', { name: 'Methodology defaults' })).toBeVisible();
+
+    // Retry re-runs just this request and the section recovers in place.
+    await methodology.getByRole('button', { name: 'Retry' }).click();
+    await expect(
+      methodology.getByRole('radio', { name: /Waterfall/i, checked: true }),
+    ).toBeVisible();
   });
 });
 
@@ -300,5 +385,116 @@ test.describe('Project methodology', () => {
     await expect(
       methodology.getByLabel('Methodology: Waterfall, locked by workspace policy. View only.'),
     ).toBeVisible();
+  });
+
+  // #3298 — same defect one scope down. Scoped to the block rather than the
+  // section: Methodology shares "How this team works" with Workflow and
+  // Guardrails, which read the same project GET and surface their own Retry.
+  test('a failed project GET renders an error + Retry, not a perpetual skeleton', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    let attempts = 0;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
+      attempts += 1;
+      // Two attempts on the initial load (the query client retries once) — fail
+      // both, then serve the request the Retry button fires.
+      if (attempts <= 2) {
+        await r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'boom' }),
+        });
+        return;
+      }
+      await r.fulfill(json(projectDetail()));
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await expect(block.getByText("Couldn't load this project's methodology.")).toBeVisible();
+    await expect(block.getByRole('heading', { name: 'Methodology' })).toBeVisible();
+
+    await block.getByRole('button', { name: 'Retry' }).click();
+    await expect(block.getByRole('radio', { name: /Agile/i, checked: true })).toBeVisible();
+  });
+
+  // #3298 — the dialog has always rendered a `Switching…` state from its `pending`
+  // prop, but the call site passed `pending={false}` and unmounted the dialog in
+  // `onConfirm`, so the state was unreachable and a slow PATCH gave no feedback.
+  test('the flip warning dialog shows its pending state while the PATCH is in flight', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    // Two committed sprints arm the consent gate (#2619).
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
+      r.fulfill(
+        json({
+          count: 2,
+          next: null,
+          previous: null,
+          results: [
+            { id: 'sp-1', name: 'Sprint 1', state: 'CLOSED' },
+            { id: 'sp-2', name: 'Sprint 2', state: 'ACTIVE' },
+          ],
+        }),
+      ),
+    );
+
+    // Hold the PATCH open so the in-flight window is observable rather than a race.
+    let releasePatch!: () => void;
+    const patchGate = new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
+      if (r.request().method() === 'PATCH') {
+        await patchGate;
+        await r.fulfill(
+          json(projectDetail({ methodology: 'WATERFALL', effective_methodology: 'WATERFALL' })),
+        );
+        return;
+      }
+      await r.fulfill(json(projectDetail()));
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await block.getByRole('radio', { name: /Waterfall/i }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    const dialog = page.getByRole('alertdialog', { name: 'Switch to Waterfall?' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('2 sprints already committed')).toBeVisible();
+
+    const confirm = dialog.getByRole('button', { name: 'Switch to Waterfall' });
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+
+    // Still mounted, now showing progress, with both controls disabled so the flip
+    // cannot be re-fired or abandoned mid-write.
+    await expect(dialog.getByRole('button', { name: 'Switching…' })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+    // Disabling the button the user just activated blurs it, so focus must be
+    // re-seated inside the dialog — otherwise it lands on <body>, the pending
+    // state is announced to nobody, and the modal is up with focus outside it.
+    // `useFocusTrap` handles this only when it is given a `focusKey`.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const d = document.querySelector('[role="alertdialog"]');
+          return d ? d.contains(document.activeElement) : null;
+        }),
+      )
+      .toBe(true);
+
+    releasePatch();
+    await expect(dialog).toBeHidden();
   });
 });

@@ -208,8 +208,8 @@ function BoardTaskOverlays({
       {/* Task detail drawer — driven by the popover's "Open detail" action;
           shares the same registry-backed entry path as the Schedule view
           (ADR-0050). Conditionally mounted on selection so a closed
-          `role="dialog"` does not collide with the Workshop modal's loose
-          `getByRole('dialog')` locator (wave9-workshop e2e). */}
+          `role="dialog"` does not collide with other dialogs' loose
+          `getByRole('dialog')` locators. */}
       {projectId && selectedTaskId && (
         <TaskDetailDrawer
           task={taskIndex.get(selectedTaskId) ?? null}

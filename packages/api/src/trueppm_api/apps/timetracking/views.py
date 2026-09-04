@@ -40,6 +40,7 @@ from trueppm_api.apps.timetracking.serializers import (
     TimeEntryWeeklySerializer,
     TimerStartSerializer,
 )
+from trueppm_api.core.openapi import state_refusal_400
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User as _User
@@ -324,7 +325,14 @@ class MeTimesheetSubmitView(APIView):
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description="Week submitted: {week_start, submitted_at}.",
-            )
+            ),
+            400: state_refusal_400(
+                "``week_start`` in the path is not an ISO date (YYYY-MM-DD). The "
+                "segment is free text, so a malformed value reaches the handler and "
+                "``_parse_iso_date`` refuses it with a body keyed by ``week_start`` "
+                "rather than a flat ``detail`` (#3319).",
+                shape="fields",
+            ),
         },
     )
     def post(self, request: Request, week_start: str) -> Response:
@@ -342,7 +350,18 @@ class MeTimesheetSubmitView(APIView):
             }
         )
 
-    @extend_schema(responses={204: OpenApiResponse(description="Week un-submitted; empty body.")})
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Week un-submitted; empty body."),
+            400: state_refusal_400(
+                "``week_start`` in the path is not an ISO date (YYYY-MM-DD). The "
+                "segment is free text, so a malformed value reaches the handler and "
+                "``_parse_iso_date`` refuses it with a body keyed by ``week_start`` "
+                "rather than a flat ``detail`` (#3319).",
+                shape="fields",
+            ),
+        }
+    )
     def delete(self, request: Request, week_start: str) -> Response:
         user = cast("_User", request.user)
         monday = _monday_of(_parse_iso_date(week_start, "week_start"))

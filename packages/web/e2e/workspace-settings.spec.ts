@@ -1,5 +1,6 @@
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
+import { delayRoute } from './fixtures/cold-load';
 
 /**
  * Workspace settings — General, Members, and Groups pages.
@@ -531,6 +532,66 @@ test.describe('Workspace settings — workspace-admin gate (#2012)', () => {
     // RequireWorkspaceAdmin redirects; the workspace General heading never renders.
     await expect(page).toHaveURL(/\/me\/settings\/notifications/);
     await expect(page.getByRole('heading', { name: 'General' })).toHaveCount(0);
+  });
+
+  // #3330. The guard used to fall through — admitting anyone — whenever /auth/me
+  // produced no verdict. It now renders the absence instead, and the two halves
+  // of that absence render differently on purpose.
+  test('a slow /auth/me holds a skeleton, then admits the admin — never a flash-redirect', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+    // Registered after setup so it only defers the response, not its body.
+    await delayRoute(page, '**/api/v1/auth/me/');
+
+    // Straight to /settings, not /settings/general — the sub-slug is a
+    // SectionRedirect to `/settings#general`, and asserting on the URL is the
+    // point of both tests here.
+    await page.goto('/settings');
+
+    const skeleton = page.getByRole('status', { name: 'Loading workspace settings…' });
+    await expect(skeleton).toBeVisible();
+    // The whole point of the decision: a slow read is not a verdict, so the real
+    // admin stays on /settings and gets the page once the answer lands.
+    await expect(skeleton).toHaveCount(0, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+  });
+
+  test('a failed /auth/me shows an error with a retry — not the settings, not a redirect, not an endless skeleton', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+    let meCalls = 0;
+    await page.route('**/api/v1/auth/me/', (r) => {
+      meCalls += 1;
+      return r.fulfill({ status: 500, contentType: 'application/json', body: pj({}) });
+    });
+
+    await page.goto('/settings');
+
+    const alert = page
+      .getByRole('alert')
+      .filter({ hasText: "Couldn't confirm your workspace role." });
+    await expect(alert).toBeVisible();
+    // Fail closed: the settings never render behind the error.
+    await expect(page.getByRole('heading', { name: 'General' })).toHaveCount(0);
+    // …and fail closed without locking a real admin out: no bounce off /settings.
+    await expect(page).toHaveURL(/\/settings$/);
+    // Rule 246 / #3298 — a terminal failure must not read as "still loading".
+    await expect(page.getByRole('status', { name: 'Loading workspace settings…' })).toHaveCount(0);
+
+    // `retry: false` on the query makes one failure terminal, so Retry is the
+    // only way back short of a page reload. Assert it actually re-reads.
+    const before = meCalls;
+    await alert.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect.poll(() => meCalls).toBeGreaterThan(before);
   });
 });
 

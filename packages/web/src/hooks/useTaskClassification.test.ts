@@ -29,6 +29,12 @@ const REPORT = {
     has_inherit_bit: false,
   },
   skipped: [{ id: 'm', code: 'milestone_gate', axes: ['delivery_mode'], message: 'skipped' }],
+  // The two undo fields the endpoint really sends. Carried here even though no
+  // assertion in this file reads them: an untyped literal that omits a required
+  // response field passes silently, and the next test written against this fixture
+  // would be reasoning about a shape the server cannot produce (#3304).
+  operation_id: 'op-1',
+  can_undo: true,
 };
 
 function wrapper(queryClient: QueryClient) {

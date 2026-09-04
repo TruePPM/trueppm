@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -16,6 +16,13 @@ vi.mock('../hooks/useWorkspaceSettings', () => ({
 
 vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
   useUpdateWorkspaceSettings: () => ({ mutateAsync }),
+}));
+
+// Tri-state by design: `null` is "loading, errored, or a payload without
+// `workspace_role`" — the state #3314 is about. The page must fail closed on it.
+const isWorkspaceAdmin = vi.fn<() => boolean | null>();
+vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({
+  useIsWorkspaceAdmin: () => isWorkspaceAdmin(),
 }));
 
 const WS: WorkspaceSettings = {
@@ -68,6 +75,7 @@ describe('WorkspaceMethodologyPage', () => {
     mutateAsync.mockReset();
     mutateAsync.mockResolvedValue(undefined);
     useWorkspaceSettings.mockReturnValue({ data: WS });
+    isWorkspaceAdmin.mockReturnValue(true);
     useSettingsSaveStore.getState().reset();
   });
 
@@ -130,5 +138,82 @@ describe('WorkspaceMethodologyPage', () => {
     expect(
       screen.getByRole('radio', { name: /Suggest \(recommended\)/i, checked: true }),
     ).toBeInTheDocument();
+  });
+
+  // #3314. `RequireWorkspaceAdmin` redirects only on a positively-resolved
+  // `false`, so a failed `/auth/me` (`null`) leaves a non-admin on this page.
+  // The page must therefore fail closed on its own rather than trusting the guard.
+  describe.each([
+    ['an unresolved admin verdict (errored or loading /auth/me)', null],
+    ['a positively-resolved non-admin', false],
+  ] as const)('with %s', (_label, verdict) => {
+    beforeEach(() => {
+      isWorkspaceAdmin.mockReturnValue(verdict);
+    });
+
+    it('renders every control read-only instead of editable', () => {
+      renderPage();
+
+      expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+      // The effective values are still legible — read-only, not hidden (ADR-0133).
+      expect(
+        screen.getByRole('img', { name: /Default methodology: Waterfall/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('img', { name: /Program and project override policy: Suggest/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('img', { name: /Default estimation scale:/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('never arms the save bar, so no PATCH can be issued', () => {
+      renderPage();
+      expect(useSettingsSaveStore.getState().apiReady).toBe(false);
+      expect(useSettingsSaveStore.getState().dirty).toBe(false);
+      expect(mutateAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  // #3298. The page used to destructure only `data`/`isLoading`, so a failed GET
+  // left `ws` undefined forever and rendered the skeleton below indefinitely —
+  // a dead request was indistinguishable from a slow one (rule 246).
+  describe('when the workspace settings GET fails', () => {
+    const refetch = vi.fn();
+
+    beforeEach(() => {
+      refetch.mockReset();
+      useWorkspaceSettings.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        refetch,
+      });
+    });
+
+    it('renders the shared query-error state instead of a perpetual skeleton', () => {
+      renderPage();
+
+      // Polite (role="status"), not assertive: GET /workspace/ backs several
+      // sections of the consolidated page, so one failure must not fire N alerts.
+      const failure = screen.getByRole('status');
+      expect(failure).toHaveTextContent("Couldn't load workspace settings.");
+
+      // Nothing is left pulsing — the whole point is that the two states differ.
+      expect(document.querySelectorAll('[class*="animate-pulse"]')).toHaveLength(0);
+
+      // The heading survives: <SettingsSection aria-labelledby> targets the id
+      // SettingsPageTitle mints, so dropping it would dangle that reference.
+      expect(screen.getByRole('heading', { name: 'Methodology defaults' })).toBeInTheDocument();
+    });
+
+    it('offers a retry that re-runs just the failed request', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Retry' }));
+      expect(refetch).toHaveBeenCalledTimes(1);
+    });
   });
 });
