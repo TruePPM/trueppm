@@ -169,6 +169,14 @@ changed again yourself, is left as it is rather than being stomped; the undo toa
 how many it kept. Undo is a single step per cascade — undoing an older cascade once a
 newer one has landed on the same subtree is not supported.
 
+**Undo is Admin or Owner.** Applying a cascade and reversing one sit on different roles:
+a Member may cascade a subtree they are assigned to, but reversing a batch write removes
+work other people may already be building on top of, so that stays with a project Admin
+or Owner. When your role cannot undo, the toast simply reports what the cascade wrote and
+carries no **Undo** action — rather than offering one that would be refused. The cascade
+itself is unaffected; to reverse it, ask an Admin or Owner, or reclassify the subtree back
+to its previous values.
+
 ## Seeing the split without auditing it
 
 :::note[Ships in 0.4]

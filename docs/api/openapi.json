@@ -67858,9 +67858,13 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "can_undo": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
+                    "can_undo",
                     "matched",
                     "operation_id",
                     "skipped",
