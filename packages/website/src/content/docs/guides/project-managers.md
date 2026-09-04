@@ -129,7 +129,7 @@ The fastest way to judge TruePPM as a PM is to watch the schedule react to a cha
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as the PM.** Open `http://localhost:5173` and sign in as **`raj`** — Raj Patel, the project-manager persona, seeded with the **Scheduler** role.
+2. **Sign in as the PM.** Open `http://localhost:5173` and sign in as **`atlas-sam`** — Sam Okafor, Project Scheduler, seeded with the **Scheduler** role and holding the Migration Tooling CPM plan.
 
 3. **Open the Schedule.** In the left navigation rail, under **Plan**, click **Schedule** (`/projects/:id/schedule`). The critical path is lit up and milestones are marked. This is the plan TruePPM keeps current for you — no "Update Project" button anywhere.
 
@@ -137,10 +137,10 @@ The fastest way to judge TruePPM as a PM is to watch the schedule react to a cha
 
 5. **Read the forecast.** Look at the **Forecast** bar docked along the bottom of the Schedule — the chips should climb P50 ≤ P80 ≤ P95. Press **Details ›** for the full distribution and the tornado of top drivers. P80 is the date to commit to a client; the gap between P80 and your CPM date is your schedule risk, measured in days.
 
-6. **Compare against the baseline.** The demo seeds a **Contract baseline**. Click any completed task's row and read the **Baseline** section in the drawer to see planned-vs-actual variance. To see the baselines themselves, open the Schedule toolbar's **Project actions (···)** menu → **Baselines…**.
+6. **Compare against the baseline.** Atlas seeds a **Kickoff baseline** on Migration Tooling, superseded by a **Post-dry-run re-plan** — so there is a real re-baseline to read variance against. Click any completed task's row and read the **Baseline** section in the drawer to see planned-vs-actual variance. To see the baselines themselves, open the Schedule toolbar's **Project actions (···)** menu → **Baselines…**.
 
 :::note[Capturing a baseline needs Admin]
-**Capture baseline** and **Baselines…** live in the Schedule's **Project actions (···)** menu and are gated at **Admin** or above. `raj` is a Scheduler, so he reads baseline variance but cannot capture a new one — sign in as `diana` (PMO Director, Admin) if you want to try the capture flow.
+**Capture baseline** and **Baselines…** live in the Schedule's **Project actions (···)** menu and are gated at **Admin** or above. `atlas-sam` is a Scheduler, so he reads baseline variance but cannot capture a new one — sign in as `atlas-priya` (Priya Nair, Engineering Lead, Admin) if you want to try the capture flow.
 :::
 
 One honest note against your own test — *"does this work on my phone with no signal?"* — not yet. The installable PWA lands in **0.5** (add to home screen, offline time entry and reads), and the native offline mobile editor lands in **0.6**. Today this is a desktop/web evaluation, and that's the right thing to wait for if mobile is your dealbreaker.

@@ -569,6 +569,13 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         payload["event_delivery"] = _event_delivery()
         return Response(payload, status=status.HTTP_200_OK)
 
+    # Declared, or the operation publishes no ``requestBody`` and a generated client
+    # has no parameter to send the matrix through (#3364). A plain ``APIView`` has no
+    # ``serializer_class`` for drf-spectacular to infer a writable shape from, so
+    # nothing supplies this but the annotation — which is why the account-wide
+    # sibling below (``MyNotificationSettingsView.patch``) was declared and this one,
+    # the same shape one class up, was not.
+    @extend_schema(request=ProjectNotificationPreferenceSerializer)
     def patch(self, request: Request, pk: str) -> Response:
         project = self._get_project(request, pk)
         pref = self._get_or_create_pref(project, request.user)
@@ -697,9 +704,17 @@ class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
         obj = WorkspaceEmailSettings.load()
         return Response(_email_settings_payload(obj, can_edit=bool(request.user.is_superuser)))
 
+    # Both writes published no ``requestBody`` while ``_update`` reads one, so the
+    # settings page's own save had no documented shape (#3364). Declared per method
+    # rather than on the class so GET keeps taking no body. These two are the
+    # instances the first draft of the #3364 sweep could not see: the read is one
+    # frame down in ``_update``, and a handler-local search finds only a delegating
+    # one-liner — which is why that sweep now follows ``self._helper()`` calls.
+    @extend_schema(request=WorkspaceEmailSettingsSerializer)
     def put(self, request: Request) -> Response:
         return self._update(request, partial=False)
 
+    @extend_schema(request=WorkspaceEmailSettingsSerializer)
     def patch(self, request: Request) -> Response:
         return self._update(request, partial=True)
 

@@ -366,6 +366,33 @@ class GitAutomationSecretSerializer(serializers.Serializer[Any]):
     secret_set_at = serializers.DateTimeField(allow_null=True)
 
 
+#: Raw OpenAPI schema for the inbound receiver's **request** body (#3364).
+#:
+#: The receiver published no ``requestBody`` at all (``request=None``), which told a
+#: generated client the endpoint accepts nothing — while the handler reads
+#: ``request.data`` and refuses a non-object with a 400. There is no serializer to
+#: name here and there should not be: the body is the *provider's* pull/merge-request
+#: event, whose shape GitHub and GitLab own and change without asking us. Declaring a
+#: fixed schema would publish a contract we do not control and cannot keep true.
+#:
+#: So this declares exactly what the receiver actually requires — a JSON **object**,
+#: any keys — and says in prose where the real shape is defined. ``parse_envelope``
+#: reads a handful of provider-specific keys out of it and ignores the rest, which is
+#: why "an object" is not a cop-out but the honest ceiling on what we can promise.
+GIT_WEBHOOK_PAYLOAD_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": True,
+    "description": (
+        "The provider's own webhook event payload, forwarded verbatim — GitHub's "
+        "`pull_request` event or GitLab's `merge_request` event. Its shape is defined "
+        "by the provider, not by TruePPM, so it is typed here only as far as this "
+        "receiver actually constrains it: a JSON object. A non-object body is refused "
+        "with a 400 once the signature has verified. The signature is computed over "
+        "these exact bytes, so the body must be sent unmodified."
+    ),
+}
+
+
 #: Raw OpenAPI schema for the inbound receiver's ``200`` body (#2882).
 #:
 #: The published schema declared all four Git endpoints as "200: No response body",
