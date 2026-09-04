@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { extractValidationMessage } from '@/lib/apiError';
+import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
@@ -45,8 +47,8 @@ export interface ScheduleCommitState {
   newDuration: number;
   /** Viewport coordinates for the popover anchor (center-x, top-y of bar). */
   anchor: { x: number; y: number };
-  /** Inline error from a failed mutation, or null. */
-  error: string | null;
+  /** The refusal from a failed PATCH, or null — the popover reads its own Confirm label off it. */
+  error: WriteRefusal | null;
   /** ACTIVE sprint name when the task is committed to one, else null. */
   activeSprintName: string | null;
 }
@@ -128,19 +130,6 @@ export interface UseScheduleCommitApi {
   handleMoveProjectStart: () => void;
   /** Revert the engine preview and dismiss the floor prompt. */
   handleCancelBeforeStart: () => void;
-}
-
-/** Best-effort human message from a DRF error payload (detail, then first field). */
-function extractErrorMessage(err: unknown, fallback: string): string {
-  const data = (err as { response?: { data?: unknown } })?.response?.data;
-  if (data && typeof data === 'object') {
-    const detail = (data as { detail?: unknown }).detail;
-    if (typeof detail === 'string') return detail;
-    const firstVal = Object.values(data as Record<string, unknown>)[0];
-    if (Array.isArray(firstVal) && typeof firstVal[0] === 'string') return firstVal[0];
-    if (typeof firstVal === 'string') return firstVal;
-  }
-  return fallback;
 }
 
 const DAY_MS = 86_400_000;
@@ -256,7 +245,11 @@ export function useScheduleCommit({
   }, [workingDaysMask]);
 
   const computeAnchor = useCallback(
-    (taskId: string, newBarLeftCanvas: number, newBarRightCanvas: number): { x: number; y: number } | null => {
+    (
+      taskId: string,
+      newBarLeftCanvas: number,
+      newBarRightCanvas: number,
+    ): { x: number; y: number } | null => {
       const container = canvasContainerRef.current;
       if (!container || !engine) return null;
       const rect = container.getBoundingClientRect();
@@ -500,7 +493,7 @@ export function useScheduleCommit({
             // There is no popover to hold the error, so it goes to the schedule
             // error surface and is ANNOUNCED — a keyboard user has no bar to
             // look at, and silence here is how the original defect read.
-            const message = extractErrorMessage(err, "Couldn't save the change. Try again.");
+            const message = extractValidationMessage(err, "Couldn't save the change. Try again.");
             setScheduleError(message);
             if (ariaAssertiveRef.current) {
               ariaAssertiveRef.current.textContent = `Reschedule failed. ${message}`;
@@ -590,10 +583,12 @@ export function useScheduleCommit({
         // useRescheduleTask.onError rolls back the cache snapshot — the engine
         // bar position therefore needs to be left alone here (it matches the
         // user's intent, which they can retry).
-        const message =
-          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-          "Couldn't save the change. Try again or cancel.";
-        setState((prev) => (prev ? { ...prev, error: message } : prev));
+        // Shaped once (#3332): the record carries the server's own sentence AND
+        // whether a replay could succeed, so the popover's Confirm button can
+        // keep its verb on a refusal that a second identical PATCH would only
+        // earn again.
+        const refusal = describeWriteRefusal(err, "Couldn't save the change.");
+        setState((prev) => (prev ? { ...prev, error: refusal } : prev));
       },
     });
   }, [
@@ -655,11 +650,21 @@ export function useScheduleCommit({
           }
         },
         onError: (err) => {
-          failBeforeStartPrompt(extractErrorMessage(err, "Couldn't save the change. Try again."));
+          failBeforeStartPrompt(
+            extractValidationMessage(err, "Couldn't save the change. Try again."),
+          );
         },
       },
     );
-  }, [beforeStartPrompt, projectId, engine, rescheduleTask, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
+  }, [
+    beforeStartPrompt,
+    projectId,
+    engine,
+    rescheduleTask,
+    setScheduleError,
+    ariaAssertiveRef,
+    failBeforeStartPrompt,
+  ]);
 
   const handleMoveProjectStart = useCallback(() => {
     const p = beforeStartPrompt;
@@ -689,13 +694,12 @@ export function useScheduleCommit({
               onSuccess: () => {
                 setBeforeStartPrompt(null);
                 if (ariaAssertiveRef.current) {
-                  ariaAssertiveRef.current.textContent =
-                    'Project start moved; task scheduled.';
+                  ariaAssertiveRef.current.textContent = 'Project start moved; task scheduled.';
                 }
               },
               onError: (err) => {
                 failBeforeStartPrompt(
-                  extractErrorMessage(
+                  extractValidationMessage(
                     err,
                     'Moved the project start, but saving the task failed. Try again.',
                   ),
@@ -706,7 +710,7 @@ export function useScheduleCommit({
         },
         onError: (err) => {
           failBeforeStartPrompt(
-            extractErrorMessage(
+            extractValidationMessage(
               err,
               "Couldn't move the project start date. You may not have permission.",
             ),
@@ -714,7 +718,16 @@ export function useScheduleCommit({
         },
       },
     );
-  }, [beforeStartPrompt, projectId, engine, updateProject, rescheduleTask, setScheduleError, ariaAssertiveRef, failBeforeStartPrompt]);
+  }, [
+    beforeStartPrompt,
+    projectId,
+    engine,
+    updateProject,
+    rescheduleTask,
+    setScheduleError,
+    ariaAssertiveRef,
+    failBeforeStartPrompt,
+  ]);
 
   const handleCancelBeforeStart = useCallback(() => {
     const p = beforeStartPrompt;

@@ -13,7 +13,7 @@
  * callers without backlog-manage rights — the server is the real gate.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   DialogFooter,
   UnsavedChangesDialog,
@@ -21,6 +21,7 @@ import {
   useUnsavedChangesGuard,
 } from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { describeWriteRefusal } from '@/lib/writeRefusal';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProject } from '@/hooks/useProject';
 import { StoryPointField } from '@/features/backlog/StoryPointField';
@@ -89,6 +90,13 @@ export function StoryDetailDrawer({
   onClose,
 }: StoryDetailDrawerProps) {
   const patchStory = usePatchStory(projectId);
+  // The server's own refusal, not a hardcoded "Save failed" (#3332). A 403 on
+  // a read-only backlog and a 400 on a rejected field are different answers, and
+  // only one of them is worth retrying — `DialogFooter` reads both off the record.
+  const saveRefusal = useMemo(
+    () => describeWriteRefusal(patchStory.error, "Couldn't save the story."),
+    [patchStory.error],
+  );
   const setDor = useSetDor(projectId);
   // Effective estimation scale drives the points picker (ADR-0510, #2027). Falls
   // back to Fibonacci — the prior de-facto scale — on a stale/absent project cache.
@@ -136,8 +144,7 @@ export function StoryDetailDrawer({
   // AC counts + the SAVED estimate). Points edits are deferred, so Ready reflects
   // a new estimate only after Save; AC ticks are immediate, so they re-enable live.
   const acTotal = story.acTotal ?? story.acceptanceCriteria?.length ?? 0;
-  const acMet =
-    story.acMet ?? story.acceptanceCriteria?.filter((c) => c.met).length ?? 0;
+  const acMet = story.acMet ?? story.acceptanceCriteria?.filter((c) => c.met).length ?? 0;
   const readyReasons: string[] = [];
   if (story.storyPoints == null) readyReasons.push('needs an estimate');
   if (acTotal === 0) readyReasons.push('add at least one acceptance criterion');
@@ -262,7 +269,7 @@ export function StoryDetailDrawer({
                 {epics.map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.name}
-                    {e.qualifiedId ?? e.shortIdDisplay
+                    {(e.qualifiedId ?? e.shortIdDisplay)
                       ? ` (${e.qualifiedId ?? e.shortIdDisplay})`
                       : ''}
                   </option>
@@ -289,7 +296,7 @@ export function StoryDetailDrawer({
             onSave={handleSave}
             onCancel={reset}
             saving={patchStory.isPending}
-            error={patchStory.isError ? 'Save failed' : null}
+            error={saveRefusal}
           />
         )}
       </div>

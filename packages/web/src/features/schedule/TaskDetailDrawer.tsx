@@ -31,6 +31,7 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { canEditTask } from '@/lib/roles';
+import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import { Button } from '@/components/Button';
 import { HeaderEstimateChip } from './HeaderEstimateChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
@@ -234,7 +235,16 @@ export function TaskDetailDrawer({
   const openerRef = useRef<HTMLElement | null>(null);
 
   const { tasks: allTasks, links: allLinks } = useScheduleTasks();
-  const { mutate: updateTask, isPending: isSaving, isError: saveFailed } = useUpdateTask();
+  const { mutate: updateTask, isPending: isSaving, error: saveError } = useUpdateTask();
+  // The server's own refusal (#3332). The drawer batches name, description and
+  // the estimate triple into one PATCH, so the refusal is as likely to be a 400
+  // naming the offending field as a 403 on the project — and "Couldn't save —
+  // try again" discarded both, then advised the one action a 4xx has already
+  // ruled out.
+  const saveRefusal = useMemo(
+    () => describeWriteRefusal(saveError, "Couldn't save the task."),
+    [saveError],
+  );
   // 1046: thread the viewer's project role into the sections so write controls
   // (add link, add attachment, edit description) are hidden from Viewers instead
   // of surfacing affordances that 403 on submit. `role` is null while it loads.
@@ -357,7 +367,10 @@ export function TaskDetailDrawer({
   // clobbering; the three estimate columns collapse to one "Estimates" token.
   const liveDraft = task ? toDraft(task) : EMPTY_DRAFT;
   const fieldChangedElsewhere = (field: keyof ScalarDraft): boolean =>
-    task !== null && dirty && liveDraft[field] !== baseline[field] && liveDraft[field] !== draft[field];
+    task !== null &&
+    dirty &&
+    liveDraft[field] !== baseline[field] &&
+    liveDraft[field] !== draft[field];
   const notesChangedElsewhere = fieldChangedElsewhere('notes');
   const conflictLabels = [
     fieldChangedElsewhere('name') ? 'Name' : null,
@@ -748,7 +761,7 @@ export function TaskDetailDrawer({
           onDismissDeleted={handleDismissDeleted}
           dirty={dirty}
           isSaving={isSaving}
-          saveFailed={saveFailed}
+          saveRefusal={saveRefusal}
           onSave={handleSave}
           onCancel={reset}
         />
@@ -839,7 +852,7 @@ export function TaskDetailDrawer({
           onSaveAndContinue={saveAndOpen}
           saveAndContinueLabel="Save & open"
           saving={isSaving}
-          error={saveFailed ? "Couldn't save — try again" : null}
+          error={saveRefusal}
         />
       )}
     </>
@@ -886,7 +899,8 @@ interface DrawerContentProps {
   onDismissDeleted: () => void;
   dirty: boolean;
   isSaving: boolean;
-  saveFailed: boolean;
+  /** The server's refusal from the batched scalar PATCH, or `null` (#3332). */
+  saveRefusal: WriteRefusal | null;
   onSave: () => void;
   onCancel: () => void;
 }
@@ -925,7 +939,7 @@ function DrawerContent({
   onDismissDeleted,
   dirty,
   isSaving,
-  saveFailed,
+  saveRefusal,
   onSave,
   onCancel,
 }: DrawerContentProps) {
@@ -1328,7 +1342,7 @@ function DrawerContent({
                 : null
             }
             statusText={statusText}
-            error={saveFailed ? "Couldn't save — try again" : null}
+            error={saveRefusal}
           />
         </div>
       ) : (

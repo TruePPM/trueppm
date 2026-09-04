@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatChord } from '@/lib/platform';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
+import { RefusalAlert } from '@/components/dialog';
+import type { WriteRefusal } from '@/lib/writeRefusal';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { TaskBulkResponse } from '@/hooks/useTaskMutations';
 import type { ApiSprint, DeliveryMode, GovernanceClass, ProjectResource, Task } from '@/types';
@@ -123,8 +125,11 @@ export interface BulkEditSheetProps {
    */
   autoPromoteTarget?: 'REVIEW' | 'COMPLETE' | null;
   isPending: boolean;
-  /** Non-207 failure (network, 403 on the batch itself) — switches Apply to Retry. */
-  error: string | null;
+  /**
+   * Non-207 failure (network, 403 on the batch itself). Switches Apply to Retry
+   * **only when a replay could succeed** — see {@link WriteRefusal.retryable}.
+   */
+  error: WriteRefusal | null;
   /** The 207 body once a batch has landed; null while the form is showing. */
   result: TaskBulkResponse | null;
   /** Rows the sheet dropped before sending (see `buildBulkEditOperations`). */
@@ -280,12 +285,7 @@ export function BulkEditSheet({
 
       {result ? (
         <ResultPhase
-          lines={buildResultLines(
-            appliedProjection ?? projection,
-            result,
-            skippedLocallyIds,
-            ctx,
-          )}
+          lines={buildResultLines(appliedProjection ?? projection, result, skippedLocallyIds, ctx)}
           result={result}
           onReviewFailed={onReviewFailed}
           onDone={onDone}
@@ -349,7 +349,10 @@ export function BulkEditSheet({
               />
             </Group>
 
-            <Group title="Placement & policy" note={`${formatChord('mod+shift+m')} for a whole subtree`}>
+            <Group
+              title="Placement & policy"
+              note={`${formatChord('mod+shift+m')} for a whole subtree`}
+            >
               <SprintField
                 choice={spec.sprint}
                 sprints={sprints}
@@ -442,8 +445,16 @@ export function BulkEditSheet({
                   again or use Apply.
                 </p>
               )}
-              {error && <div className="mt-1 text-semantic-critical">{error}</div>}
             </div>
+            {/*
+              A SIBLING of the review block, not a child of it (web-rule 372b).
+              The review is Apply's `aria-describedby` and changes on every
+              keystroke; a refusal appended inside it would be read only on the
+              next arrival at the commit, which is exactly when it is too late.
+              As its own `role="alert"` it is announced when the server answers —
+              which, before #3332, nothing on this sheet ever was.
+            */}
+            <RefusalAlert refusal={error} testId="bulk-edit-error" />
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
                 Cancel
@@ -457,7 +468,16 @@ export function BulkEditSheet({
                 onClick={submit}
                 data-testid="bulk-edit-apply"
               >
-                {error ? 'Retry' : isPending ? 'Applying…' : `Apply to ${countRows(tasks.length)}`}
+                {/* The verb survives a refusal the server has already decided
+                    (web-rule 372a): "Apply to 14 rows" is what tells the planner
+                    the scope they are about to commit, and a blanket "Retry"
+                    both hid that and pointed at the one act guaranteed to be
+                    refused identically. */}
+                {isPending
+                  ? 'Applying…'
+                  : error?.retryable
+                    ? 'Retry'
+                    : `Apply to ${countRows(tasks.length)}`}
               </Button>
             </div>
           </footer>
@@ -722,7 +742,9 @@ function OwnerField({
     if (ownerArmIsInert(mode)) {
       // `S12` — refusal at the moment of the attempt, never silently at Apply.
       const arm = OWNER_ARMS.find((a) => a.mode === mode);
-      onRefuse(`${arm?.gerund ?? arm?.label} an owner ships in ${arm?.shipsIn}. Nothing was changed.`);
+      onRefuse(
+        `${arm?.gerund ?? arm?.label} an owner ships in ${arm?.shipsIn}. Nothing was changed.`,
+      );
       return;
     }
     onTouch();

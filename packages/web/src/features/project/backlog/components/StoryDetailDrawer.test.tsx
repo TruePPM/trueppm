@@ -5,8 +5,12 @@ import { renderWithProviders } from '@/test/utils';
 import type { Task } from '@/types';
 import { StoryDetailDrawer } from './StoryDetailDrawer';
 import type { ProductBacklog } from '../types';
+import { axiosRefusal } from '@/test/axiosError';
 
 const patchMutate = vi.fn();
+// The real error object, not just `isError` — the drawer shapes the refusal
+// itself now, so a boolean-only mock would exercise the slot and not the wiring.
+let patchError: unknown = null;
 const dorMutate = vi.fn();
 const updateCriterionMutate = vi.fn();
 
@@ -15,7 +19,12 @@ vi.mock('../hooks/useProductBacklog', () => ({
 }));
 
 vi.mock('../hooks/useStoryDetail', () => ({
-  usePatchStory: () => ({ mutate: patchMutate, isPending: false, isError: false }),
+  usePatchStory: () => ({
+    mutate: patchMutate,
+    isPending: false,
+    isError: patchError !== null,
+    error: patchError,
+  }),
   useCreateCriterion: () => ({ mutate: vi.fn() }),
   useUpdateCriterion: () => ({ mutate: updateCriterionMutate }),
   useDeleteCriterion: () => ({ mutate: vi.fn() }),
@@ -80,6 +89,7 @@ function renderDrawer(story: Task, canManageBacklog = true, onClose = vi.fn()) {
 }
 
 beforeEach(() => {
+  patchError = null;
   patchMutate.mockReset();
   dorMutate.mockReset();
   updateCriterionMutate.mockReset();
@@ -205,5 +215,28 @@ describe('StoryDetailDrawer (#1043)', () => {
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('StoryDetailDrawer — save refusal (#3332)', () => {
+  it("shows the server's own reason and no retry advice on a 403", async () => {
+    const user = userEvent.setup();
+    patchError = axiosRefusal(403, { detail: 'Only the Product Owner can rescore a story.' });
+    renderDrawer(makeStory());
+
+    await user.type(screen.getByLabelText('Story title'), '!');
+
+    const alert = await screen.findByTestId('dialog-footer-error');
+    expect(alert).toHaveAttribute('role', 'alert');
+    expect(alert).toHaveTextContent('Only the Product Owner can rescore a story.');
+    // The hardcoded "Save failed" this slot used to render.
+    expect(alert).not.toHaveTextContent('Save failed');
+  });
+
+  it('renders no alert when the patch has not failed', async () => {
+    const user = userEvent.setup();
+    renderDrawer(makeStory());
+    await user.type(screen.getByLabelText('Story title'), '!');
+    expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
   });
 });

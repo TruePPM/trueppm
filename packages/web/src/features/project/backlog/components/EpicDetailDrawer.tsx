@@ -11,7 +11,7 @@
  * server is the real gate (a 403 surfaces as a save error).
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   DialogFooter,
   UnsavedChangesDialog,
@@ -19,6 +19,7 @@ import {
   useUnsavedChangesGuard,
 } from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { describeWriteRefusal } from '@/lib/writeRefusal';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { Task } from '@/types';
 import { usePatchEpic } from '../hooks/useProductBacklog';
@@ -52,6 +53,13 @@ interface EpicDetailDrawerProps {
 
 export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerProps) {
   const patchEpic = usePatchEpic(projectId);
+  // The server's own refusal, not a hardcoded "Save failed" (#3332). A 403 on
+  // a read-only backlog and a 400 on a rejected field are different answers, and
+  // only one of them is worth retrying — `DialogFooter` reads both off the record.
+  const saveRefusal = useMemo(
+    () => describeWriteRefusal(patchEpic.error, "Couldn't save the epic."),
+    [patchEpic.error],
+  );
   const closeRef = useRef<HTMLButtonElement>(null);
   // The drawer is non-modal on desktop (the backlog list stays usable beside it)
   // but a true modal bottom-sheet on mobile, where a backdrop covers the list.
@@ -176,7 +184,7 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
             saving={patchEpic.isPending}
             saveDisabled={nameBlank}
             validationMessage={nameBlank ? 'Name is required' : null}
-            error={patchEpic.isError ? 'Save failed' : null}
+            error={saveRefusal}
           />
         )}
       </div>

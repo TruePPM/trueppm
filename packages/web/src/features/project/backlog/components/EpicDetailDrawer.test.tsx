@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Task } from '@/types';
 import { EpicDetailDrawer } from './EpicDetailDrawer';
+import { axiosRefusal } from '@/test/axiosError';
 
 // EpicDetailDrawer batches its name/description edits through usePatchEpic; mock the hook
 // so the test controls the outcome and asserts the batched PATCH payload.
@@ -14,7 +15,10 @@ const h = vi.hoisted(() => {
         opts?: { onSuccess?: () => void },
       ) => void
     >();
-  return { mutate, state: { mutate, isPending: false, isError: false } };
+  return {
+    mutate,
+    state: { mutate, isPending: false, isError: false, error: null as unknown },
+  };
 });
 
 vi.mock('../hooks/useProductBacklog', () => ({
@@ -52,6 +56,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.state.isPending = false;
   h.state.isError = false;
+  h.state.error = null;
   // Default: resolve immediately so a Save commits the new snapshot (clears dirty).
   h.mutate.mockImplementation((_vars, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
 });
@@ -74,7 +79,10 @@ describe('EpicDetailDrawer (#1346)', () => {
     const user = userEvent.setup();
     renderDrawer(makeEpic());
 
-    setValue(screen.getByLabelText('Epic description'), 'Foundational platform work. Now with SSO.');
+    setValue(
+      screen.getByLabelText('Epic description'),
+      'Foundational platform work. Now with SSO.',
+    );
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(h.mutate).toHaveBeenCalledTimes(1);
@@ -146,12 +154,26 @@ describe('EpicDetailDrawer (#1346)', () => {
     expect(h.mutate).not.toHaveBeenCalled();
   });
 
-  it('surfaces a Save failed alert when the PATCH errored', () => {
+  it("surfaces the SERVER's refusal, and no retry advice on a 403 (#3332)", () => {
     h.state.isError = true;
+    h.state.error = axiosRefusal(403, { detail: 'Only the PO can rename an epic.' });
     renderDrawer(makeEpic());
 
     setValue(screen.getByLabelText('Epic description'), 'edited');
-    expect(screen.getByRole('alert')).toHaveTextContent('Save failed');
+    const alert = screen.getByTestId('dialog-footer-error');
+    expect(alert).toHaveTextContent('Only the PO can rename an epic.');
+    // The hardcoded "Save failed" this slot used to render discarded the sentence
+    // above — the one thing that tells the PO why, and who can.
+    expect(alert).not.toHaveTextContent('Save failed');
+  });
+
+  it('falls back to a plain sentence when the failure carries no readable body', () => {
+    h.state.isError = true;
+    h.state.error = new Error('Network Error');
+    renderDrawer(makeEpic());
+
+    setValue(screen.getByLabelText('Epic description'), 'edited');
+    expect(screen.getByTestId('dialog-footer-error')).toHaveTextContent("Couldn't save the epic.");
   });
 
   it('closing while dirty opens the styled discard dialog and Keep editing keeps the drawer open', async () => {

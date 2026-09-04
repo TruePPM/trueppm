@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
+import { RefusalAlert } from '@/components/dialog';
+import type { WriteRefusal } from '@/lib/writeRefusal';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 /**
@@ -35,8 +37,12 @@ export interface ScheduleCommitPopoverProps {
   action: CommitAction;
   /** Drives the Confirm button spinner + disabled state during the in-flight PATCH. */
   isPending: boolean;
-  /** Inline error after a failed mutation; switches Confirm to "Retry". */
-  error: string | null;
+  /**
+   * The refusal after a failed PATCH. Switches Confirm to "Retry" **only when a
+   * replay could succeed** — a 403 or a validation refusal keeps the verb, which
+   * is what tells the user what they are about to commit (web-rule 372a, #3332).
+   */
+  error: WriteRefusal | null;
   onConfirm: () => void;
   onCancel: () => void;
   /** Fired when the user clicks outside the popover; the host surfaces the toast. */
@@ -225,15 +231,7 @@ export function ScheduleCommitPopover({
         </div>
       )}
 
-      {error !== null && (
-        <div
-          role="alert"
-          className="mt-2 text-xs text-semantic-critical"
-          data-testid="commit-popover-error"
-        >
-          {error}
-        </div>
-      )}
+      <RefusalAlert refusal={error} testId="commit-popover-error" className="mt-2 text-xs" />
 
       <div className="mt-3 flex justify-end gap-2">
         <button
@@ -246,7 +244,7 @@ export function ScheduleCommitPopover({
           Cancel
         </button>
         <Button ref={confirmRef} variant="primary" onClick={onConfirm} disabled={isPending}>
-          {isPending ? 'Saving…' : error !== null ? 'Retry' : verb}
+          {isPending ? 'Saving…' : error?.retryable ? 'Retry' : verb}
         </Button>
       </div>
 
