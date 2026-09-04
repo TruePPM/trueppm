@@ -74,9 +74,14 @@ def _require_project_admin(user: object, project_pk: str) -> None:
     """Authoritative in-body role check for undoing an import (ADR-0810, #2756).
 
     Admin+, not Scheduler — the same bar as undoing a template apply or a
-    cascade (``batch_operation_views._require_admin``). A Scheduler may have
-    run the import; undoing it removes rows other collaborators may already be
-    building on top of, which is the Admin-line decision, not the import-line one.
+    cascade (``batch_operation_views._require_admin``). A Scheduler may have run
+    the import and still not clear this floor.
+
+    **Open at #3355, and not for the reason once given here.** This docstring used
+    to say the undo "removes rows other collaborators may already be building on
+    top of". ``undo_import_fix_operation`` partitions on ``server_version`` via
+    ``task_batch_services._partition_touched`` and reverts only untouched rows,
+    counting the rest as ``kept`` — so it removes nothing anyone else has changed.
     """
     role = (
         ProjectMembership.objects.filter(
