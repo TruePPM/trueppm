@@ -1,6 +1,7 @@
 # Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh.
 #
 # Pages under: features administration getting-started overview guides that carry NO "documentedFor" front-matter key,
+# plus these docs-root behavior pages: the-story.md
 # (exempt: overview/roadmap.md — the source of truth, not a page derived from it)
 # with the sha256 of the contents they had when they were last recorded here.
 # Editing one of these pages breaks its hash and fails docs:version-accuracy

@@ -263,6 +263,7 @@ update_baseline() {
     echo "# Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh."
     echo "#"
     echo "# Pages under: $DECLARATION_DIRS that carry NO \"documentedFor\" front-matter key,"
+    echo "# plus these docs-root behavior pages: $DECLARATION_EXTRA_PAGES"
     echo "# (exempt: $DECLARATION_EXEMPT — the source of truth, not a page derived from it)"
     echo "# with the sha256 of the contents they had when they were last recorded here."
     echo "# Editing one of these pages breaks its hash and fails docs:version-accuracy"
