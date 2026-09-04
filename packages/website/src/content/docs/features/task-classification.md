@@ -1,13 +1,15 @@
 ---
 title: Task classification
-description: Set a task's type, governance class, and delivery mode — the work-item taxonomy that drives board lanes, rollups, and the hybrid overlay.
+description: Set a task's type, governance class, and delivery mode — what each field means, which of them the product reads today, and how the defaults follow your project's methodology.
 documentedFor: "0.4"
 ---
 
-Every task carries three classification fields — `type`, `governance_class`, and `delivery_mode` — that describe *what kind of work it is*, *which overlay governs it*, and *how it executes and rolls up*. They have always been part of the [unified data model](/features/unified-data-model/) and are set by the demo seeds, but until now there was no way to change them from the task editor.
+Every task carries three classification fields — `type`, `governance_class`, and `delivery_mode` — that describe *what kind of work it is*, *which governance model applies to it*, and *how it executes and rolls up*. They have always been part of the [unified data model](/features/unified-data-model/) and are set by the demo seeds, but until now there was no way to change them from the task editor.
+
+The three fields are not read to the same depth. `type` and `delivery_mode` are consumed across the product; `governance_class` is stored, cascaded, imported and exported faithfully, but only one place in the product currently branches on its value. Each section below says which.
 
 :::note[Added in 0.3]
-The **Classification** controls were added in **0.3** (the agile team). The fields are already stored and read everywhere; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
+The **Classification** controls were added in **0.3** (the agile team). The fields were already stored and set by the seeds; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
 :::
 
 :::note[Ships in 0.4]
@@ -41,7 +43,9 @@ Epic is special: it changes hierarchy rather than adding schedulable work, so ch
 
 ## Governance class — which overlay governs the subtree
 
-`governance_class` selects *which* governance model applies to a task and its subtree. It is distinct from delivery mode: governance is about oversight, delivery is about execution.
+`governance_class` records *which* governance model applies to a task and its subtree. It is distinct from delivery mode: governance is about oversight, delivery is about execution.
+
+**What reads it today.** One thing: a template's **gates** count, which tallies the milestones marked `gated` in the shape you are about to publish or adopt. Everything else stores the value and carries it faithfully — the classification cascade sets it across a subtree and reports how many overrides it kept, MS Project and seed import/export round-trip it, and the API returns it — but no board lane, rollup figure, forecast or schedule overlay currently changes because a task is `gated` rather than `flow`. Set it to describe your plan and to drive the template gate count; do not expect a different number anywhere else yet.
 
 | Governance class | Meaning |
 |------------------|---------|

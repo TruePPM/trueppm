@@ -14,14 +14,23 @@ import { postOrderRollup } from './postOrderRollup';
  * is the same convention the canvas has used since #2727 (`drawDeliveryModeMark`
  * returns early on waterfall, and ScheduleLegend carries no waterfall swatch),
  * and matching it is what keeps the outline and the timeline from contradicting
- * each other. A gated plan of 400 rows would otherwise carry 400 identical
+ * each other. A waterfall plan of 400 rows would otherwise carry 400 identical
  * chips, which is noise, not signal — the shape of a hybrid is legible precisely
  * because the non-default branches are the ones that draw.
+ *
+ * The baseline kind is named `waterfall`, not `gated` (#3308). `gated` is a
+ * value on the OTHER axis — `governance_class` — and this module resolves its
+ * kinds purely from `delivery_mode`, so a task that is `waterfall` + `flow`
+ * rendered a chip reading GATED and announced "Gated" to a screen reader: a
+ * governance claim asserting the opposite of the row's actual governance value.
+ * That is exactly the collapse the paragraph above forbids, committed by the
+ * render layer. Every token this module emits — kind, chip label, description,
+ * speech — must stay on the delivery axis.
  */
-export type RowModeKind = 'gated' | 'scrum' | 'kanban' | 'mixed';
+export type RowModeKind = 'waterfall' | 'scrum' | 'kanban' | 'mixed';
 
 /** The single-mode kinds a `mixed` row can be composed of, in canonical order. */
-export const SINGLE_MODE_ORDER = ['gated', 'scrum', 'kanban'] as const;
+export const SINGLE_MODE_ORDER = ['waterfall', 'scrum', 'kanban'] as const;
 export type SingleModeKind = (typeof SINGLE_MODE_ORDER)[number];
 
 export interface RowMode {
@@ -53,14 +62,14 @@ function contributedMode(task: Task): SingleModeKind | null {
   if (mode === 'milestone') return null;
   if (mode === 'scrum') return 'scrum';
   if (mode === 'kanban') return 'kanban';
-  return 'gated';
+  return 'waterfall';
 }
 
 function toRowMode(parts: Set<SingleModeKind>): RowMode {
   const ordered = SINGLE_MODE_ORDER.filter((m) => parts.has(m));
   return {
-    kind: ordered.length > 1 ? 'mixed' : (ordered[0] ?? 'gated'),
-    parts: ordered.length ? ordered : ['gated'],
+    kind: ordered.length > 1 ? 'mixed' : (ordered[0] ?? 'waterfall'),
+    parts: ordered.length ? ordered : ['waterfall'],
   };
 }
 
@@ -69,15 +78,15 @@ function toRowMode(parts: Set<SingleModeKind>): RowMode {
  *
  * A parent reads from **its descendants**, not from its own `delivery_mode`.
  * That is deliberate and matches the design handoff (case 04): after cascading
- * scrum onto phase 4 while 4.1 keeps a gated override, phase 4 reads `MIXED`
+ * scrum onto phase 4 while 4.1 keeps a waterfall override, phase 4 reads `MIXED`
  * even though its own field now says scrum. The chip describes the subtree the
  * planner is looking at; the row's own stored value is visible in the drawer
  * and in the classification popover, which is where a single row's field
  * belongs.
  *
  * A parent whose descendants are all milestones (so they contribute nothing)
- * falls back to its own mode rather than to the `gated` default — otherwise a
- * gate-only phase in a scrum branch would silently read as gated.
+ * falls back to its own mode rather than to the `waterfall` default — otherwise a
+ * gate-only phase in a scrum branch would silently read as waterfall.
  *
  * O(n) over the task list: one pass to index children, one post-order walk.
  * Callers memoize on the task array.
@@ -101,17 +110,17 @@ export interface ModePresentation {
  * `--agile` / `--kanban` are the same hues the canvas uses (`COLOR.deliveryScrum`
  * / `COLOR.deliveryKanban` in GanttRenderer.ts) and the same ones ScheduleLegend's
  * swatches already draw, so a row's gutter, its bar texture and the legend entry
- * that explains them cannot drift apart. `--ink-2` carries the gated band: it is
+ * that explains them cannot drift apart. `--ink-2` carries the waterfall band: it is
  * the neutral that flips light/dark, which `--navy` (light-only) does not.
  */
 const PART_COLOR: Record<SingleModeKind, string> = {
-  gated: 'var(--ink-2)',
+  waterfall: 'var(--ink-2)',
   scrum: 'var(--agile)',
   kanban: 'var(--kanban)',
 };
 
 const SINGLE_DESCRIPTION: Record<SingleModeKind, string> = {
-  gated: 'Gated — progress is entered explicitly and dates are governed by the schedule',
+  waterfall: 'Waterfall — progress is entered explicitly and dates are governed by the schedule',
   scrum: 'Scrum — progress rolls up from story-point burndown, and velocity feeds Monte Carlo',
   kanban: 'Kanban — progress rolls up from item throughput',
 };
@@ -127,12 +136,12 @@ export const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
 /**
  * Whether a row draws a gutter and a chip at all.
  *
- * See the module docstring: `gated` is the baseline and draws nothing, matching
+ * See the module docstring: `waterfall` is the baseline and draws nothing, matching
  * the canvas. Everything else draws both — never color alone, since the chip
  * carries the same fact in text (WCAG 1.4.1).
  */
 export function isModeVisible(mode: RowMode | undefined): mode is RowMode {
-  return mode !== undefined && mode.kind !== 'gated';
+  return mode !== undefined && mode.kind !== 'waterfall';
 }
 
 export function modePresentation(mode: RowMode): ModePresentation {
@@ -157,7 +166,7 @@ export function modePresentation(mode: RowMode): ModePresentation {
  * mode, split evenly top to bottom.
  *
  * A `mixed` phase is drawn from the hues actually present rather than a fixed
- * two-tone, so `scrum + kanban` and `gated + scrum` are visibly different
+ * two-tone, so `scrum + kanban` and `waterfall + scrum` are visibly different
  * branches instead of both reading "mixed, somehow".
  */
 export function gutterBackground(colors: string[]): string {
@@ -179,9 +188,9 @@ export function gutterBackground(colors: string[]): string {
  * color band and a texture alone — information in a visual channel only
  * (WCAG 1.4.1).
  *
- * `gated` returns `null` on purpose, matching {@link isModeVisible}: the
+ * `waterfall` returns `null` on purpose, matching {@link isModeVisible}: the
  * baseline draws no gutter and no chip, so announcing "Waterfall delivery" on
- * every row of a 400-row gated plan would put a suffix in speech that has no
+ * every row of a 400-row waterfall plan would put a suffix in speech that has no
  * counterpart on screen — the same noise the chip convention exists to avoid.
  *
  * Deliberately SHORTER than {@link modePresentation}'s `description`. The chip
@@ -189,7 +198,7 @@ export function gutterBackground(colors: string[]): string {
  * through, so it names the constituents and stops.
  */
 export function rowModeSpeech(mode: RowMode): string | null {
-  if (mode.kind === 'gated') return null;
+  if (mode.kind === 'waterfall') return null;
   if (mode.kind !== 'mixed') return `${mode.kind === 'scrum' ? 'Scrum' : 'Kanban'} delivery`;
   return `Mixed delivery — this branch contains ${mode.parts.join(' and ')} work`;
 }

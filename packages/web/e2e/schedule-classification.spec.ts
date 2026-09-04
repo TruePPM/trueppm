@@ -206,7 +206,7 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     const phaseBar = page.locator('[role="option"][data-task-id="t4"]');
     await expect(phaseBar).toHaveAttribute('aria-label', /Mixed delivery/);
     // Names the constituents, not just that something is mixed.
-    await expect(phaseBar).toHaveAttribute('aria-label', /gated and scrum/);
+    await expect(phaseBar).toHaveAttribute('aria-label', /waterfall and scrum/);
 
     // And the leaf that was actually cascaded says the single mode, so the two
     // rows are distinguishable by speech alone.
@@ -214,8 +214,8 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     await expect(leafBar).toHaveAttribute('aria-label', /Scrum delivery/);
   });
 
-  test('a gated plan carries no mode chips at all', async ({ page }) => {
-    // The baseline draws nothing, matching the canvas. A 400-row gated plan
+  test('a waterfall plan carries no mode chips at all', async ({ page }) => {
+    // The baseline draws nothing, matching the canvas. A 400-row waterfall plan
     // must not carry 400 identical marks.
     await page.goto(BASE_URL);
     await expect(page.getByText('Build & integration')).toBeVisible();

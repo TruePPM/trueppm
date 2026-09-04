@@ -51,7 +51,7 @@ Flipping a project's methodology never touches existing data. If a project alrea
 The config-change notice below lands in the **0.4 beta**. In `v0.3.0-alpha.3` a preset switch reaches only whoever has the project open at that moment.
 :::
 
-**Switching the preset tells everyone with work in the project**, not just the person who changed it — the preset decides which views the whole team sees, so a silent flip re-arranges other people's workspace without telling them. The notice names both presets, which views became visible or hidden as a result, and confirms that the reader's own items keep their status, dates and assignments. It arrives the same way whether the preset is switched from a project's own settings or in bulk from the program settings matrix. See [Config-change notices](/features/notifications/#config-change-notices).
+**Switching the preset tells everyone whose workspace it re-shapes**, not just the person who changed it — the preset decides which views the whole team sees, so a silent flip re-arranges other people's workspace without telling them. That is everyone with work in the project, plus the project's Scrum Master and Product Owner and everyone at Scheduler or above — a Product Owner or a PM holding no assigned task is precisely the person the rest of the team asks to explain the flip. The notice names both presets, which views became visible or hidden as a result, and confirms that the reader's own items keep their status, dates and assignments. It arrives the same way whether the preset is switched from a project's own settings or in bulk from the program settings matrix. See [Config-change notices](/features/notifications/#config-change-notices).
 
 ## Customize views — your personal layer
 

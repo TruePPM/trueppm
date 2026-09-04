@@ -603,7 +603,10 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
   // onCreated intent contract (#2710) — preserved
   // ---------------------------------------------------------------------------
 
-  it('confirms creation with a success toast and reports an empty intent for Blank', async () => {
+  it('confirms creation with a success toast and reports the blank intent with its methodology', async () => {
+    // #3311: Blank used to report `{}`, which routed it to Overview while its own
+    // card promised the outline. The methodology rides along because it decides
+    // *which* surface that promise lives on — see createdProjectDestination.
     renderModal();
     await fillName('  Alpha  ');
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
@@ -611,7 +614,47 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     opts.onSuccess({ id: 'new-proj-1' });
 
     expect(toastSuccess).toHaveBeenCalledWith('Created Alpha');
-    expect(onCreated).toHaveBeenCalledWith('new-proj-1', {});
+    expect(onCreated).toHaveBeenCalledWith('new-proj-1', {
+      blank: true,
+      methodology: 'HYBRID',
+    });
+  });
+
+  it('names the outline on the Blank card for a non-AGILE project', () => {
+    // The card must describe the surface the create actually lands on (#3311).
+    renderModal();
+    expect(screen.getByText(/straight into the outline/i)).toBeInTheDocument();
+    expect(screen.queryByText(/straight into the product backlog/i)).not.toBeInTheDocument();
+  });
+
+  it('names the product backlog on the Blank card once the derived methodology is AGILE', async () => {
+    // Apollo's effective_methodology is AGILE, so a blank create under it lands on
+    // the backlog — the card has to say so rather than promise an outline the
+    // Schedule route will refuse to show (#2619).
+    renderModal();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /^program$/i }),
+      'program-uuid-123',
+    );
+    expect(screen.getByText(/straight into the product backlog/i)).toBeInTheDocument();
+    expect(screen.queryByText(/straight into the outline/i)).not.toBeInTheDocument();
+  });
+
+  it('reports the AGILE blank intent so the create lands on the backlog', async () => {
+    renderModal();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /^program$/i }),
+      'program-uuid-123',
+    );
+    await fillName('Beta');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-2' });
+
+    expect(onCreated).toHaveBeenCalledWith('new-proj-2', {
+      blank: true,
+      methodology: 'AGILE',
+    });
   });
 
   it('reports importCsv intent when Import is the active way', async () => {

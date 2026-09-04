@@ -379,7 +379,32 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         # version mutated under them turns that trail into a lie. So a name that
         # is already taken is a decision, not an error to swallow: either publish
         # a new version of that template, or pick a different name.
-        existing = ProjectTemplate.objects.filter(name=name[:200]).order_by("-version").first()
+        #
+        # The lookup is scoped to the pool the publisher can actually SEE (#3309),
+        # matching ``get_queryset``'s own narrowing (this program's templates plus
+        # the workspace-wide ones). A name-only lookup reached across programs and
+        # broke twice: Program B's republish superseded Program A's v1, so A's card
+        # rendered the ``superseded`` chip because of a row A cannot see and cannot
+        # find; and without ``new_version`` the 409 named — and gave the version of
+        # — a template B has no access to. A supersede must only ever occur inside
+        # a pool both parties can read.
+        #
+        # Own-program rows outrank workspace-wide ones on a tie, so a program that
+        # already owns this name extends ITS chain rather than forking whichever
+        # row happens to carry the higher version number.
+        scope = Q(program=project.program) | Q(program__isnull=True)
+        existing = (
+            ProjectTemplate.objects.filter(scope, name=name[:200])
+            .annotate(
+                _shared_pool=Case(
+                    When(program__isnull=True, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("_shared_pool", "-version")
+            .first()
+        )
         supersede = _flag(body.get("new_version"))
         if existing is not None and not supersede:
             return Response(
