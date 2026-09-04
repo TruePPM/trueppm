@@ -70,6 +70,42 @@ describe('extractValidationMessage', () => {
     expect(extractValidationMessage(axios4xx(400, {}), 'fallback')).toBe('fallback');
     expect(extractValidationMessage(new Error('x'), 'fallback')).toBe('fallback');
   });
+
+  // #3325 — DRF nests per-item and per-subfield errors; the flat cases above are
+  // the regression control that the unwrapping did not change for `string[]`.
+  it('reads a ListField per-item error and states which item (1-based)', () => {
+    const err = axios4xx(400, { hidden_views: { '0': ['Not a valid string.'] } });
+    expect(extractValidationMessage(err, 'fallback')).toBe('Item 1: Not a valid string.');
+  });
+
+  it('reads a nested serializer subfield error and names the subfield', () => {
+    const err = axios4xx(400, { calendar: { overlays: ['Unknown role.'] } });
+    expect(extractValidationMessage(err, 'fallback')).toBe('overlays: Unknown role.');
+  });
+
+  it('reads a many=True list error, skipping the empty objects of the valid items', () => {
+    const err = axios4xx(400, { tasks: [{}, { name: ['This field is required.'] }] });
+    expect(extractValidationMessage(err, 'fallback')).toBe(
+      'Item 2 → name: This field is required.',
+    );
+  });
+
+  it('still prefers detail over a nested field error', () => {
+    const err = axios4xx(400, {
+      detail: 'Denied.',
+      hidden_views: { '0': ['Not a valid string.'] },
+    });
+    expect(extractValidationMessage(err, 'fallback')).toBe('Denied.');
+  });
+
+  it('falls back when a nested body carries no message at all', () => {
+    expect(extractValidationMessage(axios4xx(400, { tasks: [{}, {}] }), 'fallback')).toBe(
+      'fallback',
+    );
+    expect(extractValidationMessage(axios4xx(400, { calendar: { overlays: [] } }), 'fallback')).toBe(
+      'fallback',
+    );
+  });
 });
 
 describe('extractFieldErrors', () => {
@@ -84,6 +120,26 @@ describe('extractFieldErrors', () => {
       host: 'Could not connect.',
       port: 'Must be 1–65535.',
     });
+  });
+
+  // #3325 — the map collapses to the top-level field so the form can find the
+  // input to highlight; the position rides in the message instead.
+  it('collapses a nested rejection to its top-level field, keeping the position in the message', () => {
+    expect(extractFieldErrors(axios4xx(400, { hidden_views: { '0': ['Not a valid string.'] } }))).toEqual(
+      { hidden_views: 'Item 1: Not a valid string.' },
+    );
+    expect(extractFieldErrors(axios4xx(400, { calendar: { overlays: ['Unknown role.'] } }))).toEqual(
+      { calendar: 'overlays: Unknown role.' },
+    );
+    expect(
+      extractFieldErrors(axios4xx(400, { tasks: [{}, { name: ['This field is required.'] }] })),
+    ).toEqual({ tasks: 'Item 2 → name: This field is required.' });
+  });
+
+  it('omits a field whose nested value carries no message', () => {
+    expect(extractFieldErrors(axios4xx(400, { tasks: [{}, {}], host: ['Could not connect.'] }))).toEqual(
+      { host: 'Could not connect.' },
+    );
   });
 
   it('returns an empty map for a network error, non-axios error, or list body', () => {
