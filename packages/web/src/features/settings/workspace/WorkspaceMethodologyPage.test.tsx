@@ -18,6 +18,13 @@ vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
   useUpdateWorkspaceSettings: () => ({ mutateAsync }),
 }));
 
+// Tri-state by design: `null` is "loading, errored, or a payload without
+// `workspace_role`" — the state #3314 is about. The page must fail closed on it.
+const isWorkspaceAdmin = vi.fn<() => boolean | null>();
+vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({
+  useIsWorkspaceAdmin: () => isWorkspaceAdmin(),
+}));
+
 const WS: WorkspaceSettings = {
   name: 'Acme',
   subdomain: 'acme',
@@ -68,6 +75,7 @@ describe('WorkspaceMethodologyPage', () => {
     mutateAsync.mockReset();
     mutateAsync.mockResolvedValue(undefined);
     useWorkspaceSettings.mockReturnValue({ data: WS });
+    isWorkspaceAdmin.mockReturnValue(true);
     useSettingsSaveStore.getState().reset();
   });
 
@@ -130,5 +138,41 @@ describe('WorkspaceMethodologyPage', () => {
     expect(
       screen.getByRole('radio', { name: /Suggest \(recommended\)/i, checked: true }),
     ).toBeInTheDocument();
+  });
+
+  // #3314. `RequireWorkspaceAdmin` redirects only on a positively-resolved
+  // `false`, so a failed `/auth/me` (`null`) leaves a non-admin on this page.
+  // The page must therefore fail closed on its own rather than trusting the guard.
+  describe.each([
+    ['an unresolved admin verdict (errored or loading /auth/me)', null],
+    ['a positively-resolved non-admin', false],
+  ] as const)('with %s', (_label, verdict) => {
+    beforeEach(() => {
+      isWorkspaceAdmin.mockReturnValue(verdict);
+    });
+
+    it('renders every control read-only instead of editable', () => {
+      renderPage();
+
+      expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+      // The effective values are still legible — read-only, not hidden (ADR-0133).
+      expect(
+        screen.getByRole('img', { name: /Default methodology: Waterfall/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('img', { name: /Program and project override policy: Suggest/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('img', { name: /Default estimation scale:/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('never arms the save bar, so no PATCH can be issued', () => {
+      renderPage();
+      expect(useSettingsSaveStore.getState().apiReady).toBe(false);
+      expect(useSettingsSaveStore.getState().dirty).toBe(false);
+      expect(mutateAsync).not.toHaveBeenCalled();
+    });
   });
 });

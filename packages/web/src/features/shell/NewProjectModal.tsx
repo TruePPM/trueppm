@@ -44,6 +44,14 @@ export interface CreatedProjectIntent {
   methodology?: Methodology;
   templateApplied?: boolean;
   /**
+   * Set on the `blank` way. Routes to the surface the Blank card names — the
+   * Schedule's outline canvas, or the product backlog for AGILE (#3311). Carried
+   * as its own flag rather than inferred from "no other flag set" so the import
+   * way's fallthrough to Overview stays explicit: `{}` means "nothing special",
+   * and a future way that adds no flag must not silently inherit blank's landing.
+   */
+  blank?: boolean;
+  /**
    * The template application to show progress for on arrival (ADR-0799 §1).
    * Set only for the template way, once `useApplyTemplate`'s `202` response
    * resolves — the seed banner polls this id and reads its `result_summary` for
@@ -146,15 +154,27 @@ function commitNote(commitLabel: string): string {
   return `Nothing is created until you press ${commitLabel}.`;
 }
 
-const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: string }> = {
+/**
+ * Copy for the two non-template ways. `blank` is a function of the derived
+ * methodology because the surface it lands on is (#3311): an AGILE project has no
+ * schedule outline to open into — `methodologyTabs.ts` hides the Schedule entirely
+ * — so promising one there would name a screen the path deliberately cannot reach.
+ * The card and `createdProjectDestination` must be read together; a test pins both.
+ */
+const WAY_DETAIL: Record<
+  Exclude<WayIn, 'template'>,
+  { title: string; body: (methodology: Methodology) => string }
+> = {
   blank: {
     title: 'Start empty',
-    body:
-      'Opens straight into the outline with the cursor already in the first row (#2733) — the fastest way in when you already know the shape.',
+    body: (methodology) =>
+      methodology === 'AGILE'
+        ? 'Opens straight into the product backlog, ready for your first item — the fastest way in when you already know the shape.'
+        : 'Opens straight into the outline with the cursor already in the first row — the fastest way in when you already know the shape.',
   },
   import: {
     title: 'Bring in a spreadsheet',
-    body:
+    body: () =>
       'Creates the project, then opens the import wizard so you can paste or upload rows straight into the outline.',
   },
 };
@@ -372,7 +392,11 @@ export function NewProjectModal({
         ? { importCsv: true }
         : way === 'template' && template
           ? { methodology: derived.methodology, templateApplied: true }
-          : {};
+          : way === 'blank'
+            ? // The derived methodology decides which surface the Blank card's
+              // promise actually lives on (#3311) — see createdProjectDestination.
+              { methodology: derived.methodology, blank: true }
+            : {};
     createProject.mutate(
       {
         name: name.trim(),
@@ -531,7 +555,7 @@ export function NewProjectModal({
                         {WAY_DETAIL[way].title}
                       </span>
                       <span className="text-xs text-neutral-text-secondary">
-                        {WAY_DETAIL[way].body}
+                        {WAY_DETAIL[way].body(derived.methodology)}
                       </span>
                     </div>
                   )}
