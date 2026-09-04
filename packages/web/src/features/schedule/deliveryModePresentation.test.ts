@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { DeliveryMode, Task } from '@/types';
+import type { RowMode } from './deliveryModePresentation';
 import {
   computeRowModes,
   gutterBackground,
@@ -29,16 +30,45 @@ function task(
   } as unknown as Task;
 }
 
+// #3308 — the row kind resolves from `delivery_mode` alone, so it must never
+// emit a `governance_class` word. A `waterfall` + `flow` task rendered a chip
+// reading GATED and announced "Gated" to a screen reader — a governance claim
+// asserting the opposite of the row's actual governance value. This suite is
+// the lock: it asserts on the tokens the user actually sees and hears, so a
+// future rename that reintroduces the collapse fails here rather than shipping.
+describe('delivery-axis vocabulary (never a governance word)', () => {
+  it('never emits "gated" for a waterfall row — kind, chip label, description or speech', () => {
+    const mode = computeRowModes([task('a', null, 'waterfall')]).get('a');
+    expect(mode).toEqual({ kind: 'waterfall', parts: ['waterfall'] });
+
+    const { label, description } = modePresentation(mode!);
+    expect(label).toBe('WATERFALL');
+    expect(description).toMatch(/^Waterfall — /);
+    for (const token of [label, description, rowModeSpeech(mode!) ?? '']) {
+      expect(token.toLowerCase()).not.toContain('gated');
+    }
+  });
+
+  it('never emits "gated" from a MIXED subtree that contains a waterfall branch', () => {
+    const mixed: RowMode = { kind: 'mixed', parts: ['waterfall', 'scrum'] };
+    const { label, description } = modePresentation(mixed);
+    for (const token of [label, description, rowModeSpeech(mixed) ?? '']) {
+      expect(token.toLowerCase()).not.toContain('gated');
+    }
+    expect(description).toContain('waterfall and scrum');
+  });
+});
+
 describe('computeRowModes', () => {
   it('resolves a leaf from its own delivery mode', () => {
     const modes = computeRowModes([task('a', null, 'scrum')]);
     expect(modes.get('a')).toEqual({ kind: 'scrum', parts: ['scrum'] });
   });
 
-  it('treats waterfall and an absent mode identically as the gated baseline', () => {
+  it('treats waterfall and an absent mode identically as the waterfall baseline', () => {
     const modes = computeRowModes([task('a', null, 'waterfall'), task('b', null)]);
-    expect(modes.get('a')?.kind).toBe('gated');
-    expect(modes.get('b')?.kind).toBe('gated');
+    expect(modes.get('a')?.kind).toBe('waterfall');
+    expect(modes.get('b')?.kind).toBe('waterfall');
   });
 
   it('rolls a uniform subtree up to the single mode its children share', () => {
@@ -57,10 +87,10 @@ describe('computeRowModes', () => {
       task('c1', 'p', 'waterfall'),
       task('c2', 'p', 'scrum'),
     ]);
-    expect(modes.get('p')).toEqual({ kind: 'mixed', parts: ['gated', 'scrum'] });
+    expect(modes.get('p')).toEqual({ kind: 'mixed', parts: ['waterfall', 'scrum'] });
   });
 
-  it('distinguishes a scrum+kanban mix from a gated+scrum one', () => {
+  it('distinguishes a scrum+kanban mix from a waterfall+scrum one', () => {
     const modes = computeRowModes([
       task('p', null),
       task('c1', 'p', 'scrum'),
@@ -98,8 +128,8 @@ describe('computeRowModes', () => {
       task('b', 'p2', 'waterfall'),
     ]);
     expect(modes.get('p1')?.kind).toBe('scrum');
-    expect(modes.get('p2')?.kind).toBe('gated');
-    expect(modes.get('root')).toEqual({ kind: 'mixed', parts: ['gated', 'scrum'] });
+    expect(modes.get('p2')?.kind).toBe('waterfall');
+    expect(modes.get('root')).toEqual({ kind: 'mixed', parts: ['waterfall', 'scrum'] });
   });
 
   it('resolves a task whose parent is outside the loaded list', () => {
@@ -117,15 +147,15 @@ describe('computeRowModes', () => {
 });
 
 describe('isModeVisible', () => {
-  it('draws nothing for the gated baseline, matching the canvas convention', () => {
-    expect(isModeVisible({ kind: 'gated', parts: ['gated'] })).toBe(false);
+  it('draws nothing for the waterfall baseline, matching the canvas convention', () => {
+    expect(isModeVisible({ kind: 'waterfall', parts: ['waterfall'] })).toBe(false);
     expect(isModeVisible(undefined)).toBe(false);
   });
 
   it('draws for every non-baseline mode', () => {
     expect(isModeVisible({ kind: 'scrum', parts: ['scrum'] })).toBe(true);
     expect(isModeVisible({ kind: 'kanban', parts: ['kanban'] })).toBe(true);
-    expect(isModeVisible({ kind: 'mixed', parts: ['gated', 'scrum'] })).toBe(true);
+    expect(isModeVisible({ kind: 'mixed', parts: ['waterfall', 'scrum'] })).toBe(true);
   });
 });
 
@@ -135,9 +165,9 @@ describe('modePresentation', () => {
   });
 
   it('names both halves of a mixed subtree in the description', () => {
-    const p = modePresentation({ kind: 'mixed', parts: ['gated', 'scrum'] });
+    const p = modePresentation({ kind: 'mixed', parts: ['waterfall', 'scrum'] });
     expect(p.label).toBe('MIXED');
-    expect(p.description).toContain('gated');
+    expect(p.description).toContain('waterfall');
     expect(p.description).toContain('scrum');
     expect(p.colors).toHaveLength(2);
   });
@@ -165,7 +195,7 @@ describe('gutterBackground', () => {
 // a bar's mode reaches a screen reader.
 describe('rowModeSpeech', () => {
   it('says nothing for the baseline, matching the chip that draws nothing', () => {
-    expect(rowModeSpeech({ kind: 'gated', parts: ['gated'] })).toBeNull();
+    expect(rowModeSpeech({ kind: 'waterfall', parts: ['waterfall'] })).toBeNull();
   });
 
   it('names a single mode', () => {
@@ -174,11 +204,11 @@ describe('rowModeSpeech', () => {
   });
 
   it('names every constituent of a mixed subtree, not just that it is mixed', () => {
-    expect(rowModeSpeech({ kind: 'mixed', parts: ['gated', 'scrum'] })).toBe(
-      'Mixed delivery — this branch contains gated and scrum work',
+    expect(rowModeSpeech({ kind: 'mixed', parts: ['waterfall', 'scrum'] })).toBe(
+      'Mixed delivery — this branch contains waterfall and scrum work',
     );
-    expect(rowModeSpeech({ kind: 'mixed', parts: ['gated', 'scrum', 'kanban'] })).toBe(
-      'Mixed delivery — this branch contains gated and scrum and kanban work',
+    expect(rowModeSpeech({ kind: 'mixed', parts: ['waterfall', 'scrum', 'kanban'] })).toBe(
+      'Mixed delivery — this branch contains waterfall and scrum and kanban work',
     );
   });
 });
