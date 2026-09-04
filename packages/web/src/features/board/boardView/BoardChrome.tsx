@@ -11,7 +11,6 @@
  * No behavior change — the guards and their order are reproduced exactly.
  */
 import type { ComponentProps, RefObject } from 'react';
-import { WorkshopBanner } from '../WorkshopBanner';
 import { BoardScopeInjectionBanner } from '../BoardScopeInjectionBanner';
 import { BoardSprintHeader } from '../BoardSprintHeader';
 import { ClosedSprintBanner } from '../ClosedSprintBanner';
@@ -25,7 +24,6 @@ import type { ApiSprint, Task, TaskStatus } from '@/types';
 // shapes it forwards — the props are pass-through, not a second declaration.
 type BoardPrintData = ComponentProps<typeof BoardPrintLayout>['data'];
 type ChromeColumns = ComponentProps<typeof CollapsedColumnsBanner>['columns'];
-type ChromeWorkshopSession = ComponentProps<typeof WorkshopBanner>['session'];
 
 export interface BoardChromeProps {
   projectId: string;
@@ -35,11 +33,6 @@ export interface BoardChromeProps {
   exportRequested: boolean;
   boardPrintRef: RefObject<HTMLDivElement | null>;
   boardPrintData: BoardPrintData;
-
-  workshopMode: boolean;
-  workshopSession: ChromeWorkshopSession | null | undefined;
-  workshopEnding: boolean;
-  onEndWorkshop: () => void;
 
   scopePendingCount: number;
   canManageScope: boolean;
@@ -77,10 +70,6 @@ export function BoardChrome({
   exportRequested,
   boardPrintRef,
   boardPrintData,
-  workshopMode,
-  workshopSession,
-  workshopEnding,
-  onEndWorkshop,
   scopePendingCount,
   canManageScope,
   onReviewScope,
@@ -115,10 +104,6 @@ export function BoardChrome({
         <div aria-hidden="true" className="pointer-events-none absolute -left-[99999px] top-0">
           <BoardPrintLayout ref={boardPrintRef} data={boardPrintData} />
         </div>
-      )}
-      {/* Workshop banner — shown when a session is active (ADR-0046) */}
-      {workshopMode && workshopSession && (
-        <WorkshopBanner session={workshopSession} onEnd={onEndWorkshop} isEnding={workshopEnding} />
       )}
       {/* Mid-sprint scope-injection banner (ADR-0101 §5) — team-visible
           record that tasks were added to the active sprint after it

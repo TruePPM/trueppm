@@ -1,7 +1,27 @@
 # ADR-0046: Board Workshop Mode
 
 ## Status
-Accepted (2026-05-31) — implemented in #216
+**Superseded (2026-09-03) by #3301 — Board Workshop Mode has been removed from the product.**
+
+Accepted (2026-05-31) — implemented in #216.
+
+### Why it was removed
+
+The feature never worked as this ADR describes. `workshopMode` was component-local
+client state set only in the success handler of the start mutation, and no join path
+was ever built — so a second project member could not enter an active session, and
+the presence apparatus specified in Decision 1 (consumer, participant model,
+`color_index`, cursor relay, avatar strip) was provisioned and unreachable. The
+participant count could only ever read 1. The published docs page meanwhile described
+live multi-user collaboration, which made the gap a user-facing accuracy problem
+rather than an incomplete feature.
+
+Rebuilding it as a real-time estimation surface was evaluated and rejected: async and
+synchronous planning poker are both well-served categories, and the ceremony itself is
+contested in practice. Removal, rather than repair, was the outcome.
+
+The decisions below are retained as the historical record of what was intended. They
+do not describe anything in the tree.
 
 ## Context
 
@@ -281,6 +301,25 @@ before commit. No server-side undo is provided.
 Out of scope for Wave 9. Filed as issue #248: "Workshop mode: surface resources-requested
 digest to Resource Manager on session end." ADR-0031 (Resource Allocation Timeline, Proposed)
 must be accepted and implemented first.
+
+> **Correction (2026-09-03, #3289):** that issue was never filed. #248 is an unrelated,
+> closed 0.1 bug, and no issue matching this description exists in the tracker in any
+> state — so the deferral above recorded a commitment that nothing tracked, and it went
+> unnoticed for three months. The digest itself is moot now that the feature is removed
+> (#3301).
+>
+> **Two things the deferral above still gets wrong, corrected here rather than deleted:**
+>
+> 1. **The stated prerequisite is already satisfied.** ADR-0031 was Accepted on
+>    2026-05-31 and implemented in #85 (`37b9c11d8`); `GET /api/v1/projects/{id}/resource-allocation/`
+>    has shipped since April 2026. #3289's own verification recorded it as "still
+>    Proposed" — that was incorrect. Nothing has been blocked on ADR-0031 for months.
+> 2. **The underlying gap is now tracked as #3362.** That a resourcing ask made during
+>    planning never reaches whoever owns the capacity is independent of this ADR and of
+>    Workshop Mode; it survives the removal. It is a design question — trigger, recipient,
+>    and surface are all undecided, and TruePPM models no "capacity owner" relation — so
+>    #3362 carries it with acceptance criteria of its own rather than leaving it as prose
+>    here. This footnote is not a commitment; #3362 is.
 
 ## Alternatives Considered
 

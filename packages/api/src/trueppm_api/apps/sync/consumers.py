@@ -22,9 +22,8 @@ _PRESENCE_TTL = 60  # seconds — refreshed by the per-socket keepalive below
 # How often each open socket re-arms the presence TTL (#2607).
 #
 # The TTL was originally refreshed only from ``receive_json`` — a heartbeat no
-# client sends. The web client's project socket is receive-only (grep for
-# ``.send(`` under packages/web/src: the only sender is the workshop socket), so
-# in practice nothing ever refreshed it and the roster emptied about a minute
+# client sends. The web client's project socket is receive-only, so in practice
+# nothing ever refreshed it and the roster emptied about a minute
 # into every session while everyone was still connected and editing.
 #
 # Refreshing on *traffic* would not fix it either: a quiet project generates no
