@@ -70,6 +70,30 @@ authentication or permission failures arrive as a bare `detail`:
 {"detail": "You do not have permission to perform this action."}
 ```
 
+### A few refusals are a bare array, not an object
+
+`non_field_errors` is where a **serializer's** object-level validation lands. A
+handful of endpoints refuse from the view itself, before or without a serializer,
+by raising a validation error on a single message. DRF wraps that message in a
+list and puts it on the wire as a **top-level JSON array** — there is no
+enclosing object, and therefore no key to look under:
+
+```json
+["This dependency is not pending acceptance."]
+```
+
+Three operations answer in this shape, and the OpenAPI schema declares it for
+each of them:
+
+- `POST /api/v1/dependencies/{id}/accept/`
+- `POST /api/v1/dependencies/{id}/reject/`
+- `POST /api/v1/slip-conflicts/{id}/acknowledge/`
+
+A client that assumes every `400` body is an object will throw on these before it
+can read the message. Check whether the parsed body is an array first; if it is,
+the messages are the elements. As with Shape 1, the strings are prose and are not
+a contract — branch on the status and the endpoint, not on the text.
+
 ## Shape 2 — structured errors (with a stable `code`)
 
 Failures that a client is expected to *handle differently* — not merely report —
@@ -228,6 +252,7 @@ capped sample naming them:
 | `not_live` | `409` | The planning-poker session is not live | — |
 | `not_revealed` | `409` | The planning-poker round has not been revealed yet | — |
 | `sprint_not_planned` | `409` | The sprint is not in the PLANNED state | — |
+| `name_taken` | `409` | A template with this name already exists in the pool you can see. Resend `publish` with `new_version: true` to extend that template's chain instead | `template`, `version`, `next_version` |
 | `seed_replace_required` | `409` | A live program you own already uses this seed's slug as its code, and the import did not confirm the replacement | `conflict` |
 | `seed_replace_mismatch` | `409` | `expected_program_id` does not name the program that would actually be replaced | `conflict` |
 | `not_found` | `404` | The targeted poker round or ceiling proposal does not exist | — |

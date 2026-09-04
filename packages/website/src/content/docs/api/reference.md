@@ -670,6 +670,29 @@ no template system — the collection does not exist.
 | GET | `/api/v1/template-applications/` | Adoption records (filter: `?project=`) |
 | POST | `/api/v1/template-applications/{id}/undo/` | Reverse one application |
 
+Both writes take a JSON body. `publish` requires `project` and `name`; `apply`
+requires `project`:
+
+```json
+// POST /api/v1/project-templates/publish/
+{
+  "project": "<uuid>",           // required — the project to freeze
+  "name": "House shape",         // required — trimmed, truncated at 200 chars
+  "description": "…",            // optional — truncated at 2000 chars
+  "source_kind": "workspace",    // optional — provenance chip, defaults to workspace
+  "new_version": true            // optional — publish v(n+1) instead of getting a 409
+}
+
+// POST /api/v1/project-templates/{id}/apply/
+{"project": "<uuid>"}            // required — the project to seed
+```
+
+`name` and `description` are **truncated**, not rejected, when they exceed their
+limits. `new_version` is read permissively: `true`, `"true"` and `"1"` all enable
+it, anything else is false. Publishing under a name that already exists in the
+pool you can see returns **`409`** with `code: name_taken` and a `next_version` —
+resend with `new_version: true` to extend that template's chain.
+
 `apply` returns **`202 {"queued": true, "application": "<uuid>"}`** — not a task id.
 Dispatch is best-effort behind a transactional outbox, so there may be no Celery id
 yet (or ever, for a delivery the drain re-dispatches). The **application id** is the
@@ -1002,7 +1025,9 @@ The response is `200`, and it reports each axis separately:
   "skipped": [
     { "id": "9b40…c7", "code": "milestone_gate",
       "axes": ["governance_class", "delivery_mode"], "message": "…" }
-  ]
+  ],
+  "operation_id": "7c2e…9f",
+  "can_undo": true
 }
 ```
 
@@ -1050,6 +1075,23 @@ cascaded descendants with `true`.
 
 Authoring requires Team Member or above, with the same Resource Manager exclusion
 as batch task writes.
+
+##### Undoing a cascade
+
+Two fields on the response govern the undo, and they answer different questions —
+read **both** before offering an undo affordance.
+
+| Field | Answers | `null` / `false` means |
+|---|---|---|
+| `operation_id` | Is there a ledger row to reverse? | The cascade changed nothing, so nothing was recorded |
+| `can_undo` | May **this caller** reverse one? | Your role is below Admin on this project |
+
+`POST /api/v1/cascade-classification-operations/{operation_id}/undo/` reverses the
+cascade, and it requires **Admin or Owner** — a strictly higher floor than the Team
+Member the apply above admits. So a Member can receive a `200` here, with a real
+`operation_id`, and still be refused the undo. `can_undo` is that answer, computed
+from the same rule the undo endpoint enforces; read it rather than comparing role
+ordinals yourself, exactly as with `can_author` on the project resource.
 
 ### Task attachments
 

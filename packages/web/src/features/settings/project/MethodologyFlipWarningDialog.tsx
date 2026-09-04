@@ -23,6 +23,17 @@ interface MethodologyFlipWarningDialogProps {
  * deleted, only hidden from the nav; the sprints stay reachable by direct URL
  * and via the mismatch banner. `role="alertdialog"` + a focus trap mirror the
  * codebase's other pre-write consent dialogs (`SeedReplaceConfirmDialog`).
+ *
+ * `pending` is a real phase, not a styling flag (#3298). Confirming disables the
+ * very button the user just activated, and a browser blurs a disabled element —
+ * so focus lands on `<body>` while an `aria-modal` dialog is still on screen,
+ * with the new `Switching…` state announced to nobody. Passing `pending` as
+ * `useFocusTrap`'s `focusKey` re-seats focus on the phase change; with both
+ * buttons disabled there is no focusable child, so the trap falls back to this
+ * container, whose `tabIndex={-1}` + `role="alertdialog"` + `aria-labelledby` /
+ * `aria-describedby` re-announce what is happening. This is the multi-state case
+ * the hook documents (#1776) — the dialog only became multi-state when it started
+ * outliving the confirm click.
  */
 export function MethodologyFlipWarningDialog({
   count,
@@ -31,9 +42,13 @@ export function MethodologyFlipWarningDialog({
   onCancel,
   onConfirm,
 }: MethodologyFlipWarningDialogProps) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, () => {
-    if (!pending) onCancel();
-  });
+  const trapRef = useFocusTrap<HTMLDivElement>(
+    true,
+    () => {
+      if (!pending) onCancel();
+    },
+    pending,
+  );
   const noun = count === 1 ? itl.lower : itl.lowerPlural;
 
   return (

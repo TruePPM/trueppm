@@ -3327,6 +3327,21 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "This cascade has already been undone. Verified against the status guard in ``undo`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -3929,6 +3944,19 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The dependency is not pending acceptance — it has already been accepted or rejected. The body is a JSON **array** of messages, not an object: ``_resolve_pending`` raises ``ValidationError`` on a bare string and DRF wraps a string detail in a list (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -3989,6 +4017,19 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The dependency is not pending acceptance — it has already been accepted or rejected. The body is a JSON **array** of messages, not an object: ``_resolve_pending`` raises ``ValidationError`` on a bare string and DRF wraps a string detail in a list (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -5257,6 +5298,19 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Either the active-token cap is already reached — a refusal on the caller's own state, carrying a flat ``detail`` — or ``MyApiTokenCreateSerializer`` rejected the body, which answers with DRF's field-keyed object. Both shapes fit the declaration below. Declared by hand for the same reason as the project token viewset: the operation publishes no ``requestBody`` for #3286's injection to key off (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -5739,6 +5793,21 @@
                     "204": {
                         "description": "No response body"
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``source`` does not name a registered external task source. The path segment is free text, so an unregistered value reaches the handler and is refused here rather than 404ing (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -5797,6 +5866,21 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``source`` does not name a registered external task source. The path segment is free text, so an unregistered value reaches the handler and is refused here rather than 404ing (#3319)."
                     },
                     "429": {
                         "content": {
@@ -6200,6 +6284,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``provider`` does not name a registered task-link provider. The path segment is free text, so an unregistered value reaches the handler and is refused here rather than 404ing (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -7914,6 +8013,19 @@
                         },
                         "description": "Week submitted: {week_start, submitted_at}."
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``week_start`` in the path is not an ISO date (YYYY-MM-DD). The segment is free text, so a malformed value reaches the handler and ``_parse_iso_date`` refuses it with a body keyed by ``week_start`` rather than a flat ``detail`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -7963,6 +8075,19 @@
                 "responses": {
                     "204": {
                         "description": "Week un-submitted; empty body."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``week_start`` in the path is not an ISO date (YYYY-MM-DD). The segment is free text, so a malformed value reaches the handler and ``_parse_iso_date`` refuses it with a body keyed by ``week_start`` rather than a flat ``detail`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -8249,6 +8374,21 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "This batch has already been undone. Verified against the status guard in ``undo`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -11597,6 +11737,19 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``ProjectApiTokenCreateSerializer`` rejected the body — ``name`` is required, ``status_map`` must be an object of strings, and ``mcp:read`` is refused outright on a project or program token (the MCP read surface accepts only personal tokens, so one minted here could read nothing). The body is DRF's field-keyed object. Declared by hand because the operation publishes no ``requestBody`` for #3286's injection to key off: the viewset's ``serializer_class`` is the all-read-only read serializer, and ``create`` reaches for the write serializer itself (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -14141,6 +14294,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Refused on the membership's own state: the target's role is at or above the caller's, or removing them would leave the program with no Owner. Verified against the peer-role and last-Owner guards in ``destroy`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -17096,6 +17264,26 @@
                 "tags": [
                     "projects"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectTemplateApplyRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectTemplateApplyRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectTemplateApplyRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -17126,6 +17314,39 @@
                                 }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Apply project template"
@@ -17138,6 +17359,26 @@
                 "tags": [
                     "projects"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectTemplatePublishRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectTemplatePublishRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectTemplatePublishRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -17160,6 +17401,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "A template with this name already exists in the pool the caller can see. Carries ``code: name_taken`` plus ``template``, ``version`` and ``next_version`` — resend with ``new_version: true`` to publish the next version of it."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -17171,6 +17415,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -17749,6 +18026,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``?force=true`` was sent for a project that is not archived. The two-step archive-then-force-delete sequence is deliberate, so the unarchived state is refused rather than silently soft-deleted. Unreachable without ``force`` — a plain DELETE always soft-deletes. Verified against the ``is_archived`` guard in ``perform_destroy`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -22528,6 +22820,28 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "child_of_milestone"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The move is not available from this task's current position: it is already first among its siblings (nothing to indent under), it carries no ``wbs_path``, or the sibling that would become its parent is a milestone — a milestone is a single point in time and cannot acquire children. Verified against the three guards in ``post`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -22594,6 +22908,21 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The move is not available from this task's current position: it is already at root level (nowhere to promote to), it carries no ``wbs_path``, or it is not found among its own siblings — the ``wbs_path`` corruption case #3319's sibling guard catches. Verified against the three guards in ``post``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -24050,6 +24379,19 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "``ProjectApiTokenCreateSerializer`` rejected the body — ``name`` is required, ``status_map`` must be an object of strings, and ``mcp:read`` is refused outright on a project or program token (the MCP read surface accepts only personal tokens, so one minted here could read nothing). The body is DRF's field-keyed object. Declared by hand because the operation publishes no ``requestBody`` for #3286's injection to key off: the viewset's ``serializer_class`` is the all-read-only read serializer, and ``create`` reaches for the write serializer itself (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -27687,6 +28029,21 @@
                     "204": {
                         "description": "No response body"
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Refused on the membership's own state: the target's role is at or above the caller's, or removing them would leave the project with no Owner. Verified against the peer-role and last-Owner guards in ``destroy`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -29084,6 +29441,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The phase still has descendant tasks. Cascading the delete would silently soft-delete them, so the phase must be emptied first. Verified against the descendant-count guard in ``perform_destroy`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -31908,6 +32280,21 @@
                     "204": {
                         "description": "No response body"
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The caller is neither the uploader nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError``; the declaration follows what reaches the wire, not what the status arguably should be (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -32476,6 +32863,21 @@
                     "204": {
                         "description": "No response body"
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The reaction belongs to another user. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -32750,6 +33152,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The caller is neither the comment author nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -34689,6 +35106,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The caller is neither the note author nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -38915,6 +39347,19 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The conflict is no longer open — it already carries a resolution. The body is a JSON **array** of messages, not an object: the guard raises ``ValidationError`` on a bare string and DRF wraps a string detail in a list. Verified against the resolution guard in ``acknowledge`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -39666,6 +40111,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The sprint is ACTIVE or CLOSED. Only a PLANNED or CANCELLED sprint can be deleted — a sprint that has run is history and is cancelled rather than removed. Verified against the state guard in ``perform_destroy`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -47000,6 +47460,21 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The application is not in a state that can be undone — it never reached SUCCESS, or it has already been undone. Verified against the status guard in ``undo`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -47527,6 +48002,21 @@
                     "204": {
                         "description": "Workspace purged and reset."
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The X-Confirm-Workspace header is absent or does not match the workspace name exactly. Verified against the typed-confirmation guard in ``delete`` (#3319)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -47814,7 +48304,57 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Test message sent: ``{\"sent\": true, \"recipient\": \"<email>\"}``."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sent": {
+                                            "type": "boolean",
+                                            "enum": [
+                                                false
+                                            ]
+                                        },
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The requesting operator's account has no email address on file, so there is no server-derived recipient to send to. The recipient is never read from the request body."
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sent": {
+                                            "type": "boolean",
+                                            "enum": [
+                                                false
+                                            ]
+                                        },
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The configured transport refused or failed. The underlying exception is deliberately not surfaced — it can echo credentials."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -49888,6 +50428,21 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Removing this member would leave the workspace with no Owner. Reachable only on an Owner target — a peer/higher-role removal is refused earlier with 403. Verified against the strand guard in ``delete`` (#3319)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -63107,6 +63662,55 @@
                     "version"
                 ]
             },
+            "ProjectTemplateApplyRequest": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Project to seed from this template. Required."
+                    }
+                },
+                "required": [
+                    "project"
+                ]
+            },
+            "ProjectTemplatePublishRequest": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Project whose shape is frozen into the template. Required."
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Template name. Required, whitespace-stripped, and truncated to 200 characters rather than rejected when longer."
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Truncated to 2000 characters rather than rejected when longer."
+                    },
+                    "source_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TemplateSourceEnum"
+                            }
+                        ],
+                        "description": "Provenance chip. Defaults to `workspace`.\n\n* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours"
+                    },
+                    "new_version": {
+                        "type": "boolean",
+                        "description": "Publish as the next version of an existing same-named template instead of receiving a 409. Read permissively: the strings `\"true\"` and `\"1\"` are also accepted, anything else is false."
+                    }
+                },
+                "required": [
+                    "name",
+                    "project"
+                ]
+            },
             "ProjectVisitResponse": {
                 "type": "object",
                 "properties": {
@@ -67858,9 +68462,13 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "can_undo": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
+                    "can_undo",
                     "matched",
                     "operation_id",
                     "skipped",

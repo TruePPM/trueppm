@@ -4753,11 +4753,25 @@ def _resolve_active_sprint_change(
 def _sprint_lead_recipient_ids(project_id: Any, actor_id: Any) -> list[Any]:
     """Everyone authorized to rule on this scope change, minus the actor.
 
-    **The cohort is defined as the set** :func:`assert_scope_gate_for_project`
-    **authorizes**: ``role >= ADMIN`` ∪ {Scrum Master facet} ∪ {Product Owner facet}.
-    The two must not be allowed to drift — a person who can accept or reject an
-    injected scope change and is never told one arrived has an authority they cannot
-    exercise, which is worse than not having it.
+    **The cohort is the set** :func:`assert_scope_gate_for_project` **authorizes —
+    ``role >= ADMIN`` ∪ {Scrum Master facet} ∪ {Product Owner facet} — intersected
+    with live project membership.** The two must not be allowed to drift: a person
+    who can accept or reject an injected scope change and is never told one arrived
+    has an authority they cannot exercise, which is worse than not having it.
+
+    Read that intersection precisely, because it is *not* redundant against the gate
+    (#3334). ``assert_scope_gate_for_project``'s facet arm goes through
+    ``user_facets``, which reads the team row alone, so on the raw predicate a
+    revoked member holding a live facet is still "authorized" while this cohort no
+    longer notifies them. The end-to-end invariant survives only because **both**
+    entry points scope to live membership before the gate is consulted —
+    ``SprintScopeChangeViewSet.get_queryset`` and ``_sprint_or_404`` on the sprint
+    close path both 404 a non-member — so the *reachable* authorized set and this
+    cohort are equal. A third entry point that skips that scoping (a bulk action, a
+    consumer, an MCP write) would re-open the gap silently, and the gate's own
+    docstring, which promises it holds "even if a view forgets this class", would be
+    the thing that misleads. The durable fix is a live-membership floor inside the
+    gate itself; it is deliberately not in #3334's scope.
 
     They *did* drift (#2897). This query was ADMIN+ only, justified by a comment
     calling it "the interim stand-in until ADR-0078 PO/SM facets exist" — while the
@@ -4773,10 +4787,15 @@ def _sprint_lead_recipient_ids(project_id: Any, actor_id: Any) -> list[Any]:
     role × facet matrix so a future widening of either side cannot silently split them
     again.
 
-    ``is_deleted=False`` is load-bearing for privacy on both halves: a revoked lead's
-    membership row survives the soft delete with its role, so without this filter they
-    would keep receiving scope-change notices for a project they no longer belong to
-    (rbac-check). ``facet_holder_user_ids`` applies the same filter to the team row.
+    ``is_deleted=False`` is load-bearing for privacy on both halves, and "both halves"
+    means the *project* row on each of them (#3334). A revoked lead's
+    ``ProjectMembership`` survives the soft delete with its role, so the ADMIN+ arm
+    filters it here. The facet arm needs the same filter for a less obvious reason:
+    the ADR-0078 §F mirror is create-only, so revoking a project membership leaves the
+    mirrored ``TeamMembership`` live with its facet flags, and a team-row filter alone
+    does not reach it. ``facet_holder_user_ids`` applies the project-row filter by
+    default — this docstring previously claimed it "applies the same filter to the
+    team row", which was true and irrelevant, and is why the leak survived review twice.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
     from trueppm_api.apps.teams.services import facet_holder_user_ids

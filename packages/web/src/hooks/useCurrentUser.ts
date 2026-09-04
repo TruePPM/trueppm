@@ -94,12 +94,43 @@ export interface CurrentUser {
   date_format: DateFormatStyle;
 }
 
+export interface UseCurrentUserResult {
+  user: CurrentUser | undefined;
+  isLoading: boolean;
+  /**
+   * The `/auth/me/` read failed, as distinct from "still loading".
+   *
+   * Both surface as `user: undefined`, and conflating them is a defect rather
+   * than a lint technicality (rule 246): a caller that renders a skeleton on
+   * `!user` renders it forever on a failure, because `retry: false` makes one
+   * failed request terminal. It matters most to role gates — `workspace_role`
+   * is only readable when the payload arrived, so "loading" and "errored" are
+   * the two halves of the `null` verdict `useIsWorkspaceAdmin` returns, and a
+   * guard cannot treat them the same way (#3330, and the same distinction
+   * `useCurrentUserRole` draws for project membership, #2961).
+   *
+   * Optional in the type — not at runtime — so the many existing mocks that
+   * supply only `user`/`isLoading` stay valid; `undefined` is not a third
+   * state, narrow to `isError ?? false`.
+   */
+  isError?: boolean;
+  /**
+   * Re-run the `/auth/me/` read after a failure.
+   *
+   * `retry: false` makes a single failed request terminal, so without this the
+   * only escape from `isError` is a full page reload. Optional in the type for
+   * the same reason as `isError` — treat `undefined` as "no retry available",
+   * never as a third state.
+   */
+  refetch?: () => void;
+}
+
 /**
  * Fetches GET /api/v1/auth/me/ and returns the current user's identity.
  * staleTime: 5 min — matches access token lifetime; avoids redundant refetches.
  */
-export function useCurrentUser(): { user: CurrentUser | undefined; isLoading: boolean } {
-  const { data, isPending } = useQuery<CurrentUser, AxiosError>({
+export function useCurrentUser(): UseCurrentUserResult {
+  const { data, isPending, isError, refetch } = useQuery<CurrentUser, AxiosError>({
     queryKey: ['current-user'],
     queryFn: async () => {
       const res = await apiClient.get<CurrentUser>('/auth/me/');
@@ -108,5 +139,5 @@ export function useCurrentUser(): { user: CurrentUser | undefined; isLoading: bo
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  return { user: data, isLoading: isPending };
+  return { user: data, isLoading: isPending, isError, refetch: () => void refetch() };
 }

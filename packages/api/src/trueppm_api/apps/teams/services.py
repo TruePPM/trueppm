@@ -10,12 +10,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from trueppm_api.apps.projects.models import Project
 
 # The two facet flags, exposed as a tuple so gates and serializers share one
@@ -155,8 +157,13 @@ def team_member_user_ids(project_id: Any) -> set[Any]:
     )
 
 
-def facet_holder_user_ids(project_id: Any) -> set[Any]:
-    """User ids holding the Scrum Master or Product Owner facet on the default team.
+def facet_holder_user_ids(
+    project_id: Any,
+    *,
+    facets: Sequence[str] = FACET_FIELDS,
+    live_project_members_only: bool = True,
+) -> set[Any]:
+    """User ids holding a Scrum Master or Product Owner facet on the default team.
 
     The set-shaped counterpart to :func:`user_facets`: same table, same filters,
     asked of the *project* rather than of one user. Notification and digest cohorts
@@ -170,17 +177,110 @@ def facet_holder_user_ids(project_id: Any) -> set[Any]:
     ADMIN+ only. The facet holders the feature existed for were exactly the ones it
     never told. A recipient cohort that must match an authorization predicate should
     read the predicate's own source, not a lookalike.
+
+    **The live-membership intersection defaults to on, and the default is the whole
+    point (#3334).** The ADR-0078 §F mirror only ever *creates* team rows
+    (:mod:`trueppm_api.apps.teams.signals` has no ``post_delete`` receiver and
+    ``TeamMembership`` has no FK a cascade could travel over), so soft-deleting a
+    ``ProjectMembership`` leaves the mirrored ``TeamMembership`` live with its facet
+    flags intact. A cohort built from the team row alone therefore keeps naming a
+    project's task names, sprint names and actors to someone who can no longer open
+    it — a dead link and a scope leak (ADR-0104's back-door close: a non-member sits
+    below every tier). That has now been fixed three times at three call sites
+    (#2897, #3291, #3334), which is why the guard is here and defaulted **safe**
+    rather than left for each new cohort to remember.
+
+    Args:
+        project_id: The project whose default team is read.
+        facets: Which of :data:`FACET_FIELDS` count as holding. Defaults to both.
+            ``("is_scrum_master",)`` is the impediment-clearer cohort, which routes
+            to the SM only.
+        live_project_members_only: Intersect with non-soft-deleted
+            ``ProjectMembership`` on the same project. Pass ``False`` only when the
+            caller has already read live membership and will intersect itself — the
+            correlated subquery is redundant work in that case, not extra safety.
+
+    Returns:
+        The de-duplicated set of user ids holding at least one of ``facets``.
+
+    Raises:
+        ValueError: If ``facets`` is empty or names anything outside
+            :data:`FACET_FIELDS`.
     """
-    return set(
+    # Materialize before validating. The guard below and the Q-building loop each
+    # consume `facets`, and a one-shot iterable would be drained by the first — which
+    # fails *open*, not closed: the loop then builds a bare `Q()`, that matches every
+    # row, and a facet cohort silently becomes the whole roster. The `Sequence`
+    # annotation rules that out today; the tuple() makes it not depend on the
+    # annotation.
+    facets = tuple(facets)
+    unknown = sorted(set(facets) - set(FACET_FIELDS))
+    if not facets:
+        raise ValueError(f"Unknown team facets: at least one of {list(FACET_FIELDS)} required")
+    if unknown:
+        raise ValueError(f"Unknown team facets: {unknown!r}")
+
+    holds_a_facet = Q()
+    for field in facets:
+        holds_a_facet |= Q(**{field: True})
+
+    queryset = TeamMembership.objects.filter(
+        team__project_id=project_id,
+        team__is_default=True,
+        team__is_deleted=False,
+        is_deleted=False,
+    ).filter(holds_a_facet)
+
+    if live_project_members_only:
+        # Correlated on `team__project_id` rather than on the `project_id` argument
+        # so the predicate stays correct if a caller ever widens the outer filter to
+        # `project_id__in=(...)` for a batched fan-out (#3335) — the subquery then
+        # still pairs each team row with its own project's membership.
+        queryset = queryset.filter(
+            Exists(
+                ProjectMembership.objects.filter(
+                    project_id=OuterRef("team__project_id"),
+                    user_id=OuterRef("user_id"),
+                    is_deleted=False,
+                )
+            )
+        )
+
+    return set(queryset.values_list("user_id", flat=True))
+
+
+def facet_holder_user_ids_by_project(project_ids: Any) -> dict[Any, set[Any]]:
+    """``{project_id: {user_id, ...}}`` for a whole set of projects in one query.
+
+    The batch counterpart to :func:`facet_holder_user_ids`: same table, same
+    filters, grouped by project rather than scoped to one. A fan-out that spans
+    many projects — the program settings matrix applies one field map to as many
+    as ``MAX_BULK_TARGETS`` of them — would otherwise repeat the identical team
+    scan once per project inside its loop.
+
+    Projects with no facet holder are simply absent from the mapping; callers
+    read it with ``.get(pid, set())``. Keys come back as the ORM yields them
+    (``uuid.UUID``), so a caller holding stringified ids must normalize.
+
+    Liveness is the caller's, exactly as for :func:`facet_holder_user_ids`: this
+    returns the raw facet roster, and a recipient cohort that must not name a
+    member who has lost access intersects it with live ``ProjectMembership`` —
+    see :func:`~trueppm_api.apps.projects.config_notice.surface_recipient_ids_by_project`,
+    which does so from the membership map it already holds for its own cohorts.
+    """
+    holders: dict[Any, set[Any]] = {}
+    for project_id, user_id in (
         TeamMembership.objects.filter(
-            team__project_id=project_id,
+            team__project_id__in=project_ids,
             team__is_default=True,
             team__is_deleted=False,
             is_deleted=False,
         )
         .filter(Q(is_scrum_master=True) | Q(is_product_owner=True))
-        .values_list("user_id", flat=True)
-    )
+        .values_list("team__project_id", "user_id")
+    ):
+        holders.setdefault(project_id, set()).add(user_id)
+    return holders
 
 
 def is_team_member(user: AbstractBaseUser | AnonymousUser, project_id: Any) -> bool:

@@ -26,9 +26,7 @@ function makeResizeAction(
   };
 }
 
-function renderPopover(
-  props: Partial<ComponentProps<typeof ScheduleCommitPopover>> = {},
-) {
+function renderPopover(props: Partial<ComponentProps<typeof ScheduleCommitPopover>> = {}) {
   const onConfirm = vi.fn();
   const onCancel = vi.fn();
   const onDismissByOutsideClick = vi.fn();
@@ -139,12 +137,41 @@ describe('ScheduleCommitPopover', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it('renders an inline error and switches Confirm to "Retry" when error is set', () => {
-    renderPopover({ error: "Couldn't save the change. Try again or cancel." });
+  it('renders an inline error and switches Confirm to "Retry" on a RETRYABLE failure', () => {
+    renderPopover({
+      error: { message: "Couldn't save the change.", detail: null, retryable: true },
+    });
     expect(screen.getByTestId('commit-popover-error')).toHaveTextContent(
       "Couldn't save the change.",
     );
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('keeps the verb — not "Retry" — on a refusal a replay cannot fix (#3332)', () => {
+    // A 403 or a validation refusal is a decision the server has already made, so
+    // an identical replay earns it again. The verb is also the only thing telling
+    // the user WHAT they are about to commit, so overwriting it costs twice.
+    renderPopover({
+      error: {
+        message: 'Task starts before the project start date.',
+        detail: null,
+        retryable: false,
+      },
+    });
+    expect(screen.getByTestId('commit-popover-error')).toHaveTextContent(
+      'Task starts before the project start date.',
+    );
+    expect(screen.getByRole('button', { name: 'Reschedule' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it("renders the refusal's second line beneath its message", () => {
+    renderPopover({
+      error: { message: 'Too many rows.', detail: 'Pick a smaller branch.', retryable: false },
+    });
+    const alert = screen.getByTestId('commit-popover-error');
+    expect(alert).toHaveTextContent('Too many rows.');
+    expect(alert).toHaveTextContent('Pick a smaller branch.');
   });
 
   it('uses role="dialog" with the title and change rows wired via aria attributes', () => {
@@ -173,5 +200,12 @@ describe('ScheduleCommitPopover', () => {
     confirm.focus();
     fireEvent.keyDown(window, { key: 'Tab' });
     expect(document.activeElement).toBe(cancel);
+  });
+
+  it('mounts the refusal live region before it has anything to say (rule 335)', () => {
+    renderPopover();
+    const region = screen.getByTestId('commit-popover-error');
+    expect(region).toHaveAttribute('role', 'alert');
+    expect(region).toBeEmptyDOMElement();
   });
 });

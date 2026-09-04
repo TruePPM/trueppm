@@ -387,3 +387,78 @@ test.describe('Bulk-edit sheet — ⌘⇧K over a multi-row selection (#2756)', 
     ).toBeVisible();
   });
 });
+
+/**
+ * A whole-request refusal, end to end (#3332, web-rule 372).
+ *
+ * Distinct from the 207 partial above: a 207 is a *report*, and the sheet has
+ * always presented it well. This is the other branch — the batch never ran at
+ * all — and until #3332 it rendered the server's sentence nowhere, in a bare
+ * `<div>` inside the review block with no live region on the sheet, and relabeled
+ * Apply to "Retry" whatever the server had said.
+ */
+test.describe('Bulk-edit sheet — a refused batch (#3332)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+  });
+
+  /** Refuse the whole batch with `status` and a DRF body, before the 207 route can answer. */
+  async function refuseBatch(page: Page, status: number, body: unknown) {
+    await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/bulk\/$/, (route) =>
+      route.fulfill({
+        status,
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  test('a 403 shows the server’s own sentence in a live region and KEEPS the verb', async ({
+    page,
+  }) => {
+    await refuseBatch(page, 403, { detail: 'Only a Scheduler may edit this plan.' });
+    await page.goto(BASE_URL);
+    await selectRows(page, ['t1', 't2', 't3']);
+    await page.keyboard.press('ControlOrMeta+Shift+KeyK');
+
+    await page.getByTestId('bulk_delivery_mode-scrum').click();
+    await page.getByTestId('bulk-edit-apply').click();
+
+    const alert = page.getByTestId('bulk-edit-error');
+    await expect(alert).toBeVisible();
+    await expect(alert).toHaveAttribute('role', 'alert');
+    await expect(alert).toHaveText('Only a Scheduler may edit this plan.');
+    // A sibling of the review block, not a child of it: `aria-atomic` on the
+    // description would otherwise make AT re-read the whole preview first.
+    await expect(page.getByTestId('bulk-edit-review')).not.toContainText(
+      'Only a Scheduler may edit this plan.',
+    );
+
+    // The verb survives. A second identical POST earns the identical 403, and
+    // "Apply to 3 items" is the only thing naming the scope on the button.
+    await expect(page.getByTestId('bulk-edit-apply')).toHaveText('Apply to 3 items');
+    // Scoped to the sheet: `ScheduleForecastBar` renders its own "Retry" whenever
+    // the Monte Carlo read fails with anything but a 404, which under CI load it
+    // does. A page-wide locator counted that button and failed a sheet assertion
+    // on an unrelated component's error state (#3401).
+    await expect(
+      page.getByTestId('bulk-edit-sheet').getByRole('button', { name: 'Retry' }),
+    ).toHaveCount(0);
+
+    // The sheet stays open on the form phase — a refusal is not a result.
+    await expect(page.getByTestId('bulk-edit-result')).toHaveCount(0);
+  });
+
+  test('a 5xx does offer Retry — the one failure a replay can fix', async ({ page }) => {
+    await refuseBatch(page, 503, {});
+    await page.goto(BASE_URL);
+    await selectRows(page, ['t1', 't2']);
+    await page.keyboard.press('ControlOrMeta+Shift+KeyK');
+
+    await page.getByTestId('bulk_delivery_mode-scrum').click();
+    await page.getByTestId('bulk-edit-apply').click();
+
+    await expect(page.getByTestId('bulk-edit-error')).toHaveText('Couldn’t apply the changes.');
+    await expect(page.getByTestId('bulk-edit-apply')).toHaveText('Retry');
+  });
+});

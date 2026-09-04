@@ -79,6 +79,7 @@ from trueppm_api.apps.workspace.serializers import (
     display_name_for,
     initials_for,
 )
+from trueppm_api.core.openapi import state_refusal_400
 
 # Typed-confirmation header for the destructive workspace delete (ADR-0174). Its
 # value must equal the workspace name exactly — the web danger page sends it.
@@ -304,7 +305,14 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
 
     @extend_schema(
         request=None,
-        responses={204: OpenApiResponse(description="Workspace purged and reset.")},
+        responses={
+            204: OpenApiResponse(description="Workspace purged and reset."),
+            400: state_refusal_400(
+                f"The {CONFIRM_WORKSPACE_HEADER} header is absent or does not match "
+                "the workspace name exactly. Verified against the typed-confirmation "
+                "guard in ``delete`` (#3319)."
+            ),
+        },
         description=(
             "Permanently delete the workspace and all its data (factory reset). "
             f"Owner only. Requires the {CONFIRM_WORKSPACE_HEADER} header set to the "
@@ -682,6 +690,17 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
         users = list(WorkspaceMemberListView()._annotated_users(User.objects.filter(pk=target.pk)))
         return Response(_build_member_rows(users)[0] if users else {})
 
+    @extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "Removing this member would leave the workspace with no Owner. "
+                "Reachable only on an Owner target — a peer/higher-role removal is "
+                "refused earlier with 403. Verified against the strand guard in "
+                "``delete`` (#3319)."
+            ),
+        }
+    )
     def delete(self, request: Request, user_id: str) -> Response:
         target = self._get_user_or_404(user_id)
         actor_role = _workspace_membership_role(request)

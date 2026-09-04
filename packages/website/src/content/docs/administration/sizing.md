@@ -50,27 +50,105 @@ This is a **single-node developer-class machine**, which is deliberately close t
 
 | Dimension | Tested to | Measured p95 | What sets the ceiling |
 |---|---|---|---|
-| **Tasks per project** — one page of the task list | **4,000 tasks** | 0.35 s @ 500 · 0.57 s @ 1k · 1.19 s @ 2k · **1.99 s @ 4k** · breaches at 8k (8.3 s) | Page-bounded, so it degrades gently. 4,000 sits *on* the 2 s gate — treat 2,000 as the comfortable figure |
-| **Whole-project load** — every page, what the Schedule fetches before drawing a bar | **1,000 tasks** | 0.22 s @ 100 · 0.50 s @ 250 · 0.96 s @ 500 · **1.85 s @ 1k** · breaches at 2k (**60 s**) | [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) — the Schedule loads the entire project into memory via `fetchAllPagesParallel`; there is no windowing |
+| **Tasks per project** — one page of the task list | **4,000 tasks** | 0.35 s @ 500 · 0.57 s @ 1k · 1.19 s @ 2k · **1.99 s @ 4k** · breaches at 8k (8.3 s) | Page-bounded — **on page 1**. Deep pages cost far more (see below). 4,000 sits *on* the 2 s gate, so treat 2,000 as the comfortable figure |
+| **Whole-project load** — every page, what the Schedule fetches before drawing a bar | **1,000 tasks** | 0.22 s @ 100 · 0.50 s @ 250 · 0.96 s @ 500 · **1.85 s @ 1k** · breaches at 2k (**60 s**) | [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) and [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814) — the Schedule still reads every page, and each page request pays a pagination `COUNT` that re-runs every annotation over every row. See [why this ceiling is where it is](#why-the-whole-project-ceiling-is-where-it-is) |
 | **Dependency edges per project** | **12,000 edges** on a 4,000-task project | 0.12–0.15 s, flat — **no breach found** | Not the binding constraint at this scale. Untested above 12,000 |
 | **Projects per workspace / total tasks** | **50 projects · 50,000 tasks** | 0.04–0.06 s, flat — **no breach found** | The project-list N+1 ([#1482](https://gitlab.com/trueppm/trueppm/-/issues/1482)) does not bite at this scale. Untested above 50 projects |
 
-:::caution[The two task-list rows are pending a re-measure — updated 2026-08-09]
-Both task rows above were measured **before** the `GET /tasks/` latency regression window of 2026-08-04 → 2026-08-05 ([#2767](https://gitlab.com/trueppm/trueppm/-/issues/2767)), and have not been re-run since. Treat them as the last known-good envelope, not as current.
+:::caution[The two task-list rows are carried forward — updated 2026-09-04]
+Both task rows were measured on 2026-07-26, **before** the `GET /tasks/` latency regression window of 2026-08-04 → 2026-08-05 ([#2767](https://gitlab.com/trueppm/trueppm/-/issues/2767)), and have not been re-run since. Treat them as the last known-good envelope, not as current.
 
-Two corrections that follow from the [#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807) diagnosis, and that the numbers above do not yet reflect:
+They also predate two changes to the endpoint itself, so a future run will not be measuring quite the same query:
 
-- **"Page-bounded, so it degrades gently" holds for the first page only.** The harness reads page 1 (`run_capacity.py`). Later pages do not degrade gently: `OFFSET n` cannot skip work on this endpoint, so cost grows with how deep the page is. On a 4,000-task project, page 1 and page 70 of the same request differed by roughly 40× in database time. This is also the most likely explanation for the 32× whole-project cliff between 1,000 and 2,000 tasks in the row below it.
-- **The task list paginated with no `ORDER BY`** until this release, so the whole-project figure was measured against a fetch whose page boundaries were not guaranteed stable. Pagination is now explicitly ordered.
+- **The endpoint had no `ORDER BY` at all** when these numbers were taken. `Task.Meta.ordering` never reached it — the aggregate annotations give the query a `GROUP BY`, and Django's compiler discards Meta-derived ordering whenever one is present. Page boundaries were therefore not guaranteed stable during the original run, and an all-pages fetch could in principle repeat or skip rows. [#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807) fixed that by pinning `ordering = ["id"]`, measured at 115 ms → 120 ms on a 4,000-task project — effectively free.
+- **`GET /tasks/` no longer returns WBS order by default.** It returns `id` order; WBS order requires `?ordering=wbs_path`. That is a deliberate trade, not an oversight — see below.
 
-Tracked in [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814) and [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815). Re-run `packages/api/perf/capacity/` on the documented hardware at the next tag and replace both rows.
+The re-measure is **not** scheduled for the 0.4 tag. Both issues that own this ceiling ([#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814), [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815)) are milestone 0.5. Re-running before they land would only re-measure the same mechanism, and re-running on different hardware than the row above records would produce a new baseline rather than a comparison. Re-run `packages/api/perf/capacity/` once #2814 and #2815 land, and replace both rows then.
 :::
 
 **Two things in this table matter more than the rest.**
 
 **The Schedule is the binding constraint, not the database.** A project holds several thousand tasks comfortably while you page through a list, and a workspace absorbs 50,000 tasks without noticing. But when the **Schedule** opens a project the client pulls *every* page, and that is a far lower ceiling. If you work in the Gantt, plan against **~1,000 tasks per project** in 0.4 — not 4,000.
 
-**Past that point it is a cliff, not a slope.** Whole-project load goes from **1.85 s at 1,000 tasks to 60 s at 2,000** — a 32× jump for a 2× increase in data. Doubling from a comfortable project does not get you a slow project; it gets you one that reads as hung. That non-linearity is the single most important thing to know before committing a large plan to 0.4, and it is why [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) is named rather than buried.
+**Past that point it is a cliff, not a slope.** Whole-project load goes from **1.85 s at 1,000 tasks to 60 s at 2,000** — a 32× jump for a 2× increase in data. Doubling from a comfortable project does not get you a slow project; it gets you one that reads as hung. That non-linearity is the single most important thing to know before committing a large plan to 0.4, and the mechanism behind it is [set out below](#why-the-whole-project-ceiling-is-where-it-is) rather than left as a bare number.
+
+### Why the whole-project ceiling is where it is
+
+This is the number most likely to decide whether TruePPM fits your project, so here is the mechanism rather than just the figure. All measurements below are `EXPLAIN (ANALYZE, BUFFERS)` on a 4,000-task project, best of 3, recorded in [#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807).
+
+**Most of each request is the pagination count, not the page.** `annotate_tasks_queryset` attaches aggregate annotations (`predecessor_count`, `linked_risks_count`, `external_link_count`, …). DRF's paginator calls `.count()` on that fully annotated queryset, and Django cannot count an aggregated queryset directly — so it wraps the whole thing and computes every annotation for every row in the project just to arrive at a number:
+
+| | Measured |
+|---|---|
+| page query | **115 ms** |
+| pagination `COUNT` | **457–503 ms** |
+
+That is **~80% of the request's database time**, it is constant across pages, and the Schedule's all-pages fetch pays it **once per page**. This is the dominant term in the whole-project figure ([#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815)).
+
+**Deep pages are a cliff on top of that.** The `GROUP BY` group key contains four correlated subqueries, so `OFFSET n` cannot skip work — the aggregate must produce every group up to and including the page you asked for, evaluating those subqueries for each. Page 70 of the same project costs **4,890 ms** against page 1's **115 ms** ([#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814)).
+
+**An index does not fix this, and it has been measured.** The obvious hypothesis — that the endpoint is slow because nothing serves its ordering — is wrong. `ORDER BY wbs_path, name` was measured at **5,753 ms with a `(project_id, wbs_path, name)` btree in place**. The index is never reached, because the sort lands *above* the `GroupAggregate` rather than under it. (The same ordered fetch against the bare table is 2.3 ms.) Removing the `GROUP BY` is the prerequisite; adding that index is worth doing **only after** #2814 lands, not before.
+
+**What this means for the ceiling.** Nothing that sets it has changed since the numbers above were taken. [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) closed in 0.4, but its fix capped the Schedule's page-fetch **burst** at four concurrent requests — it reduces browser connection-pool saturation, not total work, and the harness measures a serial fetch, so the figure in the table is unaffected by it. The Schedule still reads every page. **Plan against 1,000 tasks per project in 0.4.**
+
+### How this ceiling is raised in 0.5
+
+The ceiling is not a fixed property of TruePPM. Two costs drive it, both of them
+**quadratic in task count** by construction, and both tracked work.
+
+A whole-project load is `ceil(N / 200)` page requests, and each request pays:
+
+| Cost | Per request | Across the whole fetch |
+|---|---|---|
+| a pagination `COUNT` over every row in the project | O(N) | **O(N²)** |
+| an `OFFSET` that cannot skip work under the `GROUP BY` | O(offset) | **O(N²)** |
+
+:::caution[The measured curve is not quadratic, and the gap matters]
+Those are the *analytical* costs. The measured numbers do not match them, in both
+directions, and it would be misleading to present the mechanism as the explanation:
+
+| Step | Tasks | Measured | Implied exponent |
+|---|---|---|---|
+| 100 → 250 | 2.5× | 2.3× | **k ≈ 0.9** |
+| 250 → 500 | 2× | 1.9× | **k ≈ 0.9** |
+| 500 → 1,000 | 2× | 1.9× | **k ≈ 1.0** |
+| 1,000 → 2,000 | 2× | **32.4×** | **k ≈ 5.0** |
+
+Up to 1,000 tasks the curve is **effectively linear** — per-request fixed cost dominates,
+and the quadratic terms are not yet what you are paying for. Then the last step is 32×,
+where a quadratic predicts 4× (7.4 s, against 60 s measured).
+
+**So the cliff is not explained by the two costs above.** Something further happens
+between 1,000 and 2,000 tasks — a query-plan flip, a working set outgrowing cache, or a
+limit the harness did not isolate — and there is no measured point in between to locate
+it. That gap is the reason this page still recommends 1,000 rather than a number derived
+from the curve, and it is tracked separately from the two fixes below, on
+[#3385](https://gitlab.com/trueppm/trueppm/-/issues/3385).
+:::
+
+Four changes are sequenced for **0.5**, tracked together on
+[#3383](https://gitlab.com/trueppm/trueppm/-/issues/3383):
+
+| | What ships in 0.5 | Effect on the curve |
+|---|---|---|
+| [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) | Count on the unannotated queryset, so pagination stops recomputing every annotation over every row | Removes one quadratic term outright |
+| [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814) | Aggregate annotations become subqueries, removing the `GROUP BY` | Collapses the constant on the other term — and is what makes an ordering index worth adding, which today it is not |
+| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Keyset pagination on the task read | Removes the `OFFSET` term entirely — this is the step that makes the fetch **linear** |
+| [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) | A slim bootstrap projection, so the Schedule stops fetching 99 fields per task to draw a bar | Cuts the constant, and removes the reason to walk pages at all for the first paint |
+
+**No new number is promised here, deliberately**, and the caution above is most of the
+reason. Each change has a measured *mechanism* but not a measured *outcome*; the cliff
+that sets the current ceiling is not explained by any of them; and
+[#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) means the nightly budgets are
+unset, so there is currently no instrument that could confirm an improvement. Quoting a
+0.5 target on that basis would be a forecast at a precision we have not earned. When the
+work is measured, the rows above will carry numbers instead of mechanisms.
+
+One thing that is **not** on this list, and is deliberately not: loading only the visible
+part of the schedule. The outline numbers each task by its position among the siblings
+actually loaded, so a partial task set renders *wrong* rather than merely incomplete.
+Fetching less is a correctness hazard in a way that fetching more cheaply is not, which is
+why every change above makes the fetch cheaper instead.
 
 ### What was explicitly *not* measured
 
@@ -80,8 +158,8 @@ These are **untested**, not unbounded. Do not read silence as a guarantee.
 |---|---|
 | **Concurrent authenticated users** | **Not measured.** Three runs of the identical single-reader step returned 90 s, 12 s and 3 s for a read the task sweep measured at 1.3 s. The spread is contention on a shared developer workstation, and a ceiling asserted from it would be invented. Needs a quiet, dedicated host. Note that the shipped image runs **one uvicorn process**, so throughput scales by replica count — and [#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275) (`ATOMIC_REQUESTS` with no connection pooler) is the expected first constraint |
 | **Concurrent WebSocket connections per project** | **Not measured.** See [#2339](https://gitlab.com/trueppm/trueppm/-/issues/2339) — reconnect-storm scaling is a known open question |
-| **Monte Carlo iterations at the task ceiling** | **Not measured.** [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) — Monte Carlo runs on the request thread, so it is bounded by your gateway timeout before anything else |
-| **Import size (rows)** | **Not measured here.** The 10 MB / 5,000-row limit claimed for CSV/Excel import is enforced at the parser, not derived from this run — see [#743](https://gitlab.com/trueppm/trueppm/-/issues/743) |
+| **Monte Carlo iterations at the task ceiling** | **Not measured**, but **capped**: `MC_TASK_CAP` (default `5000`) bounds the tasks a simulation will accept, alongside `MC_SIMULATION_CAP`. Within that cap it is untested — and [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) means Monte Carlo runs on the request thread, so your gateway timeout binds before the cap does |
+| **Import size (rows)** | **Not measured here.** CSV/Excel import ships in 0.4 ([#743](https://gitlab.com/trueppm/trueppm/-/issues/743)); its 10 MB / 5,000-row limit is enforced at the parser, not derived from this run. Note that importing to the row limit puts a project well past the whole-project Schedule ceiling above |
 | **Board rendering at scale** | **Not measured.** [#1538](https://gitlab.com/trueppm/trueppm/-/issues/1538) / [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) — the board renders every card with no virtualization |
 | **Gantt interaction at scale** | **Not measured.** [#1540](https://gitlab.com/trueppm/trueppm/-/issues/1540) / [#1587](https://gitlab.com/trueppm/trueppm/-/issues/1587) — O(N) hit-test per `pointermove` |
 | **Sustained multi-day / multi-user soak** | **Not measured.** Every figure above is a point-in-time read sweep |
@@ -109,6 +187,12 @@ docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml down -v
 ```
 
 Raw results, including the per-step host load average and noise-control readings, are committed under `packages/api/perf/capacity/results/`.
+
+:::note[Nothing is currently watching this ceiling for you]
+TruePPM runs a separate k6 harness (`packages/api/perf/load.js`) on the nightly schedule, and it does target a 1,000-task project. But its four endpoint budgets are **unset** pending [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826), so the digest prints `RESULT: all endpoint thresholds within budget` no matter what the numbers are. Across the four nightlies ending 2026-09-04, `task_list` p95 at 20 virtual users came in at 5,961 / 12,815 / 16,584 / 33,043 ms — a 5.5× spread on identical data, which is contention on a shared CI runner rather than a product signal.
+
+Two things follow. Do not read a green nightly as evidence that this page's numbers still hold; and do not read those p95 figures as a concurrency envelope — they are too noisy to be one, which is exactly why concurrent users appear as **not measured** above.
+:::
 
 ## "Users" means concurrent active users
 
