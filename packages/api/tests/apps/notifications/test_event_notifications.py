@@ -405,6 +405,59 @@ def test_blocked_notifies_scrum_master_and_pm_not_just_assignee(
 
 
 @pytest.mark.django_db
+def test_blocked_does_not_notify_a_revoked_project_member_holding_the_sm_facet(
+    project: Project,
+    admin: Any,
+    bob: Any,
+    memberships: None,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A revoked member keeping the SM facet gets no impediment notice (#3334).
+
+    The ADR-0078 §F mirror is create-only, so soft-deleting a ``ProjectMembership``
+    leaves the mirrored ``TeamMembership`` live with ``is_scrum_master`` set. The
+    impediment resolver's SM arm read the team row alone, so an offboarded Scrum
+    Master kept receiving notices naming a specific task on a project they can no
+    longer open. The PM arm always filtered live membership; this pins the SM arm to
+    the same floor.
+    """
+    from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
+
+    carol = User.objects.create_user(username="carol", password="pw", email="carol@x.io")
+    gone = User.objects.create_user(username="ex-sm", password="pw", email="exsm@x.io")
+    ProjectMembership.objects.create(project=project, user=carol, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=project, user=gone, role=Role.MEMBER)
+    team = Team.objects.create(project=project, name="Default", short_id="T01", is_default=True)
+    TeamMembership.objects.create(team=team, user=gone, role=TeamRole.MEMBER, is_scrum_master=True)
+
+    ProjectMembership.objects.filter(project=project, user=gone).update(is_deleted=True)
+    # The precondition: revocation left the mirrored team row untouched.
+    assert TeamMembership.objects.filter(user=gone, is_deleted=False).exists()
+
+    task = Task.objects.create(project=project, name="Foundation pour", duration=1, assignee=bob)
+
+    actor_client = APIClient()
+    actor_client.force_authenticate(user=carol)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = actor_client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"blocked_reason": "Waiting on the permit", "blocker_type": "vendor"},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+
+    recipients = set(
+        Notification.objects.filter(event_type="task.blocked").values_list(
+            "recipient__username", flat=True
+        )
+    )
+    assert "ex-sm" not in recipients
+    # The notice still reaches everyone who is still on the project — the guard
+    # narrows the cohort, it does not silence it.
+    assert recipients == {"bob", "ev_admin"}
+
+
+@pytest.mark.django_db
 def test_blocked_notification_body_never_contains_reason(
     client: APIClient,
     project: Project,

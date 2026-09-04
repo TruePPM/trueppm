@@ -130,7 +130,7 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
 
     * the **assignee** (the owner of the blocked work — existing behavior), plus
     * every **Scrum Master** (``TeamMembership.is_scrum_master``) on the task's
-      project's teams, plus
+      project's default team, plus
     * every **PM** — a project membership with ``role >= Role.ADMIN``.
 
     The actor who raised the flag is intentionally NOT excluded here: a Scrum
@@ -142,6 +142,32 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
     If a project has no team / no SM facet set, the resolver still returns the
     PM(s) — so a blocker always reaches someone who can act (ADR-0124 §Risks).
 
+    **The two role/facet arms are scoped to live ``ProjectMembership`` (#3334); the
+    assignee arm is not, and that asymmetry is stated rather than papered over.** The
+    PM arm always filtered live membership. The SM arm reached the facet through a
+    hand-rolled ``TeamMembership`` query that filtered neither the project row nor
+    ``Team.is_deleted``, so a member whose project membership had been revoked — or
+    one holding the facet on a soft-deleted team — kept receiving a notice naming a
+    specific task on a project they can no longer open. It now routes through
+    :func:`~trueppm_api.apps.teams.services.facet_holder_user_ids`, where that guard
+    lives once for all facet-sourced cohorts rather than being re-remembered per
+    call site. Two consequences of reading the shared helper: the facet is taken from
+    the **default** team only (as every other ADR-0078 facet reader already does —
+    non-default teams are not creatable through the API, #599), and the ``facets=``
+    restriction keeps this cohort SM-only. A Product Owner is not an
+    impediment-clearer and ADR-0124 does not route to them.
+
+    The assignee arm carries no membership floor: a revoked member still named as
+    ``task.assignee`` is still told their own task was flagged. Nothing clears
+    ``assignee`` on revocation, so this is reachable — it is left as-is deliberately
+    because it is a different question (does the owner of a blocker hear about their
+    own blocker) than the one #3334 answers, and narrowing it silently under a
+    privacy fix would be the same over-reach in the other direction. Do not read the
+    heading above as covering it; the sibling
+    :func:`~trueppm_api.apps.projects.config_notice.assigned_recipient_ids` *does*
+    floor its assignee cohort, so the two genuinely differ and the difference is
+    unresolved rather than decided.
+
     Args:
         task: The task that was just flagged blocked.
 
@@ -150,22 +176,14 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
         recipient's own ``NotificationPreference``.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
-    from trueppm_api.apps.teams.models import TeamMembership
+    from trueppm_api.apps.teams.services import facet_holder_user_ids
 
     recipients: set[Any] = set()
 
     if task.assignee_id is not None:
         recipients.add(task.assignee_id)
 
-    # Scrum Master(s) on any team belonging to the task's project. ADR-0078 makes
-    # the SM a soft-singleton per team, but a project may have multiple teams, so
-    # this can resolve more than one SM — all of them get the impediment.
-    sm_ids = TeamMembership.objects.filter(
-        team__project_id=task.project_id,
-        is_scrum_master=True,
-        is_deleted=False,
-    ).values_list("user_id", flat=True)
-    recipients.update(sm_ids)
+    recipients.update(facet_holder_user_ids(task.project_id, facets=("is_scrum_master",)))
 
     # PM(s): project membership at ADMIN or above (Project Manager / Project Admin).
     pm_ids = ProjectMembership.objects.filter(
