@@ -59142,33 +59142,171 @@
                     "matrix": {
                         "type": "object",
                         "description": "Per-event, per-channel routing grid. Keys are event types; each value is an object of channel to boolean. A PATCH may send a partial grid — the supplied cells are merged onto the stored ones, so a single toggle need not repost the whole matrix. Any key outside these two enumerations, or any non-boolean leaf, is rejected with a 400.",
-                        "propertyNames": {
-                            "enum": [
-                                "budget_alert",
-                                "comment_mention",
-                                "milestone_reached",
-                                "risk_created",
-                                "sprint_end",
-                                "sprint_start",
-                                "status_change",
-                                "task_assigned",
-                                "task_overdue"
-                            ]
-                        },
-                        "additionalProperties": {
-                            "type": "object",
-                            "propertyNames": {
-                                "enum": [
-                                    "email",
-                                    "in_app",
-                                    "mobile_push",
-                                    "slack"
-                                ]
+                        "properties": {
+                            "budget_alert": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
                             },
-                            "additionalProperties": {
-                                "type": "boolean"
+                            "comment_mention": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "milestone_reached": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "risk_created": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_end": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_start": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "status_change": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_assigned": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_overdue": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
                             }
-                        }
+                        },
+                        "additionalProperties": false
                     },
                     "paused": {
                         "type": "boolean"

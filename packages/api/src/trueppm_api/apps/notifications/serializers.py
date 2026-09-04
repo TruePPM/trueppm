@@ -348,6 +348,14 @@ _VALID_CHANNELS = {choice.value for choice in ProjectNotificationChannel}
 #:
 #: Derived from the enums rather than restated, so a new event type or channel
 #: reaches the published contract without a second edit that can be forgotten.
+#:
+#: ``propertyNames`` is JSON Schema, not OpenAPI 3.0 Schema Object — this project
+#: publishes ``openapi: 3.0.3`` (see ``docs/api/openapi.json``), whose meta-schema
+#: has no such keyword and rejects the whole object under ``additionalProperties``'
+#: ``oneOf`` the moment it appears anywhere in the tree. The two enumerations are
+#: small and closed, so each key is spelled out explicitly under ``properties``
+#: instead, with ``additionalProperties: False`` doing the same "no unknown key"
+#: rejection ``propertyNames`` would have — this is what "9×4 grid" means literally.
 _PROJECT_NOTIFICATION_MATRIX_SCHEMA: dict[str, Any] = {
     "type": "object",
     "description": (
@@ -357,12 +365,15 @@ _PROJECT_NOTIFICATION_MATRIX_SCHEMA: dict[str, Any] = {
         "not repost the whole matrix. Any key outside these two enumerations, or "
         "any non-boolean leaf, is rejected with a 400."
     ),
-    "propertyNames": {"enum": sorted(_VALID_EVENT_TYPES)},
-    "additionalProperties": {
-        "type": "object",
-        "propertyNames": {"enum": sorted(_VALID_CHANNELS)},
-        "additionalProperties": {"type": "boolean"},
+    "properties": {
+        event_type: {
+            "type": "object",
+            "properties": {channel: {"type": "boolean"} for channel in sorted(_VALID_CHANNELS)},
+            "additionalProperties": False,
+        }
+        for event_type in sorted(_VALID_EVENT_TYPES)
     },
+    "additionalProperties": False,
 }
 
 
