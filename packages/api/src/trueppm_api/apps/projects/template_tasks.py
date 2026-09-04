@@ -44,6 +44,12 @@ def _claim(application_id: str) -> Any:
 
     row = (
         TemplateApplication.objects.select_for_update()
+        # `project` is joined rather than lazily fetched because the caller reads
+        # `application.project.is_archived` while this row lock is held (#3354) —
+        # a lazy FK there would add a round trip inside the critical section.
+        # `select_for_update` locks only `template_application`; the join does not
+        # widen it (Postgres would need `of=` for that).
+        .select_related("project")
         .filter(pk=application_id, status=TemplateApplicationStatus.PENDING)
         .first()
     )

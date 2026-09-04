@@ -1002,3 +1002,28 @@ def test_pull_is_refused_when_the_target_project_is_archived(
     item.refresh_from_db()
     assert item.status == BacklogItemStatus.PROPOSED
     assert item.pulled_task_id is None
+
+
+@pytest.mark.django_db
+def test_pull_service_refuses_an_archived_project_without_a_view(
+    member: object, program: Program, project: Project
+) -> None:
+    """The floor underneath the view — this service already has non-view callers.
+
+    Archived is lifecycle state, a property of the target plan rather than of the
+    caller, so it has to hold for a caller that never passes through `pull`.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.projects.backlog_services import pull_to_project_backlog
+
+    item = _item(program, story_points=5)
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    with pytest.raises(PermissionDenied):
+        pull_to_project_backlog(item_id=str(item.pk), project=project, actor=member)
+
+    assert Task.objects.filter(project=project).count() == 0
+    item.refresh_from_db()
+    assert item.status == BacklogItemStatus.PROPOSED

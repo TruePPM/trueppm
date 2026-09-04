@@ -1100,13 +1100,13 @@ Member the apply above admits. So a Member can receive a `200` here, with a real
 from the same rule the undo endpoint enforces; read it rather than comparing role
 ordinals yourself, exactly as with `can_author` on the project resource.
 
-`can_undo` answers the **role** question only. The undo is separately refused with
-a `403` once the project is **archived**, at every role including Owner, and so is
-the paste-many undo at
-`POST /api/v1/paste-many-operations/{operation_id}/undo/`. Archiving makes a plan
-read-only; that is a property of the plan, not of the caller, so no role clears it.
-Reading a ledger row on an archived project still works — unarchive the project to
-undo.
+`can_undo` answers the **role** question only. Both batch undos —
+`POST /api/v1/cascade-classification-operations/{operation_id}/undo/` and
+`POST /api/v1/paste-many-operations/{operation_id}/undo/` — are separately refused
+with a `403` once the project is **archived**, at every role including Owner.
+Archiving makes a plan read-only; that is a property of the plan, not of the
+caller, so no role clears it, and `can_undo` does not report it. Reading a ledger
+row on an archived project still works — unarchive the project to undo.
 
 ### Task attachments
 
