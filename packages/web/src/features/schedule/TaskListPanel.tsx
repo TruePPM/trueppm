@@ -13,6 +13,7 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
 import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
+import { ScheduleSeedingOutlineRows } from './ScheduleSeedingState';
 import { ScheduleAppendTaskFooter } from './ScheduleAppendTaskFooter';
 import { ROW_VOCABULARY } from './rowVocabulary';
 import type { PhasePlannedBadge } from './plannedByPhase';
@@ -247,6 +248,13 @@ interface Props {
    */
   onCommitDraftRow?: (name: string, opts?: { onError?: () => void }) => void;
   /**
+   * A template apply is still writing this project's rows (#3312). Swaps the
+   * blank-project draft row for silent stand-in rows: that row focuses itself on
+   * mount, and a caret in "Type your first item" is exactly the invitation to
+   * write into a project a template is mid-write on that this suppresses.
+   */
+  seeding?: boolean;
+  /**
    * Project resource roster — the only index the `@owner` authoring token resolves
    * against (ADR-0774, #2718). Owned by ScheduleView, which already runs the project's
    * queries; this panel stays presentational so it is renderable without a query client.
@@ -338,6 +346,7 @@ export function TaskListPanel({
   plannedByPhase,
   resourcePool,
   onCommitDraftRow,
+  seeding = false,
   rowModes,
   onClassifyRequest,
   onMoveRow,
@@ -576,13 +585,18 @@ export function TaskListPanel({
           Rendered here rather than inside the virtualizer because there is nothing
           to virtualize — it is exactly one row, and it must not be unmounted by a
           scroll measurement while somebody is typing into it. */}
-      {tasks.length === 0 && (
-        <BlankOutlineDraftRow
+      {tasks.length === 0 &&
+        (seeding ? (
+          // A template apply is mid-write (#3312) — stand-in rows, not a live
+          // draft. `aria-hidden`, so `aria-rowcount` above stays truthful.
+          <ScheduleSeedingOutlineRows rowHeight={rowHeight} leftReserve={leftReserve} />
+        ) : (
+          <BlankOutlineDraftRow
             onCommit={onCommitDraftRow}
             nameWidth={widths.task}
             leftReserve={leftReserve}
           />
-      )}
+        ))}
 
       {/*
         Scrollable virtualized rows. The scroll wrapper, the sizer, and each
