@@ -608,26 +608,26 @@ def _grant_po_facet(project: Project, user: Any) -> None:
         Role.MEMBER,
         Role.SCHEDULER,
         Role.ADMIN,
+        # 301-399 is the Enterprise project-lead band (ADR-0072): a custom role
+        # registered there inherits undo authority through the threshold, and the
+        # serializer must not narrow that to the two named OSS tiers. Reachable through
+        # the route only since the `my_role_label` guard landed beside this — before it,
+        # `Role(350).label` raised ValueError and 500'd the whole response first (#3419).
+        350,
         Role.OWNER,
     ],
 )
 def test_project_detail_can_undo_batch_operations_agrees_with_the_predicate(
     project: Project, role: int
 ) -> None:
-    """All five roles, asserted against the predicate rather than a truth table.
+    """All five roles plus the Enterprise band, asserted against the predicate.
 
-    Against ``role_can_undo_batch_operation`` for the reason ``can_undo``'s own test
-    gives: a hard-coded expectation lets the field drift from the rule the undo
-    endpoint enforces and only the enumerated roles would notice. Unlike ``can_undo``
-    this one covers Viewer and Scheduler too — the field rides the project detail,
-    which every role can read, not an apply response only a plan author can reach.
-
-    The Enterprise 301-399 band is NOT parametrized here, and the omission is not an
-    oversight in this field: a membership at an unnamed ordinal 500s the whole detail
-    route on a *different* field, ``my_role_label``, whose ``Role(role).label`` raises
-    ``ValueError`` before this one is ever reached. The band claim is pinned on the
-    predicate itself by ``test_role_can_undo_batch_operation_band_table`` above, which
-    is where it belongs anyway — this field adds no band logic of its own.
+    Against ``role_can_undo_batch_operation`` rather than a hard-coded truth table for
+    the reason ``can_undo``'s own test gives: a hard-coded expectation lets the field
+    drift from the rule the undo endpoint enforces and only the enumerated roles would
+    notice. Unlike ``can_undo`` this one covers Viewer and Scheduler too — the field
+    rides the project detail, which every role can read, not an apply response only a
+    plan author can reach.
     """
     user = User.objects.create_user(username=f"detail-{role}", password="pw")
     ProjectMembership.objects.create(project=project, user=user, role=role)
@@ -637,6 +637,8 @@ def test_project_detail_can_undo_batch_operations_agrees_with_the_predicate(
     r = client.get(project_detail_url(project))
     assert r.status_code == 200, r.data
     assert r.data["can_undo_batch_operations"] is role_can_undo_batch_operation(role)
+    # The band role has no OSS name, and saying so beats raising (#3419).
+    assert r.data["my_role_label"] == (Role(role).label if role in Role.values else None)
 
 
 @pytest.mark.django_db

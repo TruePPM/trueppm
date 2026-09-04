@@ -287,6 +287,11 @@ vi.mock('@/hooks/useProject', () => ({
       recalculated_at: '2026-10-01T00:00:00Z',
       effective_methodology: mockEffectiveMethodology,
       can_author: serverCanAuthor(),
+      // #3357. This literal is untyped, so `tsc` cannot see the field become
+      // required on `ApiProjectDetail` — omitting it would silently render every
+      // ScheduleView test with `classifyCanUndo={undefined}`, which is exactly the
+      // value that makes the disclosure absent and every absence assertion vacuous.
+      can_undo_batch_operations: true,
     },
     isLoading: false,
   }),

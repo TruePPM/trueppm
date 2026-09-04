@@ -1178,6 +1178,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         separate fact (the apply response's ``operation_id``, orthogonal per web rule
         373(b)) and this field must never be read as answering it.
 
+        **It answers the ROLE question only, so it over-reports on an archived project.**
+        The undo viewsets carry ``IsProjectNotArchived``, which 403s at every role
+        including Owner; this field still returns ``True`` for an Admin there. The
+        apply response's ``can_undo`` has the identical property. It fails in the safe
+        direction for the disclosure this exists for — the note renders on ``False``
+        only, so a wrong ``True`` produces silence rather than false copy — but a caller
+        using it to decide whether an undo *request* will succeed will be wrong.
+
         Fails closed to ``False`` without a request.
         """
         from trueppm_api.apps.access.permissions import (
@@ -1212,11 +1220,23 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         ``None`` when the caller has no annotated role. Mirrors
         ``ProgramSerializer.get_my_role_label``.
+
+        ``None`` **also** for an ordinal the ``Role`` enum does not define, and that
+        branch is not defensive padding: ADR-0072 reserves the 2-99, 101-199, 201-299
+        and 301-399 bands for Enterprise custom roles, ``ProjectMembership.role`` is a
+        plain ``IntegerField`` whose ``choices`` PostgreSQL does not enforce, and a bare
+        ``Role(350)`` raises ``ValueError`` — which DRF does not convert, so it 500s the
+        WHOLE response, not this one field. Every *gate* in the tree is written as a
+        band comparison and handles such a role correctly; the display path was the one
+        place that did not, which meant one Enterprise custom role made the project
+        unreadable for whoever held it (#3419). Returning ``None`` is honest — the OSS
+        edition genuinely has no name for that ordinal — and every consumer already
+        renders the nullable case.
         """
         role = getattr(obj, "_my_role", None)
         if role is None:
             return None
-        return Role(role).label
+        return Role(role).label if role in Role.values else None
 
     def get_default_member_role_label(self, obj: Project) -> str:
         """Human label for the project's default new-member role (ADR-0363)."""
@@ -2605,6 +2625,12 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         """
         role = getattr(obj, "_my_role", None)
         if role is None:
+            return None
+        # Same unnamed-ordinal guard as ProjectSerializer.get_my_role_label (#3419):
+        # `Role(350)` raises ValueError for an Enterprise band role and 500s the
+        # response. `_PROGRAM_ROLE_LABELS` is keyed by `Role`, so it cannot answer for
+        # an ordinal the enum does not define either.
+        if role not in Role.values:
             return None
         return _PROGRAM_ROLE_LABELS.get(Role(role), Role(role).label)
 

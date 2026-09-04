@@ -401,13 +401,24 @@ def test_projects_endpoint_resolves_roles_without_a_query_per_row(
     program with fifty projects is fifty membership queries per list. This pins the
     shape rather than the fix, so a future revert to the context-only form fails here
     instead of only in production.
+
+    **Half the rows deliberately carry NO project membership**, and that is the half
+    that would catch the likelier regression. This action lists every project in the
+    program, not only the ones the caller belongs to, so a non-member row annotates
+    ``_my_role`` as SQL ``NULL`` — which the serializer cannot distinguish from "not
+    annotated at all" and would take as its cue to fall through to the request-scoped
+    lookup. That path costs nothing today only because the action serializes without
+    context. Add the context and every non-member row starts paying a query; an
+    all-member fixture would stay green through it.
     """
     program = _create_program(_client(owner))
     for i in range(2):
         p = Project.objects.create(
             name=f"P{i}", start_date=date(2026, 4, 1), calendar=calendar, program=program
         )
-        ProjectMembership.objects.create(project=p, user=owner, role=Role.ADMIN)
+        # Every other row: no ProjectMembership, so `_my_role` annotates to NULL.
+        if i % 2 == 0:
+            ProjectMembership.objects.create(project=p, user=owner, role=Role.ADMIN)
     url = f"/api/v1/programs/{program.pk}/projects/"
     client = _client(owner)
     client.get(url)  # warm any per-process caches so the counts compare like for like
@@ -418,7 +429,8 @@ def test_projects_endpoint_resolves_roles_without_a_query_per_row(
         p = Project.objects.create(
             name=f"P{i}", start_date=date(2026, 4, 1), calendar=calendar, program=program
         )
-        ProjectMembership.objects.create(project=p, user=owner, role=Role.ADMIN)
+        if i % 2 == 0:
+            ProjectMembership.objects.create(project=p, user=owner, role=Role.ADMIN)
     with CaptureQueriesContext(connection) as six_rows:
         assert client.get(url).status_code == 200
 
