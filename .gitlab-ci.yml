@@ -4085,6 +4085,26 @@ api:test-durations:
   # run and commit it to packages/api/.test_durations (a periodic chore, or
   # whenever shard balance visibly drifts). allow_failure keeps a slow or
   # flaky full-suite run from ever blocking an MR.
+  #
+  # That chore is the failure mode, and nothing detects it (#3389). The
+  # committed baseline sat at 1,758 entries against a 10,075-test suite for
+  # three months; pytest-split gave the other 8,344 tests a fallback average, so
+  # the split was guesswork and the shards landed 260s apart in serial-equivalent
+  # time. Because api:coverage `needs` all four shards, the slowest one gates the
+  # whole test stage — it ran 830s while its siblings finished in ~300s, which in
+  # the job log is indistinguishable from a hang. Symptom to recognise: one shard
+  # silent for minutes at a high percentage while the others are already green.
+  # Check this file's git date and `len(json.load(...))` before chasing a hang.
+  #
+  # When you recommit the artifact, FLATTEN THE FIRST-TEST OUTLIER. Whichever
+  # test runs first under django_db absorbs the session test-database clone, so
+  # it is recorded at ~60s while its file-siblings sit at 0.2s. It is not a slow
+  # test and every shard pays that setup regardless of which group owns the
+  # entry, so committing it verbatim leaves that shard budgeted ~60s it will
+  # never spend (measured: 63.5s of the 3.4s-achievable spread). Replace the
+  # entry with the median of the other tests in the same file. Verify by
+  # eyeballing the largest entries: a genuine slow test is a query-count or
+  # N+1 guard at 5-8s, never 60.
   extends: .api
   stage: test
   needs:
