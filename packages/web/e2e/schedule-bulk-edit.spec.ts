@@ -437,7 +437,13 @@ test.describe('Bulk-edit sheet — a refused batch (#3332)', () => {
     // The verb survives. A second identical POST earns the identical 403, and
     // "Apply to 3 items" is the only thing naming the scope on the button.
     await expect(page.getByTestId('bulk-edit-apply')).toHaveText('Apply to 3 items');
-    await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+    // Scoped to the sheet: `ScheduleForecastBar` renders its own "Retry" whenever
+    // the Monte Carlo read fails with anything but a 404, which under CI load it
+    // does. A page-wide locator counted that button and failed a sheet assertion
+    // on an unrelated component's error state (#3401).
+    await expect(
+      page.getByTestId('bulk-edit-sheet').getByRole('button', { name: 'Retry' }),
+    ).toHaveCount(0);
 
     // The sheet stays open on the form phase — a refusal is not a result.
     await expect(page.getByTestId('bulk-edit-result')).toHaveCount(0);

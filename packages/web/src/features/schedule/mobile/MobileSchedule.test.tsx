@@ -154,6 +154,29 @@ describe('MobileSchedule', () => {
     expect(screen.getByText('No items yet')).toBeInTheDocument();
   });
 
+  // #3312: a project just created from a template is empty for a moment while
+  // the apply writes its rows. "No items yet" over that window reads as "the
+  // apply failed" — the one screen where the ordinary empty state is a lie.
+  it('shows the seeding state instead of "No items yet" while a template apply runs', () => {
+    renderSchedule({ tasks: [], seeding: true });
+    expect(
+      screen.getByRole('status', { name: 'Setting up your schedule' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No items yet')).not.toBeInTheDocument();
+  });
+
+  it('lets a real fetch error outrank the seeding wait', () => {
+    renderSchedule({ tasks: [], seeding: true, error: new Error('boom') });
+    expect(screen.getByText("Couldn't load the schedule")).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Setting up your schedule' })).toBeNull();
+  });
+
+  it('lets the methodology mismatch outrank the seeding wait', () => {
+    renderSchedule({ tasks: [], seeding: true, effectiveMethodology: 'AGILE' });
+    expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Setting up your schedule' })).toBeNull();
+  });
+
   // #2619: AGILE hides this view's nav entry (methodologyTabs.ts), but the
   // route stays reachable by direct URL on purpose — the mobile surface must
   // show the same explanatory state the desktop canvas does, not "No items yet".
