@@ -43,6 +43,18 @@ def default_team(project: Project) -> Team:
     )
 
 
+def _project_member(project: Project, username: str, role: int = Role.MEMBER) -> Any:
+    """A user seated on ``project`` — the precondition for holding a team facet.
+
+    In production a ``TeamMembership`` exists only because the ADR-0078 §F mirror made
+    one from a ``ProjectMembership``, so a fixture that creates the team row alone
+    describes a state only a revocation can produce.
+    """
+    user = User.objects.create_user(username=username, password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=role)
+    return user
+
+
 # ---------------------------------------------------------------------------
 # Facet resolution
 # ---------------------------------------------------------------------------
@@ -81,12 +93,19 @@ def test_facet_holder_user_ids_is_the_set_form_of_user_facets(
     Asserted as an equality against ``user_facets`` rather than against a hand-written
     expected set: the two answering the same question differently is the #2897 defect,
     and a hardcoded expectation would not catch a future divergence.
+
+    Every subject is given a live ``ProjectMembership`` because that is the only way a
+    ``TeamMembership`` comes to exist in production — the ADR-0078 §F mirror creates it
+    from one. The helper's live-membership intersection (#3334) is therefore satisfied
+    for all of them, and this test stays a statement about the facet correspondence
+    rather than about the liveness filter, which
+    ``test_facet_holder_user_ids_excludes_a_revoked_project_member`` owns.
     """
-    sm = User.objects.create_user(username="sm", password="pw")
-    po = User.objects.create_user(username="po2", password="pw")
-    both = User.objects.create_user(username="both", password="pw")
-    neither = User.objects.create_user(username="neither", password="pw")
-    admin_no_facet = User.objects.create_user(username="admin-nf", password="pw")
+    sm = _project_member(project, "sm")
+    po = _project_member(project, "po2")
+    both = _project_member(project, "both")
+    neither = _project_member(project, "neither")
+    admin_no_facet = _project_member(project, "admin-nf")
 
     TeamMembership.objects.create(team=default_team, user=sm, is_scrum_master=True)
     TeamMembership.objects.create(team=default_team, user=po, is_product_owner=True)
@@ -125,6 +144,58 @@ def test_facet_holder_user_ids_excludes_revoked_and_non_default_teams(
     TeamMembership.objects.create(team=other_team, user=off_team, is_scrum_master=True)
 
     assert facet_holder_user_ids(project.pk) == set()
+
+
+def test_facet_holder_user_ids_excludes_a_revoked_project_member(
+    project: Project, default_team: Team
+) -> None:
+    """A live team row whose *project* membership was revoked contributes nobody (#3334).
+
+    This is the state the ADR-0078 §F mirror produces on every offboarding: it has no
+    ``post_delete`` receiver and ``TeamMembership`` has no FK a cascade could travel
+    over, so revoking the project membership leaves the team row untouched with its
+    facet flags set. The team-row filters cannot see it — only the project-row
+    intersection can, which is why the default is on.
+    """
+    gone = _project_member(project, "ex-po")
+    TeamMembership.objects.create(team=default_team, user=gone, is_product_owner=True)
+    ProjectMembership.objects.filter(project=project, user=gone).update(is_deleted=True)
+
+    # The precondition the bug depends on: the mirrored row is still live.
+    assert TeamMembership.objects.filter(user=gone, is_deleted=False).exists()
+
+    assert facet_holder_user_ids(project.pk) == set()
+    # The opt-out still sees them — it is the pre-#3334 team-scoped question, which is
+    # only safe for a caller that intersects live membership itself.
+    assert facet_holder_user_ids(project.pk, live_project_members_only=False) == {gone.pk}
+
+
+def test_facet_holder_user_ids_can_be_restricted_to_one_facet(
+    project: Project, default_team: Team
+) -> None:
+    """``facets=`` narrows the cohort — the impediment resolver routes to the SM only."""
+    sm = _project_member(project, "sm-only")
+    po = _project_member(project, "po-only")
+    TeamMembership.objects.create(team=default_team, user=sm, is_scrum_master=True)
+    TeamMembership.objects.create(team=default_team, user=po, is_product_owner=True)
+
+    assert facet_holder_user_ids(project.pk, facets=("is_scrum_master",)) == {sm.pk}
+    assert facet_holder_user_ids(project.pk, facets=("is_product_owner",)) == {po.pk}
+    assert facet_holder_user_ids(project.pk) == {sm.pk, po.pk}
+
+
+@pytest.mark.parametrize("facets", [("is_tester",), ()])
+def test_facet_holder_user_ids_rejects_unknown_or_empty_facets(
+    project: Project, default_team: Team, facets: tuple[str, ...]
+) -> None:
+    """An unrecognized or empty ``facets=`` fails loud rather than matching everyone.
+
+    An empty tuple would build an empty ``Q()``, which matches every row — silently
+    turning a facet cohort into the whole roster. ``has_team_facet`` raises on an
+    unknown facet for the same reason; this keeps the two seams consistent.
+    """
+    with pytest.raises(ValueError, match="Unknown team facets"):
+        facet_holder_user_ids(project.pk, facets=facets)
 
 
 def test_user_facets_for_anonymous_and_nonmember(project: Project, default_team: Team) -> None:
