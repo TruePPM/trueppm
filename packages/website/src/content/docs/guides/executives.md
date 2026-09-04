@@ -76,7 +76,7 @@ You don't need to learn the tool to judge it — and you shouldn't have to. Hand
 
    The command prints the persona logins and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if set, otherwise a random token printed once.
 
-2. **They sign in as the PM.** At `http://localhost:5173`, as **`raj`** — the project-manager persona, seeded with the **Scheduler** role.
+2. **They sign in as the PM.** At `http://localhost:5173`, as **`atlas-sam`** — Sam Okafor, Project Scheduler, seeded with the **Scheduler** role.
 
 **Then you watch three things:**
 
@@ -87,7 +87,7 @@ You don't need to learn the tool to judge it — and you shouldn't have to. Hand
 5. **The date you'd actually quote.** P80 is the defensible number to take to the board; P50 is the optimistic one most tools show as "the date."
 
 :::note[Why the PM drives, not the sponsor persona]
-The demo seeds an executive persona, **`carlos`**, as a read-only **Viewer** — the correct role for a sponsor, and worth confirming for yourself that he cannot change the plan. But the desktop forecast bar is currently gated at Member and above, so a Viewer doesn't see the number this page is built around ([#2492](https://gitlab.com/trueppm/trueppm/-/issues/2492)). Until that's fixed, have the PM drive — which is how a sponsor uses this anyway.
+The demo seeds an executive persona, **`atlas-ada`** (Ada Boyega, Executive Sponsor), as a read-only **Viewer** — the correct role for a sponsor, and worth confirming for yourself that she cannot change the plan. But the desktop forecast bar is currently gated at Member and above, so a Viewer doesn't see the number this page is built around ([#2492](https://gitlab.com/trueppm/trueppm/-/issues/2492)). Until that's fixed, have the PM drive — which is how a sponsor uses this anyway.
 :::
 
 Then judge it the way you actually decide. The technology is open and self-hosted, so your data never leaves your network. The two things you'd most want next — a one-glance portfolio dashboard and a weekly risk digest pushed to your inbox — are honestly still ahead (see "What's coming"); the portfolio view is an enterprise capability, and a single-program health digest is planned for 0.8. If either is a dealbreaker for you today, that's a fair call to make now rather than after rollout.
