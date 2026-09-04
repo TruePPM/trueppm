@@ -178,8 +178,9 @@ capacity per dimension, the issue that sets each ceiling, and an explicit list o
 was *not* tested. A beta that invites people to put a real program on their own hardware
 owes them a number rather than silence — including the number that is currently
 unflattering. In 0.4 a project stays comfortable in the Schedule view to roughly
-**1,000 tasks**, bounded by the whole-project client load. Raising that ceiling is
-scheduled work, not a known-unknown: it is tracked on #2277, in the **0.5** milestone.
+**1,000 tasks**, bounded by what the Schedule pays to load a whole project. Raising that
+ceiling is scheduled work, not a known-unknown: it is tracked on #2814 and #2815, both in
+the **0.5** milestone.
 
 - **Accessibility remediation** (#1685 #2202 are the axe-gate infrastructure issues; the
   remediation itself ran across the release) — focus traps across roughly seventy dialogs,
@@ -280,7 +281,8 @@ dragged branch with its real schedule impact *before* the drop.
 the enterprise edition already registers against is formalized (#2094) and dogfooded by two
 deliberately different surfaces: the mindmap, and the **collaborative canvas shell** (#1281) —
 the Excalidraw-based workshop surface with sticky notes, CRDT co-editing, and anonymous guest
-links, riding the shipped workshops substrate. Canvas scenes stay freeform *artifacts*; the
+links. Its session/presence substrate is net-new — the earlier board Workshop Mode was removed
+in 0.4 (#3301). Canvas scenes stay freeform *artifacts*; the
 mindmap remains the structured projection, so a whiteboard never becomes a second place the
 plan lives. The extension points those dogfoods prove graduate into a public **Extension SDK**
 — custom fields, views, widgets, workflow actions, webhook events. Extending your own instance

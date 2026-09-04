@@ -37,9 +37,12 @@ export interface ClassificationAnnouncement {
  * replaying the identical request is refused identically. A "Retry" offered there
  * points at the one action guaranteed not to help.
  *
- * The graph guard's sentence still reads as raw ids rather than task names; that
- * is a server-side message problem (TODO(#3333)) — surfacing it verbatim is still
- * strictly better than the generic string it replaced.
+ * All three sentences are the server's own, rendered verbatim. The graph guard's
+ * used to read as a raw id list; it now names the offending tasks by WBS code and
+ * name, resolved where the refusal is raised (#3333), so every consumer of the
+ * endpoint gets it rather than only the surface holding the task array. That also
+ * means it is bounded server-side to stay under {@link MAX_MESSAGE_LENGTH} — a
+ * longer sentence would be discarded here for the generic fallback.
  */
 export type ClassificationError = WriteRefusal;
 
@@ -195,7 +198,17 @@ export function useClassificationPopover({
             ]
               .filter(Boolean)
               .join(' · ');
-            const operationId = report.operation_id;
+            // Two conditions, and they answer different questions (#3304).
+            // `operation_id` is null when the cascade wrote nothing, so there is
+            // no ledger row to reverse. `can_undo` is the server's verdict on
+            // whether THIS caller's role may reverse one at all — apply is
+            // `IsProjectPlanAuthor` and the undo endpoint is Admin+, so a Member
+            // reaches this success handler and would 403 on the click. The toast
+            // is the only route to that undo and it lives 8 seconds, so a control
+            // offered here and refused there is unrecoverable: omit it, the way
+            // `SeedBanner` omits its Admin-only controls rather than disabling
+            // them. The server still enforces; this only stops the false offer.
+            const operationId = report.can_undo ? report.operation_id : null;
             announce({
               message: `Classified: ${parts.join(', ')} — ${detail}.`,
               durationMs: 8000,

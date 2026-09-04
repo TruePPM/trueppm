@@ -1,9 +1,7 @@
-import type { RefObject } from 'react';
 import type { Task } from '@/types';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
 import { WipLimitConfirmDialog } from '../WipLimitConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
-import { WorkshopExitDialog } from './WorkshopExitDialog';
 import type { WipBreach } from '../wipBreach';
 import type { ApiSprint } from '@/types';
 
@@ -26,11 +24,6 @@ interface BoardConfirmDialogsProps {
   onWipMoveConfirm: (perform: () => void) => void;
   scheduleDialogTask: Task | null;
   onScheduleDialogClose: () => void;
-  workshopExitOpen: boolean;
-  workshopEnding: boolean;
-  workshopToggleRef: RefObject<HTMLButtonElement | null>;
-  onWorkshopExitCancel: () => void;
-  onWorkshopExitConfirm: () => void;
 }
 
 /**
@@ -62,11 +55,6 @@ export function BoardConfirmDialogs({
   onWipMoveConfirm,
   scheduleDialogTask,
   onScheduleDialogClose,
-  workshopExitOpen,
-  workshopEnding,
-  workshopToggleRef,
-  onWorkshopExitCancel,
-  onWorkshopExitConfirm,
 }: BoardConfirmDialogsProps) {
   return (
     <>
@@ -108,15 +96,6 @@ export function BoardConfirmDialogs({
       )}
 
 
-      {/* Workshop exit confirmation dialog (ADR-0046) */}
-      {workshopExitOpen && (
-        <WorkshopExitDialog
-          isEnding={workshopEnding}
-          triggerRef={workshopToggleRef}
-          onCancel={onWorkshopExitCancel}
-          onConfirm={onWorkshopExitConfirm}
-        />
-      )}
     </>
   );
 }

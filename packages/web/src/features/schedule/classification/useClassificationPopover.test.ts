@@ -5,7 +5,10 @@ import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import type { Task } from '@/types';
-import { useClassificationPopover } from './useClassificationPopover';
+import {
+  useClassificationPopover,
+  type ClassificationAnnouncement,
+} from './useClassificationPopover';
 
 /**
  * The refusal path, driven end to end (#3302).
@@ -239,5 +242,117 @@ describe('useClassificationPopover — server refusals', () => {
       { wrapper: wrapper(queryClient) },
     );
     expect(result.current.error).toBeNull();
+  });
+});
+
+/**
+ * The Undo affordance, at the toast (#3304).
+ *
+ * Asserted on the announcement the hook emits, not on the endpoint: the bug was
+ * never that the undo endpoint let a Member through — it correctly 403s — but
+ * that the client offered the control anyway, inside an 8-second window with no
+ * second route to it. A pytest on the 403 passes on the broken build, so the
+ * coverage that means anything has to be here.
+ */
+describe('useClassificationPopover — the Undo the server says you may use', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  /** A 200 body as the cascade endpoint sends it, with the two undo fields varied. */
+  function report(overrides: { operation_id: string | null; can_undo: boolean }) {
+    return {
+      subtree: 'p',
+      matched: 3,
+      delivery_mode: {
+        requested: 'scrum',
+        applied: 3,
+        unchanged: 0,
+        overrides_kept: null,
+        has_inherit_bit: false,
+      },
+      skipped: [],
+      ...overrides,
+    };
+  }
+
+  /** Apply a cascade that succeeds with `body`, and return the announcement it raised. */
+  async function applyAndAnnounce(body: ReturnType<typeof report>) {
+    patchMock.mockResolvedValueOnce({ data: body });
+    // Typed rather than a bare `vi.fn()`: the announcement IS the assertion target
+    // here, so reading `.action` off an `any` would make every expectation below
+    // unchecked — and an `action` that changed shape would still pass.
+    const announce = vi.fn<(announcement: ClassificationAnnouncement) => void>();
+    const { result } = renderHook(
+      () =>
+        useClassificationPopover({
+          projectId: 'proj-1',
+          tasks: TASKS,
+          readOnly: false,
+          announce,
+        }),
+      { wrapper: wrapper(queryClient) },
+    );
+    result.current.apply({
+      subtree: 'p',
+      cascade: true,
+      governance_class: null,
+      delivery_mode: 'scrum',
+      preserve_governance_overrides: true,
+      skip_milestones: true,
+    });
+    await waitFor(() => expect(announce).toHaveBeenCalled());
+    return { announcement: announce.mock.calls[0][0], announce };
+  }
+
+  it('offers Undo to a caller the server says may undo (Admin+)', async () => {
+    const { announcement } = await applyAndAnnounce(
+      report({ operation_id: 'op-1', can_undo: true }),
+    );
+    expect(announcement.message).toContain('Classified:');
+    expect(announcement.action?.label).toBe('Undo');
+    expect(typeof announcement.action?.onClick).toBe('function');
+  });
+
+  it('withholds Undo from a Member — apply cleared its floor, undo would 403', async () => {
+    // The exact shape the bug produced: a real ledger row exists, so the OLD
+    // `operation_id ? …` test attached the action; only `can_undo` distinguishes
+    // this from the Admin case above.
+    const { announcement } = await applyAndAnnounce(
+      report({ operation_id: 'op-1', can_undo: false }),
+    );
+    // The receipt itself is unchanged — the cascade did happen and still says so.
+    expect(announcement.message).toContain('Classified:');
+    expect(announcement.action).toBeUndefined();
+    // And nothing reaches the Admin-only undo route. Asserted alongside, because
+    // "no action" and "an action that quietly no-ops" look the same in the
+    // announcement alone and are not the same thing.
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('still withholds Undo on a no-op cascade even for an Admin', async () => {
+    // `can_undo` is pure authority and says nothing about whether a ledger row
+    // exists; `operation_id` is null when the cascade wrote nothing. Both are
+    // required, so an Admin's no-op gets no Undo either.
+    const { announcement } = await applyAndAnnounce(
+      report({ operation_id: null, can_undo: true }),
+    );
+    expect(announcement.action).toBeUndefined();
+  });
+
+  it('clicking the offered Undo POSTs to the cascade operation route', async () => {
+    postMock.mockResolvedValueOnce({ data: { undo: { reverted: 3, kept: 0 } } });
+    const { announcement, announce } = await applyAndAnnounce(
+      report({ operation_id: 'op-1', can_undo: true }),
+    );
+    announcement.action?.onClick();
+    await waitFor(() => expect(announce).toHaveBeenCalledTimes(2));
+    expect(postMock).toHaveBeenCalledWith('/cascade-classification-operations/op-1/undo/', {});
+    expect(announce.mock.calls[1][0].message).toBe('Undone — reverted 3 rows.');
   });
 });

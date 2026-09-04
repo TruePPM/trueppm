@@ -1,8 +1,8 @@
 """Tests for evict_project_connection (#813) — the push-based WS eviction helper.
 
 The consumer-side connection_evict handler is covered in test_consumers.py; this
-file covers the broadcast helper that fans the evict out to both the board and
-workshop groups, including its best-effort failure handling.
+file covers the broadcast helper that pushes the evict to the board group,
+including its best-effort failure handling.
 """
 
 from __future__ import annotations
@@ -33,13 +33,12 @@ class _FakeChannelLayer:
         self.sent.append((group, message))
 
 
-def test_evict_sends_to_board_and_workshop_groups() -> None:
+def test_evict_sends_to_board_group() -> None:
     layer = _FakeChannelLayer()
     with patch(_GET_LAYER, return_value=layer):
         evict_project_connection("p1", "u9")
     assert layer.sent == [
         ("project_p1", {"type": "connection.evict", "user_id": "u9"}),
-        ("project_p1_workshop", {"type": "connection.evict", "user_id": "u9"}),
     ]
 
 
@@ -472,8 +471,6 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "team_member_changed",
         "velocity_suggestion_accepted",
         "velocity_suggestion_dismissed",
-        "workshop_ended",
-        "workshop_started",
     }
 )
 

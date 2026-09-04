@@ -2,7 +2,7 @@
  * CalmToolbar — surface tests for chip popovers, pill toggles, More⋯ overflow,
  * and the layout segmented control. Acceptance criteria from issue #382.
  *
- * The richer integration scenarios (workshop, density persistence) live in
+ * The richer integration scenarios (density persistence) live in
  * BoardView.test.tsx; this file exercises the toolbar in isolation with mocked
  * setters so the assertions remain narrow.
  */
@@ -24,7 +24,6 @@ vi.mock('@/hooks/useBoardSavedViews', () => ({
 }));
 
 function Harness(overrides: Partial<CalmToolbarProps> = {}) {
-  const ref = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const props: CalmToolbarProps = {
     projectId: 'project-1',
@@ -86,10 +85,6 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     onOpenCheatsheet: vi.fn(),
     onExportPdf: vi.fn(),
     exportingPdf: false,
-    workshopMode: false,
-    onWorkshopToggle: vi.fn(),
-    workshopDisabled: false,
-    workshopButtonRef: ref,
     ...overrides,
   };
   return <CalmToolbar {...props} />;
@@ -306,7 +301,7 @@ describe('CalmToolbar', () => {
 
   // Acceptance: More⋯ overflow ---------------------------------------------
 
-  it('More⋯ popover exposes Collapse all / Expand all / Show WIP / Column tints / EVM / Keyboard / Workshop', async () => {
+  it('More⋯ popover exposes Collapse all / Expand all / Show WIP / Column tints / EVM / Keyboard', async () => {
     const user = userEvent.setup();
     renderToolbar();
     await user.click(screen.getByRole('button', { name: 'More board controls' }));
@@ -317,7 +312,6 @@ describe('CalmToolbar', () => {
     expect(screen.getByLabelText('EVM indicators')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '? Keyboard shortcuts' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export the board as a PDF' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start workshop session' })).toBeInTheDocument();
   });
 
   // Acceptance: Columns/WIP affordance (#1960) ------------------------------

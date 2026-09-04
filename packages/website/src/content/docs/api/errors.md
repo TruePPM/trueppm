@@ -13,7 +13,7 @@ For what a version bump may and may not change, see
 surface with its own retry semantics — see
 [Webhooks](/features/webhooks/#delivery-retries).
 
-## Shape 1 — field validation errors (no `code`)
+## Shape 1 — field validation errors (no refusal `code`)
 
 Serializer validation failures return a map of **field name → list of messages**,
 with the HTTP status `400`:
@@ -25,9 +25,12 @@ with the HTTP status `400`:
 }
 ```
 
-There is **no `code` key** in this shape, and the individual messages are not
+There is **no refusal `code`** in this shape, and the individual messages are not
 stable. Internally these errors do carry a code, but Django REST Framework
 serializes each one to its message string alone, so it never reaches the wire.
+
+A `code` key can still appear here — but as a *field name*, not as the envelope's
+machine code. See [When a field is named `code`](#when-a-field-is-named-code).
 
 **Branch on the field key. Never match on the message text.** The strings come
 from DRF and Django validators and can change with a framework upgrade.
@@ -67,6 +70,30 @@ authentication or permission failures arrive as a bare `detail`:
 {"detail": "You do not have permission to perform this action."}
 ```
 
+### A few refusals are a bare array, not an object
+
+`non_field_errors` is where a **serializer's** object-level validation lands. A
+handful of endpoints refuse from the view itself, before or without a serializer,
+by raising a validation error on a single message. DRF wraps that message in a
+list and puts it on the wire as a **top-level JSON array** — there is no
+enclosing object, and therefore no key to look under:
+
+```json
+["This dependency is not pending acceptance."]
+```
+
+Three operations answer in this shape, and the OpenAPI schema declares it for
+each of them:
+
+- `POST /api/v1/dependencies/{id}/accept/`
+- `POST /api/v1/dependencies/{id}/reject/`
+- `POST /api/v1/slip-conflicts/{id}/acknowledge/`
+
+A client that assumes every `400` body is an object will throw on these before it
+can read the message. Check whether the parsed body is an array first; if it is,
+the messages are the elements. As with Shape 1, the strings are prose and are not
+a contract — branch on the status and the endpoint, not on the text.
+
 ## Shape 2 — structured errors (with a stable `code`)
 
 Failures that a client is expected to *handle differently* — not merely report —
@@ -85,6 +112,33 @@ Some codes carry extra keys; those are noted in the tables below.
 The codes on this page are the complete set of values that appear in this shape.
 If an endpoint returns a bare `detail` with no `code`, treat it as a generic
 failure of its HTTP status class.
+
+### When a field is named `code`
+
+The two shapes share a body, so a Shape 1 field key can collide with a Shape 2
+envelope key. Two fields in the API are named `code` — a program's and a
+project's short identifier — and one is named `detail`. When one of those fails
+validation, DRF keys its errors by field name like any other field, and the
+result reads like Shape 2 until you look at the type:
+
+```json
+{"code": ["Ensure this field has no more than 12 characters."]}
+```
+
+**Discriminate on the type, not on the key's presence.** A refusal `code` is
+always a **string** drawn from the vocabulary below. A list or object under
+`code` — or under `detail` — is Shape 1 field validation of the field of that
+name:
+
+```js
+const refusal = typeof body.code === "string" ? body.code : null;
+```
+
+`if (body.code)` is the form that breaks: on the twenty-one operations that
+accept a `code` field — `POST`, `PUT` and `PATCH` on programs and projects, plus
+the actions that reuse those request bodies — it hands you an array of human
+sentences where a stable identifier was expected. This affects only the two names
+the envelope uses; every other field key is unambiguous.
 
 ## Structured error codes
 
@@ -144,10 +198,21 @@ the end:
 ```json
 {
   "code": "cyclic_dependency",
-  "detail": "The dependency graph contains a cycle.",
-  "offending": ["A", "B", "A"]
+  "detail": "Circular dependency: 1.1 — Design → 1.3 — Build → 1.1 — Design. Remove one of those links to schedule this plan.",
+  "offending": [
+    "3f2a…",
+    "9b1c…",
+    "3f2a…"
+  ]
 }
 ```
+
+**`detail` is prose and `offending` is data — do not parse one for the other.**
+`detail` names each task by its WBS code and name, which is the reference the plan
+itself shows, so a person reading the refusal can find the tasks. It is bounded:
+past four members the chain elides its middle to `… (N more)`, so a long cycle
+never produces a proportionally long sentence. `offending` stays the raw, complete
+ordered id list — branch and highlight rows on that.
 
 `subtree_too_large` carries `matched` (how many descendants the request would
 have touched) and `max` (the cap), so a client can say how far over the limit it
@@ -187,6 +252,7 @@ capped sample naming them:
 | `not_live` | `409` | The planning-poker session is not live | — |
 | `not_revealed` | `409` | The planning-poker round has not been revealed yet | — |
 | `sprint_not_planned` | `409` | The sprint is not in the PLANNED state | — |
+| `name_taken` | `409` | A template with this name already exists in the pool you can see. Resend `publish` with `new_version: true` to extend that template's chain instead | `template`, `version`, `next_version` |
 | `seed_replace_required` | `409` | A live program you own already uses this seed's slug as its code, and the import did not confirm the replacement | `conflict` |
 | `seed_replace_mismatch` | `409` | `expected_program_id` does not name the program that would actually be replaced | `conflict` |
 | `not_found` | `404` | The targeted poker round or ceiling proposal does not exist | — |
