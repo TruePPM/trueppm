@@ -48,6 +48,10 @@ const FIXTURE_ME = {
   display_name: 'Alice',
   initials: 'AL',
   email: 'alice@example.com',
+  // Workspace admin (>= 300). `RequireWorkspaceAdmin` no longer admits on a
+  // verdict-less /auth/me (#3330), and `workspace_role` is a declared
+  // MeSerializer field, so a payload omitting it was never representable.
+  workspace_role: 300,
 };
 
 const FIXTURE_WORKSPACE_SETTINGS = {

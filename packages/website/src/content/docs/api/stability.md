@@ -64,8 +64,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the two Breaking changes taken so far both
-bypassed it deliberately, and both are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the three Breaking changes taken so far all
+bypassed it deliberately, and all three are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -112,8 +112,30 @@ deprecation window rather than being removed outright:
    inferring it from a response body. The whole request is rejected, so sibling fields
    in the same body are not applied.
 
-   This exception is available because TruePPM is pre-1.0 alpha and the v1 surface is
-   not yet under a GA compatibility promise. It should not be read as a precedent for
+   **Bypassed a third time, in 0.4 (#3301).** Board Workshop Mode is removed outright,
+   taking four paths (`POST /api/v1/projects/{id}/workshop/start/`, `.../workshop/end/`,
+   `.../workshop/force-end/`, and `GET /api/v1/projects/{id}/workshop/current/`), the
+   `WorkshopSession` and `WorkshopParticipant` schemas, and the `workshop_started` /
+   `workshop_ended` WebSocket event types with it. Removing an endpoint is **Breaking**
+   by the table above, so this is a policy exception and is recorded as one rather than
+   as routine. The reasoning: the feature was single-user by construction. The web
+   client's workshop state was component-local and set only in the start mutation's
+   success handler, no join endpoint was ever built, and `start` is ADMIN-gated and
+   answers `409` while a session is active — so no second participant could reach an
+   active session by any route, and the presence apparatus behind these endpoints was
+   unreachable. A deprecation window exists to let a client migrate to a replacement;
+   there is no replacement here, and the `Deprecation` header described in step 2 does
+   not exist to send.
+
+   As with the removal above, a stale call **does not fail silently**: the removed paths
+   answer `404`, so an integration still calling one finds out at the moment it calls
+   rather than inferring it from a response body. The changelog fragment names every
+   removed path, schema, and event type, and the removal is declared in
+   `scripts/schema-removal-allowlist.txt` so the schema gate treats it as reviewed
+   rather than accidental.
+
+   These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
+   not yet under a GA compatibility promise. They should not be read as a precedent for
    removals after GA.
 4. **Removal.** The element would be removed only after the window elapses, in
    a minor release before GA or in the next major version at and after GA.

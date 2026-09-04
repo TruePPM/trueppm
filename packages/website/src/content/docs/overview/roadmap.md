@@ -280,7 +280,8 @@ dragged branch with its real schedule impact *before* the drop.
 the enterprise edition already registers against is formalized (#2094) and dogfooded by two
 deliberately different surfaces: the mindmap, and the **collaborative canvas shell** (#1281) —
 the Excalidraw-based workshop surface with sticky notes, CRDT co-editing, and anonymous guest
-links, riding the shipped workshops substrate. Canvas scenes stay freeform *artifacts*; the
+links. Its session/presence substrate is net-new — the earlier board Workshop Mode was removed
+in 0.4 (#3301). Canvas scenes stay freeform *artifacts*; the
 mindmap remains the structured projection, so a whiteboard never becomes a second place the
 plan lives. The extension points those dogfoods prove graduate into a public **Extension SDK**
 — custom fields, views, widgets, workflow actions, webhook events. Extending your own instance

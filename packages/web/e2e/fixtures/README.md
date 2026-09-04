@@ -72,7 +72,6 @@ typed defaults; pass `opts` to override for test-specific data:
 - `GET /api/v1/projects/*/presence/` → `[]`
 - `GET /api/v1/projects/*/attention/` → `{ items: [] }`
 - `GET /api/v1/projects/*/my-tasks/` → `{ tasks: [] }`
-- `GET /api/v1/projects/*/workshop/current/` → `404 No active workshop session.`
 - `GET /api/v1/projects/*/resource-allocation/**` → empty resources
 - `GET /api/v1/monte-carlo/**` → empty runs
 - `GET /api/v1/projects/{id}/overview/` → `opts.overview` merged with empty defaults

@@ -4510,11 +4510,9 @@ web:integration:
         - packages/web/src/stores/authStore.ts
         - packages/web/src/features/auth/**/*
         - packages/web/src/hooks/useProjectWebSocket.ts
-        - packages/web/src/hooks/useWorkshopSocket.ts
         - packages/web/e2e/integration/**/*
         - packages/api/src/trueppm_api/core/auth_views.py
         - packages/api/src/trueppm_api/apps/sync/consumers.py
-        - packages/api/src/trueppm_api/apps/workshops/consumers.py
     # The image this job runs in, and the config that names it. Nothing
     # validated web:integration before merge when only the image changed, which
     # is how a stale-tag pull reached main and broke it for two pipelines

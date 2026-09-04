@@ -1,6 +1,6 @@
 """Signals for the access app — real-time eviction on membership revocation (#813).
 
-Project WebSocket consumers (board + workshop) check ``ProjectMembership`` only at
+The project WebSocket consumer checks ``ProjectMembership`` only at
 ``websocket_connect``. Once accepted, a socket keeps receiving project events until it
 disconnects, so a user whose membership is soft-deleted or demoted below ``Role.MEMBER``
 would keep receiving real-time CPM/task/presence data for as long as the socket stayed
@@ -75,8 +75,7 @@ def _evict_on_account_deactivation(sender: type, instance: Any, **kwargs: Any) -
     Authorization on both consumers runs exactly once, at connect, and ``is_active``
     is read only there (``sync/ws_auth.py:_resolve_active_user``). So an off-boarded
     member's open socket kept streaming ``task_created`` / ``task_dates_updated`` /
-    presence for the whole session, and on the workshop socket they could still relay
-    cursor and phase events to colleagues — while their REST access died immediately,
+    presence for the whole session — while their REST access died immediately,
     because the JWT authenticator does honor ``is_active``.
 
     Fires on the ``True -> False`` transition only. Reactivation grants nothing that

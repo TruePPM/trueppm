@@ -139,7 +139,6 @@ urlpatterns = [
     path(_API_V1_PREFIX, include("trueppm_api.apps.csvimport.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.webhooks.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.taskruns.urls")),
-    path(_API_V1_PREFIX, include("trueppm_api.apps.workshops.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.notifications.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.integrations.urls")),
     path(_API_V1_PREFIX, include("trueppm_api.apps.observability.urls")),

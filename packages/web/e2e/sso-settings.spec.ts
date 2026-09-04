@@ -79,6 +79,10 @@ async function setup(page: Page, providers: unknown[]) {
         initials: 'AL',
         email: 'a@x.io',
         can_access_admin_settings: true,
+        // Workspace admin (>= 300). `RequireWorkspaceAdmin` no longer admits on a
+        // verdict-less /auth/me (#3330), and `workspace_role` is a declared
+        // MeSerializer field, so a payload omitting it was never representable.
+        workspace_role: 300,
       }),
     }),
   );
