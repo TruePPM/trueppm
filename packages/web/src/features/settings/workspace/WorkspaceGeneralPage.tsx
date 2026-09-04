@@ -387,18 +387,29 @@ export function WorkspaceGeneralPage() {
           <WorkspaceLogoField logoUrl={ws.logoUrl} name={ws.name} />
         </FieldRow>
 
+        {/* Two claims removed here, both false and both the same class the project
+            row's timezone copy was corrected for in this change (#3376). (1) It
+            was never "used for due dates and Gantt rendering": task dates are
+            calendar dates, so no zone can move them, and displayed instants come
+            from the viewer's own Profile.timezone (ADR-0410). (2) There is no
+            "when a project doesn't override" cascade — a project's timezone falls
+            back to settings.TIME_ZONE (hardcoded UTC), never to this column, so
+            Workspace.timezone has zero readers anywhere in the tree. Wiring it as
+            that fallback is #3377; until then say what is true. Correcting one
+            page and leaving its sibling asserting the opposite would have shipped
+            the contradiction this change exists to remove. */}
         <FieldRow
           label="Default timezone"
-          hint="Used for due dates and Gantt rendering when a project doesn't override."
+          hint="Saved here, but nothing reads it — a project's timezone falls back to the server's UTC, not to this value."
           help={
             <FieldHelp
               label="Default timezone"
-              body="The time zone the workspace uses for due dates and Gantt rendering. A project can set its own; this applies wherever a project doesn't override it. It affects how dates display only — it never shifts a scheduled date to another day."
+              body="Intended as the timezone a project uses when it sets none of its own. TruePPM does not read it: a project with no timezone of its own falls back to the server's timezone, which is UTC. Nor would it change what you see — task dates are calendar dates that no timezone moves, and timestamps are shown in your own timezone from your profile. This field saves and reloads, and changes nothing."
               /* Was features/timezone-and-date-format/#timezone — the PERSONAL
                  preference page, which is a different setting with a different
                  owner. An admin following it from a workspace control lands on
                  documentation for their own profile (#3376). */
-              docHref="administration/workspace-settings/#fields"
+              docHref="administration/workspace-settings/#settings-that-are-stored-but-not-yet-read"
             />
           }
         >

@@ -233,8 +233,10 @@ test.describe('Project surface visibility settings', () => {
       0,
     );
 
-    // The note that replaces it is bound to the group, so it is reachable rather
-    // than merely nearby.
+    // The note that replaces it lives INSIDE the labelled group and is not
+    // aria-hidden, so it is in normal browse order. (`aria-describedby` is also
+    // set, but descriptions are surfaced reliably on focus and nothing here
+    // takes focus — containment is the guarantee that actually holds.)
     const group = page.getByRole('group', { name: /^Show the Time tracking surface:/ });
     await expect(group).toHaveAttribute('aria-label', /Not enforced\.$/);
     await expect(group.getByText(/no surface reads this setting/i)).toBeVisible();

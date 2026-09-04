@@ -103,7 +103,7 @@ The same affordance appears throughout the
 |---|---|---|---|
 | `name` | string | `"TruePPM Workspace"` | Display name shown in the nav header and email footers. |
 | `subdomain` | string | `""` | **Read-only via the API.** Reserved for a future hosted edition; self-hosted installs leave this blank. |
-| `timezone` | string (IANA) | `"UTC"` | Default timezone used for display and for interpreting dates without explicit timezone info. |
+| `timezone` | string (IANA) | `"UTC"` | Intended as the timezone a project falls back to when it sets none of its own. **Stored and returned, but nothing reads it** — a project with no timezone falls back to the *server's* timezone, which is UTC. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
 | `fiscal_year_start_month` | integer (1–12) | `1` | Fiscal-year start month. Drives quarter labels across the workspace, including the [Schedule timeline](/features/schedule-toolbar/#fiscal-quarters). |
 | `fiscal_year_start_day` | integer (1–31) | `1` | Fiscal-year start day, validated against the month (year-agnostic: February caps at 28; 30-day months reject 31). **Carried for the display label only** — quarter boundaries are computed from `fiscal_year_start_month` alone, so a fiscal year set to April 6 still labels Q1 as beginning April 1. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
 | `fiscal_year_start_display` | string | `"January 1"` | **Read-only.** Human label derived from month + day, e.g. `"April 6"`. |
@@ -116,13 +116,14 @@ The same affordance appears throughout the
 
 ### Settings that are stored but not yet read
 
-Three fields on this page save, round-trip on reload, and are returned by the API —
+Four fields on this page save, round-trip on reload, and are returned by the API —
 and **nothing in the product consumes them**. They are listed here rather than hidden
 because the control is live: changing one produces a saved value and no behavior
 change, with nothing to tell you which of the two happened.
 
 | Field | What it does today | What would make it real |
 |---|---|---|
+| `timezone` | Nothing. A project's own **Time zone** anchors that project's [notification quiet hours](/features/settings/project-notifications/#quiet-hours), and when it is blank the window falls back to the *server's* timezone — UTC — not to this value. No display anywhere derives from it either: task dates are calendar dates that no timezone moves, and timestamps follow your [personal timezone](/features/timezone-and-date-format/#timezone). | [#3377](https://gitlab.com/trueppm/trueppm/-/issues/3377) — make this value the fallback the quiet-hours resolver actually reads |
 | `work_week` | Nothing. Every schedule's working days come from the project's effective [working calendar](/administration/working-calendars/) (`Calendar.working_days`), resolved workspace → program → project. A workspace on a Sunday–Thursday week that sets this field still gets Monday–Friday schedules. **Set working days on a calendar instead** — that path works today. | [#75](https://gitlab.com/trueppm/trueppm/-/issues/75) — workspace-level working-week defaults feeding calendar resolution (milestone 0.8) |
 | `default_project_view` | Nothing, and its replacement is not the project's `default_view` either — that column is [also unread](/administration/project-settings/#general). Opening a project takes you to the view your own [view focus](/features/view-focus/) prefers, so two people opening the same project land in different places no matter what either setting says. | [#3234](https://gitlab.com/trueppm/trueppm/-/issues/3234) tracks this field; [#3380](https://gitlab.com/trueppm/trueppm/-/issues/3380) decides whether a project's `default_view` should take precedence over the per-user focus |
 | `fiscal_year_start_day` | Contributes to the `fiscal_year_start_display` label only. Quarter boundaries on the [Schedule timeline](/features/schedule-toolbar/#fiscal-quarters) derive from `fiscal_year_start_month` alone. A UK operator setting **April 6** sees "April 6" confirmed here and Q1 drawn from **April 1**. | [#3234](https://gitlab.com/trueppm/trueppm/-/issues/3234) — day-precision fiscal quarters |

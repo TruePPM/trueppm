@@ -81,7 +81,7 @@ describe('ProjectVisibilityPage', () => {
   it('renders all four surfaces', () => {
     renderPage();
     expect(
-      screen.getByRole('heading', { name: 'Surface visibility', exact: true }),
+      screen.getByRole('heading', { name: 'Surface visibility' }),
     ).toBeInTheDocument();
     for (const label of ['Reports', 'Time tracking', 'Baselines', 'Monte-Carlo forecast']) {
       expect(screen.getByText(label, { exact: true })).toBeInTheDocument();
@@ -133,13 +133,48 @@ describe('ProjectVisibilityPage', () => {
     useCurrentUserRole.mockReturnValue({ role: 200, isLoading: false }); // Member
     renderPage();
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
-    // The wired surfaces fall back to the ADR-0133 read-only indicator …
+    // The wired surfaces fall back to the ADR-0133 read-only indicator. Assert
+    // by ROLE, not by getByLabelText alone: every child of that indicator is
+    // aria-hidden, so on a bare div (role="generic") a browser drops the name
+    // and the row announces nothing — while jsdom computes it anyway and a
+    // label-only assertion passes on the broken form (#3376). `img` is the
+    // atomic-readout role ReadOnlyIndicator settled on in #2265.
     expect(
-      screen.getByLabelText('Show the Reports surface: On, inherited from the methodology default. View only.'),
+      screen.getByRole('img', {
+        name: 'Show the Reports surface: On, inherited from the methodology default. View only.',
+      }),
     ).toBeInTheDocument();
     // … while Time tracking keeps the honest note, because "View only" would
     // still imply somebody, somewhere, is governed by the value.
     const group = screen.getByRole('group', { name: /^Show the Time tracking surface:/ });
     expect(within(group).getByText(/no surface reads this setting/i)).toBeInTheDocument();
+  });
+
+  it('reads correctly on a project that already stored an override', () => {
+    // A project that saved show_time_tracking=false before this change has no UI
+    // path back to inherit — the write path is gone, not disabled. That is fine
+    // because the value has no effect, but it means the note must not describe
+    // the ACT of toggling: "turning this off would hide nothing" is the wrong
+    // tense for a project where it is already off. The copy states the effect of
+    // the value instead, so it is true in both states.
+    useProject.mockReturnValue({
+      data: { ...SEED_PROJECT, show_time_tracking: false },
+    });
+    renderPage();
+    const group = screen.getByRole('group', {
+      name: 'Show the Time tracking surface: Off, set on this project. Not enforced.',
+    });
+    expect(within(group).getByText(/its value has no effect either way/i)).toBeInTheDocument();
+    expect(within(group).queryByText(/turning this off/i)).not.toBeInTheDocument();
+  });
+
+  it('never promises a roadmap it does not have', () => {
+    // "yet" / "coming soon" is a version claim with no version behind it —
+    // rule 361(a)'s future tense is licensed by a version checked against the
+    // roadmap, and nothing is filed here.
+    renderPage();
+    const group = screen.getByRole('group', { name: /^Show the Time tracking surface:/ });
+    expect(group.textContent ?? '').not.toMatch(/\byet\b|coming soon/i);
+    expect(within(group).getByText(/No issue is open to build one/i)).toBeInTheDocument();
   });
 });

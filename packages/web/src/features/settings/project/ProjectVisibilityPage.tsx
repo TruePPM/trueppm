@@ -55,9 +55,14 @@ const SURFACES = [
     ariaLabel: 'Show the Time tracking surface',
     helpBody:
       'Time logging in TruePPM is personal and cross-project: the top-bar timer, Quick log, My Work and your timesheet each cover every project you are on, and none of them is per-project chrome that a project setting could hide. So this toggle saves a value that nothing reads. It is shown inert rather than removed because the column, the API field and the methodology default are all still live — only the consequence is missing.',
+    // Deliberately says nothing about the ACT of toggling: the value may already
+    // be stored as false on a project that saved one before this change, and
+    // "turning this off would hide nothing" is the wrong tense for that project.
+    // Stating the effect of the value rather than of the gesture is correct in
+    // every state. No "yet" — that is a roadmap promise, and no issue is open.
     notEnforced:
-      'Not enforced — no surface reads this setting. Time logging is personal and spans every project you are on, so turning this off would hide nothing. Nothing tracks per-project time chrome yet.',
-    docHref: 'administration/project-settings/#surfaces',
+      'Not enforced — no surface reads this setting, so its value has no effect either way. Time logging in TruePPM is personal and spans every project you are on, so there is no per-project time surface for it to hide. No issue is open to build one.',
+    docHref: 'administration/project-settings/#time-tracking-is-stored-but-not-read',
   },
   {
     field: 'show_baselines',
@@ -151,7 +156,11 @@ export function ProjectVisibilityPage() {
     <div>
       <SettingsPageTitle
         title="Surface visibility"
-        subtitle="Turn optional surfaces on or off for this project. Each inherits a sensible default from the project's methodology unless you override it. Hiding a surface only removes its chrome — the data stays computed and reachable by direct link."
+        // Scoped to three of four: "each … unless you override it" is a present-
+        // tense capability claim, and it is false for the Time tracking row three
+        // lines below (#3376). A section header that the first row contradicts is
+        // the same over-claim the row itself was fixed for.
+        subtitle="Turn optional surfaces on or off for this project. Three of the four inherit a sensible default from the project's methodology unless you override it; Time tracking is stored but read by nothing, and says so. Hiding a surface only removes its chrome — the data stays computed and reachable by direct link."
       />
 
       <div className="px-6 pb-8 max-w-[720px]">

@@ -143,7 +143,10 @@ function PresetSummary() {
           )}
         </p>
       )}
-      <p className="text-[12px] text-neutral-text-secondary">
+      {/* max-w: 12px running prose in features/settings/ takes a measure cap
+          (rule 293) — the shell's content column is 920px, which sets ~145
+          characters per line at the page's smallest type. */}
+      <p className="max-w-[480px] text-[12px] text-neutral-text-secondary">
         A preset describes how this team works. It sets defaults, never limits: the surfaces it
         leaves out are hidden, not withdrawn, and changing the preset below brings them back. The
         one place this section can stop an action is{' '}
@@ -153,7 +156,7 @@ function PresetSummary() {
         <a href="#surfaces" className={`text-[12px] ${DOCS_LINK_INLINE}`}>
           Surfaces
         </a>
-        , which also lists Time tracking, a setting nothing reads yet.
+        , which also lists Time tracking, a setting nothing reads.
       </p>
     </div>
   );

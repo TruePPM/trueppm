@@ -279,7 +279,10 @@ describe('<ProjectTeamWorkflowPage> the line the issue draws', () => {
     const summary = screen.getByText(/A preset describes how this team works/);
     expect(summary).toHaveTextContent(/Reports, Baselines, the forecast/);
     expect(summary).not.toHaveTextContent(/Reports,\s*Time tracking/);
-    expect(summary).toHaveTextContent(/Time tracking, a setting nothing reads yet/);
+    // No "yet": a soft coming-soon is a version claim with no version behind it,
+    // and nothing is filed to build a per-project time surface.
+    expect(summary).toHaveTextContent(/Time tracking, a setting nothing reads\./);
+    expect(summary).not.toHaveTextContent(/nothing reads yet/);
     const link = screen.getByRole('link', { name: 'Surfaces' });
     expect(link).toHaveAttribute('href', '#surfaces');
   });

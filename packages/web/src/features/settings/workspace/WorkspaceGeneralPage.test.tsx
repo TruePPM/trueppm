@@ -332,6 +332,18 @@ describe('WorkspaceGeneralPage — contextual help', () => {
       screen.queryByRole('button', { name: 'About the Workspace name options' }),
     ).not.toBeInTheDocument();
   });
+
+  it('says the default timezone is stored but unread (#3376)', () => {
+    renderPage();
+    // Workspace.timezone has no reader anywhere: a project with no timezone of
+    // its own falls back to settings.TIME_ZONE (UTC), never to this column, and
+    // nothing displays from it. Pair the new sentence with the absence of the
+    // old one — appending a correction beside an over-claim is not a fix.
+    expect(screen.getByText(/Saved here, but nothing reads it/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Used for due dates and Gantt rendering/i),
+    ).not.toBeInTheDocument();
+  });
 });
 
 // ----- Failed GET must not read as a stuck loading state (#2656) -------------

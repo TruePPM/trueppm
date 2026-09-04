@@ -174,10 +174,14 @@ describe('InheritableToggleField', () => {
           canEdit={false}
         />,
       );
+      // getByRole, not getByLabelText: the indicator's children are all
+      // aria-hidden, so on a roleless div the browser drops the name and the row
+      // announces nothing — jsdom computes it anyway, so a label-only assertion
+      // passed on the broken form. `img` is ReadOnlyIndicator's shape (#2265).
       expect(
-        screen.getByLabelText(
-          'Public sharing: On, inherited from the workspace default. View only.',
-        ),
+        screen.getByRole('img', {
+          name: 'Public sharing: On, inherited from the workspace default. View only.',
+        }),
       ).toBeInTheDocument();
     });
 
@@ -197,7 +201,7 @@ describe('InheritableToggleField', () => {
       );
       // value=false overrides the inherited true → Off, set on this project.
       expect(
-        screen.getByLabelText('Public sharing: Off, set on this project. View only.'),
+        screen.getByRole('img', { name: 'Public sharing: Off, set on this project. View only.' }),
       ).toBeInTheDocument();
     });
   });
