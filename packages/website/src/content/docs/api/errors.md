@@ -174,10 +174,21 @@ the end:
 ```json
 {
   "code": "cyclic_dependency",
-  "detail": "The dependency graph contains a cycle.",
-  "offending": ["A", "B", "A"]
+  "detail": "Circular dependency: 1.1 — Design → 1.3 — Build → 1.1 — Design. Remove one of those links to schedule this plan.",
+  "offending": [
+    "3f2a…",
+    "9b1c…",
+    "3f2a…"
+  ]
 }
 ```
+
+**`detail` is prose and `offending` is data — do not parse one for the other.**
+`detail` names each task by its WBS code and name, which is the reference the plan
+itself shows, so a person reading the refusal can find the tasks. It is bounded:
+past four members the chain elides its middle to `… (N more)`, so a long cycle
+never produces a proportionally long sentence. `offending` stays the raw, complete
+ordered id list — branch and highlight rows on that.
 
 `subtree_too_large` carries `matched` (how many descendants the request would
 have touched) and `max` (the cap), so a client can say how far over the limit it

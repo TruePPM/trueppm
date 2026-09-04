@@ -196,12 +196,16 @@ def assert_graph_feasible(project_id: Any) -> None:
     and ``enqueue_recalculate``'s own unit is the project.
 
     Raises:
-        InfeasibleGraphError: Self-referential or cyclic edges.
+        InfeasibleGraphError: Self-referential or cyclic edges, re-worded to name the
+            offending tasks (see :func:`_offending_task_labels`).
         InvalidScheduleInput: The graph is malformed rather than cyclic.
     """
     from trueppm_api.apps.projects.models import Dependency
     from trueppm_api.apps.projects.serializers import _load_project_tasks_and_children_map
-    from trueppm_api.apps.scheduling.graph_guard import validate_task_graph
+    from trueppm_api.apps.scheduling.graph_guard import (
+        InfeasibleGraphError,
+        validate_task_graph,
+    )
 
     task_ids, children_map = _load_project_tasks_and_children_map(project_id)
     edges = [
@@ -210,7 +214,71 @@ def assert_graph_feasible(project_id: Any) -> None:
             is_deleted=False, predecessor_id__in=[uuid.UUID(t) for t in task_ids]
         ).values_list("predecessor_id", "successor_id")
     ]
-    validate_task_graph(edges, children_map=children_map)
+    try:
+        validate_task_graph(edges, children_map=children_map)
+    except InfeasibleGraphError as exc:
+        # The guard reasons in opaque node ids; this is the layer that knows they are
+        # task pks. Relabelling here rather than passing labels *in* keeps the cost on
+        # the refusal path only — the guard blames a handful of ids, and the feasible
+        # cascade (every request that is not refused) reads no extra row.
+        raise exc.with_labels(_offending_task_labels(project_id, exc.offending)) from exc
+
+
+def _offending_task_labels(project_id: Any, offending: list[str]) -> dict[str, str]:
+    """Resolve blamed task ids to the ``"<WBS> — <name>"`` form the plan shows.
+
+    That form is not invented here: it is the reference the Schedule already uses
+    wherever it names a task outside its own row — the dependency picker, the
+    dependencies tab, the task drawer title — so the tasks a refusal names are
+    findable by searching for exactly the string it printed.
+
+    Private on purpose. ``validate_task_graph`` explicitly invites callers to run
+    the guard in their own *external*-id space (Jira keys, MS Project uids), and
+    relabelling one of those refusals through here would hand a non-UUID to a
+    ``UUIDField`` lookup — a Django ``ValidationError`` DRF does not convert, i.e.
+    a 500 on what should be a 400. This is only correct for the pk-space guard run
+    directly above it.
+
+    Not a disclosure — verified against the gate, not assumed. The guard is
+    project-scoped, and this endpoint requires ``IsProjectMemberWrite`` +
+    ``IsProjectPlanAuthor`` on the project, a strict subset of the ``IsProjectMember``
+    that already grants ``list``/``retrieve`` on every task in it. So a caller who can
+    trip this guard could already have read every name and WBS code it can print; only
+    the wording changes. That holds **while** ``Task`` has no row-level visibility gate
+    — the dormant ``Visibility`` enum lives on ``Project``/``Program`` only. If per-task
+    visibility ever lands, this function becomes a cross-boundary read and must be
+    re-scoped; nothing in the pipeline would catch that on its own.
+
+    Ids that no longer resolve (a row deleted between the refusal and this read) are
+    simply absent; the message falls back to the raw id for those alone.
+
+    Scoped to live rows in *this* project rather than resolving a bare pk. A blamed
+    node is always both today — the guard reads only in-project live tasks — but that
+    is an invariant of the edge query two functions away, and this lookup is what
+    would print the answer if it ever stopped holding.
+    """
+    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.scheduling.graph_guard import nodes_to_label
+
+    # Only the ids the sentence will actually print. A 5000-task cycle names four of
+    # its members, so resolving all 5000 would materialize 4996 rows to discard them.
+    rows = Task.objects.filter(
+        project_id=project_id, is_deleted=False, pk__in=set(nodes_to_label(offending))
+    ).values("id", "name", "wbs_path")
+    labels: dict[str, str] = {}
+    for row in rows:
+        name = (row["name"] or "").strip()
+        wbs = str(row["wbs_path"] or "").strip()
+        if name and wbs:
+            labels[str(row["id"])] = f"{wbs} — {name}"
+        elif name:
+            labels[str(row["id"])] = name
+        elif wbs:
+            # A row with no name is still findable by its WBS code, which is the
+            # handle the message exists to give — so say so rather than print a
+            # dangling separator.
+            labels[str(row["id"])] = f"{wbs} — (unnamed task)"
+    return labels
 
 
 def assert_authorable(request: Request, rows: list[Task]) -> None:
