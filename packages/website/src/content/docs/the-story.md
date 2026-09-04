@@ -1,9 +1,28 @@
 ---
 title: "The story — bridging two worlds"
 description: How TruePPM bridges agile sprint cadence and waterfall schedule rigor on a single data model.
+documentedFor: "0.4"
 sidebar:
   order: 1
 ---
+
+:::note[Ships in 0.4]
+Several things on this page are **not** in `v0.3.0-alpha.3`, the latest release:
+
+- **The AI client persona and the read-only MCP server** ("Computed, not
+  guessed") — ship in **0.4**, TruePPM's first beta.
+- **The provenance graph** behind computed answers, and the **hosted read-only
+  demo** — also **0.4**.
+- **Plan-mode dry runs** for the MCP server — **0.5**.
+- **The committing write surface, the native mobile app, and the mobile exec
+  view** — **0.6**.
+- The **Enterprise portfolio dashboard** is a separate roadmap item with no
+  version commitment yet.
+
+Everything else on this page — the six human personas, the eight-step hybrid
+flow, and the translation-layer argument — describes 0.3 behavior and is
+current.
+:::
 
 Most P3M tools force a choice. Jira speaks Agile and translates poorly to a Gantt chart. MS Project speaks Waterfall and ignores the team's actual cadence. **TruePPM is built so a Scrum Master and a Program Manager look at the same data — and each sees the view they need.**
 
