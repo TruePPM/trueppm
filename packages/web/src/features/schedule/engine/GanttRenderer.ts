@@ -492,7 +492,7 @@ export function setRendererRowModes(modes: ReadonlyMap<string, RowMode>): void {
  * ahead of any rollup lookup, and that ordering is load-bearing: `computeRowModes`
  * deliberately treats milestones as contributing nothing (a gate inside a scrum
  * phase must not make the phase read MIXED), so the rollup can never describe a
- * milestone row — it would report `gated` and silently drop the cross-hatch this
+ * milestone row — it would report `waterfall` and silently drop the cross-hatch this
  * rare edge case has drawn since #2727.
  */
 function resolveBarMode(task: Task): RowMode | 'milestone' {
@@ -501,7 +501,7 @@ function resolveBarMode(task: Task): RowMode | 'milestone' {
   if (rolled) return rolled;
   if (task.deliveryMode === 'scrum') return { kind: 'scrum', parts: ['scrum'] };
   if (task.deliveryMode === 'kanban') return { kind: 'kanban', parts: ['kanban'] };
-  return { kind: 'gated', parts: ['gated'] };
+  return { kind: 'waterfall', parts: ['waterfall'] };
 }
 
 // ---------------------------------------------------------------------------
@@ -813,7 +813,7 @@ function bandRect(
  * A band is a wash + hatch + edge rules over the rows of a sprint-driven subtree,
  * spanning the sprint's own window on the shared date axis. It is drawn on the
  * BACKGROUND layer, between the grid and the today line, which is what makes the
- * hybrid claim legible rather than merely present: every gated bar, every
+ * hybrid claim legible rather than merely present: every waterfall bar, every
  * dependency arrow and the critical-path frame paint on the layer above and stay
  * fully readable through it. Nothing forks — an arrow crosses into and out of a
  * band exactly as it crosses anything else, because the band is paint, not a
@@ -1688,10 +1688,10 @@ export function drawTaskBar(
  * caching layer is needed.
  */
 /**
- * Canvas hue per contributing mode. `gated` is absent on purpose — see
+ * Canvas hue per contributing mode. `waterfall` is absent on purpose — see
  * {@link drawModeGutter}.
  */
-const PART_GUTTER_COLOR: Record<Exclude<SingleModeKind, 'gated'>, keyof ColorPalette> = {
+const PART_GUTTER_COLOR: Record<Exclude<SingleModeKind, 'waterfall'>, keyof ColorPalette> = {
   scrum: 'deliveryScrum',
   kanban: 'deliveryKanban',
 };
@@ -1699,7 +1699,7 @@ const PART_GUTTER_COLOR: Record<Exclude<SingleModeKind, 'gated'>, keyof ColorPal
 /**
  * The left-edge gutter, split into one band per contributing mode — the canvas
  * counterpart of the outline's `gutterBackground()` (#2737), so a `scrum +
- * kanban` phase and a `gated + scrum` phase read as different branches on both
+ * kanban` phase and a `waterfall + scrum` phase read as different branches on both
  * surfaces instead of both saying "mixed, somehow".
  *
  * Bands are separated by a 1px gap, and that gap is the part that carries the
@@ -1718,15 +1718,15 @@ function drawModeGutter(
   const gap = parts.length > 1 ? 1 : 0;
   const band = (barHeight - gap * (parts.length - 1)) / parts.length;
   parts.forEach((part, i) => {
-    // `gated` occupies its slot and paints nothing — the bar fill shows through.
+    // `waterfall` occupies its slot and paints nothing — the bar fill shows through.
     // That is the same "the baseline is silent" convention the chip and the
     // gutter already use, and it beats every candidate color: the band has to
     // read on a summary bar, a normal bar and a complete bar, and the one hue
-    // that matches the outline's neutral IS `barSummary`, so a gated band on a
+    // that matches the outline's neutral IS `barSummary`, so a waterfall band on a
     // phase would have been the bar's own fill painted onto itself. A gap needs
     // no contrast to work, and it survives forced-colors, where every delivery
     // hue collapses to CanvasText.
-    if (part === 'gated') return;
+    if (part === 'waterfall') return;
     ctx.fillStyle = _palette[PART_GUTTER_COLOR[part]];
     ctx.fillRect(barLeft, barTop + i * (band + gap), 3, band);
   });
@@ -1741,7 +1741,7 @@ function drawDeliveryModeMark(
   barHeight: number = BAR_HEIGHT,
   gutterOnly = false,
 ): void {
-  if (mode !== 'milestone' && mode.kind === 'gated') return;
+  if (mode !== 'milestone' && mode.kind === 'waterfall') return;
 
   ctx.save();
   ctx.beginPath();
@@ -1785,7 +1785,7 @@ function drawDeliveryModeMark(
     return;
   }
 
-  // `mixed` draws NO body texture, deliberately (`gated` never reaches here —
+  // `mixed` draws NO body texture, deliberately (`waterfall` never reaches here —
   // it returned at the top). The three textures name three single modes;
   // overlaying two of them produces a fourth pattern that means neither, and
   // picking one of them would state something false about half the subtree. The
