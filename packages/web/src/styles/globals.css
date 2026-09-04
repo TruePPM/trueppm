@@ -272,33 +272,6 @@
     --neutral-overlay: rgba(0, 0, 0, 0.4);
   }
 
-  /* ── Workshop participant avatar palette ─────────────────────────────────
-     8 stable colors keyed by color_index assigned in WorkshopConsumer.
-     Defined here rather than as inline hex in components (rule 8).
-     Dark-mode values use the same hues at slightly higher lightness so they
-     remain legible against dark surfaces without blowing out to pastel.     */
-  :root {
-    --avatar-color-0: #3E8C6D;  /* sage-600 (fill) */
-    --avatar-color-1: #2563EB;  /* blue-600 */
-    --avatar-color-2: #9333EA;  /* purple-600 */
-    --avatar-color-3: #D97706;  /* amber-600 */
-    --avatar-color-4: #DC2626;  /* red-600 */
-    --avatar-color-5: #059669;  /* emerald-600 */
-    --avatar-color-6: #0891B2;  /* cyan-600 */
-    --avatar-color-7: #C2410C;  /* orange-700 */
-  }
-
-  .dark {
-    --avatar-color-0: #66B998;  /* sage-400 (fill, dark) */
-    --avatar-color-1: #60A5FA;  /* blue-400 */
-    --avatar-color-2: #C084FC;  /* purple-400 */
-    --avatar-color-3: #FCD34D;  /* amber-300 */
-    --avatar-color-4: #F87171;  /* red-400 */
-    --avatar-color-5: #34D399;  /* emerald-400 */
-    --avatar-color-6: #22D3EE;  /* cyan-400 */
-    --avatar-color-7: #FB923C;  /* orange-400 */
-  }
-
   /* ── v2 golden tokens (design-system v2, ADR-0126) ────────────────────────
      The canonical handoff values (design_handoff_trueppm_v2/03-theming-and-
      tokens.md), exposed verbatim as named aliases for NEW v2 components that

@@ -97,7 +97,6 @@ _TOP_TAG: dict[str, str] = {
     "velocity-suggestions": "sprints",
     "workspace": "workspace",
     "ws": "sync",
-    "workshops": "workshops",
 }
 
 # Second path segment under /projects/ or /programs/ -> tag, so nested resources
@@ -513,14 +512,44 @@ _VALIDATION_ERROR_DETAIL_SCHEMA = {
 #: that its nested forms are described too. Declaring only ``detail`` would be the
 #: more comfortable lie: a generated client would type the uncommon case and
 #: mis-type field validation, which is the majority of real 400s.
+#:
+#: ``detail`` and ``code`` reference that same component rather than declaring
+#: ``string`` (#3347). In JSON Schema ``additionalProperties`` applies only to keys
+#: **not** matched by ``properties``, so the widening #3324 made to the field-keyed
+#: map never reached the two keys named in the envelope — they stayed pinned to
+#: ``string``. That is only sound while each name means one thing, and ``code``
+#: means two: the refusal envelope's stable machine code, and the validation errors
+#: of the serializer field literally *named* ``code`` — ``Program.code`` and
+#: ``Project.code``, reachable on 21 operations. DRF keys the latter by field name
+#: and yields a list, so the 2026-09-04 nightly ``api:fuzz`` failed
+#: ``POST /programs/`` and ``POST /projects/`` on
+#: ``["Ensure this field has no more than 40 characters."] is not of type "string"``.
+#: The response was right and the declaration was narrow, exactly as in #3324.
+#:
+#: ``detail`` is widened with it. No serializer has a writable ``detail`` field
+#: today, so that half is latent — but it is the *same* declaration bug, and the
+#: one-instance fix is what left this open after #3324.
+#:
+#: The reference is exact, not merely permissive: ``ValidationErrorDetail``'s first
+#: ``oneOf`` branch is ``{"type": "string"}``, so the envelope form still validates
+#: against precisely one branch. What a client loses is the guarantee that ``code``
+#: is a string — which it never had. It gains the discriminator: a **string**
+#: ``code`` is a refusal code from the vocabulary in ``docs/api/errors.md``; a list
+#: or object under ``code`` is field validation of the field of that name.
+#:
+#: ``allOf`` wraps the ``$ref`` because this is OpenAPI 3.0.3, where sibling keys
+#: alongside a ``$ref`` are discarded — without it the description and example are
+#: silently dropped from the published schema.
 _VALIDATION_RESPONSE = {
     "description": (
         "The request was rejected. Either a field failed validation — in which case "
         "the body is keyed by field name with a list of messages — or the request was "
         "refused as a whole, in which case it carries ``detail`` and, when the failure "
         "is one a client is expected to handle rather than merely report, a stable "
-        "``code``. Branch on ``code``; ``detail`` is prose and may be reworded at any "
-        "time. See the error reference for the code vocabulary."
+        "``code``. Branch on ``code`` **when it is a string**; a list or object under "
+        "``code`` or ``detail`` is field validation of the field of that name, not the "
+        "envelope. ``detail`` is prose and may be reworded at any time. See the error "
+        "reference for the code vocabulary."
     ),
     "content": {
         "application/json": {
@@ -528,10 +557,26 @@ _VALIDATION_RESPONSE = {
                 "type": "object",
                 "properties": {
                     "detail": {
-                        "type": "string",
+                        "allOf": [_VALIDATION_ERROR_DETAIL_REF],
+                        "description": (
+                            "The refusal's human-readable explanation when the request "
+                            "was refused as a whole. A list or object here is instead "
+                            "the validation errors of a serializer field named "
+                            "``detail``."
+                        ),
                         "example": "Request body must be a JSON object.",
                     },
-                    "code": {"type": "string", "example": "invalid_body"},
+                    "code": {
+                        "allOf": [_VALIDATION_ERROR_DETAIL_REF],
+                        "description": (
+                            "The refusal's stable machine code when the request was "
+                            "refused as a whole — a string, drawn from the vocabulary "
+                            "in the error reference. A list or object here is instead "
+                            "the validation errors of the serializer field named "
+                            "``code`` (``Program.code``, ``Project.code``)."
+                        ),
+                        "example": "invalid_body",
+                    },
                 },
                 "additionalProperties": _VALIDATION_ERROR_DETAIL_REF,
             }

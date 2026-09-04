@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
@@ -99,7 +100,7 @@ const METHODS: Array<{
 ];
 
 export function WorkspaceMethodologyPage() {
-  const { data: ws, isLoading } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
 
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
@@ -151,6 +152,33 @@ export function WorkspaceMethodologyPage() {
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: canEdit });
+
+  // A failed GET must read as broken, not as a stuck skeleton (rule 246, #3298).
+  // Before this branch the page destructured only `data`/`isLoading`, so a dead
+  // request left `ws` undefined forever and rendered pulsing placeholders with no
+  // error and no retry — indistinguishable from a slow load, which is exactly the
+  // state that corrupts beta feedback and support triage.
+  //
+  // `inline` (polite, role="status") rather than `fill`: this is one section among
+  // a dozen on the consolidated workspace page, and GET /workspace/ backs several
+  // of them, so a single failed request would otherwise fire N assertive alerts
+  // that interrupt each other — the case rule 246 reserves the polite variant for.
+  // The title stays rendered because <SettingsSection>'s `aria-labelledby` points
+  // at the heading SettingsPageTitle emits; dropping it dangles that reference.
+  if (isError) {
+    return (
+      <div>
+        <SettingsPageTitle title="Methodology defaults" />
+        <div className="px-6 py-8">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load workspace settings."
+            onRetry={() => void refetch()}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !ws) {
     return (

@@ -37,9 +37,12 @@ export interface ClassificationAnnouncement {
  * replaying the identical request is refused identically. A "Retry" offered there
  * points at the one action guaranteed not to help.
  *
- * The graph guard's sentence still reads as raw ids rather than task names; that
- * is a server-side message problem (TODO(#3333)) — surfacing it verbatim is still
- * strictly better than the generic string it replaced.
+ * All three sentences are the server's own, rendered verbatim. The graph guard's
+ * used to read as a raw id list; it now names the offending tasks by WBS code and
+ * name, resolved where the refusal is raised (#3333), so every consumer of the
+ * endpoint gets it rather than only the surface holding the task array. That also
+ * means it is bounded server-side to stay under {@link MAX_MESSAGE_LENGTH} — a
+ * longer sentence would be discarded here for the generic fallback.
  */
 export interface ClassificationError {
   /** The server's own sentence, or {@link CLASSIFICATION_FALLBACK} when it sent none. */

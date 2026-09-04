@@ -5,6 +5,7 @@ import {
   type SettingsBlockProps,
 } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { ESTIMATION_SCALE_HINT, ESTIMATION_SCALE_OPTIONS } from '../estimationScale';
@@ -104,10 +105,15 @@ const METHOD_LABEL: Record<Methodology, string> = {
 
 export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProps = {}) {
   const projectId = useProjectId();
-  const { data: project, isLoading: projectLoading } = useProject(projectId);
+  const {
+    data: project,
+    isLoading: projectLoading,
+    isError: projectFailed,
+    refetch: refetchProject,
+  } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
-  const { data: ws } = useWorkspaceSettings();
+  const { data: ws, isError: wsFailed, refetch: refetchWs } = useWorkspaceSettings();
   const itl = useIterationLabel(projectId);
   // Existing sprints (any state) this project already carries — the flip-warning
   // check below (issue #2619) needs the count regardless of methodology, so this
@@ -130,6 +136,15 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
   const [flipConfirmResolver, setFlipConfirmResolver] = useState<((ok: boolean) => void) | null>(
     null,
   );
+  // True from the instant the user confirms the flip until the PATCH settles
+  // (#3298). The dialog is held mounted across that whole window — see the
+  // `onConfirm` note at its call site — so its `Switching…` state is reachable.
+  // This flag brackets the mutation rather than reading `updateProject.isPending`
+  // because that value is still false in the turn between resolving the confirm
+  // promise and `mutateAsync` being called, which would flash an enabled,
+  // un-labelled confirm button, and it is also true for saves that never opened
+  // this dialog.
+  const [flipPending, setFlipPending] = useState(false);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -162,7 +177,17 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
     if (methodology !== initial) payload.methodology = methodology;
     if (estimationMode !== initialEstimationMode) payload.estimation_mode = estimationMode;
     if (estimationScale !== initialEstimationScale) payload.estimation_scale = estimationScale;
-    await updateProject.mutateAsync(payload);
+    try {
+      await updateProject.mutateAsync(payload);
+    } finally {
+      // Dismiss the flip dialog only once the write has settled — success OR
+      // failure. Holding it open until here is what makes `Switching…` reachable;
+      // closing it in `onConfirm` (as this did before #3298) unmounted the dialog
+      // before the request had even started, so a slow PATCH showed nothing.
+      // No-ops when no dialog was opened.
+      setFlipConfirmResolver(null);
+      setFlipPending(false);
+    }
     setInitial(methodology);
     setInitialEstimationMode(estimationMode);
     setInitialEstimationScale(estimationScale);
@@ -215,6 +240,32 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
   // `effective`/`inherited` and `lockedByPolicy` would fall back to defaults
   // (HYBRID selected, unlocked) and momentarily render a wrong, concrete-looking
   // selection — the opposite of an INHERIT lock. The skeleton avoids that flash.
+  // A failed GET must read as broken, not as a stuck skeleton (rule 246, #3298).
+  // Both reads are checked because the skeleton below waits on BOTH: a dead
+  // GET /workspace/ leaves `ws === undefined` and stalls this page just as surely
+  // as a dead project GET, and neither previously surfaced anything at all.
+  // `inline` (polite) for the same reason as the workspace page — this is one
+  // block inside "How this team works", whose sibling blocks still work.
+  if (projectFailed || wsFailed) {
+    return (
+      <div>
+        <SettingsPageTitle embedded={embedded} docsHref={docsHref} title="Methodology" />
+        <div className="px-6 py-8">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load this project's methodology."
+            // Retry only what actually failed — re-running a request that
+            // succeeded would evict a warm cache entry for no reason.
+            onRetry={() => {
+              if (projectFailed) void refetchProject();
+              if (wsFailed) void refetchWs();
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (projectLoading || !project || ws === undefined) {
     return (
       <div className="px-6 py-8 space-y-3">
@@ -465,14 +516,17 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
         <MethodologyFlipWarningDialog
           count={sprints.length}
           itl={itl}
-          pending={false}
+          pending={flipPending}
           onCancel={() => {
             flipConfirmResolver(false);
             setFlipConfirmResolver(null);
           }}
           onConfirm={() => {
+            // Switch the dialog to its pending state and leave it mounted;
+            // `handleSave`'s finally closes it once the PATCH settles. Resolving
+            // and unmounting here made `pending` unobservable by construction.
+            setFlipPending(true);
             flipConfirmResolver(true);
-            setFlipConfirmResolver(null);
           }}
         />
       )}

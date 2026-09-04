@@ -114,7 +114,19 @@ async function baseSetup(page: Page) {
   await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
-    r.fulfill(json({ id: 'u1', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@truescope.io' })),
+    // Workspace admin (>= 300). `RequireWorkspaceAdmin` no longer admits on a
+    // verdict-less /auth/me (#3330), and `workspace_role` is a declared
+    // MeSerializer field, so a payload omitting it was never representable.
+    r.fulfill(
+      json({
+        id: 'u1',
+        username: 'alice',
+        display_name: 'Alice',
+        initials: 'AL',
+        email: 'alice@truescope.io',
+        workspace_role: 300,
+      }),
+    ),
   );
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
   await page.route('**/api/v1/projects/', (r) =>

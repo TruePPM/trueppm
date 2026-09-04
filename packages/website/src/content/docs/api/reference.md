@@ -1042,7 +1042,9 @@ cascaded descendants with `true`.
   true.
 - A project whose dependency graph is already cyclic is a `400` (`cyclic_dependency`)
   — the cascade triggers a recalculation, and an infeasible graph is refused before
-  the schedule engine sees it.
+  the schedule engine sees it. `detail` names the tasks in the loop by WBS code and
+  name; `offending` carries their ids. See
+  [Errors and status codes](/api/errors/#400--refused-writes).
 - Re-sending an identical request writes nothing: rows already at the requested
   values report under `unchanged`, and no recalculation or broadcast is triggered.
 - When something does change, the schedule is recalculated and a

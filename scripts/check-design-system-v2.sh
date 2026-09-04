@@ -217,11 +217,13 @@ BASELINE_BLACK=7
 BASELINE_TINY_TEXT=2
 # Unhandled query errors (rule 246, check 4e). 62 on `main` at #2858; RosterPage's
 # fix takes it to 61, and #2998 (ResourceView + RecurrenceSection, the two sites that
-# still spent a failed role read as a permission verdict) to 59. RATCHET, not zero
+# still spent a failed role read as a permission verdict) to 59, and #3298 (both
+# methodology settings pages, which rendered a failed GET as a perpetual skeleton)
+# to 57. RATCHET, not zero
 # tolerance — see query_error_offenders for why the "is this a primary surface?"
 # question is not decidable here, and why counting the population is the part that was
 # actually missing.
-BASELINE_QUERY_ERROR=59
+BASELINE_QUERY_ERROR=57
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary
