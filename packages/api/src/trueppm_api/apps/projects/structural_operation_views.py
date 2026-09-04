@@ -135,10 +135,11 @@ class StructuralOperationViewSet(
 ):
     serializer_class = StructuralOperationSerializer
     # Parity with the six forward endpoints this reverses. `IsProjectNotArchived` is
-    # the load-bearing one: it is the ONLY place `Project.is_archived` is enforced in
-    # the codebase, so without it a Member who indented before archival could still
-    # rewrite an archived plan's WBS, resurrect its tombstoned rows and restore its
-    # dependency edges — a write no role can otherwise make without unarchiving.
+    # the load-bearing one on this route: without it a Member who indented before
+    # archival could still rewrite an archived plan's WBS, resurrect its tombstoned
+    # rows and restore its dependency edges — a write no role can otherwise make
+    # without unarchiving. `undo_structural_operation` repeats the check at the
+    # service layer for callers DRF never sees (#3354).
     # `IsProjectPlanAuthor` matches group/ungroup, keeping the resource-management
     # band excluded from reversing a plan-shaping write as well as making one.
     permission_classes = [  # noqa: RUF012

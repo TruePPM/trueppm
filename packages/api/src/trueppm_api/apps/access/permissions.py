@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from django.db.models import QuerySet
 from rest_framework import viewsets
 from rest_framework.authentication import BaseAuthentication
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
@@ -269,11 +270,23 @@ def role_can_undo_batch_operation(role: int | None) -> bool:
     Admin+, which is a **higher floor than the writes it reverses**: paste-many and
     the classification cascade are both ``IsProjectPlanAuthor`` (Member+ minus the
     resource-management band), so a Member can author a batch they may not undo.
-    That asymmetry is deliberate — undoing removes work other collaborators may
-    already be building on top of — but it is exactly why this has to be a *shared*
-    predicate rather than an inline comparison at each site: the apply endpoint has
-    to be able to tell the client which of the two floors the caller cleared, and a
-    client that re-derives the rule drifts from it (#3304).
+    **Whether that asymmetry is right is OPEN — see #3355.** Do not read the floor
+    here as settled, and in particular do not justify it with the sentence this
+    docstring used to carry ("undoing removes work other collaborators may already be
+    building on top of"). All three batch undos partition their snapshot on
+    ``server_version`` via ``task_batch_services._partition_touched`` and write back
+    only the untouched rows, reporting the rest as ``kept`` — so a row another
+    collaborator has changed is left alone by construction and that hazard is
+    unreachable. ADR-0880 §4 reached the same conclusion for structural undo (which
+    *refuses* rather than skipping) and implements actor-or-Admin on it; ADR-0810
+    says only "mirroring template-apply", and template-apply is symmetric
+    (apply Admin+ *and* undo Admin+), so the asymmetry here came from copying half
+    of a symmetric rule onto writes whose apply floor is Member+.
+
+    What is settled, and is why this is a *shared* predicate rather than an inline
+    comparison at each site: the apply endpoint has to tell the client which of the
+    two floors the caller cleared, and a client that re-derives the rule drifts from
+    it (#3304).
 
     A threshold, not a band exclusion, so the ADR-0072 band contract applies: an
     Enterprise custom role registered in the 301-399 project-lead band inherits it.
@@ -1210,6 +1223,16 @@ class IsProjectNotArchived(BasePermission):
     # a same-named action (e.g. ResourceViewSet.restore) is unaffected because that
     # viewset never includes IsProjectNotArchived. If a future viewset both applies this
     # permission AND names an action in this set, scope the check by viewset before then.
+    #
+    # #3354 added the class to three more viewsets — PasteManyOperationViewSet,
+    # CascadeClassificationOperationViewSet and TemplateApplicationViewSet — so the
+    # "only ProjectViewSet" premise above is now a statement about these four action
+    # names, not about the class's reach. All three are ReadOnlyModelViewSets whose
+    # only extra action is `undo`, so none of them names anything in this set and the
+    # bypass stays unreachable from them. The live hazard is a later change promoting
+    # one of them to a ModelViewSet: that mints a `destroy` route which would silently
+    # inherit an archived bypass, with no test covering it. Scope this by viewset
+    # class before doing that.
     _ARCHIVE_BYPASS_ACTIONS: frozenset[str] = frozenset(
         {"unarchive", "destroy", "archive", "restore"}
     )
@@ -1242,6 +1265,58 @@ class IsProjectNotArchived(BasePermission):
         if isinstance(obj, Project):
             return not obj.is_archived
         return not _is_project_archived(request, project_id)
+
+
+def assert_project_not_archived(project: Any) -> None:
+    """Refuse a write to an archived project from a service, with no request in hand.
+
+    **Why this exists as well as :class:`IsProjectNotArchived` (#3354).** The archived
+    flag is *lifecycle state, not authority* — a property of the plan rather than of the
+    caller — so unlike a role check it does not belong exclusively to the view layer.
+    ``IsProjectNotArchived`` can only run where DRF runs it: on a request, against a
+    project it can resolve from a URL kwarg or the fetched object. Every batch/undo
+    service in this family is reachable from a Celery task, a management command or a
+    future endpoint that resolves its project from the request *body*, none of which the
+    permission class sees. #3354 was exactly that shape: two undo viewsets shipped
+    without the class and nothing underneath them noticed, so an Admin could hard-delete
+    rows in an archived project through the undo route.
+
+    Raises ``PermissionDenied`` rather than returning a bool so a caller cannot ignore
+    it, and reuses ``IsProjectNotArchived.message`` verbatim so the API contract is
+    identical whichever layer refuses.
+
+    **Fail-closed on anything it cannot resolve.** A missing or unparseable id raises
+    rather than passing. That matters because ``Project.objects.filter(pk=None)``
+    compiles to ``id IS NULL``, which matches nothing and would read as "not archived"
+    — a silent fail-open in a function whose entire value is being unbypassable — and
+    because an unparseable id reaches ``UUIDField.to_python``, which raises Django's
+    ``ValidationError``: not something DRF converts, so it surfaces as a 500 instead of
+    a refusal (the #2785 class).
+
+    **It always re-reads the flag, and deliberately takes an id rather than a
+    ``Project``.** The in-memory short-circuit
+    ``IsProjectNotArchived.has_object_permission`` makes just above is safe there
+    because DRF fetched that row within the same request; a service can be handed an
+    instance of any age, and ``enqueue_template_apply`` takes one by signature, so it
+    could not opt out even if its caller wanted to. Reading a stale ``is_archived``
+    off a long-lived instance is a fail-open in the one function that must not have
+    one. This costs one indexed single-row probe per call and was measured against
+    that trade deliberately — do not "optimize" it back into an instance fast path.
+    """
+    import uuid as _uuid
+
+    from trueppm_api.apps.projects.models import Project
+
+    project_id = project.pk if isinstance(project, Project) else project
+    if project_id is None:
+        raise PermissionDenied(IsProjectNotArchived.message)
+    if not isinstance(project_id, _uuid.UUID):
+        try:
+            project_id = _uuid.UUID(str(project_id))
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise PermissionDenied(IsProjectNotArchived.message) from exc
+    if Project.objects.filter(pk=project_id, is_archived=True).exists():
+        raise PermissionDenied(IsProjectNotArchived.message)
 
 
 class IsProgramNotClosed(BasePermission):

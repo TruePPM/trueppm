@@ -198,7 +198,7 @@ scope and there is nothing to inherit.
 | **Visibility** | Project | Describes a single project's discoverability; it is not a value a parent hands down. |
 | **Health** | Project | A RAG health indicator is a property of one project's current state; it is not inherited. |
 | **Methodology** | Project | The Waterfall/Agile/Hybrid preset drives that project's tab visibility and defaults; each project chooses its own. |
-| **Time zone** | Workspace **and** Project | The workspace sets a display default; a project may set its own. A **program has no time zone** — it is a coordination grouping, not a place where work is scheduled, so there is no meaningful program time zone to set or inherit. |
+| **Time zone** | Workspace **and** Project | Both scopes carry the field, but they do not form a cascade: a project's time zone anchors that project's [quiet hours](/features/settings/project-notifications/#quiet-hours) and falls back to the server's UTC, not to the workspace value. Neither one changes how dates are displayed to you — that follows your [personal time zone](/features/timezone-and-date-format/#timezone). A **program has no time zone** — it is a coordination grouping, not a place where work is scheduled, so there is nothing to set or inherit. |
 | **Accent color** | Program | A program's accent color is part of its visual identity for wayfinding; projects and the workspace do not carry one. |
 | **Export** | Program | Program-level export packages the program's projects together; it is a program operation with no per-project or workspace equivalent. |
 

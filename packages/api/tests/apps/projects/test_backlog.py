@@ -968,3 +968,68 @@ def test_pull_of_an_unranked_item_leaves_the_rank_null(
     )
     assert resp.status_code == 201
     assert Task.objects.get(pk=resp.data["task"]["id"]).priority_rank is None
+
+
+# ---------------------------------------------------------------------------
+# #3354 — the target project's own lifecycle, not just the program's
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_pull_is_refused_when_the_target_project_is_archived(
+    member: object, program: Program, project: Project
+) -> None:
+    """A pull creates a Task, and archived projects take no writes.
+
+    `IsProgramNotClosed` gates the *program*; nothing checked the project's own
+    archived flag. `IsProjectNotArchived` cannot cover this route either — the
+    target project arrives in the request body, so there is no `project_pk` kwarg
+    and `get_object()` returns the `BacklogItem`. Same blind spot as
+    `ProjectTemplateViewSet.apply`, same explicit fix.
+    """
+    item = _item(program, story_points=5)
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+
+    assert resp.status_code == 403, resp.data
+    # Same message-parity pin as the template apply route — and it doubles as the
+    # only thing distinguishing this refusal from the role refusal above it, which
+    # is also a 403. The comment on the assert claims that ordering; this checks it.
+    from trueppm_api.apps.access.permissions import IsProjectNotArchived
+
+    assert resp.data["detail"] == IsProjectNotArchived.message
+    assert Task.objects.filter(project=project).count() == 0
+    item.refresh_from_db()
+    assert item.status == BacklogItemStatus.PROPOSED
+    assert item.pulled_task_id is None
+
+
+@pytest.mark.django_db
+def test_pull_service_refuses_an_archived_project_without_a_view(
+    member: object, program: Program, project: Project
+) -> None:
+    """The floor underneath the view — this service already has non-view callers.
+
+    Archived is lifecycle state, a property of the target plan rather than of the
+    caller, so it has to hold for a caller that never passes through `pull`.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.projects.backlog_services import pull_to_project_backlog
+
+    item = _item(program, story_points=5)
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    with pytest.raises(PermissionDenied):
+        pull_to_project_backlog(item_id=str(item.pk), project=project, actor=member)
+
+    assert Task.objects.filter(project=project).count() == 0
+    item.refresh_from_db()
+    assert item.status == BacklogItemStatus.PROPOSED

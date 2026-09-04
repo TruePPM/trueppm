@@ -159,6 +159,7 @@ from trueppm_api.apps.projects.serializers import (
     _DEFAULT_COLUMNS,
     TASK_BULK_ORIGIN_SOURCE_KINDS,
     AcceptanceCriterionSerializer,
+    AcceptanceResultIngestSerializer,
     ApiTokenAuditEntrySerializer,
     AppliedCalendarsSerializer,
     ApplyCalendarsSerializer,
@@ -17382,6 +17383,11 @@ class TaskSyncView(IdempotencyMixin, APIView):
 @extend_schema_view(
     post=extend_schema(
         summary="Ingest CI acceptance-test verdicts for a project's criteria",
+        # Without this the operation publishes no ``requestBody`` and the CI job this
+        # endpoint exists for cannot see that ``results`` is required, let alone its
+        # item shape (#3364). A plain ``APIView`` gives drf-spectacular nothing to
+        # infer from; ``post`` reaches for the write serializer itself.
+        request=AcceptanceResultIngestSerializer,
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
@@ -17447,7 +17453,6 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
             apply_acceptance_met_change,
             dor_blockers,
         )
-        from trueppm_api.apps.projects.serializers import AcceptanceResultIngestSerializer
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         token = request.auth
@@ -17651,6 +17656,12 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         return obj
 
     @extend_schema(
+        # The viewset's ``serializer_class`` is the all-read-only *read* serializer,
+        # so drf-spectacular resolved no writable shape and published no
+        # ``requestBody`` — while ``create`` reaches for the write serializer itself
+        # and requires ``name``. A generated client had no parameter to send it
+        # through (#3364).
+        request=ProjectApiTokenCreateSerializer,
         responses={
             201: ProjectApiTokenSerializer,
             400: state_refusal_400(
@@ -17659,14 +17670,14 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 "``mcp:read`` is refused outright on a project or program token "
                 "(the MCP read surface accepts only personal tokens, so one minted "
                 "here could read nothing). The body is DRF's field-keyed object. "
-                "Declared by "
-                "hand because the operation publishes no ``requestBody`` for "
-                "#3286's injection to key off: the viewset's ``serializer_class`` "
-                "is the all-read-only read serializer, and ``create`` reaches for "
-                "the write serializer itself (#3319).",
+                "Kept as an explicit declaration rather than left to #3286's "
+                "injection now that the ``requestBody`` above exists: the generic "
+                "injected text says only that a field failed validation, and the "
+                "``mcp:read`` refusal is the one an integrator will actually hit "
+                "and cannot guess (#3319, #3364).",
                 shape="fields",
             ),
-        }
+        },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a new token and return the raw value once.
@@ -17888,6 +17899,10 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         )
 
     @extend_schema(
+        # Same defect and same fix as the project token viewset: ``serializer_class``
+        # is the all-read-only read serializer, so no ``requestBody`` was published
+        # while ``create`` requires ``name`` (#3364).
+        request=MyApiTokenCreateSerializer,
         responses={
             201: MyApiTokenSerializer,
             400: state_refusal_400(
@@ -17895,12 +17910,14 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 "caller's own state, carrying a flat ``detail`` — or "
                 "``MyApiTokenCreateSerializer`` rejected the body, which answers "
                 "with DRF's field-keyed object. Both shapes fit the declaration "
-                "below. Declared by hand for the same reason as the project token "
-                "viewset: the operation publishes no ``requestBody`` for #3286's "
-                "injection to key off (#3319).",
+                "below. Kept explicit rather than left to #3286's injection now "
+                "that the ``requestBody`` above exists: the cap refusal is a "
+                "refusal on *state*, not on the body, so the injected text would "
+                "describe only half of what this operation can return (#3319, "
+                "#3364).",
                 shape="fields",
             ),
-        }
+        },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a personal token and return the raw value once.

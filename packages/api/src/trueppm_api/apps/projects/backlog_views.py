@@ -34,6 +34,7 @@ from trueppm_api.apps.access.permissions import (
     McpReadableViewMixin,
     McpScope,
     _membership_role,
+    assert_project_not_archived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.backlog_services import (
@@ -202,7 +203,13 @@ class BacklogItemViewSet(
             400: OpenApiResponse(
                 description="project_id missing, or the target project is not in this program."
             ),
-            403: OpenApiResponse(description="Caller lacks Team Member+ on the target project."),
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks Team Member+ on the target project, **or** the target "
+                    "project is archived. The archived case is not a role problem and no "
+                    "role clears it — unarchive the project and retry (#3354)."
+                )
+            ),
             409: OpenApiResponse(description="The item is no longer PROPOSED."),
         },
     )
@@ -217,7 +224,9 @@ class BacklogItemViewSet(
 
         Returns ``201`` with the created task and the updated backlog item.
         ``400`` if project_id is missing / not in this program; ``403`` if the
-        caller lacks project-write; ``409`` if the item is no longer PROPOSED.
+        caller lacks project-write **or the target project is archived** (the
+        latter clears for no role — the project must be unarchived); ``409`` if
+        the item is no longer PROPOSED.
         """
         # Confirm the program exists and the caller holds program-write.
         self._resolve_program()
@@ -247,6 +256,15 @@ class BacklogItemViewSet(
                 {"detail": "You need at least Team Member role on the target project."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Archived target projects take no writes, and a pull creates a Task (#3354).
+        # `IsProgramNotClosed` in `get_permissions` gates the *program*; nothing was
+        # checking the project's own lifecycle. `IsProjectNotArchived` cannot cover
+        # this route: the target project comes from the request body, so there is no
+        # `project_pk` kwarg for `has_permission` and `get_object()` returns the
+        # `BacklogItem` — the same blind spot as `ProjectTemplateViewSet.apply`, and
+        # it needs the same explicit assert. Placed after the role check so a caller
+        # without project-write still gets the role refusal first.
+        assert_project_not_archived(project.pk)
 
         try:
             task = pull_to_project_backlog(item_id=str(pk), project=project, actor=request.user)

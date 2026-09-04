@@ -60,7 +60,28 @@ SIDEBAR_DEFAULT="packages/website/astro.config.mjs"
 # install does" (the identity-provider list on sso-is-not-enterprise.md, for
 # one). A guard that derives correctness from an oracle it cannot itself see
 # inherits the oracle's errors silently.
-DECLARATION_DIRS="features administration getting-started overview"
+#
+# `guides/` joined at #3336 for the same reason. The eight persona guides are
+# the adoption funnel's landing pages: each one carries a runnable
+# `load_sample_project` walkthrough with sign-in steps and per-step product
+# claims, and each states what does and does not exist today. #3336 was exactly
+# the failure this ratchet exists to make noisy — every guide told the reader to
+# sign in with logins the loader had stopped creating, and nothing in the
+# pipeline said a word.
+DECLARATION_DIRS="features administration getting-started overview guides"
+
+# Individual pages that sit at the docs root rather than in a tree, and so are
+# invisible to the directory walk above, but describe user-visible product
+# behavior exactly as the DECLARATION_DIRS pages do. Relative to docs_root.
+#
+# the-story.md is the eight-step narrative walkthrough: it makes concrete,
+# version-anchored product claims and ships a runnable `load_sample_project`
+# setup with sign-in instructions, so a self-hoster reads it as "what my install
+# does" — the same test that put overview/ in scope at #2893. Its sibling root
+# pages are deliberately out: about.md (company background), license.md
+# (licensing terms), and index.mdx (the splash page) make no behavior claims a
+# release can falsify.
+DECLARATION_EXTRA_PAGES="the-story.md"
 
 # Pages under DECLARATION_DIRS that the ratchet deliberately never asks about,
 # relative to docs_root.
@@ -101,15 +122,23 @@ page_declares() {
   sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$1" 2>/dev/null | grep -q .
 }
 
-# Every behavior page under DECLARATION_DIRS, relative to docs_root, sorted,
-# minus DECLARATION_EXEMPT.
+# Every behavior page under DECLARATION_DIRS plus DECLARATION_EXTRA_PAGES,
+# relative to docs_root, sorted, minus DECLARATION_EXEMPT.
 declaration_pages() {
-  local docs_root="$1" d rel
-  for d in $DECLARATION_DIRS; do
-    [ -d "$docs_root/$d" ] || continue
-    find "$docs_root/$d" -type f \( -name '*.md' -o -name '*.mdx' \) 2>/dev/null \
-      | drop_ignored_lines
-  done | sed "s#^$docs_root/##" | sort | while IFS= read -r rel; do
+  local docs_root="$1" d rel p
+  {
+    for d in $DECLARATION_DIRS; do
+      [ -d "$docs_root/$d" ] || continue
+      find "$docs_root/$d" -type f \( -name '*.md' -o -name '*.mdx' \) 2>/dev/null \
+        | drop_ignored_lines
+    done
+    # Root-level pages are named one by one rather than globbed: the point is to
+    # opt specific behavior pages in, not to sweep the docs root.
+    for p in $DECLARATION_EXTRA_PAGES; do
+      [ -f "$docs_root/$p" ] || continue
+      printf '%s\n' "$docs_root/$p" | drop_ignored_lines
+    done
+  } | sed "s#^$docs_root/##" | sort | while IFS= read -r rel; do
     [ -z "$rel" ] && continue
     case " $DECLARATION_EXEMPT " in
       *" $rel "*) continue ;;
@@ -234,6 +263,7 @@ update_baseline() {
     echo "# Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh."
     echo "#"
     echo "# Pages under: $DECLARATION_DIRS that carry NO \"documentedFor\" front-matter key,"
+    echo "# plus these docs-root behavior pages: $DECLARATION_EXTRA_PAGES"
     echo "# (exempt: $DECLARATION_EXEMPT — the source of truth, not a page derived from it)"
     echo "# with the sha256 of the contents they had when they were last recorded here."
     echo "# Editing one of these pages breaks its hash and fails docs:version-accuracy"
@@ -945,6 +975,33 @@ This page documents functionality added in **TruePPM 0.2**.
     printf '# baseline\n' > "$1/baseline.txt"
   }
   ratchet_overview_case "overview-unrecorded" expect-fail _rt_overview_unrecorded || return 1
+
+  # A page named in DECLARATION_EXTRA_PAGES sits at the docs ROOT, so the
+  # directory walk cannot see it (#3336). These two cases pin that the
+  # root-level opt-in is wired to the same ratchet the directories get: an
+  # unrecorded extra page must fail, and a recorded one must pass. Without them
+  # a typo in the variable would silently un-cover the-story.md — the page whose
+  # dead sign-in instructions are why the mechanism exists.
+  _rt_extra_unrecorded() {
+    printf 'Sign in as `atlas-alex` and walk the story.\n' > "$1/the-story.md"
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_overview_case "extra-page-unrecorded" expect-fail _rt_extra_unrecorded || return 1
+
+  _rt_extra_recorded() {
+    printf 'Sign in as `atlas-alex` and walk the story.\n' > "$1/the-story.md"
+    printf '# baseline\nthe-story.md %s\n' "$(file_hash "$1/the-story.md")" \
+      > "$1/baseline.txt"
+  }
+  ratchet_overview_case "extra-page-recorded" expect-pass _rt_extra_recorded || return 1
+
+  # And a root page NOT named in DECLARATION_EXTRA_PAGES stays out of scope —
+  # the opt-in must be a list, not a sweep of the docs root.
+  _rt_extra_out_of_scope() {
+    printf 'TruePPM, Inc. was founded to fix P3M tooling.\n' > "$1/about.md"
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_overview_case "extra-page-out-of-scope" expect-pass _rt_extra_out_of_scope || return 1
 
   # -- Sidebar badge pairing (#2908) ------------------------------------------
   # A declaration plus a banner tells a reader the page is unreleased only after

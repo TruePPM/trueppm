@@ -142,6 +142,27 @@ recomputation. Consumers:
   gate now would gate nothing (dead code) — explicitly out of scope for this MR,
   not forgotten.
 
+> **Implementation status (corrected 2026-09-04, #3376).** The sentence above —
+> "the server field is live and honored by the mobile `Time` tab" — was **never
+> true**. `packages/mobile/src` has never referenced `show_time_tracking`, any
+> other `show_*` column, or `effective_surface_visibility`; the 2026-08-02 audit
+> in the Status line verified that the fields and the settings page *exist*, not
+> that anything reads them. `time_tracking` has no consumer on any client.
+>
+> The deferral's premise has also been overtaken. #926 and #1258 both shipped, and
+> every time surface they landed is **user-scoped and cross-project** — the
+> top-bar timer and Quick log, `/me/timesheet`, the My Work log-time popover. None
+> is per-project chrome, so a per-project boolean has nothing to gate and "wait
+> for the web surface" no longer names a condition that will arrive. Wiring it
+> would need a per-task delivery signal on the My Work payload, which is a feature
+> nobody has filed.
+>
+> Until then the settings row renders **inert with a bound note** rather than as
+> an editable toggle (the disable-and-explain pattern from #2011), and
+> `config_notice.ENFORCED_SURFACE_KEYS` excludes the key so hiding it no longer
+> notifies the project that a surface moved. The decision in §1–§4 of this ADR is
+> unchanged: the column, the resolver and the serializer contract all stay.
+
 ### 6. Settings UI — one `<SettingsSection>` (ADR-0146)
 
 A `surfaces` section on the consolidated project settings page (scroll-spy

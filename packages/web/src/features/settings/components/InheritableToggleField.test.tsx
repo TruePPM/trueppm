@@ -174,10 +174,14 @@ describe('InheritableToggleField', () => {
           canEdit={false}
         />,
       );
+      // getByRole, not getByLabelText: the indicator's children are all
+      // aria-hidden, so on a roleless div the browser drops the name and the row
+      // announces nothing — jsdom computes it anyway, so a label-only assertion
+      // passed on the broken form. `img` is ReadOnlyIndicator's shape (#2265).
       expect(
-        screen.getByLabelText(
-          'Public sharing: On, inherited from the workspace default. View only.',
-        ),
+        screen.getByRole('img', {
+          name: 'Public sharing: On, inherited from the workspace default. View only.',
+        }),
       ).toBeInTheDocument();
     });
 
@@ -197,7 +201,69 @@ describe('InheritableToggleField', () => {
       );
       // value=false overrides the inherited true → Off, set on this project.
       expect(
-        screen.getByLabelText('Public sharing: Off, set on this project. View only.'),
+        screen.getByRole('img', { name: 'Public sharing: Off, set on this project. View only.' }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe('notEnforced (nothing reads the field, #3376)', () => {
+    const NOTE = 'Not enforced — no surface reads this setting.';
+
+    function renderNotEnforced(props: Record<string, unknown> = {}) {
+      return render(
+        <InheritableToggleField
+          value={null}
+          onChange={vi.fn()}
+          inherited={true}
+          inheritFromLabel="the methodology default"
+          scopeNoun="project"
+          onLabel="Shown"
+          offLabel="Hidden"
+          ariaLabel="Show the Time tracking surface"
+          canEdit={true}
+          notEnforced={NOTE}
+          {...props}
+        />,
+      );
+    }
+
+    it('renders no editable control even for a user who CAN edit', () => {
+      renderNotEnforced();
+      // The point of the state: an ADMIN's edit would be as inert as a Viewer's,
+      // so `canEdit` must not resurrect the radios or the switch.
+      expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+      expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+      expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    });
+
+    it('binds the note to the group with aria-describedby', () => {
+      renderNotEnforced();
+      const group = screen.getByRole('group', {
+        name: 'Show the Time tracking surface: On, inherited from the methodology default. Not enforced.',
+      });
+      const noteId = group.getAttribute('aria-describedby');
+      expect(noteId).toBeTruthy();
+      // The described node must actually be in the DOM — an aria-describedby
+      // pointing at nothing is silently no explanation at all.
+      expect(document.getElementById(noteId ?? '')).toHaveTextContent(NOTE);
+    });
+
+    it('never ends its accessible name with "View only." — that is the false assurance', () => {
+      // The !canEdit branch's name promises the value is enforced for somebody
+      // with more rights. Reusing it here would restate exactly what this state
+      // exists to withdraw, so assert the absence rather than only the presence.
+      renderNotEnforced({ canEdit: false });
+      const group = screen.getByRole('group');
+      expect(group.getAttribute('aria-label')).not.toMatch(/View only\./);
+      expect(group.getAttribute('aria-label')).toMatch(/Not enforced\.$/);
+    });
+
+    it('states the stored value and its override provenance', () => {
+      renderNotEnforced({ value: false });
+      expect(
+        screen.getByRole('group', {
+          name: 'Show the Time tracking surface: Off, set on this project. Not enforced.',
+        }),
       ).toBeInTheDocument();
     });
   });
