@@ -49,8 +49,17 @@ def _caller_project_ids(request: Request) -> QuerySet[Any]:
 def _require_admin(request: Request, project_id: Any) -> None:
     """⌘Z on a batch write is Admin+, the same bar as undoing a template apply
     (ADR-0773's "who may reverse a plan-shaping batch write" matrix). A plain
-    Member may have authored the paste/cascade under Author mode, but undoing
-    it removes work other collaborators may already be building on top of.
+    Member may have authored the paste/cascade under Author mode and still not
+    clear this floor.
+
+    **The floor is open at #3355 and the reason once given for it was wrong.** This
+    docstring used to say undo "removes work other collaborators may already be
+    building on top of". It does not: ``undo_paste_many_operation`` and its cascade
+    and import-fix siblings (all in ``projects.task_batch_services``) partition on
+    ``server_version`` via ``_partition_touched`` and act only on the untouched rows,
+    returning the rest as ``kept``. Nothing another collaborator wrote is removed.
+    ADR-0880 §4 rejects the same premise for structural undo and implements
+    actor-or-Admin instead.
 
     Defers the comparison to :func:`role_can_undo_batch_operation` rather than
     testing the ordinal here, because the cascade's apply endpoint reports the
