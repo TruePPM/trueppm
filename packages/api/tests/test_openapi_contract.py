@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 
@@ -29,6 +30,10 @@ def _load_schema() -> dict:
         if candidate.exists():
             return json.loads(candidate.read_text())
     raise AssertionError("Could not locate docs/api/openapi.json above the test file.")
+
+
+#: The recursive component the 400's field-keyed values reference (#3324).
+_ERROR_DETAIL = "ValidationErrorDetail"
 
 
 @pytest.fixture(scope="module")
@@ -263,13 +268,115 @@ def test_the_declared_400_admits_the_shapes_the_api_actually_returns(schema: dic
 
     A schema declaring only `detail` would type the uncommon case and mis-type
     field validation, which is the majority of real 400s.
+
+    The field-keyed value is a `$ref` rather than an inline `array<string>` since
+    #3324: DRF nests, and this assertion previously pinned the flat form that made
+    the nightly `api:fuzz` fail three operations. The shapes themselves are
+    asserted against real bodies in
+    `test_declared_400_validates_the_bodies_drf_actually_returns`.
     """
     op = schema["paths"]["/api/v1/projects/"]["post"]
     body = op["responses"]["400"]["content"]["application/json"]["schema"]
     assert body["properties"]["detail"]["type"] == "string"  # Shape 1
     assert body["properties"]["code"]["type"] == "string"  # Shape 2 — the contract
-    # DRF's `{"field": ["msg", ...]}`.
-    assert body["additionalProperties"] == {"type": "array", "items": {"type": "string"}}
+    # DRF's field-keyed errors, flat or nested (#3324).
+    assert body["additionalProperties"] == {"$ref": f"#/components/schemas/{_ERROR_DETAIL}"}
+
+
+def test_validation_error_detail_component_is_recursive(schema: dict) -> None:
+    """The component must recurse, or it only describes the depth someone listed (#3324).
+
+    The enumerate-the-known-shapes version is what #3286 shipped and what the first
+    nightly after it broke: a `ListField` inside a `many=True` serializer nests one
+    level past every shape anyone had seen. Recursion is what makes the declaration
+    hold at a depth nobody has hit yet.
+    """
+    component = schema["components"]["schemas"][_ERROR_DETAIL]
+    ref = {"$ref": f"#/components/schemas/{_ERROR_DETAIL}"}
+    branches = component["oneOf"]
+    assert {"type": "string"} in branches, "leaves are message strings"
+    assert {"type": "array", "items": ref} in branches, "arrays nest into the same component"
+    assert {"type": "object", "additionalProperties": ref} in branches, (
+        "objects keyed by item index or subfield name nest into the same component"
+    )
+
+
+def test_no_operation_declares_a_flat_field_error_map(schema: dict) -> None:
+    """No response may re-declare the flat `array<string>` this fix removed (#3324).
+
+    The recurrence guard, and the reason it is a sweep rather than a spot check.
+    #3286 introduced the flat form in one place and it reached 191 operations; a
+    hand-written `@extend_schema` can reintroduce it in one more without touching
+    `openapi.py`, and nothing else in the pipeline looks at the shape — `api:fuzz`
+    would find it, but only on the night Hypothesis happens to generate a bad list
+    item for that operation, and it is `allow_failure` besides.
+
+    Stated denominator at the time of writing: 0 of 413 paths declare it, and the
+    three response schemas `TruePPMAutoSchema` injects (400, 429, 403-token-refused)
+    were each checked against the code that produces them — only the 400 was narrow.
+    """
+    flat = {"type": "array", "items": {"type": "string"}}
+    offenders = [
+        f"{method.upper()} {path} [{code}]"
+        for path, ops in schema["paths"].items()
+        for method, op in ops.items()
+        if isinstance(op, dict)
+        for code, response in (op.get("responses") or {}).items()
+        if (response.get("content") or {})
+        .get("application/json", {})
+        .get("schema", {})
+        .get("additionalProperties")
+        == flat
+    ]
+    assert not offenders, (
+        "a field-keyed error map must reference ValidationErrorDetail, not the flat "
+        f"array<string> DRF outgrows the moment a list field is involved (#3324): {offenders[:5]}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "body"),
+    [
+        # The three the 2026-09-02 nightly api:fuzz reported, verbatim in shape:
+        # every one is a ListField whose per-item errors DRF keys by item index.
+        (
+            "projects.allowed_attachment_types",
+            {"allowed_attachment_types": {"0": ["Not a valid string."]}},
+        ),
+        (
+            "programs.allowed_attachment_types",
+            {"allowed_attachment_types": {"0": ["Not a valid string."]}},
+        ),
+        (
+            "profile.hidden_views",
+            {"hidden_views": {"0": ["Not a valid string."], "9": ["Not a valid string."]}},
+        ),
+        # Shapes the flat declaration already admitted — kept so widening the
+        # contract is not mistaken for abandoning it.
+        ("flat field", {"name": ["This field is required."]}),
+        ("bare refusal", {"detail": "Request body must be a JSON object.", "code": "invalid_body"}),
+        # Reachable and undeclared before #3324, though no nightly has drawn them yet.
+        ("nested serializer", {"calendar": {"overlays": ["Unknown role."]}}),
+        ("many=True list serializer", {"tasks": [{}, {"name": ["This field is required."]}]}),
+    ],
+)
+def test_declared_400_validates_the_bodies_drf_actually_returns(
+    schema: dict, label: str, body: dict
+) -> None:
+    """Validate real 400 bodies against the committed 400 schema (#3324).
+
+    This is the assertion the nightly was making and the suite was not. It fails
+    against the pre-#3324 schema for the first three cases and passes for the rest,
+    which is the negative control: reverting `additionalProperties` to
+    `{"type": "array", "items": {"type": "string"}}` must turn this red.
+    """
+    op = schema["paths"]["/api/v1/programs/"]["post"]
+    declared = op["responses"]["400"]["content"]["application/json"]["schema"]
+    # `$ref` is document-absolute (`#/components/schemas/...`), so the validator
+    # needs the components alongside the subschema it is resolving from.
+    validator = jsonschema.Draft202012Validator({**declared, "components": schema["components"]})
+    errors = sorted(validator.iter_errors(body), key=str)
+    assert not errors, f"{label} violates the declared 400: {[e.message for e in errors]}"
 
 
 # ---------------------------------------------------------------------------

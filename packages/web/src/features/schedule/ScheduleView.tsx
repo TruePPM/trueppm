@@ -4467,6 +4467,10 @@ export function ScheduleView() {
       {shouldRenderHintStrip(canvasTeaching) && (
         <BuildModeHintStrip
           mode={focus.state.mode}
+          // #3231 — a Viewer reaches RowFocused (build mode is on for every
+          // desktop reader and the focus handler has no rights gate) and must
+          // not be taught the three mutations that state buys an author.
+          hasEditRights={hasEditRights}
           selectionCount={focus.state.selectedIds?.size ?? 0}
           // `S23` — the entry-point CONTROL, beside the selection readout. A
           // control is exempt from #3134's teaching-surface arbitration, so the

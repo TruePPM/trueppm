@@ -32,6 +32,34 @@ serializes each one to its message string alone, so it never reaches the wire.
 **Branch on the field key. Never match on the message text.** The strings come
 from DRF and Django validators and can change with a framework upgrade.
 
+### A field's value is not always a flat list
+
+A field key holds a list of messages only when the field is a scalar. When it is
+a **list field** or a **nested object**, the errors nest to match the payload, so
+that you can point at the element that was rejected rather than at the field as a
+whole:
+
+```json
+{
+  "hidden_views": {"0": ["Not a valid string."], "3": ["Not a valid string."]},
+  "calendar": {"overlays": ["Unknown role."]},
+  "tasks": [{}, {"name": ["This field is required."]}]
+}
+```
+
+- **List field** — an object keyed by the **item index** as a string. Only the
+  failing indices appear; `"0"` above means the first element of the array you
+  sent.
+- **Nested object** — an object keyed by **subfield name**, recursing the same
+  way.
+- **List of objects** — an array with one entry per item you submitted, in order,
+  and `{}` in the slots that validated.
+
+Nesting is as deep as the payload is, and the **leaves are always lists of
+message strings**. A client that assumes `string[]` at the first level will fail
+to parse the majority of settings-shaped payloads — walk the value instead, and
+treat any non-list as another level to descend.
+
 Non-field validation errors arrive under the `non_field_errors` key, and
 authentication or permission failures arrive as a bare `detail`:
 
