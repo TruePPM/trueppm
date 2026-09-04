@@ -102,6 +102,21 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     await expect(popover).toContainText('4 descendants');
   });
 
+  test('says nothing about the undo floor to a caller who can undo (#3357)', async ({ page }) => {
+    // The negative half of the disclosure. `setupApiMocks` defaults
+    // `can_undo_batch_operations` to true, which is the Admin this whole describe
+    // models — so the note must be absent, and its absence must be gated on the
+    // popover having actually rendered or it passes against an empty DOM.
+    await page.goto(BASE_URL);
+    await page.getByText('Build & integration').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+
+    const popover = page.getByTestId('classification-popover');
+    await expect(popover).toBeVisible();
+    await expect(popover.getByTestId('classification-preview')).toBeVisible();
+    await expect(popover.getByTestId('classification-undo-floor')).toHaveCount(0);
+  });
+
   test('the row menu reaches the same popover without knowing the shortcut', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.getByText('Control software').click({ button: 'right' });
@@ -340,9 +355,42 @@ test.describe('Classification undo — withheld when the server says the role ca
   test.beforeEach(async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);
-    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
+    // A Member, stated on BOTH payloads because the client reads two (#3357). The
+    // project detail's `can_undo_batch_operations` drives the pre-act disclosure in
+    // the popover; the apply response's `can_undo` drives the post-act Undo on the
+    // toast. They are the same server predicate, so a fixture that set only one
+    // would model a state the real server cannot produce.
+    await setupApiMocks(page, {
+      projects: PROJECTS.map((p) => ({ ...p, can_undo_batch_operations: false })),
+      projectId: PROJECT_ID,
+      tasks: TASKS,
+    });
     // A Member: `IsProjectPlanAuthor` admits the cascade, Admin+ gates the undo.
     await setupTaskStore(page, { tasks: TASKS, canUndoBatchOperations: false });
+  });
+
+  test('the popover says so BEFORE the cascade is applied (#3357)', async ({ page }) => {
+    // The half #3304 deliberately left: it stopped offering an Undo this caller
+    // could not use, which left them told nothing at all. Asserted on the Schedule
+    // as well as the backlog because the prop reaches the popover by a different
+    // route here — threaded down through `ScheduleOverlayLayer`, which renders the
+    // popover and does not hold `projectDetail` itself. A dropped link in that
+    // chain is a `tsc`-clean `undefined`, and `undefined` renders no note.
+    await page.goto(BASE_URL);
+    await page.getByText('Control software').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+
+    const popover = page.getByTestId('classification-popover');
+    await expect(popover).toBeVisible();
+    const note = popover.getByTestId('classification-undo-floor');
+    await expect(note).toBeVisible();
+    await expect(note).toContainText('someone with Project Manager rights can');
+    // The act itself is untouched — only its reversal is disclosed (rule 373(c)).
+    // The preset click is what makes this non-vacuous: Apply is disabled until an
+    // axis is named for every role, so asserting it on the initial render would
+    // pass on a build that had disabled it for this caller too.
+    await popover.getByTestId('classification-preset-scrum').click();
+    await expect(popover.getByTestId('classification-apply')).toBeEnabled();
   });
 
   test('a Member gets the success toast with no Undo action', async ({ page }) => {

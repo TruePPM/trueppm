@@ -593,6 +593,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # where no test would catch it. Calls the SAME predicate IsProjectPlanAuthor
     # enforces — one rule, called twice (ADR-0133).
     can_author = serializers.SerializerMethodField()
+    # Server-derived "may the requesting user REVERSE a recorded batch write" verdict
+    # (web rule 373(d), #3357). Sibling of ``can_author`` and emitted for the same
+    # reason: the undo floor sits ABOVE the apply floor, so a caller who cleared the
+    # write's gate has learned nothing about the undo's, and a surface that wants to
+    # disclose the asymmetry BEFORE the irreversible act cannot wait for the apply
+    # response's own ``can_undo`` to tell it. Calls the SAME predicate the undo
+    # endpoints enforce — one rule, called three times now (ADR-0133).
+    can_undo_batch_operations = serializers.SerializerMethodField()
     # The server's own current date, so a client can tell whether a date it is about to
     # commit has already arrived (#3075). Several server rules are gated on
     # ``timezone.localdate()`` — most visibly the NOT_STARTED → IN_PROGRESS promote in
@@ -861,6 +869,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role_label",
             # Whether the caller may enter the Designer's Author mode (ADR-0773 §(d)).
             "can_author",
+            # Whether the caller may reverse a recorded batch write (web rule 373(d), #3357).
+            "can_undo_batch_operations",
             # The server's today, for client-side previews of date-gated server rules (#3075).
             "server_date",
             # Two separate lifecycles, both read-only, each with its own transition
@@ -880,6 +890,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role",
             "my_role_label",
             "can_author",
+            "can_undo_batch_operations",
             "server_date",
             "default_member_role_label",
             "effective_calendar",
@@ -1107,6 +1118,81 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if request is None:
             return False
         return can_user_author_plan(request, obj)
+
+    # Explicit `help_text` rather than letting drf-spectacular lift the docstring:
+    # the reasoning below is for the next person to edit this method, and dumping all
+    # of it into the published schema puts internal module names and an open tracker
+    # question in front of every API consumer. `can_author` emits ~460 characters;
+    # unannotated, this one emitted 2,611.
+    @extend_schema_field(
+        serializers.BooleanField(
+            help_text=(
+                "Whether the requesting user may reverse a recorded batch write on "
+                "this project — the classification cascade and paste-many undo "
+                "endpoints. Read-only; the same rule those endpoints enforce. Clients "
+                "use it to disclose, before an irreversible batch write, that the "
+                "caller will not be able to undo it. Does not answer for structural "
+                "operations, whose undo rule is actor-or-Admin."
+            )
+        )
+    )
+    def get_can_undo_batch_operations(self, obj: Project) -> bool:
+        """Whether the caller may reverse a recorded batch write (web rule 373(d)).
+
+        The pre-act half of the rule #3304 implemented post-act. The cascade's own
+        200 already carries a ``can_undo`` computed by this same predicate, but that
+        answer arrives *after* the irreversible act — so a surface that wants to say
+        "you will not be able to take this back" **before** the user commits it needs
+        the verdict on a payload it already holds. This is that payload.
+
+        Resolved exactly like ``can_author``: prefer the viewset's ``_my_role``
+        annotation so a project list costs no extra query per row, fall back to the
+        request-scoped wrapper when the annotation is absent (a freshly-created
+        instance, or a route that does not annotate). Both paths end in
+        :func:`role_can_undo_batch_operation`, the function
+        ``batch_operation_views._require_admin`` enforces with — so the disclosure and
+        the refusal cannot disagree, and if the floor moves (an open question at the
+        time of writing, #3355) the disclosure moves with it instead of drifting.
+
+        Deliberately NOT re-derived client-side as ``role >= ROLE_ADMIN``. The rule is
+        a threshold today and such a comparison would agree, but the client would then
+        hold a second implementation of a floor the server has already said it may
+        change — and on the product backlog the authority already in scope is
+        ``can_manage_backlog`` (Admin+ **or** the Product Owner facet), which is a
+        different rule and answers this question wrong for a PO below Admin.
+
+        **Scope it exactly — the plural in the name is a family, not "all undo".**
+        This answers for the ledgers under ``batch_operation_views``, whose refusal
+        resolves through the same predicate: the classification cascade and paste-many.
+        The CSV-import fix (``csvimport.views._require_project_admin``) and template
+        apply (``template_views``) hold their own inline copies of the identical
+        Admin+ comparison, so the answer is currently the same for them — but they are
+        copies, not callers, and only a rebind would make that a guarantee.
+        **Structural operations are a different rule and this field does not answer for
+        them**: ``structural_operation_services`` deliberately implements
+        *actor-or-Admin* (ADR-0880 §4), so an actor below Admin may reverse their own
+        structural operation while this field says ``False``.
+
+        Within that family the floor is a pure function of the caller's role, identical
+        for every ledger row. Whether a *particular* operation is still reversible is a
+        separate fact (the apply response's ``operation_id``, orthogonal per web rule
+        373(b)) and this field must never be read as answering it.
+
+        Fails closed to ``False`` without a request.
+        """
+        from trueppm_api.apps.access.permissions import (
+            can_user_undo_batch_operation,
+            role_can_undo_batch_operation,
+        )
+
+        annotated_role = getattr(obj, "_my_role", None)
+        if annotated_role is not None:
+            return role_can_undo_batch_operation(annotated_role)
+
+        request = self.context.get("request")
+        if request is None:
+            return False
+        return can_user_undo_batch_operation(request, obj.pk)
 
     @extend_schema_field(serializers.DateField())
     def get_server_date(self, obj: Project) -> str:

@@ -176,6 +176,15 @@ cascade wrote and carries no **Undo** action — rather than offering one that w
 refused. The cascade itself is unaffected; to reverse it, ask an Admin or Owner, or
 reclassify the subtree back to its previous values.
 
+**You are told before you apply, not after.** If your role cannot reverse a cascade, the
+popover says so in its footer while you are still choosing — *"You won't be able to
+reverse this — someone with Project Manager rights can."* It does not disable **Apply**:
+you may still cascade, and nothing is deleted. What you cannot get back is what each row
+held *before*, which is what the undo replays; reclassifying afterwards sets every row in
+the subtree to one value. This applies on both entry points, and the product backlog is
+where it matters most — that page lets a Product Owner classify without an Admin role, so
+a PO can apply a cascade they cannot themselves reverse.
+
 ## Seeing the split without auditing it
 
 :::note[Ships in 0.4]

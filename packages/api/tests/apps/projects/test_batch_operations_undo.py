@@ -569,6 +569,188 @@ def test_cascade_response_reports_can_undo_independently_of_operation_id(
 
 
 # ---------------------------------------------------------------------------
+# `can_undo_batch_operations` on the PROJECT DETAIL payload (#3357)
+#
+# The pre-act half of what `can_undo` answers post-act. The cascade popover has to
+# disclose the reversal floor BEFORE the irreversible act, and the apply response
+# arrives after it — so the same predicate is emitted on a payload the surface
+# already holds. Third call site of `role_can_undo_batch_operation`; these
+# assertions exist so it stays one rule rather than becoming three.
+# ---------------------------------------------------------------------------
+
+
+def project_detail_url(project: Project) -> str:
+    return f"/api/v1/projects/{project.pk}/"
+
+
+def _grant_po_facet(project: Project, user: Any) -> None:
+    """Give ``user`` the Product-Owner facet on the project's default team.
+
+    Mirrors ``test_rbac._grant_facet`` — facets live on the TeamMembership row of the
+    project's default team, and the on_commit mirror signal does not fire inside the
+    test transaction, so the row is written directly.
+    """
+    from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
+
+    team, _ = Team.objects.get_or_create(
+        project=project,
+        is_default=True,
+        defaults={"name": "Default Team", "short_id": "T01"},
+    )
+    TeamMembership.objects.create(team=team, user=user, role=TeamRole.MEMBER, is_product_owner=True)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "role",
+    [
+        Role.VIEWER,
+        Role.MEMBER,
+        Role.SCHEDULER,
+        Role.ADMIN,
+        Role.OWNER,
+    ],
+)
+def test_project_detail_can_undo_batch_operations_agrees_with_the_predicate(
+    project: Project, role: int
+) -> None:
+    """All five roles, asserted against the predicate rather than a truth table.
+
+    Against ``role_can_undo_batch_operation`` for the reason ``can_undo``'s own test
+    gives: a hard-coded expectation lets the field drift from the rule the undo
+    endpoint enforces and only the enumerated roles would notice. Unlike ``can_undo``
+    this one covers Viewer and Scheduler too — the field rides the project detail,
+    which every role can read, not an apply response only a plan author can reach.
+
+    The Enterprise 301-399 band is NOT parametrized here, and the omission is not an
+    oversight in this field: a membership at an unnamed ordinal 500s the whole detail
+    route on a *different* field, ``my_role_label``, whose ``Role(role).label`` raises
+    ``ValueError`` before this one is ever reached. The band claim is pinned on the
+    predicate itself by ``test_role_can_undo_batch_operation_band_table`` above, which
+    is where it belongs anyway — this field adds no band logic of its own.
+    """
+    user = User.objects.create_user(username=f"detail-{role}", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=role)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    r = client.get(project_detail_url(project))
+    assert r.status_code == 200, r.data
+    assert r.data["can_undo_batch_operations"] is role_can_undo_batch_operation(role)
+
+
+@pytest.mark.django_db
+def test_project_detail_can_undo_batch_operations_is_false_for_a_product_owner_below_admin(
+    project: Project,
+) -> None:
+    """The case the whole server-side choice exists for (#3357, web rule 373(a)).
+
+    A Member holding the Product-Owner facet may **apply** a cascade from the product
+    backlog — that entry point is gated on ``can_manage_backlog``, which is
+    ``Admin+ OR the PO facet`` — and may **not** undo one, because the undo floor is a
+    plain Admin+ threshold that the facet does not reach.
+
+    Both halves are asserted, because the defect this guards is not "the field is
+    wrong for a PO"; it is a client reusing the authority variable already in scope on
+    that surface. ``can_manage_backlog`` is true here and
+    ``can_undo_batch_operations`` is false, so the two are demonstrably different
+    answers and one cannot stand in for the other.
+    """
+    from trueppm_api.apps.access.permissions import can_manage_backlog_with_facet
+
+    user = User.objects.create_user(username="po-below-admin", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    _grant_po_facet(project, user)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    assert can_manage_backlog_with_facet(user, project.pk, Role.MEMBER) is True
+
+    r = client.get(project_detail_url(project))
+    assert r.status_code == 200, r.data
+    assert r.data["can_undo_batch_operations"] is False
+
+
+@pytest.mark.django_db
+def test_project_detail_can_undo_batch_operations_matches_the_cascade_receipt(
+    project: Project,
+) -> None:
+    """The pre-act disclosure and the post-act receipt, **on a fresh apply**.
+
+    Two call sites of one predicate on two different payloads, and the point of the
+    feature is that a planner is told the same thing before and after. A drift here
+    would be invisible to either field's own test.
+
+    Scoped to a fresh apply on purpose, and the scope is not pedantry. The two
+    payloads are NOT guaranteed to agree in general: ``TaskClassificationView`` carries
+    ``IdempotencyMixin``, whose request hash covers method, path and body but not the
+    caller's role, so a repeated ``Idempotency-Key`` replays a stored ``can_undo`` that
+    may predate a role change while the project detail re-derives live. Asserting the
+    equality unconditionally would state a guarantee the system does not make — see
+    ``can_user_undo_batch_operation``'s own docstring, which flags the same snapshot.
+    """
+    user = User.objects.create_user(username="pre-and-post", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    root = Task.objects.create(
+        project=project,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        governance_class="flow",
+        assignee=user,
+    )
+
+    detail = client.get(project_detail_url(project))
+    assert detail.status_code == 200, detail.data
+    receipt = _classify(client, project, root)
+    assert receipt.status_code == 200, receipt.data
+
+    assert detail.data["can_undo_batch_operations"] is receipt.data["can_undo"]
+    assert detail.data["can_undo_batch_operations"] is False
+
+
+@pytest.mark.django_db
+def test_project_detail_can_undo_batch_operations_without_the_my_role_annotation(
+    project: Project,
+) -> None:
+    """The serializer's fallback branch, which no API route reaches.
+
+    ``ProjectViewSet.get_queryset`` annotates ``_my_role`` on both list and retrieve,
+    so the request-scoped fallback only fires for an instance serialized outside that
+    queryset (a freshly-created object, or a caller building the serializer by hand).
+    It is asserted directly because it is a *second* resolution path for the same
+    field, and a second path that no test exercises is a second answer waiting to
+    disagree with the first.
+    """
+    from rest_framework.test import APIRequestFactory
+
+    from trueppm_api.apps.projects.serializers import ProjectSerializer
+
+    admin = User.objects.create_user(username="unannotated-admin", password="pw")
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+    member = User.objects.create_user(username="unannotated-member", password="pw")
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+
+    factory = APIRequestFactory()
+
+    def field_for(user: Any) -> Any:
+        request = factory.get(project_detail_url(project))
+        request.user = user
+        # A plain Project instance — not from the annotated queryset — so
+        # ``getattr(obj, "_my_role", None)`` is None and the fallback runs.
+        fresh = Project.objects.get(pk=project.pk)
+        assert not hasattr(fresh, "_my_role")
+        return ProjectSerializer(fresh, context={"request": request}).data[
+            "can_undo_batch_operations"
+        ]
+
+    assert field_for(admin) is True
+    assert field_for(member) is False
+
+
+# ---------------------------------------------------------------------------
 # Import-fix (CSV import) — service-level, mirroring test_import.py's own
 # direct-``import_project`` pattern rather than the full upload/Celery path.
 # ---------------------------------------------------------------------------

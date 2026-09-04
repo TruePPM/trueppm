@@ -48,6 +48,9 @@ function setup(overrides: Partial<ComponentProps<typeof ClassificationPopover>> 
       target={TREE[0]}
       tasks={TREE}
       isPending={false}
+      // Default to the caller who CAN undo, so the #3357 note is absent from every
+      // pre-existing assertion unless a test opts into it.
+      canUndoBatchOperations
       error={null}
       onApply={onApply}
       onClose={onClose}
@@ -249,5 +252,100 @@ describe('ClassificationPopover', () => {
     await userEvent.click(screen.getByTestId('classification-preset-scrum'));
     expect(screen.getByTestId('classification-apply')).toBeDisabled();
     expect(onApply).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // The reversal floor, disclosed before the act (#3357, web rule 373(d))
+  //
+  // #3304 stopped OFFERING an Undo to a caller who cannot use one, which left
+  // them told nothing at all. These pin the other half: the disclosure is on the
+  // standing surface that commits the act, keyed on the server's own verdict.
+  // -------------------------------------------------------------------------
+
+  it('says the cascade is not reversible by this caller, before they apply it', () => {
+    setup({ canUndoBatchOperations: false });
+    const note = screen.getByTestId('classification-undo-floor');
+    expect(note).toHaveTextContent('You won’t be able to reverse this');
+    // The recovery route is required by rule 373(d), not decoration — a reader
+    // told only that they cannot undo has no idea anyone can. Phrased as "rights"
+    // rather than naming ROLE_ADMIN's label: Owner clears the same floor and shows
+    // as "Project Admin", an Enterprise 301-399 custom role clears it under an
+    // arbitrary label, and #3355 may move the floor out from under any of them.
+    expect(note).toHaveTextContent('someone with Project Manager rights can');
+    // …and so is the second sentence: the cascade deletes nothing and this surface
+    // stays reachable, so the first alone overstates the harm into a dead end it is
+    // not. Scope-independent wording, because "each row's previous mix" is false-
+    // sounding the moment the user unchecks Cascade and the header says "X only".
+    expect(note).toHaveTextContent('won’t restore what each row had before');
+  });
+
+  it('says nothing to a caller who can undo', () => {
+    setup({ canUndoBatchOperations: true });
+    expect(screen.queryByTestId('classification-undo-floor')).not.toBeInTheDocument();
+  });
+
+  it('says nothing while the project detail is still unresolved', () => {
+    // `undefined` is "not answered yet", not "no". Defaulting it to the note
+    // would tell a Project Manager they lack a right they hold, on every open
+    // before the project query lands — see `shouldDiscloseUndoFloor`.
+    setup({ canUndoBatchOperations: undefined });
+    expect(screen.queryByTestId('classification-undo-floor')).not.toBeInTheDocument();
+  });
+
+  it('keeps the note out of the live preview region', () => {
+    // Same trap the error slot documents: `role="status"` is implicitly atomic,
+    // so a standing sentence nested inside it would be re-announced on every
+    // keystroke that changes the preview.
+    setup({ canUndoBatchOperations: false });
+    const note = screen.getByTestId('classification-undo-floor');
+    expect(screen.getByTestId('classification-preview')).not.toContainElement(note);
+    expect(note).not.toHaveAttribute('role');
+    expect(note).not.toHaveAttribute('aria-live');
+  });
+
+  it('binds the note to the DIALOG, not only to Apply', () => {
+    // The binding that actually delivers it (rule 380). Enter submits from anywhere
+    // in this popover and `useFocusTrap` seats focus on the first preset chip, so
+    // the fastest keyboard path never focuses Apply — a build bound only at the
+    // button passes an Apply-only assertion while announcing nothing on that path.
+    setup({ canUndoBatchOperations: false });
+    const note = screen.getByTestId('classification-undo-floor');
+    expect(note.id).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Classification' })).toHaveAttribute(
+      'aria-describedby',
+      note.id,
+    );
+    // …and the redundant half.
+    expect(screen.getByTestId('classification-apply')).toHaveAttribute(
+      'aria-describedby',
+      note.id,
+    );
+  });
+
+  it('leaves both undescribed when the note is absent', () => {
+    // A dangling `aria-describedby` pointing at a removed node is announced as
+    // nothing at all on some readers and as a stale string on others.
+    setup({ canUndoBatchOperations: true });
+    expect(screen.getByRole('dialog', { name: 'Classification' })).not.toHaveAttribute(
+      'aria-describedby',
+    );
+    expect(screen.getByTestId('classification-apply')).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('does not change the Apply affordance itself', async () => {
+    // Rule 373(c)/302: the act is still on offer — only its reversal is not. A
+    // caller who cannot undo may still cascade, so nothing here is disabled or
+    // relabelled, and the note must not have leaked into the button. The preset
+    // click is what makes the assertion non-vacuous: Apply is disabled until an
+    // axis is named regardless of role, so asserting on the initial render would
+    // pass on a build that disabled it for this caller too.
+    const { onApply } = setup({ canUndoBatchOperations: false });
+    await userEvent.click(screen.getByTestId('classification-preset-scrum'));
+    const apply = screen.getByTestId('classification-apply');
+    expect(apply).toHaveTextContent('Apply to subtree');
+    expect(apply).not.toBeDisabled();
+    expect(apply).not.toHaveTextContent('Project Manager');
+    await userEvent.click(apply);
+    expect(onApply).toHaveBeenCalledTimes(1);
   });
 });

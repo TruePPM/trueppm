@@ -344,6 +344,90 @@ def test_projects_endpoint_lists_program_projects(
     assert names == ["A"]
 
 
+@pytest.mark.django_db
+def test_projects_endpoint_resolves_the_callers_own_role_on_each_child_row(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    """The four caller-scoped fields on this route, which used to be uniformly wrong.
+
+    This action builds its own queryset instead of going through
+    ``ProjectViewSet.get_queryset``, and serializes without ``context``. Every
+    ``ProjectSerializer`` field derived from the ``_my_role`` annotation —
+    ``my_role``, ``my_role_label``, ``can_author`` and (since #3357)
+    ``can_undo_batch_operations`` — reads the attribute defensively and then falls back
+    to a request-scoped lookup that finds no request, so all four failed closed on
+    every row for every caller. Not a degrade anyone would notice: a project Owner saw
+    ``my_role: null`` and ``can_author: false`` on a route whose ``@extend_schema``
+    publishes ``ProjectSerializer`` as its response shape.
+
+    Asserted here rather than on the field that surfaced it because the annotation is
+    the fix and all four ride it. Note the negative half: the second project carries no
+    membership for this caller, so ``null``/``false`` there is the CORRECT answer and
+    distinguishes "the annotation landed" from "the fallback still runs".
+    """
+    program = _create_program(_client(owner))
+    mine = Project.objects.create(
+        name="Mine", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    Project.objects.create(
+        name="Theirs", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    ProjectMembership.objects.create(project=mine, user=owner, role=Role.ADMIN)
+
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/projects/")
+    assert resp.status_code == 200
+    rows = {p["name"]: p for p in resp.data}
+
+    assert rows["Mine"]["my_role"] == Role.ADMIN
+    assert rows["Mine"]["my_role_label"] == "Project Manager"
+    assert rows["Mine"]["can_author"] is True
+    assert rows["Mine"]["can_undo_batch_operations"] is True
+
+    assert rows["Theirs"]["my_role"] is None
+    assert rows["Theirs"]["can_author"] is False
+    assert rows["Theirs"]["can_undo_batch_operations"] is False
+
+
+@pytest.mark.django_db
+def test_projects_endpoint_resolves_roles_without_a_query_per_row(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    """The role annotation is a Subquery, so row count must not move the query count.
+
+    The alternative containment — passing ``context={"request": request}`` and letting
+    each field fall back to ``_membership_role`` — is correct and an N+1, which on a
+    program with fifty projects is fifty membership queries per list. This pins the
+    shape rather than the fix, so a future revert to the context-only form fails here
+    instead of only in production.
+    """
+    program = _create_program(_client(owner))
+    for i in range(2):
+        p = Project.objects.create(
+            name=f"P{i}", start_date=date(2026, 4, 1), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=p, user=owner, role=Role.ADMIN)
+    url = f"/api/v1/programs/{program.pk}/projects/"
+    client = _client(owner)
+    client.get(url)  # warm any per-process caches so the counts compare like for like
+
+    with CaptureQueriesContext(connection) as two_rows:
+        assert client.get(url).status_code == 200
+    for i in range(2, 6):
+        p = Project.objects.create(
+            name=f"P{i}", start_date=date(2026, 4, 1), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=p, user=owner, role=Role.ADMIN)
+    with CaptureQueriesContext(connection) as six_rows:
+        assert client.get(url).status_code == 200
+
+    assert len(six_rows) == len(two_rows), (
+        f"{len(two_rows)} queries for 2 rows, {len(six_rows)} for 6 — "
+        "the role resolution is running per row"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Project.program FK cross-permission (ADR-0070 §RBAC)
 # ---------------------------------------------------------------------------

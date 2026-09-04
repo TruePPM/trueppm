@@ -143,6 +143,31 @@ field those surfaces (and MCP/headless clients) can adopt.
   pre-existing behaviour (no regression), and the authoritative field supersedes it on the
   next fetch.
 
+### Amendment (2026-09-04) — the pattern extended to project-scoped capabilities
+
+"One rule, called twice" was written here for **task**-scoped capabilities on
+`TaskSerializer`. It has since been applied twice more, at *project* scope on
+`ProjectSerializer`, and both instances read this ADR as their precedent — recorded here
+so the extension is deliberate rather than inferred:
+
+- `can_author` (ADR-0773 §(d), #3034) — may the caller enter Author mode at all.
+- `can_undo_batch_operations` (web rule 373(d), #3357) — may the caller reverse a recorded
+  batch write. Answers *before* the act what the apply response's own `can_undo` answers
+  after it.
+
+Two consequences of the wider scope are worth stating, because neither is visible from the
+task-scoped original:
+
+- **Perf shifts from "one predicate call" to "one annotation".** A project *list* would pay
+  a membership query per row through the request-scoped predicate, so both fields prefer
+  the viewset's `_my_role` annotation and keep the predicate only as a fallback. Any route
+  that builds its own project queryset must annotate it or the fields fail closed silently
+  — which is exactly what `GET /programs/{id}/projects/` did to `my_role`, `my_role_label`
+  and `can_author` until #3357.
+- **Alternative B's rejection still holds.** A `capabilities: [...]` envelope was rejected
+  here in favour of individually named booleans; adding a project-scoped instance is not a
+  reason to revisit it, and a third or fourth field is not evidence that it was wrong.
+
 ## Implementation Notes
 
 - **P3M layer:** Programs and Projects (OSS).

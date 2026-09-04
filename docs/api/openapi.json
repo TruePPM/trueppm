@@ -62579,6 +62579,11 @@
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
                         "readOnly": true
                     },
+                    "can_undo_batch_operations": {
+                        "type": "boolean",
+                        "description": "Whether the requesting user may reverse a recorded batch write on this project — the classification cascade and paste-many undo endpoints. Read-only; the same rule those endpoints enforce. Clients use it to disclose, before an irreversible batch write, that the caller will not be able to undo it. Does not answer for structural operations, whose undo rule is actor-or-Admin.",
+                        "readOnly": true
+                    },
                     "server_date": {
                         "type": "string",
                         "format": "date",
@@ -62622,6 +62627,7 @@
                     "at_risk_count",
                     "calendar_source",
                     "can_author",
+                    "can_undo_batch_operations",
                     "default_member_role_label",
                     "draft_started_at",
                     "effective_allow_guests",
@@ -63305,6 +63311,11 @@
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
                         "readOnly": true
                     },
+                    "can_undo_batch_operations": {
+                        "type": "boolean",
+                        "description": "Whether the requesting user may reverse a recorded batch write on this project — the classification cascade and paste-many undo endpoints. Read-only; the same rule those endpoints enforce. Clients use it to disclose, before an irreversible batch write, that the caller will not be able to undo it. Does not answer for structural operations, whose undo rule is actor-or-Admin.",
+                        "readOnly": true
+                    },
                     "server_date": {
                         "type": "string",
                         "format": "date",
@@ -63384,6 +63395,7 @@
                     "at_risk_count",
                     "calendar_source",
                     "can_author",
+                    "can_undo_batch_operations",
                     "default_member_role_label",
                     "draft_started_at",
                     "effective_allow_guests",
