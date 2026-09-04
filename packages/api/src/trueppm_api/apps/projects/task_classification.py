@@ -99,11 +99,15 @@ class SubtreeNotAuthorable(Exception):
     enumerating rows adds nothing the caller can act on.
     """
 
-    def __init__(self, forbidden: int, matched: int) -> None:
+    def __init__(self, forbidden: int, matched: int, *, detail: str | None = None) -> None:
         self.forbidden = forbidden
         self.matched = matched
+        #: ``detail`` exists for the root-only pre-check (#3305), which refuses before
+        #: the subtree is resolved and therefore cannot honestly say "n of m tasks" —
+        #: it does not know m, and inventing one would re-open the count disclosure
+        #: this ordering was changed to close.
         super().__init__(
-            f"Your role cannot author {forbidden} of the {matched} tasks in this subtree."
+            detail or f"Your role cannot author {forbidden} of the {matched} tasks in this subtree."
         )
 
 
@@ -394,13 +398,34 @@ def cascade_task_classification(
     ``transaction.on_commit``.
 
     Raises:
-        Task.DoesNotExist / SubtreeTooLarge: from :func:`resolve_subtree`.
-        SubtreeNotAuthorable: from :func:`assert_authorable`.
+        Task.DoesNotExist: the root is not a live task in this project — raised by the
+            unlocked root read below, or by :func:`resolve_subtree`.
+        SubtreeTooLarge: from :func:`resolve_subtree`.
+        SubtreeNotAuthorable: from the root pre-check below, or :func:`assert_authorable`.
         InfeasibleGraphError / InvalidScheduleInput: from :func:`assert_graph_feasible`.
     """
-    rows = resolve_subtree(project, spec)
+    from trueppm_api.apps.projects.models import Task
+
     # Authorization first, so an unauthorized caller never pays for — or learns
-    # anything from — the work below.
+    # anything from — the work below. Permission here is all-or-nothing and the root
+    # is in every resolved subtree, so authoring the root is a *necessary* condition:
+    # refusing on it alone is sound, and it is the only check that can run before the
+    # subtree is resolved. Deliberately unlocked and ahead of resolve_subtree, because
+    # that call locks the root, resolves descendants and evaluates the size cap — so
+    # running it first made a caller with no authorship on the subtree pay for up to
+    # 2000 row locks and receive a 400 disclosing the subtree's task count instead of
+    # a 403 (#3305).
+    #
+    # Residual, and narrower by construction: a caller who *can* author the root but
+    # not every descendant is still resolved under lock before assert_authorable
+    # refuses them below. Closing that too would mean authorizing the descendant set
+    # before locking it, which reintroduces a TOCTOU — a row inserted between the
+    # unlocked authorization and the locked write would be written unauthorized.
+    root_only = Task.objects.get(pk=spec.subtree_id, project=project, is_deleted=False)
+    if not can_user_edit_task(request, root_only, method="PATCH"):
+        raise SubtreeNotAuthorable(1, 1, detail="Your role cannot author the root of this subtree.")
+
+    rows = resolve_subtree(project, spec)
     assert_authorable(request, rows)
 
     governance = _AxisTally()

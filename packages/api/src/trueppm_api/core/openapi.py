@@ -36,6 +36,7 @@ personal token *can* write there since #2877 and is described by
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from drf_spectacular.openapi import AutoSchema
@@ -364,9 +365,29 @@ def postprocess_openapi(
                 continue
             _annotate_operation(operation, path, method, collection_paths, is_public)
 
+    _register_validation_error_detail(result)
+
     # Document-level default so a client knows the baseline auth scheme.
     result["security"] = list(GLOBAL_SECURITY)
     return result
+
+
+def _register_validation_error_detail(result: dict[str, Any]) -> None:
+    """Register the recursive ``ValidationErrorDetail`` component (#3324).
+
+    It is defined here rather than through drf-spectacular's component registry
+    because nothing in the API is serialized by it — it describes DRF's *error*
+    output, which has no serializer to introspect. The ``$ref`` that points at it
+    is injected per-operation by :class:`TruePPMAutoSchema`, so registering it in
+    the finished document is what makes that ``$ref`` resolve.
+
+    Re-sorted afterwards because drf-spectacular emits ``components.schemas``
+    alphabetically; appending to the end would make the committed
+    ``docs/api/openapi.json`` diff against a fresh regenerate on ordering alone.
+    """
+    schemas = result.setdefault("components", {}).setdefault("schemas", {})
+    schemas[VALIDATION_ERROR_DETAIL] = deepcopy(_VALIDATION_ERROR_DETAIL_SCHEMA)
+    result["components"]["schemas"] = dict(sorted(schemas.items()))
 
 
 def _annotate_operation(
@@ -436,6 +457,49 @@ _TOKEN_REFUSED_RESPONSE = {
     },
 }
 
+#: Component name for the recursive validation-error value (#3324).
+VALIDATION_ERROR_DETAIL = "ValidationErrorDetail"
+_VALIDATION_ERROR_DETAIL_REF = {"$ref": f"#/components/schemas/{VALIDATION_ERROR_DETAIL}"}
+
+#: What one field key in a 400 body can hold (#3324).
+#:
+#: #3286 declared this as ``array<string>`` and the first nightly ``api:fuzz`` run
+#: after it merged failed three operations on ``response_schema_conformance``:
+#: ``POST /projects/``, ``POST /programs/`` and ``PATCH /auth/me/profile/`` all
+#: returned ``{"0": [...], "1": [...]}`` under a field key, which is not an array.
+#: That is not a defect in the response — ``ListField.to_internal_value``
+#: accumulates per-item errors into a dict keyed by ITEM INDEX and raises
+#: ``ValidationError`` on it, and the index is the part a client needs to point at
+#: the offending element. The contract was the thing that was too narrow.
+#:
+#: Four shapes reach a field key, and only the first was declared:
+#:
+#:   ``["msg", ...]``                flat field
+#:   ``{"0": ["msg"]}``              ``ListField`` — keyed by item index
+#:   ``{"sub": ["msg"]}``            nested serializer — keyed by subfield
+#:   ``[{}, {"sub": ["msg"]}]``      ``many=True`` — one entry per submitted item
+#:
+#: Recursive rather than an enumeration of those four, because nesting composes: a
+#: ``ListField`` inside a ``many=True`` serializer nests one level deeper than any
+#: of them and would need a fifth branch, then a sixth. The invariant that holds at
+#: every depth is the one declared here — **strings at the leaves**. The three
+#: branches are disjoint by ``type``, so ``oneOf`` is exact rather than merely
+#: permissive: no value matches two of them.
+_VALIDATION_ERROR_DETAIL_SCHEMA = {
+    "description": (
+        "One field's validation errors. A flat field yields a list of messages. A "
+        "list field or nested serializer nests one level further, as an object keyed "
+        "by item index or by subfield name; a ``many=True`` serializer yields one "
+        "entry per submitted item, ``{}`` where that item validated. Nesting is "
+        "arbitrarily deep and the leaves are always message strings."
+    ),
+    "oneOf": [
+        {"type": "string"},
+        {"type": "array", "items": _VALIDATION_ERROR_DETAIL_REF},
+        {"type": "object", "additionalProperties": _VALIDATION_ERROR_DETAIL_REF},
+    ],
+}
+
 #: The 400 every operation that accepts a request body can return (#3286).
 #:
 #: Modelled on what the API actually emits rather than on one tidy shape, because
@@ -445,8 +509,9 @@ _TOKEN_REFUSED_RESPONSE = {
 #:   ``{"code": "...", "detail": "..."}``        Shape 2 — ``code`` is the contract
 #:   ``{"name": ["This field is required."]}``   DRF's field-keyed serializer errors
 #:
-#: ``additionalProperties`` carries the third. Declaring only ``detail`` would be
-#: the more comfortable lie: a generated client would type the uncommon case and
+#: ``additionalProperties`` carries the third, via the recursive component above so
+#: that its nested forms are described too. Declaring only ``detail`` would be the
+#: more comfortable lie: a generated client would type the uncommon case and
 #: mis-type field validation, which is the majority of real 400s.
 _VALIDATION_RESPONSE = {
     "description": (
@@ -468,10 +533,7 @@ _VALIDATION_RESPONSE = {
                     },
                     "code": {"type": "string", "example": "invalid_body"},
                 },
-                "additionalProperties": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
+                "additionalProperties": _VALIDATION_ERROR_DETAIL_REF,
             }
         }
     },

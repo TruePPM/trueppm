@@ -66,7 +66,7 @@ function projectDetail(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function baseSetup(page: Page) {
+async function baseSetup(page: Page, opts: { workspaceRole?: number | null } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -82,6 +82,12 @@ async function baseSetup(page: Page) {
   // being masked by a permissive 200-list body (the #1190 flake class).
   await setupCatchAll(page);
 
+  // `workspace_role` is a declared field on MeSerializer, so the real /auth/me
+  // always emits it (an int for any active user; null only for a deactivated
+  // membership). Omitting it here made the mock unrepresentable in production —
+  // and since #3314 the workspace methodology page fails closed on anything but
+  // a positively-resolved admin, so an absent field renders the whole section
+  // read-only and every editable-control assertion below fails. 300 = ADMIN.
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill(
       json({
@@ -90,6 +96,7 @@ async function baseSetup(page: Page) {
         display_name: 'Alice',
         initials: 'AL',
         email: 'alice@truescope.io',
+        workspace_role: opts.workspaceRole === undefined ? 300 : opts.workspaceRole,
       }),
     ),
   );
@@ -145,6 +152,46 @@ test.describe('Workspace methodology defaults', () => {
 
     await expect.poll(() => patchBody).not.toBeNull();
     expect(patchBody).toMatchObject({ methodology: 'AGILE', methodology_override_policy: 'inherit' });
+  });
+
+  // #3314 — the page must fail closed on its own, not lean on RequireWorkspaceAdmin.
+  // `workspace_role: null` is the one verdict that reaches this component: the guard
+  // redirects only on a *positively resolved* non-admin, so a resolved sub-admin role
+  // never renders the page at all, while a null (loading / errored / field-less
+  // /auth/me) falls through the guard by design. Before the fix that landed a
+  // non-admin on a live, editable form whose PATCH would 403.
+  test('fails closed — a null workspace_role renders the section read-only', async ({ page }) => {
+    await baseSetup(page, { workspaceRole: null });
+
+    let patched = false;
+    await page.route('**/api/v1/workspace/', async (r) => {
+      if (r.request().method() === 'PATCH') {
+        patched = true;
+      }
+      await r.fulfill(json(workspace()));
+    });
+
+    await page.goto('/settings/methodology');
+
+    const methodology = page.locator('[data-settings-section="methodology"]');
+
+    // The effective values stay legible — read-only, not hidden. ReadOnlyIndicator
+    // renders one composite labeled graphic per setting (ADR-0133), never a
+    // disabled input.
+    await expect(
+      methodology.getByRole('img', { name: /Default methodology: Waterfall/i }),
+    ).toBeVisible();
+    await expect(
+      methodology.getByRole('img', { name: /Program and project override policy: Suggest/i }),
+    ).toBeVisible();
+
+    // Every mutating control is gone — not merely disabled.
+    await expect(methodology.getByRole('radio')).toHaveCount(0);
+    await expect(methodology.getByRole('combobox')).toHaveCount(0);
+
+    // `apiReady: false` keeps the save bar unarmed, so no PATCH can be issued.
+    await expect(page.getByRole('button', { name: /Save changes/i })).toHaveCount(0);
+    expect(patched).toBe(false);
   });
 });
 
