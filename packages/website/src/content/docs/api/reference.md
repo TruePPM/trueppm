@@ -719,6 +719,12 @@ applications and poll one on an archived project. **Publishing from an archived
 project still works**, because extracting a template reads the source plan and
 writes nothing into it. Unarchive the target project first, then re-apply.
 
+**A `failed` application never leaves partial rows.** The claim and the
+materialization share one transaction, so any failure rolls the whole seed back —
+there is no half-applied state for a client to detect or clean up, `undo` has
+nothing to reverse, and `created_task_ids` stays empty. Poll for `error_detail`
+and surface it; that is the whole recovery surface.
+
 Because apply is asynchronous, a project archived *after* a `202` is refused at
 seeding time rather than at request time: the application lands on
 `status: "failed"` with `error_detail` naming the archived project, and no rows

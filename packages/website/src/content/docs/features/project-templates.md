@@ -93,7 +93,8 @@ state — so a project whose template is still applying never reads as one that
 failed to apply, and never invites you to type a first row into a plan that is
 about to be overwritten. The skeleton clears itself the moment the first rows
 arrive. This mirrors the "Setting up your backlog…" state an agile template shows
-on the product backlog.
+on the product backlog. An apply that genuinely *does* fail says so in as many
+words — see [When an apply doesn't finish](#when-an-apply-doesnt-finish) below.
 
 Once the rows have landed, a banner across the top states what just happened and
 gives you the fastest way to disagree with it:
@@ -115,6 +116,39 @@ wrote them.
 None of this is a commitment you have to act on. Dismiss the banner and keep
 working — the tick marks and the delete offer stay available for **seven days**
 after a row is seeded, whether or not you ever open the banner again.
+
+### When an apply doesn't finish
+
+Sometimes an apply fails — the template was deleted while the job sat in the
+queue, the project was archived after you asked for it, or the server hit an
+error part way through. The Schedule tells you, instead of leaving you on an
+empty project wondering whether anything happened at all:
+
+> **Couldn't apply "House shape".** Nothing was written. This project is exactly
+> as empty as it was before.
+
+The second sentence is a guarantee, not a soft landing. Seeding runs inside a
+single database transaction, so a failure rolls the whole thing back: a template
+never lands half-applied, and there is nothing left behind to find, clean up, or
+undo. Beneath the headline the banner shows the server's own reason, so you can
+tell *this template no longer exists* apart from *the database was briefly
+unreachable*.
+
+You have three ways forward:
+
+- **Try again** re-applies the same template to the same project. It appears for
+  **Project Manager** and above, and only while the template still exists — if it
+  has since been deleted, the banner says so rather than offering a button that
+  cannot work.
+- **Keep the empty project.** The ordinary blank schedule is right there under the
+  banner with the first row waiting for you. Nothing was written, so this project
+  is no different from any other new one.
+- **Start again from a different template** by creating a new project from the
+  gallery. Applying a *different* template to a project that already exists is not
+  something you can do yet.
+
+Dismiss the banner with **×** once you have decided. It appears on phones too,
+above the "No items yet" card.
 
 ### The Next strip
 
