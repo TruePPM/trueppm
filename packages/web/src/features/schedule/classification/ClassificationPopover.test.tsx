@@ -183,9 +183,65 @@ describe('ClassificationPopover', () => {
   });
 
   it('shows the failure inline and offers a retry rather than closing', () => {
-    setup({ error: 'Could not apply the classification.' });
-    expect(screen.getByTestId('classification-preview')).toHaveTextContent('Could not apply');
+    setup({
+      error: { message: "Couldn't apply the classification.", detail: null, retryable: true },
+    });
+    expect(screen.getByTestId('classification-error')).toHaveTextContent("Couldn't apply");
     expect(screen.getByTestId('classification-apply')).toHaveTextContent('Retry');
+  });
+
+  it('keeps the refusal out of the preview status region', () => {
+    // `role="status"` is implicitly atomic, so an error nested inside it makes AT
+    // re-read the whole preview before the sentence that matters (#3302).
+    setup({ error: { message: 'Nope.', detail: null, retryable: false } });
+    const slot = screen.getByTestId('classification-error');
+    expect(slot).toHaveAttribute('role', 'alert');
+    expect(screen.getByTestId('classification-preview')).not.toContainElement(slot);
+  });
+
+  it('drops a refusal as soon as the spec it described changes', async () => {
+    // The cap refusal's own copy tells the planner to turn off the cascade, so
+    // leaving the message up would instruct them to do what they just did.
+    setup({
+      error: {
+        message: 'Subtree resolves 2500 tasks, above the 2000-task cap.',
+        detail: 'Classify a smaller branch, or turn off \u201cCascade to descendants\u201d.',
+        retryable: false,
+      },
+    });
+    expect(screen.getByTestId('classification-error')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('classification-cascade'));
+    expect(screen.queryByTestId('classification-error')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Apply label on a refusal a retry cannot clear (#3302)', () => {
+    // The 403 is the case that made this matter: the popover used to relabel to
+    // "Retry", which is the one action guaranteed to be refused identically.
+    setup({
+      error: {
+        message: 'Your role cannot author 3 of the 12 tasks in this subtree.',
+        detail: null,
+        retryable: false,
+      },
+    });
+    expect(screen.getByTestId('classification-error')).toHaveTextContent(
+      'Your role cannot author 3 of the 12 tasks in this subtree.',
+    );
+    expect(screen.getByTestId('classification-apply')).toHaveTextContent('Apply to subtree');
+    expect(screen.getByTestId('classification-apply')).not.toHaveTextContent('Retry');
+  });
+
+  it('renders the structured second line under the message', () => {
+    setup({
+      error: {
+        message: 'Subtree resolves 2500 tasks, above the 2000-task cap.',
+        detail: '2500 tasks matched — the cap is 2000.',
+        retryable: false,
+      },
+    });
+    const slot = screen.getByTestId('classification-error');
+    expect(slot).toHaveTextContent('Subtree resolves 2500 tasks');
+    expect(slot).toHaveTextContent('the cap is 2000');
   });
 
   it('blocks a second submit while the first is in flight', async () => {

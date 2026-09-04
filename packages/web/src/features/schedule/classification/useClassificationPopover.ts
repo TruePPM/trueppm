@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
+import axios from 'axios';
 import { useClassifySubtree, type ClassificationApply } from '@/hooks/useTaskClassification';
 import { useUndoCascadeClassificationOperation, describeUndo } from '@/hooks/useBatchOperations';
+import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import type { Task } from '@/types';
 
 /**
@@ -25,17 +27,136 @@ export interface ClassificationAnnouncement {
   action?: { label: string; onClick: () => void };
 }
 
+/**
+ * A refused cascade, as the popover must present it (#3302).
+ *
+ * A record rather than a string because the button label is part of the answer.
+ * The endpoint refuses three distinct ways — a 403 naming how many rows the
+ * caller's role cannot author, a 400 `subtree_too_large` carrying the counts, and
+ * the 400 graph guard — and each is a decision the server has already made, so
+ * replaying the identical request is refused identically. A "Retry" offered there
+ * points at the one action guaranteed not to help.
+ *
+ * The graph guard's sentence still reads as raw ids rather than task names; that
+ * is a server-side message problem (TODO(#3333)) — surfacing it verbatim is still
+ * strictly better than the generic string it replaced.
+ */
+export interface ClassificationError {
+  /** The server's own sentence, or {@link CLASSIFICATION_FALLBACK} when it sent none. */
+  message: string;
+  /** A second line built from the refusal's structured fields; `null` when it has none. */
+  detail: string | null;
+  /** Whether replaying the identical request could plausibly succeed. */
+  retryable: boolean;
+}
+
+/** Shown only when the failure carries no readable server message (offline, opaque 5xx). */
+export const CLASSIFICATION_FALLBACK = "Couldn't apply the classification.";
+
 export interface ClassificationPopoverController {
   /** Open state, including the anchor the caller computed. `null` when closed. */
   state: { taskId: string; anchor: { x: number; y: number } } | null;
   /** The subtree root, resolved against `tasks`. `null` when closed or not found. */
   target: Task | null;
   isPending: boolean;
-  /** A message for the popover's inline error slot, or `null`. */
-  error: string | null;
+  /** The refusal for the popover's inline error slot, or `null`. */
+  error: ClassificationError | null;
   open: (taskId: string, anchor: { x: number; y: number }) => void;
   close: () => void;
   apply: (spec: ClassificationApply) => void;
+}
+
+/**
+ * Project a failed cascade onto what the popover renders.
+ *
+ * Pure and exported so the three refusal shapes can be driven through it
+ * directly — passing a finished string in as a prop tests the slot, not the
+ * wiring, which is how all three collapsed to one sentence unnoticed (#3302).
+ */
+export function describeClassificationError(error: unknown): ClassificationError | null {
+  if (error === null || error === undefined) return null;
+  const message = presentable(extractValidationMessage(error, CLASSIFICATION_FALLBACK));
+  return {
+    message,
+    detail: structuredDetail(error, message),
+    retryable: isRetryable(error),
+  };
+}
+
+/**
+ * Whether replaying the identical request could plausibly succeed.
+ *
+ * `isClientRejection`'s definition is the rule: a `4xx` is a decision the server
+ * has already made, so an identical replay is refused identically. Two `4xx`
+ * codes are the documented exception — they refuse the request's *timing*, not
+ * its content, and the same bytes sent later do succeed.
+ */
+const RETRYABLE_CLIENT_STATUSES = new Set([408, 429]);
+
+function isRetryable(error: unknown): boolean {
+  if (!isClientRejection(error)) return true;
+  const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+  return status !== undefined && RETRYABLE_CLIENT_STATUSES.has(status);
+}
+
+/** Longest server sentence worth showing inline before it stops being a sentence. */
+const MAX_MESSAGE_LENGTH = 300;
+
+/**
+ * Guard against a body that is not a message at all.
+ *
+ * A genuine crash on this endpoint never reaches DRF's JSON renderer — Django
+ * serves an HTML 500 page, and axios hands that whole page over as a string,
+ * which `extractValidationMessage` faithfully returns. Rendering it drops markup
+ * (or, under `DEBUG`, a traceback) into a 400px popover where a sentence belongs.
+ * Not a disclosure — anyone who can reach that response can read it in devtools —
+ * but it is unreadable, so fall back rather than paste it.
+ */
+function presentable(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed === '' || trimmed.startsWith('<') || trimmed.length > MAX_MESSAGE_LENGTH) {
+    return CLASSIFICATION_FALLBACK;
+  }
+  return trimmed;
+}
+
+/** What the planner can do about a cap refusal — the client's half of the message. */
+const SUBTREE_TOO_LARGE_REMEDY =
+  'Classify a smaller branch, or turn off “Cascade to descendants”.';
+
+/**
+ * The client's second line for a refusal that carries structured fields.
+ *
+ * Only `subtree_too_large` has one, and it is the **remedy**, not a re-narration:
+ * the server's `matched`/`max` exist "for a client that wants to branch without
+ * parsing the sentence" (its own comment), and `detail` already states both
+ * counts as prose — repeating them doubles the reading length of the one message
+ * the user is stuck on.
+ *
+ * The counts are still echoed when the sentence does not carry them, so a
+ * reworded `detail` can never leave the planner without the numbers they need to
+ * pick a smaller branch. DRF serializes both as strings (an int member of a
+ * `ValidationError` detail is a type error there), so they are echoed, never used
+ * as arithmetic.
+ */
+function structuredDetail(error: unknown, message: string): string | null {
+  if (!axios.isAxiosError(error)) return null;
+  const data: unknown = error.response?.data;
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  if (record.code !== 'subtree_too_large') return null;
+  const matched = readCount(record.matched);
+  const max = readCount(record.max);
+  if (matched === null || max === null) return SUBTREE_TOO_LARGE_REMEDY;
+  if (message.includes(matched) && message.includes(max)) return SUBTREE_TOO_LARGE_REMEDY;
+  return `${matched} tasks matched — the cap is ${max}. ${SUBTREE_TOO_LARGE_REMEDY}`;
+}
+
+/** A count as the server sent it, tolerating both the string DRF emits and a raw number. */
+function readCount(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return null;
 }
 
 export function useClassificationPopover({
@@ -135,11 +256,14 @@ export function useClassificationPopover({
     [projectId, classifyMut, announce, undoClassify],
   );
 
+  const classifyError = classifyMut.error;
+  const error = useMemo(() => describeClassificationError(classifyError), [classifyError]);
+
   return {
     state,
     target,
     isPending: classifyMut.isPending,
-    error: classifyMut.error !== null ? 'Could not apply the classification.' : null,
+    error,
     open,
     close,
     apply,
