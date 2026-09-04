@@ -2888,7 +2888,7 @@ describe('ScheduleView — the seeding effects (#3312)', () => {
   });
 
   it('falls through to the ordinary empty state after the 60s bounded exit', () => {
-    // Web rule 373(a). `running` has no terminal condition when the worker dies
+    // Web rule 374(a). `running` has no terminal condition when the worker dies
     // without writing one: the query keeps SUCCEEDING, so nothing errors and the
     // skeleton would pulse forever over a surface offering no row to type.
     vi.useFakeTimers();
@@ -2910,7 +2910,7 @@ describe('ScheduleView — the seeding effects (#3312)', () => {
   });
 
   it('re-derives the rows when the apply reports success', async () => {
-    // Web rule 373's corollary: `success` does NOT mean the rows are on screen.
+    // Web rule 374's corollary: `success` does NOT mean the rows are on screen.
     // They ride `task_created` WS events and the fallback poll is 30s on a healthy
     // socket, so without this the user is handed straight back to the
     // caret-stealing draft row the seeding state exists to withhold.
