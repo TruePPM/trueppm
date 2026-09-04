@@ -224,10 +224,18 @@ on the roadmap.
   **Cluster mode is not supported** — TruePPM uses four logical databases and a
   clustered endpoint exposes only one. See
   [Valkey HA](/administration/valkey-ha/).
-- **Postgres HA is not part of the chart.** Large-scale production hardening — HA
-  Postgres and a dedicated highly-available Valkey deployment — remains on the
-  pre-1.0 roadmap; today you bring your own HA database, the same as you would with
-  most self-hosted software.
+- **Postgres HA is not part of the chart today.** You bring your own HA database,
+  the same as you would with most self-hosted software. An operator-managed
+  in-cluster HA PostgreSQL mode with automatic failover and WAL archiving
+  ([#3403](https://gitlab.com/trueppm/trueppm/-/issues/3403)) and a replicated
+  in-cluster Valkey ([#3404](https://gitlab.com/trueppm/trueppm/-/issues/3404))
+  are planned for 0.5, under the
+  [cloud-native epic](https://gitlab.com/trueppm/trueppm/-/issues/3408).
+- **Where the OSS line sits.** Basic, single-cluster HA — surviving a pod or node
+  loss — is in the OSS core so self-hosters are not penalized for running their
+  own datastores. Advanced HA and disaster recovery — cross-region replication,
+  geo failover, active-active with leader-elected singletons, SLA-grade failover
+  evidence — is Enterprise.
 
 **If "no single point of failure" out of the box is a requirement, TruePPM is not
 there yet** — every tier can be made HA, but you assemble it yourself. See
@@ -240,7 +248,8 @@ Not a gap so much as a boundary, but evaluators should know where it falls. The
 following are enterprise-edition features and are **not** coming to the OSS core:
 portfolio dashboards and health scores across many programs, demand intake, custom
 roles, approval workflow chains, immutable audit trail, multi-tenancy, SAML/SCIM/LDAP
-identity governance, and cross-program resource leveling.
+identity governance, cross-region HA and disaster recovery, and cross-program
+resource leveling.
 
 What *is* in the OSS core: everything one project manager, program manager, or team
 needs to run their own program — including
