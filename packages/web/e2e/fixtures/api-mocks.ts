@@ -335,8 +335,8 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   );
   await page.route('**/api/v1/auth/me/', (route) => route.fulfill(jsonResponse(user)));
   await page.route('**/api/v1/calendars/', (route) => route.fulfill(jsonResponse(paginated([]))));
-  // WebSocket connection ticket (ADR-0141, #818). The project/workshop sockets
-  // mint a single-use ticket via this POST before opening; without the mock it
+  // WebSocket connection ticket (ADR-0141, #818). The project socket mints a
+  // single-use ticket via this POST before opening; without the mock it
   // 404s through setupCatchAll and the socket never opens (connection pill never
   // goes Live). The value is irrelevant — page.routeWebSocket matches on path.
   await page.route('**/api/v1/ws/ticket/', (route) =>
@@ -381,12 +381,6 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route('**/api/v1/projects/*/my-tasks/', (route) =>
     route.fulfill(jsonResponse({ tasks: [] })),
   );
-  await page.route('**/api/v1/projects/*/workshop/current/', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill(jsonResponse({ detail: 'No active workshop session.' }, 404));
-    }
-    return route.continue();
-  });
   await page.route('**/api/v1/projects/*/resource-allocation/**', (route) =>
     route.fulfill(
       jsonResponse({

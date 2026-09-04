@@ -1002,7 +1002,9 @@ The response is `200`, and it reports each axis separately:
   "skipped": [
     { "id": "9b40…c7", "code": "milestone_gate",
       "axes": ["governance_class", "delivery_mode"], "message": "…" }
-  ]
+  ],
+  "operation_id": "7c2e…9f",
+  "can_undo": true
 }
 ```
 
@@ -1040,7 +1042,9 @@ cascaded descendants with `true`.
   true.
 - A project whose dependency graph is already cyclic is a `400` (`cyclic_dependency`)
   — the cascade triggers a recalculation, and an infeasible graph is refused before
-  the schedule engine sees it.
+  the schedule engine sees it. `detail` names the tasks in the loop by WBS code and
+  name; `offending` carries their ids. See
+  [Errors and status codes](/api/errors/#400--refused-writes).
 - Re-sending an identical request writes nothing: rows already at the requested
   values report under `unchanged`, and no recalculation or broadcast is triggered.
 - When something does change, the schedule is recalculated and a
@@ -1048,6 +1052,23 @@ cascaded descendants with `true`.
 
 Authoring requires Team Member or above, with the same Resource Manager exclusion
 as batch task writes.
+
+##### Undoing a cascade
+
+Two fields on the response govern the undo, and they answer different questions —
+read **both** before offering an undo affordance.
+
+| Field | Answers | `null` / `false` means |
+|---|---|---|
+| `operation_id` | Is there a ledger row to reverse? | The cascade changed nothing, so nothing was recorded |
+| `can_undo` | May **this caller** reverse one? | Your role is below Admin on this project |
+
+`POST /api/v1/cascade-classification-operations/{operation_id}/undo/` reverses the
+cascade, and it requires **Admin or Owner** — a strictly higher floor than the Team
+Member the apply above admits. So a Member can receive a `200` here, with a real
+`operation_id`, and still be refused the undo. `can_undo` is that answer, computed
+from the same rule the undo endpoint enforces; read it rather than comparing role
+ordinals yourself, exactly as with `can_author` on the project resource.
 
 ### Task attachments
 

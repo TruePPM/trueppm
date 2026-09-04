@@ -85,6 +85,7 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
     TokenHasScope,
     can_user_edit_task,
+    can_user_undo_batch_operation,
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -9399,6 +9400,18 @@ class TaskClassificationView(IdempotencyMixin, APIView):
             raise DRFValidationError({"code": "invalid_graph_input", "detail": str(exc)}) from exc
 
         report["operation_id"] = operation_id
+        # #3304: apply and undo sit on DIFFERENT floors — this endpoint is
+        # `IsProjectPlanAuthor` (Member+ minus the resource band) and
+        # `/cascade-classification-operations/{id}/undo/` is Admin+. A Member
+        # therefore succeeds here and is refused there, so the receipt has to say
+        # which of the two the caller cleared; without it the client attaches an
+        # Undo that 403s inside an 8-second window with no second route to it.
+        #
+        # Pure authority, deliberately independent of `operation_id`: that field
+        # already answers "is there anything to undo", and folding both into one
+        # boolean would make a `false` mean either "no ledger row" or "not your
+        # role" with no way to tell them apart. The client requires both.
+        report["can_undo"] = can_user_undo_batch_operation(request, project.pk)
         return Response(report, status=status.HTTP_200_OK)
 
 

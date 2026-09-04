@@ -667,6 +667,164 @@ def test_a_cyclic_project_graph_blocks_the_cascade(
     assert a.delivery_mode == DeliveryMode.WATERFALL
 
 
+# ---------------------------------------------------------------------------
+# What the graph-guard refusal says (#3333)
+# ---------------------------------------------------------------------------
+
+
+def _cycle(*tasks: Task) -> None:
+    """Close a cycle through ``tasks`` with bulk_create, bypassing the per-edge check."""
+    ordered = list(tasks)
+    Dependency.objects.bulk_create(
+        [
+            Dependency(predecessor=pred, successor=succ)
+            for pred, succ in zip(ordered, [*ordered[1:], ordered[0]], strict=True)
+        ]
+    )
+
+
+def test_a_cycle_refusal_names_the_tasks_by_wbs_code_and_name(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """The acceptance criterion: findable in the plan, not a bare id triple.
+
+    ``"<WBS> — <name>"`` is the reference the Schedule itself prints wherever it
+    names a task outside its own row, so the sentence can be searched for verbatim.
+    """
+    a = Task.objects.get(project=project, name="Design")  # 1.1
+    b = Task.objects.get(project=project, name="Build")  # 1.3
+    _cycle(a, b)
+
+    r = _patch(owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.SCRUM)
+
+    assert r.status_code == 400, r.data
+    detail = str(r.data["detail"])
+    assert "1.1 — Design" in detail
+    assert "1.3 — Build" in detail
+    assert detail.startswith("Circular dependency:")
+    # The ids are gone from the prose — that is the whole regression.
+    assert str(a.pk) not in detail
+    assert str(b.pk) not in detail
+
+
+def test_the_refusal_keeps_the_structured_offending_id_list_unchanged(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """Existing clients branch and highlight rows on `offending`; only the prose moved."""
+    a = Task.objects.get(project=project, name="Design")
+    b = Task.objects.get(project=project, name="Build")
+    _cycle(a, b)
+
+    r = _patch(owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.SCRUM)
+
+    assert r.status_code == 400, r.data
+    offending = [str(node) for node in r.data["offending"]]
+    assert set(offending) == {str(a.pk), str(b.pk)}
+    # find_cycle closes the path on its first node, and that shape is part of the
+    # documented contract.
+    assert offending[0] == offending[-1]
+
+
+def test_a_self_referencing_task_is_named_rather_than_listed(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    a = Task.objects.get(project=project, name="Design")
+    Dependency.objects.bulk_create([Dependency(predecessor=a, successor=a)])
+
+    r = _patch(owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.SCRUM)
+
+    assert r.status_code == 400, r.data
+    assert r.data["code"] == "self_reference"
+    detail = str(r.data["detail"])
+    assert "1.1 — Design" in detail
+    assert str(a.pk) not in detail
+    assert [str(node) for node in r.data["offending"]] == [str(a.pk)]
+
+
+def test_an_unnamed_task_is_still_findable_by_its_wbs_code(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """A blank name must not print a dangling separator.
+
+    Nothing at the database level requires a name, and an import can write one
+    blank — the WBS code is then the only handle the reader has, so the sentence
+    has to lead with it rather than with `" — "`.
+    """
+    blank = _task(project, "", "1.5")
+    other = Task.objects.get(project=project, name="Design")
+    _cycle(blank, other)
+
+    r = _patch(owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.SCRUM)
+
+    assert r.status_code == 400, r.data
+    detail = str(r.data["detail"])
+    assert "1.5 — (unnamed task)" in detail
+
+
+def test_an_over_long_task_name_is_elided_not_pasted_whole(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    long_name = "Reconcile the legacy vendor ledger against the migrated cost baseline"
+    verbose = _task(project, long_name, "1.6")
+    other = Task.objects.get(project=project, name="Design")
+    _cycle(verbose, other)
+
+    r = _patch(owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.SCRUM)
+
+    assert r.status_code == 400, r.data
+    detail = str(r.data["detail"])
+    assert long_name not in detail
+    assert "1.6 — Reconcile the legacy" in detail
+    assert "…" in detail
+
+
+def test_a_long_cycle_elides_its_middle_and_stays_under_the_client_cap(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """A 200-task cycle must not produce a 200-name sentence.
+
+    The ceiling is not cosmetic: the classification popover replaces any server
+    message over 300 characters with its generic fallback, so an unbounded sentence
+    would cost the planner the very names this endpoint went to the trouble of
+    resolving.
+    """
+    members = [_task(project, f"Step {i}", f"3.{i}") for i in range(1, 201)]
+    _cycle(*members)
+
+    r = _patch(owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.SCRUM)
+
+    assert r.status_code == 400, r.data
+    detail = str(r.data["detail"])
+    assert "more)" in detail
+    assert len(detail) <= 300
+    # Every member is still on the structured field, which is what a client that
+    # wants to highlight all 200 rows reads.
+    assert len(r.data["offending"]) == 201
+
+
+def test_label_resolution_reads_only_the_rows_the_sentence_will_print(
+    project: Project, django_assert_num_queries: Any
+) -> None:
+    """One query, and it fetches four rows out of a 201-node cycle — not 201.
+
+    The sentence names at most `MAX_CYCLE_LABELS` members, so resolving the whole
+    loop would materialize rows only to discard them. `nodes_to_label` is what keeps
+    the lookup and the rendering agreeing about which four those are.
+    """
+    from trueppm_api.apps.projects.task_classification import _offending_task_labels
+
+    members = [_task(project, f"Step {i}", f"4.{i}") for i in range(1, 201)]
+    path = [str(t.pk) for t in members] + [str(members[0].pk)]
+
+    with django_assert_num_queries(1):
+        labels = _offending_task_labels(project.pk, path)
+
+    # Three rows, not 201: the four rendered positions are the head three plus the
+    # repeated first node that closes the loop.
+    assert len(labels) == 3
+    assert labels[str(members[0].pk)] == "4.1 — Step 1"
+
+
 def test_a_no_op_cascade_skips_the_graph_guard_entirely(
     owner_client: APIClient, project: Project, phase: Task
 ) -> None:

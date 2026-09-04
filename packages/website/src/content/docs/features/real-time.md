@@ -104,7 +104,7 @@ prevent — and every way it fails looks reassuring rather than broken, which is
 not drawing it. Any edit-awareness TruePPM adds will be advisory for that reason: it may
 tell you someone else is typing, and it will never stop you typing.
 
-Beyond these, the catalog also covers comments, attachments, assignments and roster changes, board configuration and saved views, programs, project lifecycle, and workshops — see the [WebSocket API reference](/api/websockets/) for the full taxonomy and the WebSocket ↔ webhook event mapping.
+Beyond these, the catalog also covers comments, attachments, assignments and roster changes, board configuration and saved views, programs, and project lifecycle — see the [WebSocket API reference](/api/websockets/) for the full taxonomy and the WebSocket ↔ webhook event mapping.
 
 ## Broadcast safety
 
