@@ -23,6 +23,17 @@ Clients (web, mobile, MCP) read the serializer's ``effective_surface_visibility`
 they never re-implement this map. There is no ENFORCE/lock seam — this is a
 per-project preference, not a cross-scope policy, so nothing degrades to SUGGEST
 and no enterprise provider registers against it.
+
+**Three of the four keys have a reader; ``time_tracking`` has none** (#3376). That
+sentence above is true for ``reporting`` (the tab filter), ``baselines`` (the task
+drawer's comparison section) and ``monte_carlo`` (the Schedule forecast bar), and
+false for ``time_tracking`` on every client — web and mobile alike. This module
+still resolves all four, and the serializer still serves all four, because the
+column, the methodology default and the API contract are unchanged; what is
+missing is a consumer. An integrator reading ``effective_surface_visibility``
+should treat ``time_tracking`` as a stored preference, not as a statement about
+what any surface will render. See ``Project.show_time_tracking`` and
+``config_notice.ENFORCED_SURFACE_KEYS``.
 """
 
 from __future__ import annotations

@@ -8,6 +8,7 @@ import zoneinfo
 from functools import partial
 from typing import Any, cast
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.schema_migrations import migrate_payload
@@ -336,6 +337,47 @@ _VALID_EVENT_TYPES = {choice.value for choice in ProjectNotificationEventType}
 _VALID_CHANNELS = {choice.value for choice in ProjectNotificationChannel}
 
 
+#: The published shape of the notification matrix (#3364).
+#:
+#: A bare ``JSONField`` carries no schema hint, so drf-spectacular publishes it as
+#: ``{}`` — "any JSON at all". That is not a small imprecision on this field: it is
+#: the only thing ``PATCH .../notification-preferences/`` exists to write, and the
+#: field below rejects every key outside the two enumerations with a 400. Declaring
+#: the body while leaving its one field untyped would tell an integrator "send some
+#: JSON" and 400 on every guess — the same gap #3364 closes one level up.
+#:
+#: Derived from the enums rather than restated, so a new event type or channel
+#: reaches the published contract without a second edit that can be forgotten.
+#:
+#: ``propertyNames`` is JSON Schema, not OpenAPI 3.0 Schema Object — this project
+#: publishes ``openapi: 3.0.3`` (see ``docs/api/openapi.json``), whose meta-schema
+#: has no such keyword and rejects the whole object under ``additionalProperties``'
+#: ``oneOf`` the moment it appears anywhere in the tree. The two enumerations are
+#: small and closed, so each key is spelled out explicitly under ``properties``
+#: instead, with ``additionalProperties: False`` doing the same "no unknown key"
+#: rejection ``propertyNames`` would have — this is what "9×4 grid" means literally.
+_PROJECT_NOTIFICATION_MATRIX_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Per-event, per-channel routing grid. Keys are event types; each value is "
+        "an object of channel to boolean. A PATCH may send a partial grid — the "
+        "supplied cells are merged onto the stored ones, so a single toggle need "
+        "not repost the whole matrix. Any key outside these two enumerations, or "
+        "any non-boolean leaf, is rejected with a 400."
+    ),
+    "properties": {
+        event_type: {
+            "type": "object",
+            "properties": {channel: {"type": "boolean"} for channel in sorted(_VALID_CHANNELS)},
+            "additionalProperties": False,
+        }
+        for event_type in sorted(_VALID_EVENT_TYPES)
+    },
+    "additionalProperties": False,
+}
+
+
+@extend_schema_field(_PROJECT_NOTIFICATION_MATRIX_SCHEMA)
 class _ProjectNotificationMatrixField(serializers.JSONField):
     """JSON matrix `{event_type: {channel: bool}}` with strict key validation.
 

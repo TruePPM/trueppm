@@ -270,11 +270,23 @@ def role_can_undo_batch_operation(role: int | None) -> bool:
     Admin+, which is a **higher floor than the writes it reverses**: paste-many and
     the classification cascade are both ``IsProjectPlanAuthor`` (Member+ minus the
     resource-management band), so a Member can author a batch they may not undo.
-    That asymmetry is deliberate — undoing removes work other collaborators may
-    already be building on top of — but it is exactly why this has to be a *shared*
-    predicate rather than an inline comparison at each site: the apply endpoint has
-    to be able to tell the client which of the two floors the caller cleared, and a
-    client that re-derives the rule drifts from it (#3304).
+    **Whether that asymmetry is right is OPEN — see #3355.** Do not read the floor
+    here as settled, and in particular do not justify it with the sentence this
+    docstring used to carry ("undoing removes work other collaborators may already be
+    building on top of"). All three batch undos partition their snapshot on
+    ``server_version`` via ``task_batch_services._partition_touched`` and write back
+    only the untouched rows, reporting the rest as ``kept`` — so a row another
+    collaborator has changed is left alone by construction and that hazard is
+    unreachable. ADR-0880 §4 reached the same conclusion for structural undo (which
+    *refuses* rather than skipping) and implements actor-or-Admin on it; ADR-0810
+    says only "mirroring template-apply", and template-apply is symmetric
+    (apply Admin+ *and* undo Admin+), so the asymmetry here came from copying half
+    of a symmetric rule onto writes whose apply floor is Member+.
+
+    What is settled, and is why this is a *shared* predicate rather than an inline
+    comparison at each site: the apply endpoint has to tell the client which of the
+    two floors the caller cleared, and a client that re-derives the rule drifts from
+    it (#3304).
 
     A threshold, not a band exclusion, so the ADR-0072 band contract applies: an
     Enterprise custom role registered in the 301-399 project-lead band inherits it.

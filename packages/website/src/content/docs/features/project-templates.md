@@ -86,8 +86,17 @@ For a waterfall or hybrid template, applying it lands you straight on the
 have to leave to find it. An agile template still lands on Overview today — its
 own backlog landing is separate, later work.
 
-A banner across the top states what just happened and gives you the fastest way
-to disagree with it:
+Because seeding runs in the background, the Schedule can be genuinely empty for a
+moment after you land on it. While the rows are still being written it shows a
+brief **"Setting up your schedule…"** skeleton instead of the ordinary empty
+state — so a project whose template is still applying never reads as one that
+failed to apply, and never invites you to type a first row into a plan that is
+about to be overwritten. The skeleton clears itself the moment the first rows
+arrive. This mirrors the "Setting up your backlog…" state an agile template shows
+on the product backlog.
+
+Once the rows have landed, a banner across the top states what just happened and
+gives you the fastest way to disagree with it:
 
 - **What was written** — the template's name, and how many rows, milestones and
   dependencies it created, plus which calendar they were scheduled against.

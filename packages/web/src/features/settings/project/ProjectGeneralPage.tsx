@@ -871,13 +871,20 @@ export function ProjectGeneralPage() {
             />
           </FieldRow>
 
+          {/* One reader: notifications.services._project_timezone, the quiet-hours
+              anchor. It does NOT drive due dates, Gantt rendering or sprint
+              cutovers — a task's start/finish are calendar dates and no zone can
+              move them — and it does not decide how dates are shown to you, which
+              follows your own Profile.timezone (ADR-0410). The copy said all four
+              (#3376). "Workspace default" is the option's historical label; the
+              real fallback is settings.TIME_ZONE, hardcoded UTC — #3377. */}
           <FieldRow
             label="Timezone"
-            hint="Used for due dates, Gantt rendering, and sprint cutovers."
+            hint="Anchors this project's quiet hours. It does not change how dates are shown to you."
             help={fieldHelp({
               label: 'Timezone',
-              body: "The timezone due dates, Gantt rendering, and sprint cutovers are interpreted in. It's display-only — changing it never shifts a task's stored calendar dates. Leave it on Workspace default to follow the workspace setting.",
-              docHref: 'features/timezone-and-date-format/#timezone',
+              body: "This project's clock for one thing: the quiet-hours window that holds back its notifications overnight. It does not affect what you see — task dates are calendar dates, so no timezone moves them, and timestamps are shown in your own timezone from your profile. Leaving it on Workspace default falls back to the server's timezone, which is UTC.",
+              docHref: 'administration/project-settings/#general',
             })}
           >
             <div className="relative inline-block w-[280px]">
@@ -948,7 +955,22 @@ export function ProjectGeneralPage() {
             </div>
           </FieldRow>
 
-          <FieldRow label="Default view">
+          {/* Pattern C (#3234): the select stays enabled and the copy stops
+              over-claiming. Nothing navigational reads default_view — /projects/:id
+              redirects on lensDefaultView(user.role_context) per ADR-0162, a
+              per-user frame that never consults the project column. The one
+              consumer is cosmetic (the blank-schedule facts strip). Kept editable
+              rather than disabled because it IS a real project-level statement of
+              intent; whether it should beat the lens is #3380, not a wiring bug. */}
+          <FieldRow
+            label="Default view"
+            hint="Saved here, but it does not decide where you land — opening a project follows your own role-context lens."
+            help={fieldHelp({
+              label: 'Default view',
+              body: "The view this project states it leads with. TruePPM does not route on it: opening a project takes you to the view your own role context prefers — Schedule for a delivery lens, Board for a Scrum Master lens — so two people opening the same project land in different places regardless of what is set here. The value is saved, returned by the API, and shown on an empty schedule as one of the project's stated facts.",
+              docHref: 'administration/project-settings/#general',
+            })}
+          >
             <div className="relative inline-block w-[200px]">
               <select
                 value={defaultView}

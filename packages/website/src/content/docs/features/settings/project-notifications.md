@@ -93,7 +93,11 @@ Quiet hours hold back **transient** interruptions during a daily window — emai
 
 In-app notifications are deliberately **exempt** from quiet hours. The in-app inbox row *is* the notification: suppressing it would lose the event outright rather than defer a ping. So during quiet hours the durable in-app record is always written, and only the transient channels are silenced. This mirrors how Slack and GitHub do-not-disturb behave — the record persists, only the interruption is held back.
 
-The window is the project's timezone (falling back to the workspace default, then UTC). A zero-width window (from equals until) means "no quiet hours".
+The window is read in the project's own **Time zone** — set on
+[Project Settings → General](/administration/project-settings/#general), and the only
+thing that setting affects. When it is left blank the window falls back to the server's
+time zone, which is UTC; the *workspace* time zone is **not** part of that chain. A
+zero-width window (from equals until) means "no quiet hours".
 
 ### Wrapping past midnight
 
