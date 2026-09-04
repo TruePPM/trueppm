@@ -849,6 +849,85 @@ def test_a_preset_switch_never_names_time_tracking_even_when_it_flips(
     assert "Time tracking" not in body
 
 
+@pytest.mark.django_db
+def test_a_suppressed_notice_says_why_in_the_log(
+    project: Project, django_capture_on_commit_callbacks: Any, caplog: Any
+) -> None:
+    """The suppression must not be a silent non-event (#3376).
+
+    An operator can see the write in ``HistoricalProject`` and see zero
+    Notification rows, and nothing connects the two — so "I hid Time tracking and
+    nobody was told, is the notice system broken?" is answerable only by reading a
+    frozenset in ``config_notice``. One log line at the moment of suppression
+    makes the decision visible where it takes effect.
+
+    Asserted on the DELIBERATE case only: an ordinary no-op write (nothing moved
+    at all) must stay quiet, or the line becomes the noise this module exists to
+    refuse.
+    """
+    import logging
+
+    actor = member(project, Role.ADMIN, "pm")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="P0")
+
+    with (
+        caplog.at_level(logging.INFO, logger="trueppm_api.apps.projects.config_notice"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = client_for(actor).patch(
+            f"/api/v1/projects/{project.pk}/", data={"show_time_tracking": False}, format="json"
+        )
+    assert resp.status_code == 200
+    assert inbox(priya) == []
+    assert "surface notice suppressed" in caplog.text
+    assert "time_tracking" in caplog.text
+
+    # A genuine no-op stays silent — the diagnostic fires on the suppression, not
+    # on every unchanged save.
+    caplog.clear()
+    with (
+        caplog.at_level(logging.INFO, logger="trueppm_api.apps.projects.config_notice"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        client_for(actor).patch(
+            f"/api/v1/projects/{project.pk}/", data={"name": "Atlas II"}, format="json"
+        )
+    assert "surface notice suppressed" not in caplog.text
+
+
+def test_the_notice_speaks_for_every_surface_except_the_one_with_no_reader() -> None:
+    """Pin the two surface maps against the LIVE ``SURFACE_KEYS`` tuple (#3376).
+
+    ``ENFORCED_SURFACE_KEYS`` is an allowlist, so a fifth surface added to
+    ``SURFACE_KEYS`` later is absent from it **by default** — and that failure is
+    in the quiet direction: the notice simply never mentions the new surface, and
+    nothing observes a notification that did not happen. Asserting
+    ``"time_tracking" not in ENFORCED_SURFACE_KEYS`` cannot see it; asserting the
+    *relationship* can.
+
+    ``SURFACE_LABELS`` is pinned here too because it is the same drift from the
+    other side: ``_join_labels`` falls back to ``.get(k, k)``, so a key with no
+    label puts a raw column name ("monte_carlo") into user-facing notice copy.
+    This change deliberately made that map wider than the enforced set, which is
+    exactly when an unpinned pair stops being observable in either direction.
+    """
+    from trueppm_api.apps.projects.config_notice import (
+        ENFORCED_SURFACE_KEYS,
+        SURFACE_LABELS,
+    )
+    from trueppm_api.apps.projects.surface_visibility import SURFACE_KEYS
+
+    # Non-vacuity first: an empty registry would satisfy the label assertion below
+    # while proving nothing, which is how a pinning test goes quietly useless.
+    assert len(SURFACE_KEYS) >= 4
+
+    # Every surface is either spoken for by the notice or is the one documented
+    # exception. A new key lands in neither and fails here.
+    assert set(ENFORCED_SURFACE_KEYS) | {"time_tracking"} == set(SURFACE_KEYS)
+    assert set(SURFACE_LABELS) == set(SURFACE_KEYS)
+
+
 # ---------------------------------------------------------------------------
 # RBAC — all five roles
 # ---------------------------------------------------------------------------
