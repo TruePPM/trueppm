@@ -112,8 +112,8 @@ vi.mock('@/hooks/useBoardConfig', () => ({
   }),
 }));
 
-// Shared create-task spy (#2459) so tests can assert what quick capture and the
-// workshop "add phase" affordance actually POST, and drive their onError paths.
+// Shared create-task spy (#2459) so tests can assert what quick capture
+// actually POSTs, and drive its onError path.
 const createTaskMutate =
   vi.fn<
     (
@@ -121,7 +121,7 @@ const createTaskMutate =
       opts?: { onError?: (e: Error) => void; onSuccess?: () => void },
     ) => void
   >();
-/** Shared update-task spy (#2459) — the workshop phase-rename write path. */
+/** Shared update-task spy (#2459). */
 const updateTaskMutate = vi.fn<(body: Record<string, unknown>) => void>();
 // The empty-board CTA navigates into the Designer rather than opening a modal
 // (#2952). `MemoryRouter` still provides the real Routes context; only the
@@ -199,32 +199,6 @@ vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     user: { display_name: 'Test User', initials: 'TU' },
     isLoading: false,
-  }),
-}));
-
-// Workshop hooks — mutable so individual tests can simulate an active session
-// and exercise the workshop-mode branches in BoardView (banner, exit dialog).
-let mockWorkshopSession: {
-  id: string;
-  project_id: string;
-  started_by_id: string | null;
-  started_at: string;
-  ended_at: string | null;
-  participants: never[];
-} | null = null;
-const startWorkshopMutate = vi.fn();
-const endWorkshopMutate = vi.fn();
-let mockEndWorkshopPending = false;
-
-vi.mock('@/hooks/useWorkshopSession', () => ({
-  useWorkshopSession: () => ({ data: mockWorkshopSession, isLoading: false }),
-  useStartWorkshop: () => ({
-    mutate: startWorkshopMutate,
-    isPending: false,
-  }),
-  useEndWorkshop: () => ({
-    mutate: endWorkshopMutate,
-    isPending: mockEndWorkshopPending,
   }),
 }));
 
@@ -363,10 +337,6 @@ function resetMocks() {
   mockSavedViews = [];
   mockCreateMutate.mockReset();
   updateMutate.mockReset();
-  startWorkshopMutate.mockReset();
-  endWorkshopMutate.mockReset();
-  mockWorkshopSession = null;
-  mockEndWorkshopPending = false;
   mockProjectResourcePool = [];
   mockOverallocByPair = new Map<string, number>();
   mockDepPredecessors = [];
@@ -1170,145 +1140,6 @@ describe('BoardView', () => {
     renderBoard();
     await setBoardDensity(user, 'detailed');
     expect(localStorage.getItem('trueppm.board.density')).toBe('detailed');
-  });
-
-  // -------------------------------------------------------------------------
-  // ADR-0046 — Workshop mode (banner, exit dialog, focus trap)
-  // -------------------------------------------------------------------------
-
-  it('renders the workshop toggle in non-workshop mode (ADR-0046)', async () => {
-    const user = userEvent.setup();
-    renderBoard();
-    await openMore(user);
-    expect(screen.getByRole('button', { name: 'Start workshop session' })).toBeInTheDocument();
-  });
-
-  it('starting workshop mode calls startWorkshop.mutate (ADR-0046)', async () => {
-    const user = userEvent.setup();
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-    expect(startWorkshopMutate).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows the workshop banner when a session is active and workshop mode is on (ADR-0046)', async () => {
-    // Pre-set the session and have startWorkshop's mutate invoke onSuccess so
-    // workshopMode flips to true after the toggle is clicked.
-    mockWorkshopSession = {
-      id: 'session-uuid',
-      project_id: 'project-1',
-      started_by_id: 'user-1',
-      started_at: '2026-04-29T10:00:00Z',
-      ended_at: null,
-      participants: [],
-    };
-    startWorkshopMutate.mockImplementation(
-      (_input: undefined, opts?: { onSuccess?: () => void }) => {
-        opts?.onSuccess?.();
-      },
-    );
-    const user = userEvent.setup();
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-    expect(screen.getByLabelText('Workshop session active')).toBeInTheDocument();
-  });
-
-  it('clicking the toggle while in workshop mode opens the exit confirm dialog (ADR-0046)', async () => {
-    mockWorkshopSession = {
-      id: 'session-uuid',
-      project_id: 'project-1',
-      started_by_id: 'user-1',
-      started_at: '2026-04-29T10:00:00Z',
-      ended_at: null,
-      participants: [],
-    };
-    startWorkshopMutate.mockImplementation(
-      (_input: undefined, opts?: { onSuccess?: () => void }) => {
-        opts?.onSuccess?.();
-      },
-    );
-    const user = userEvent.setup();
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
-    expect(screen.getByRole('dialog', { name: /End workshop session/ })).toBeInTheDocument();
-  });
-
-  it('cancel in the exit dialog dismisses it without ending the session (ADR-0046)', async () => {
-    mockWorkshopSession = {
-      id: 'session-uuid',
-      project_id: 'project-1',
-      started_by_id: 'user-1',
-      started_at: '2026-04-29T10:00:00Z',
-      ended_at: null,
-      participants: [],
-    };
-    startWorkshopMutate.mockImplementation(
-      (_input: undefined, opts?: { onSuccess?: () => void }) => {
-        opts?.onSuccess?.();
-      },
-    );
-    const user = userEvent.setup();
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('dialog', { name: /End workshop session/ })).not.toBeInTheDocument();
-    expect(endWorkshopMutate).not.toHaveBeenCalled();
-  });
-
-  it('confirming end in the exit dialog calls endWorkshop.mutate (ADR-0046)', async () => {
-    mockWorkshopSession = {
-      id: 'session-uuid',
-      project_id: 'project-1',
-      started_by_id: 'user-1',
-      started_at: '2026-04-29T10:00:00Z',
-      ended_at: null,
-      participants: [],
-    };
-    startWorkshopMutate.mockImplementation(
-      (_input: undefined, opts?: { onSuccess?: () => void }) => {
-        opts?.onSuccess?.();
-      },
-    );
-    endWorkshopMutate.mockImplementation((_input: undefined, opts?: { onSettled?: () => void }) => {
-      opts?.onSettled?.();
-    });
-    const user = userEvent.setup();
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
-    // The dialog renders a primary "End Workshop" button alongside Cancel.
-    await user.click(screen.getByRole('button', { name: 'End Workshop' }));
-    expect(endWorkshopMutate).toHaveBeenCalledTimes(1);
-  });
-
-  it('Escape in the exit dialog dismisses it (ADR-0046)', async () => {
-    mockWorkshopSession = {
-      id: 'session-uuid',
-      project_id: 'project-1',
-      started_by_id: 'user-1',
-      started_at: '2026-04-29T10:00:00Z',
-      ended_at: null,
-      participants: [],
-    };
-    startWorkshopMutate.mockImplementation(
-      (_input: undefined, opts?: { onSuccess?: () => void }) => {
-        opts?.onSuccess?.();
-      },
-    );
-    const user = userEvent.setup();
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
-    const dialog = screen.getByRole('dialog', { name: /End workshop session/ });
-    fireEvent.keyDown(dialog, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: /End workshop session/ })).not.toBeInTheDocument();
   });
 
   // -------------------------------------------------------------------------
@@ -2502,59 +2333,6 @@ describe('lens filters (At-risk / Tech debt)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Workshop exit-confirm dialog focus trap (Tab cycling). The Escape path is
-// covered above; this exercises the Tab / Shift+Tab wrap.
-// ---------------------------------------------------------------------------
-describe('workshop exit dialog focus trap', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetMocks();
-  });
-
-  async function openExitDialog(user: UE) {
-    mockWorkshopSession = {
-      id: 'session-uuid',
-      project_id: 'project-1',
-      started_by_id: 'user-1',
-      started_at: '2026-04-29T10:00:00Z',
-      ended_at: null,
-      participants: [],
-    };
-    startWorkshopMutate.mockImplementation((_input: undefined, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
-    );
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
-    return screen.getByRole('dialog', { name: /End workshop session/ });
-  }
-
-  it('Tab from the last control wraps focus to the first', async () => {
-    const user = userEvent.setup();
-    const dialog = await openExitDialog(user);
-    const buttons = within(dialog).getAllByRole('button');
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    last.focus();
-    expect(document.activeElement).toBe(last);
-    fireEvent.keyDown(dialog, { key: 'Tab' });
-    expect(document.activeElement).toBe(first);
-  });
-
-  it('Shift+Tab from the first control wraps focus to the last', async () => {
-    const user = userEvent.setup();
-    const dialog = await openExitDialog(user);
-    const buttons = within(dialog).getAllByRole('button');
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    first.focus();
-    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
-    expect(document.activeElement).toBe(last);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Collapsed-column WIP-breach popover (issue 1459, VoC Alex). Folding a column
 // that sits at/over its WIP limit keeps the breach visible as a tappable chip
 // in the collapsed-columns banner; the popover lists every breaching column and
@@ -2975,11 +2753,11 @@ describe('mobile create FAB (#605)', () => {
 // ===========================================================================
 // Branch-coverage sweep (#2459)
 //
-// Drives the board paths the suite above never reached: quick capture, workshop
-// authoring writes, PDF export, overallocation regrouping, the dep-chain hover
+// Drives the board paths the suite above never reached: quick capture, PDF
+// export, overallocation regrouping, the dep-chain hover
 // dim set, facet seeding from a shared link / localStorage, search dimming, and
-// the keyboard-navigation guards. Most drag-driven paths (dropOnBacklogBand /
-// reorderPhases) are deliberately absent — @dnd-kit's sensors need real layout
+// the keyboard-navigation guards. Most drag-driven paths (dropOnBacklogBand)
+// are deliberately absent — @dnd-kit's sensors need real layout
 // rects, which jsdom does not provide. `dropOnCell` is the exception (#2681
 // below): its decision logic never touches layout, so a synthetic onDragEnd
 // fired through a mocked DndContext exercises it directly — the same pattern
@@ -3061,13 +2839,11 @@ function reset2459() {
 // -------------------------------------------------------------------------
 // Cross-phase drop re-parenting (issue #2681)
 //
-// `dropOnCell` used to gate the parentId patch on `workshopMode`, so a
-// cross-phase drag outside Workshop mode moved the status but left the card
-// parented to its original phase — it snapped back into the source lane on
-// the next render. That gate was an oversight (workshopMode always implies
-// phase grouping, but a non-workshop board with the default phase grouping
-// hit the same gate), so the fix keys on `groupMode === 'phase'` instead —
-// every phase-lane drop re-parents regardless of workshop mode.
+// `dropOnCell` used to gate the parentId patch on a board mode toggle, so a
+// cross-phase drag on the default phase-grouped board moved the status but
+// left the card parented to its original phase — it snapped back into the
+// source lane on the next render. The fix keys on `groupMode === 'phase'`,
+// so every phase-lane drop re-parents.
 // -------------------------------------------------------------------------
 describe('cross-phase drop re-parenting (#2681)', () => {
   beforeEach(reset2459);
@@ -3109,7 +2885,7 @@ describe('cross-phase drop re-parenting (#2681)', () => {
     status: 'BACKLOG',
   };
 
-  it('sends the new parentId on a cross-phase drop outside Workshop mode, matching Workshop-mode behavior', () => {
+  it('sends the new parentId on a cross-phase drop on a phase-grouped board', () => {
     // Regression case for #2681: before the fix, this drop moved the card's
     // status to IN_PROGRESS but never patched parentId, so the card snapped
     // back into Phase A's lane on the next fetch — a "half worked" drop.
@@ -3194,62 +2970,6 @@ describe('backlog quick capture (#2459)', () => {
   });
 });
 
-describe('workshop authoring writes (#2459)', () => {
-  beforeEach(reset2459);
-
-  async function enterWorkshop(user: UE) {
-    mockWorkshopSession = {
-      id: 'session-uuid',
-      project_id: 'project-1',
-      started_by_id: 'user-1',
-      started_at: '2026-04-29T10:00:00Z',
-      ended_at: null,
-      participants: [],
-    };
-    startWorkshopMutate.mockImplementation((_input: undefined, opts?: { onSuccess?: () => void }) =>
-      opts?.onSuccess?.(),
-    );
-    renderBoard();
-    await openMore(user);
-    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
-  }
-
-  it('creates the next numbered phase from "+ Add Phase"', async () => {
-    const user = userEvent.setup();
-    await enterWorkshop(user);
-    await user.click(screen.getByRole('button', { name: /Add Phase/i }));
-    // A new phase is a zero-duration root task auto-named from the lane count.
-    expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: expect.stringMatching(/^Phase \d+$/) as unknown as string,
-        duration: 0,
-        parent_id: null,
-      }),
-      expect.any(Object),
-    );
-  });
-
-  it('renames a phase through the inline lane title', async () => {
-    const user = userEvent.setup();
-    await enterWorkshop(user);
-    const title = screen.getByRole('textbox', { name: 'Phase name: Alpha Platform Upgrade' });
-    title.textContent = 'Alpha Rebuild';
-    fireEvent.blur(title);
-    expect(updateTaskMutate).toHaveBeenCalledWith({
-      id: 't1',
-      projectId: 'project-1',
-      name: 'Alpha Rebuild',
-    });
-  });
-
-  it('does not write a rename when the lane title is left unchanged', async () => {
-    const user = userEvent.setup();
-    await enterWorkshop(user);
-    const title = screen.getByRole('textbox', { name: 'Phase name: Alpha Platform Upgrade' });
-    fireEvent.blur(title);
-    expect(updateTaskMutate).not.toHaveBeenCalled();
-  });
-});
 
 describe('board PDF export (#2459)', () => {
   beforeEach(reset2459);

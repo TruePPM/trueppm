@@ -97,7 +97,6 @@ LOCAL_APPS = [
     "trueppm_api.apps.csvimport",
     "trueppm_api.apps.webhooks",
     "trueppm_api.apps.taskruns",
-    "trueppm_api.apps.workshops",
     "trueppm_api.apps.notifications",
     "trueppm_api.apps.integrations",
     "trueppm_api.apps.observability",
@@ -2074,7 +2073,6 @@ SPECTACULAR_SETTINGS = {
             "name": "sync",
             "description": "Offline delta-sync protocol and WebSocket connection tickets.",
         },
-        {"name": "workshops", "description": "Collaborative planning workshops."},
         {
             "name": "share",
             "description": "Public read-only board share links: mint, list, revoke, and the "
