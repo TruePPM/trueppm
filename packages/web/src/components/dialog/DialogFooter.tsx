@@ -78,7 +78,7 @@ export function DialogFooter({
     // over the buttons rather than clip or scroll (web-rule 354c). 8px + 40px +
     // 8px is the same 56px whenever there is no refusal to show.
     <div className="min-h-14 shrink-0 border-t border-neutral-border px-4 py-2">
-      <RefusalAlert refusal={error} testId="dialog-footer-error" className="mb-2 text-xs" />
+      <RefusalAlert refusal={error} testId="dialog-footer-error" className="mb-2" />
       <div className="flex min-h-10 items-center justify-end gap-2">
         {validationMessage ? (
           <span role="alert" className="mr-auto text-xs text-semantic-critical">

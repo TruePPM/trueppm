@@ -15,10 +15,20 @@ const h = vi.hoisted(() => {
         opts?: { onSuccess?: () => void },
       ) => void
     >();
-  return {
+  // `reset` models TanStack's: it CLEARS the error. A bare spy would let a
+  // call-count assertion pass while the stale sentence is still on screen
+  // (web-rule 374).
+  const state = {
     mutate,
-    state: { mutate, isPending: false, isError: false, error: null as unknown },
+    isPending: false,
+    isError: false,
+    error: null as unknown,
+    reset: () => {
+      state.isError = false;
+      state.error = null;
+    },
   };
+  return { mutate, state };
 });
 
 vi.mock('../hooks/useProductBacklog', () => ({
@@ -155,11 +165,16 @@ describe('EpicDetailDrawer (#1346)', () => {
   });
 
   it("surfaces the SERVER's refusal, and no retry advice on a 403 (#3332)", () => {
+    // Dirty FIRST, then the refusal lands. An edit RETIRES the refusal
+    // (web-rule 374), so a spec that seeds the error before typing retires its
+    // own fixture and reads as a rendering failure.
+    const epic = makeEpic();
+    const { rerender } = renderDrawer(epic);
+    setValue(screen.getByLabelText('Epic description'), 'edited');
     h.state.isError = true;
     h.state.error = axiosRefusal(403, { detail: 'Only the PO can rename an epic.' });
-    renderDrawer(makeEpic());
+    rerender(<EpicDetailDrawer projectId="p1" epic={epic} onClose={vi.fn()} />);
 
-    setValue(screen.getByLabelText('Epic description'), 'edited');
     const alert = screen.getByTestId('dialog-footer-error');
     expect(alert).toHaveTextContent('Only the PO can rename an epic.');
     // The hardcoded "Save failed" this slot used to render discarded the sentence
@@ -168,12 +183,27 @@ describe('EpicDetailDrawer (#1346)', () => {
   });
 
   it('falls back to a plain sentence when the failure carries no readable body', () => {
+    const epic = makeEpic();
+    const { rerender } = renderDrawer(epic);
+    setValue(screen.getByLabelText('Epic description'), 'edited');
     h.state.isError = true;
     h.state.error = new Error('Network Error');
-    renderDrawer(makeEpic());
+    rerender(<EpicDetailDrawer projectId="p1" epic={epic} onClose={vi.fn()} />);
 
-    setValue(screen.getByLabelText('Epic description'), 'edited');
     expect(screen.getByTestId('dialog-footer-error')).toHaveTextContent("Couldn't save the epic.");
+  });
+
+  it('retires the refusal on the next edit — the one that could have fixed it (#3332)', () => {
+    const epic = makeEpic();
+    const { rerender } = renderDrawer(epic);
+    setValue(screen.getByLabelText('Epic description'), 'edited');
+    h.state.isError = true;
+    h.state.error = axiosRefusal(400, { name: ['This field may not be blank.'] });
+    rerender(<EpicDetailDrawer projectId="p1" epic={epic} onClose={vi.fn()} />);
+    expect(screen.getByTestId('dialog-footer-error')).toBeInTheDocument();
+
+    setValue(screen.getByLabelText('Epic description'), 'edited again');
+    expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
   });
 
   it('closing while dirty opens the styled discard dialog and Keep editing keeps the drawer open', async () => {

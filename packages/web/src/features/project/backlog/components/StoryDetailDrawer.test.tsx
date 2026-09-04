@@ -24,6 +24,10 @@ vi.mock('../hooks/useStoryDetail', () => ({
     isPending: false,
     isError: patchError !== null,
     error: patchError,
+    // Models TanStack's `reset`: it CLEARS the error (web-rule 374).
+    reset: () => {
+      patchError = null;
+    },
   }),
   useCreateCriterion: () => ({ mutate: vi.fn() }),
   useUpdateCriterion: () => ({ mutate: updateCriterionMutate }),
@@ -221,10 +225,20 @@ describe('StoryDetailDrawer (#1043)', () => {
 describe('StoryDetailDrawer — save refusal (#3332)', () => {
   it("shows the server's own reason and no retry advice on a 403", async () => {
     const user = userEvent.setup();
-    patchError = axiosRefusal(403, { detail: 'Only the Product Owner can rescore a story.' });
-    renderDrawer(makeStory());
-
+    // Dirty FIRST, then the refusal lands — an edit retires it (web-rule 374).
+    const story = makeStory();
+    const { rerender } = renderDrawer(story);
     await user.type(screen.getByLabelText('Story title'), '!');
+    patchError = axiosRefusal(403, { detail: 'Only the Product Owner can rescore a story.' });
+    rerender(
+      <StoryDetailDrawer
+        projectId="p1"
+        story={story}
+        backlog={backlog}
+        canManageBacklog
+        onClose={vi.fn()}
+      />,
+    );
 
     const alert = await screen.findByTestId('dialog-footer-error');
     expect(alert).toHaveAttribute('role', 'alert');

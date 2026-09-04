@@ -211,12 +211,16 @@ describe('useClassificationPopover — server refusals', () => {
     expect(result.current.error?.retryable).toBe(true);
   });
 
-  it('falls back rather than spilling an over-long sentence into the popover', async () => {
+  it('TRUNCATES an over-long sentence rather than spilling it into the popover', async () => {
     // The three real refusals are short and bounded, but nothing on the server
     // caps `detail` — a sentence that outgrows the slot is the #3302 symptom
-    // returning by a different route.
+    // returning by a different route. #3332 changed the remedy from substitution
+    // to truncation: substituting the fallback produces exactly the output that
+    // means "the server sent nothing readable", so the planner cannot tell a
+    // reason is being withheld.
     const result = await applyAndFail(queryClient, refusal(400, { detail: 'x'.repeat(301) }));
-    expect(result.current.error?.message).toBe("Couldn't apply the classification.");
+    expect(result.current.error?.message).toBe(`${'x'.repeat(300)}…`);
+    expect(result.current.error?.message).not.toBe("Couldn't apply the classification.");
 
     vi.clearAllMocks();
     const kept = await applyAndFail(queryClient, refusal(400, { detail: 'y'.repeat(300) }));

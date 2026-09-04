@@ -5,7 +5,12 @@ export interface RefusalAlertProps {
   refusal: WriteRefusal | null | undefined;
   /** Stable hook for tests — `<surface>-error`, per web-rule 372b. */
   testId?: string;
-  /** Layout/spacing for the host surface; the tone classes are the component's own. */
+  /**
+   * Layout/spacing for the host surface. Tone **and type scale** are the
+   * component's own: four of the five call sites were passing `text-xs` and the
+   * fifth survived only on an ambient class from its sheet root, which is the
+   * drift this component exists to end (`ux-review`, #3332).
+   */
   className?: string;
 }
 
@@ -28,7 +33,10 @@ export function RefusalAlert({ refusal, testId, className = '' }: RefusalAlertPr
     <div
       role="alert"
       data-testid={testId}
-      className={`leading-snug text-semantic-critical ${className}`.trim()}
+      // `break-words`: DRF sentences routinely embed a UUID, a path or a URL
+      // ('pk "550e8400-…" does not exist.'), and an unbroken token will not wrap
+      // inside the ~324px content box of the mobile bottom sheet.
+      className={`text-xs leading-snug break-words text-semantic-critical ${className}`.trim()}
     >
       <div>{refusal.message}</div>
       {refusal.detail && <div className="mt-1">{refusal.detail}</div>}

@@ -47,7 +47,7 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   // "Could not run simulation." plus an unconditional "Try again" told them
   // neither which it was nor that a second press would be refused identically.
   const runRefusal = useMemo(
-    () => describeWriteRefusal(runMc.error, 'Couldn’t run the simulation.'),
+    () => describeWriteRefusal(runMc.error, "Couldn't run the simulation."),
     [runMc.error],
   );
   // Called before the early returns below — hooks cannot be conditional, and the
@@ -112,7 +112,7 @@ export function MobileMonteCarloCard({ projectId }: Props) {
         <RefusalAlert
           refusal={runRefusal}
           testId="mobile-mc-error"
-          className="md:hidden bg-neutral-surface-raised px-4 pb-2 text-xs"
+          className="md:hidden bg-neutral-surface-raised px-4 pb-2"
         />
       </>
     );

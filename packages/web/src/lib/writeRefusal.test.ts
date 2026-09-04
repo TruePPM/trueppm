@@ -99,8 +99,37 @@ describe('describeWriteRefusal', () => {
     expect(refusal?.message).not.toContain('<');
   });
 
-  it('refuses a body that is a wall of text rather than a sentence', () => {
-    const refusal = describeWriteRefusal(axiosRefusal(400, { detail: 'x'.repeat(301) }), FALLBACK);
+  it('TRUNCATES an over-long sentence rather than substituting the fallback', () => {
+    // Substituting produces exactly the output that means "the server sent
+    // nothing readable", so the reader cannot tell a reason is being withheld —
+    // which is the one thing this helper exists to stop. A clipped run reads as
+    // incomplete; a silently substituted one reads as absent.
+    const long = 'x'.repeat(301);
+    const refusal = describeWriteRefusal(axiosRefusal(400, { detail: long }), FALLBACK);
+    expect(refusal?.message).not.toBe(FALLBACK);
+    expect(refusal?.message).toBe(`${'x'.repeat(300)}…`);
+  });
+
+  it('suppresses markup even when a nested-body prefix pushes it off position 0', () => {
+    // `locate()` prepends `Item 1: ` for a nested DRF body, which defeats a
+    // `startsWith('<')` test — and truncation no longer backstops it.
+    const refusal = describeWriteRefusal(
+      axiosRefusal(500, {
+        tasks: [{ detail: ['<!doctype html><html><body>Server Error</body></html>'] }],
+      }),
+      FALLBACK,
+    );
+    expect(refusal?.message).toBe(FALLBACK);
+    expect(refusal?.message).not.toContain('doctype');
+  });
+
+  it('suppresses a DEBUG traceback page that opens with a <html> tag mid-string', () => {
+    const refusal = describeWriteRefusal(
+      axiosRefusal(500, {
+        detail: 'Traceback: <html><body>ValueError at /api/v1/tasks/</body></html>',
+      }),
+      FALLBACK,
+    );
     expect(refusal?.message).toBe(FALLBACK);
   });
 

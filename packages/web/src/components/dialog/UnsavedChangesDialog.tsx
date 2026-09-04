@@ -115,7 +115,7 @@ export function UnsavedChangesDialog({
         <p id="unsaved-changes-body" className="text-xs text-neutral-text-secondary mb-4">
           {body}
         </p>
-        <RefusalAlert refusal={error} testId="unsaved-changes-error" className="mb-3 text-xs" />
+        <RefusalAlert refusal={error} testId="unsaved-changes-error" className="mb-3" />
         <div className="flex flex-wrap justify-end gap-2">
           <button
             type="button"

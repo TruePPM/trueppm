@@ -773,8 +773,10 @@ describe('useScheduleCommit', () => {
       act(() => result.current.handleConfirm());
       act(() => result.current.handleMoveProjectStart());
       await waitFor(() =>
+        // No "Try again." — a 400 is a decision, and the retry advice now lives
+        // on `WriteRefusal.retryable` rather than being baked into every sentence.
         expect(result.current.beforeStartPrompt?.error).toBe(
-          'Moved the project start, but saving the task failed. Try again.',
+          'Moved the project start, but saving the task failed.',
         ),
       );
     });
@@ -824,9 +826,7 @@ describe('useScheduleCommit', () => {
     it('uses the fallback copy when the payload has no usable shape', async () => {
       const result = snapWithRejection(new Error('network down'));
       await waitFor(() =>
-        expect(result.current.beforeStartPrompt?.error).toBe(
-          "Couldn't save the change. Try again.",
-        ),
+        expect(result.current.beforeStartPrompt?.error).toBe("Couldn't save the change."),
       );
     });
   });

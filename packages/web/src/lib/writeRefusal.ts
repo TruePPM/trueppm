@@ -72,11 +72,33 @@ const MAX_MESSAGE_LENGTH = 300;
  * under `DEBUG`, a traceback) into a slot where a sentence belongs. Not a
  * disclosure — anyone who can reach that response can read it in devtools — but
  * it is unreadable, so fall back rather than paste it.
+ *
+ * **Length is a different question from readability, and it is answered
+ * differently.** An over-long body is usually a legitimate sentence (a
+ * multi-field validation summary, a policy explanation), so substituting the
+ * fallback for it produces *exactly* the output that means "the server sent
+ * nothing readable" — the reader cannot tell a reason is being withheld, which
+ * is the one thing this whole helper exists to stop. Truncate with an ellipsis
+ * instead: a clipped run reads as incomplete, where a silently substituted one
+ * reads as absent (web-rule 328's precedent, surfaced by `ux-review` on #3332).
+ * The fallback stays for the empty and HTML cases, where there is genuinely no
+ * sentence to clip.
+ *
+ * **The markup test must not be anchored at position 0.** It used to be, and the
+ * length branch happened to catch any real page anyway — so the two guards were
+ * redundant and nobody noticed the weaker one. Turning length into a truncation
+ * left `startsWith('<')` as the only markup test, which `locate()` in
+ * `apiError.ts` can defeat by prepending `Item 1: ` to a nested body's message.
+ * Match the doctype/`<html>` marker anywhere instead (surfaced by
+ * `security-review` on #3332).
  */
+const MARKUP_MARKER = /<!doctype\b|<html\b|<\/html>|<body\b/i;
+
 function presentable(message: string, fallback: string): string {
   const trimmed = message.trim();
-  if (trimmed === '' || trimmed.startsWith('<') || trimmed.length > MAX_MESSAGE_LENGTH) {
-    return fallback;
+  if (trimmed === '' || trimmed.startsWith('<') || MARKUP_MARKER.test(trimmed)) return fallback;
+  if (trimmed.length > MAX_MESSAGE_LENGTH) {
+    return `${trimmed.slice(0, MAX_MESSAGE_LENGTH).trimEnd()}…`;
   }
   return trimmed;
 }

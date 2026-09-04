@@ -235,7 +235,12 @@ export function TaskDetailDrawer({
   const openerRef = useRef<HTMLElement | null>(null);
 
   const { tasks: allTasks, links: allLinks } = useScheduleTasks();
-  const { mutate: updateTask, isPending: isSaving, error: saveError } = useUpdateTask();
+  const {
+    mutate: updateTask,
+    isPending: isSaving,
+    error: saveError,
+    reset: resetSaveMutation,
+  } = useUpdateTask();
   // The server's own refusal (#3332). The drawer batches name, description and
   // the estimate triple into one PATCH, so the refusal is as likely to be a 400
   // naming the offending field as a 403 on the project — and "Couldn't save —
@@ -245,6 +250,7 @@ export function TaskDetailDrawer({
     () => describeWriteRefusal(saveError, "Couldn't save the task."),
     [saveError],
   );
+  const hasSaveError = saveRefusal !== null;
   // 1046: thread the viewer's project role into the sections so write controls
   // (add link, add attachment, edit description) are hidden from Viewers instead
   // of surfacing affordances that 403 on submit. `role` is null while it loads.
@@ -257,8 +263,30 @@ export function TaskDetailDrawer({
   // shared editable-surface contract (web-rule 217). draft/baseline/dirty +
   // revert + post-save re-snapshot come from the hook; these columns batch
   // behind Save. Estimates reach EstimatesTab via TaskDraftContext (#1985).
-  const { draft, setField, baseline, dirty, reset, commit, commitField } =
-    useDirtyDraft<ScalarDraft>(task ? toDraft(task) : EMPTY_DRAFT);
+  const {
+    draft,
+    setField: setDraftField,
+    baseline,
+    dirty,
+    reset,
+    commit,
+    commitField,
+  } = useDirtyDraft<ScalarDraft>(task ? toDraft(task) : EMPTY_DRAFT);
+
+  // Retire the refusal on the edit that could have fixed it (web-rule 374).
+  // A refusal is a statement about the payload that WAS submitted, so the moment
+  // the draft changes it is unowned — "Enter a valid date." still on screen after
+  // the user entered a valid date is the product stating something false, and
+  // that only became a defect once #3332 made the sentence specific enough to be
+  // wrong. Wrapped at the one setter every field goes through, so the next field
+  // added inherits it rather than needing to remember.
+  const setField = useCallback<typeof setDraftField>(
+    (key, value) => {
+      if (hasSaveError) resetSaveMutation();
+      setDraftField(key, value);
+    },
+    [hasSaveError, resetSaveMutation, setDraftField],
+  );
 
   // Swap-while-dirty latch (#1978): when the host points the drawer at a
   // different task while the draft is dirty, park the incoming task here and
@@ -347,6 +375,29 @@ export function TaskDetailDrawer({
     // Identity-triggered only; `commit` is stable, dirty is read via ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propId]);
+
+  // Retire the refusal when the drawer changes SUBJECT (web-rule 374, #3332).
+  //
+  // `useUpdateTask()` is instantiated once and this component is rendered with no
+  // `key` (it holds `renderedTask` in state precisely so a dirty swap can lag the
+  // prop), so one mutation instance spans every task the user visits — and
+  // TanStack keeps `error` until the next `mutate()` or an explicit `reset()`.
+  // Without this, refusing a save on task A and then discarding into task B left
+  // "You do not have permission to edit this task." attached to a row the user
+  // had never submitted, the moment B's first edit remounted the save bar.
+  // Keyed on the rendered id rather than hung off each swap path (clean adopt,
+  // dirty-guard discard, Save & open), so a future fourth path inherits it.
+  const renderedTaskId = renderedTask?.id ?? null;
+  const lastSubjectRef = useRef<string | null>(renderedTaskId);
+  useEffect(() => {
+    // Only on an actual CHANGE of subject. Firing on mount would be a harmless
+    // no-op in production (a fresh mutation carries no error) and a vacuous test
+    // everywhere else — a spec that preloads a refusal would have it wiped before
+    // its first assertion, which reads as the feature working.
+    if (lastSubjectRef.current === renderedTaskId) return;
+    lastSubjectRef.current = renderedTaskId;
+    resetSaveMutation();
+  }, [renderedTaskId, resetSaveMutation]);
 
   // Keep the rendered task object fresh while its identity is unchanged, so a
   // server/WebSocket update to the same task (e.g. the concurrent-edit banner's
@@ -761,7 +812,12 @@ export function TaskDetailDrawer({
           onDismissDeleted={handleDismissDeleted}
           dirty={dirty}
           isSaving={isSaving}
-          saveRefusal={saveRefusal}
+          // While the swap guard is up it owns the refusal: both surfaces are
+          // mounted at once (the guard fires only when dirty, which is exactly
+          // when the save bar is up), so passing it to both inserts two
+          // `role="alert"` nodes with identical text in one commit — announced
+          // twice, and one of them behind the scrim (web-rule 372b).
+          saveRefusal={swapGuardOpen ? null : saveRefusal}
           onSave={handleSave}
           onCancel={reset}
         />

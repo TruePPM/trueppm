@@ -11,7 +11,7 @@
  * server is the real gate (a 403 surfaces as a save error).
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   DialogFooter,
   UnsavedChangesDialog,
@@ -69,7 +69,26 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
 
   // Draft/baseline/dirty + revert + post-save re-snapshot — the shared
   // editable-surface contract (web-rule 217), replacing the hand-rolled copy.
-  const { draft, setField, baseline, dirty, reset, commit } = useDirtyDraft<Draft>(toDraft(epic));
+  const {
+    draft,
+    setField: setDraftField,
+    baseline,
+    dirty,
+    reset,
+    commit,
+  } = useDirtyDraft<Draft>(toDraft(epic));
+
+  // Retire the refusal on the edit that could have fixed it (web-rule 374).
+  // A refusal describes the payload that WAS submitted; the moment the draft
+  // changes it is unowned, and a specific sentence left up after the user
+  // corrected the field is the product stating something false.
+  const setField = useCallback<typeof setDraftField>(
+    (key, value) => {
+      if (saveRefusal) patchEpic.reset();
+      setDraftField(key, value);
+    },
+    [saveRefusal, patchEpic, setDraftField],
+  );
 
   // Dismiss-guard: Esc / ✕ / mobile backdrop route through requestClose, which
   // opens the styled, focus-trapped prompt when dirty instead of the native

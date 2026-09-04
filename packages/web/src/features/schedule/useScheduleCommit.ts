@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { extractValidationMessage } from '@/lib/apiError';
 import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
@@ -130,6 +129,24 @@ export interface UseScheduleCommitApi {
   handleMoveProjectStart: () => void;
   /** Revert the engine preview and dismiss the floor prompt. */
   handleCancelBeforeStart: () => void;
+}
+
+/**
+ * The refusal as a bare sentence, for this file's three surfaces that hold a
+ * string rather than a {@link WriteRefusal} record — the schedule error banner
+ * and the before-start prompt.
+ *
+ * Routed through `describeWriteRefusal` so they inherit `presentable()`. Without
+ * it a Django HTML 500 body — which axios hands over as a raw string, and which
+ * the shared DRF reader faithfully returns — was written verbatim into
+ * `setScheduleError` AND into the `aria-live="assertive"` region, i.e. an entire
+ * HTML document read aloud. The local helper this file used to carry was
+ * accidentally immune (it only read a body that was an OBJECT); its shared
+ * replacement is not, so the guard has to be explicit. Surfaced by
+ * `security-review` on #3332.
+ */
+function refusalMessage(err: unknown, fallback: string): string {
+  return describeWriteRefusal(err, fallback)?.message ?? fallback;
 }
 
 const DAY_MS = 86_400_000;
@@ -493,7 +510,7 @@ export function useScheduleCommit({
             // There is no popover to hold the error, so it goes to the schedule
             // error surface and is ANNOUNCED — a keyboard user has no bar to
             // look at, and silence here is how the original defect read.
-            const message = extractValidationMessage(err, "Couldn't save the change. Try again.");
+            const message = refusalMessage(err, "Couldn't save the change.");
             setScheduleError(message);
             if (ariaAssertiveRef.current) {
               ariaAssertiveRef.current.textContent = `Reschedule failed. ${message}`;
@@ -650,9 +667,7 @@ export function useScheduleCommit({
           }
         },
         onError: (err) => {
-          failBeforeStartPrompt(
-            extractValidationMessage(err, "Couldn't save the change. Try again."),
-          );
+          failBeforeStartPrompt(refusalMessage(err, "Couldn't save the change."));
         },
       },
     );
@@ -699,10 +714,7 @@ export function useScheduleCommit({
               },
               onError: (err) => {
                 failBeforeStartPrompt(
-                  extractValidationMessage(
-                    err,
-                    'Moved the project start, but saving the task failed. Try again.',
-                  ),
+                  refusalMessage(err, 'Moved the project start, but saving the task failed.'),
                 );
               },
             },
@@ -710,7 +722,7 @@ export function useScheduleCommit({
         },
         onError: (err) => {
           failBeforeStartPrompt(
-            extractValidationMessage(
+            refusalMessage(
               err,
               "Couldn't move the project start date. You may not have permission.",
             ),

@@ -169,7 +169,7 @@ describe('MobileMonteCarloCard (#33)', () => {
       renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
       expect(screen.getByTestId('mobile-mc-error')).toHaveAttribute('role', 'alert');
       expect(screen.getByTestId('mobile-mc-error')).toHaveTextContent(
-        'Couldn’t run the simulation.',
+        "Couldn't run the simulation.",
       );
       expect(screen.getByRole('button')).toHaveTextContent(/Try again/);
     });
