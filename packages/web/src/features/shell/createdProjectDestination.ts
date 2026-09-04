@@ -21,11 +21,24 @@ import type { CreatedProjectIntent } from './NewProjectModal';
  *   on the id rather than on `templateApplied` because a failed dispatch leaves
  *   nothing to poll — that case falls through to Overview rather than landing on a
  *   banner that can never resolve.
- * - Everything else (blank project, import way) → Overview.
+ * - `blank` → the surface the Start sheet's Blank card names: the Schedule, whose
+ *   `BlankProjectCanvas` puts the caret in the first outline row (#2733), or the
+ *   product backlog for an AGILE project. It landed on Overview until #3311 — the
+ *   card had promised the outline since the sheet shipped and the destination had
+ *   returned Overview since this file was introduced, a day apart, never agreeing.
+ *   No `seeding=1` on the AGILE branch: nothing is being applied, so a blank
+ *   backlog is genuinely empty and must read as its own empty state, not as one
+ *   still filling.
+ * - Everything else (import way) → Overview.
  *
- * The three seeded branches are mutually exclusive by construction: `way` is one of
- * `'template' | 'blank' | 'import'`, so `importCsv` and a template application can
- * never both be set.
+ * The AGILE split is not cosmetic. `methodologyTabs.ts` hides the Schedule's nav
+ * entry for an AGILE project and `ScheduleView` answers a direct URL with
+ * "Schedule isn't part of this project's workflow" (#2619) — so routing every
+ * blank create there would trade one wrong landing for a dead end.
+ *
+ * The seeded branches are mutually exclusive by construction: `way` is one of
+ * `'template' | 'blank' | 'import'`, so `importCsv`, a template application and
+ * `blank` can never be set together.
  */
 export function createdProjectDestination(
   projectId: string,
@@ -37,6 +50,11 @@ export function createdProjectDestination(
   }
   if (intent?.templateApplicationId && intent.methodology !== 'AGILE') {
     return `/projects/${projectId}/schedule?templateApplication=${intent.templateApplicationId}`;
+  }
+  if (intent?.blank) {
+    return intent.methodology === 'AGILE'
+      ? `/projects/${projectId}/product-backlog`
+      : `/projects/${projectId}/schedule`;
   }
   return `/projects/${projectId}/overview`;
 }
