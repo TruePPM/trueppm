@@ -7,7 +7,7 @@
  *   - Quiet pill toggles (My tasks / At-risk / Cost)
  *   - Layout segmented control (Rail · Drawer · Queue)
  *   - Columns/WIP settings button (opens BoardSettingsPanel — #1960)
- *   - More⋯ overflow popover (Collapse / Expand / WIP / Tints / EVM / ? / Workshop)
+ *   - More⋯ overflow popover (Collapse / Expand / WIP / Tints / EVM / ?)
  *
  * No behaviour changes: every control delegates to the same setters previously
  * wired in BoardView.tsx. Sibling MRs #383 (drawer) and #384 (queue) will plug
@@ -334,10 +334,6 @@ export interface CalmToolbarProps {
   // a generation is in flight to prevent re-entrant rasterize calls.
   onExportPdf: () => void;
   exportingPdf: boolean;
-  workshopMode: boolean;
-  onWorkshopToggle: () => void;
-  workshopDisabled: boolean;
-  workshopButtonRef: RefObject<HTMLButtonElement | null>;
 }
 
 const SORT_LABELS: Record<BoardSortKey, string> = {
@@ -878,24 +874,6 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 {props.exportingPdf ? 'Generating PDF…' : 'Export PDF'}
               </MoreItem>
             )}
-            <button
-              ref={props.workshopButtonRef}
-              type="button"
-              onClick={props.onWorkshopToggle}
-              disabled={props.workshopDisabled}
-              aria-pressed={props.workshopMode}
-              aria-label={props.workshopMode ? 'Exit workshop mode' : 'Start workshop session'}
-              className={[
-                'rounded-control px-2 py-1 text-left text-xs',
-                'focus:ring-2 focus:ring-brand-primary focus:outline-none',
-                'disabled:opacity-50',
-                props.workshopMode
-                  ? 'bg-brand-primary/10 text-brand-primary'
-                  : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
-              ].join(' ')}
-            >
-              ◎ {props.workshopMode ? 'In Workshop' : 'Workshop'}
-            </button>
           </div>
         </ToolbarChip>
       </div>

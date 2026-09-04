@@ -97,7 +97,6 @@ _TOP_TAG: dict[str, str] = {
     "velocity-suggestions": "sprints",
     "workspace": "workspace",
     "ws": "sync",
-    "workshops": "workshops",
 }
 
 # Second path segment under /projects/ or /programs/ -> tag, so nested resources

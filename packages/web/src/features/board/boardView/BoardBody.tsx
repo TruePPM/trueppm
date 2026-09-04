@@ -101,9 +101,6 @@ interface BoardBodyProps {
   // Lanes
   lanes: LaneShape[];
   renderLane: (lane: LaneShape) => ReactNode;
-  workshopMode: boolean;
-  onAddPhase: () => void;
-  isAddingPhase: boolean;
   mineActive: boolean;
   onShowAllTasks: () => void;
   /**
@@ -182,9 +179,6 @@ export function BoardBody(props: BoardBodyProps) {
     onResizeColumn,
     lanes,
     renderLane,
-    workshopMode,
-    onAddPhase,
-    isAddingPhase,
     mineActive,
     onShowAllTasks,
     onAddTaskEmptyBoard,
@@ -300,9 +294,6 @@ export function BoardBody(props: BoardBodyProps) {
           onResizeColumn={onResizeColumn}
           lanes={lanes}
           renderLane={renderLane}
-          workshopMode={workshopMode}
-          onAddPhase={onAddPhase}
-          isAddingPhase={isAddingPhase}
           mineActive={mineActive}
           onShowAllTasks={onShowAllTasks}
           onAddTaskEmptyBoard={onAddTaskEmptyBoard}
@@ -380,9 +371,6 @@ function BoardDesktopGrid({
   onResizeColumn,
   lanes,
   renderLane,
-  workshopMode,
-  onAddPhase,
-  isAddingPhase,
   mineActive,
   onShowAllTasks,
   onAddTaskEmptyBoard,
@@ -470,9 +458,6 @@ function BoardDesktopGrid({
           <BoardPhaseLanes
             lanes={lanes}
             renderLane={renderLane}
-            workshopMode={workshopMode}
-            onAddPhase={onAddPhase}
-            isAddingPhase={isAddingPhase}
             mineActive={mineActive}
             onShowAllTasks={onShowAllTasks}
             // Same gate the lane "+", the rail capture and the mobile FAB all
