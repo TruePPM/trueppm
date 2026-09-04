@@ -1019,8 +1019,8 @@ def create_event_notifications(
 
 #: Rows per INSERT for the event fan-outs below.
 #:
-#: ``Notification`` carries 18 columns, so a single unbounded ``bulk_create``
-#: crosses Postgres's 65535 bind-parameter ceiling at roughly 3,600 rows and
+#: ``Notification`` carries 17 concrete columns, so a single unbounded
+#: ``bulk_create`` crosses Postgres's 65535 bind-parameter ceiling at ~3,850 rows and
 #: raises. That was unreachable while every fan-out was scoped to one project's
 #: recipients; batching a program-matrix apply across up to ``MAX_BULK_TARGETS``
 #: projects into one call makes it reachable, and the emit's ``except Exception``

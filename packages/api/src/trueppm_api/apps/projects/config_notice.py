@@ -58,6 +58,39 @@ SURFACE_LABELS: dict[str, str] = {
     "monte_carlo": "Monte Carlo",
 }
 
+#: Projects whose surface notices are resolved, rendered and written together.
+#:
+#: The reads are batched, so on query count alone the best chunk is the whole
+#: apply — two hundred projects for eight reads. This trades a little of that
+#: (four passes instead of one for a max-size apply, against ~1,800 before the
+#: batching) for two bounds one flat batch does not have:
+#:
+#: * **Peak memory.** The rendered ``rows`` list holds a subject and a body
+#:   string per recipient. Flat, that is the sum over the whole apply; chunked it
+#:   is the maximum over one chunk.
+#: * **Blast radius.** The reads and the insert sit under one ``try``, so a
+#:   failure in either loses every project that shares it. Flat, one bad read
+#:   drops the whole apply's notices; chunked it drops one chunk's.
+#:
+#: Fifty is the size at which the two bounds in play agree rather than one
+#: dominating: a chunk of fifty projects at a typical ten-recipient cohort
+#: renders ~500 rows, which is exactly ``NOTIFICATION_BULK_BATCH_SIZE`` — so the
+#: list being accumulated and the statement it becomes are capped at the same
+#: order of magnitude, and neither bound is doing all the work alone.
+SURFACE_EMIT_CHUNK_SIZE = 50
+
+
+def _chunked(items: Sequence[SurfaceChange], size: int) -> list[Sequence[SurfaceChange]]:
+    """``items`` split into consecutive runs of at most ``size``.
+
+    ``itertools.batched`` is the stdlib answer and this is not it, deliberately:
+    the runtime floor is Python 3.12 but ``[tool.mypy] python_version`` is 3.11,
+    where the stubs have no ``batched`` and ``mypy --strict`` fails. Widening a
+    global type-checker setting to import one helper is the wrong trade.
+    """
+    return [items[start : start + size] for start in range(0, len(items), size)]
+
+
 #: Human labels for the methodology preset values.
 METHODOLOGY_LABELS: dict[str, str] = {
     "WATERFALL": "Waterfall",
@@ -84,9 +117,20 @@ def _assigned_candidates_by_project(project_ids: Sequence[Any]) -> dict[str, set
     ``on_commit`` payload as ``str``, while the ORM yields ``uuid.UUID`` — a
     mapping keyed on the raw column would silently miss every lookup.
 
-    ``.distinct()` matters on both arms: without it Postgres streams one row per
+    ``.distinct()`` matters on both arms: without it Postgres streams one row per
     TASK to build a set of maybe thirty user ids, so a 10k-task project pulls 10k
     UUIDs over the wire twice. The de-dupe belongs in the database.
+
+    **``.order_by()`` is what makes that ``.distinct()`` real, and it is not
+    cosmetic.** ``Task.Meta.ordering`` is ``["wbs_path", "name"]``, and a
+    ``.distinct()`` with no ``distinct_fields`` promotes every ORDER BY column
+    into the SELECT list — so the statement becomes ``SELECT DISTINCT project_id,
+    assignee_id, wbs_path, name``. ``projects_task`` carries an
+    ``ExclusionConstraint`` on ``(project, wbs_path)`` over live rows, which makes
+    that tuple unique among exactly the rows being scanned, so the DISTINCT
+    matches nothing and returns one row per task — the de-dupe silently does not
+    happen. Clearing the default ordering is the only thing standing between this
+    and the full-table transfer the previous paragraph exists to prevent.
     """
     from trueppm_api.apps.resources.models import TaskResource
 
@@ -96,13 +140,18 @@ def _assigned_candidates_by_project(project_ids: Sequence[Any]) -> dict[str, set
     for project_id, user_id in (
         Task.objects.filter(project_id__in=project_ids, is_deleted=False)
         .exclude(assignee_id=None)
+        .order_by()
         .values_list("project_id", "assignee_id")
         .distinct()
     ):
         by_project.setdefault(str(project_id), set()).add(user_id)
     for project_id, user_id in (
+        # `TaskResource.Meta.ordering` is empty today, so this `order_by()` is a
+        # no-op — kept so that giving the model a default ordering later cannot
+        # quietly defeat this `distinct()` the way it does the Task arm above.
         TaskResource.objects.filter(task__project_id__in=project_ids, task__is_deleted=False)
         .exclude(resource__user__isnull=True)
+        .order_by()
         .values_list("task__project_id", "resource__user_id")
         .distinct()
     ):
@@ -846,20 +895,27 @@ def _emit_surface_notifications(
 ) -> None:
     """Render and write one notice per recipient across every changed project.
 
-    **Every read is hoisted above the loop** (#3335). The program settings matrix
-    can hand this up to ``MAX_BULK_TARGETS`` projects, and this whole function
-    runs inline in the request thread — ``transaction.on_commit`` fires
-    synchronously in the worker after COMMIT, not on Celery — so a read left
-    inside the loop is response latency multiplied by 200. Every read here is
-    ``project_id IN (...)`` grouped by project and nothing in the batch depends on
-    another project's result, so the count is the same six queries for two
-    hundred projects as for one.
+    **Every read is hoisted out of the per-project loop** (#3335). The program
+    settings matrix can hand this up to ``MAX_BULK_TARGETS`` projects, and the
+    whole emit runs inline in the request thread — ``transaction.on_commit``
+    fires synchronously in the worker after COMMIT, not on Celery — so a read
+    left inside the loop is response latency multiplied by two hundred. Each read
+    is ``project_id IN (...)`` grouped by project, and nothing in the batch
+    depends on another project's result.
 
-    The per-project ``try`` survives that move and now guards **only rendering**,
+    The work is then processed in chunks of :data:`SURFACE_EMIT_CHUNK_SIZE`
+    projects rather than as one batch, which is a deliberate trade of a little of
+    that saving for two bounds the flat version did not have — see that constant
+    for why. Within a chunk the cost is flat: the same eight reads whether the
+    chunk holds one project or fifty.
+
+    The per-project ``try`` survives the hoist and now guards **only rendering**,
     which is where a per-project failure can actually originate: a malformed
     snapshot in one project's copy must not swallow the notices for the rest of
-    the batch. The outer guard is the on-commit contract — this callback runs
-    after the write has been accepted and must never raise into it.
+    the batch. The per-chunk ``try`` is both the on-commit contract — this
+    callback runs after the write has been accepted and must never raise into it
+    — and the reason a failed read or insert costs one chunk rather than the
+    whole apply.
     """
     from django.db.models import Q
 
@@ -868,52 +924,55 @@ def _emit_surface_notifications(
         create_event_notifications_multi_project,
     )
 
-    if not changes:
-        return
-    project_ids = [change.project_id for change in changes]
+    for chunk in _chunked(changes, SURFACE_EMIT_CHUNK_SIZE):
+        project_ids = [change.project_id for change in chunk]
+        try:
+            recipients_by_project = surface_recipient_ids_by_project(
+                project_ids, exclude_user_id=actor_id
+            )
+            counts_by_project = _counts_by_user_by_project(project_ids, Q())
 
-    try:
-        recipients_by_project = surface_recipient_ids_by_project(
-            project_ids, exclude_user_id=actor_id
-        )
-        counts_by_project = _counts_by_user_by_project(project_ids, Q())
-
-        rows: list[tuple[Any, Any, str, str, Any]] = []
-        for change in changes:
-            try:
-                pid = str(change.project_id)
-                recipient_ids = recipients_by_project.get(pid, [])
-                if not recipient_ids:
-                    continue
-                counts = counts_by_project.get(pid, Counter())
-                subject = _surface_subject(change.before, change.after)
-                # Materialized before it is appended, so a render that fails
-                # half-way through one project's recipients contributes nothing
-                # rather than a partial fan-out.
-                rendered = [
-                    (
-                        rid,
+            rows: list[tuple[Any, Any, str, str, Any]] = []
+            for change in chunk:
+                try:
+                    pid = str(change.project_id)
+                    recipient_ids = recipients_by_project.get(pid, [])
+                    if not recipient_ids:
+                        continue
+                    counts = counts_by_project.get(pid, Counter())
+                    subject = _surface_subject(change.before, change.after)
+                    # Materialized before it is appended, so a render that fails
+                    # half-way through one project's recipients contributes
+                    # nothing rather than a partial fan-out.
+                    rendered = [
+                        (
+                            rid,
+                            change.project_id,
+                            subject,
+                            _surface_body(
+                                actor_name, change.before, change.after, counts.get(rid, 0)
+                            ),
+                            None,
+                        )
+                        for rid in recipient_ids
+                    ]
+                    rows.extend(rendered)
+                except Exception:
+                    logger.exception(
+                        "notify_project_surface_change: render failed for project %s",
                         change.project_id,
-                        subject,
-                        _surface_body(actor_name, change.before, change.after, counts.get(rid, 0)),
-                        None,
                     )
-                    for rid in recipient_ids
-                ]
-                rows.extend(rendered)
-            except Exception:
-                logger.exception(
-                    "notify_project_surface_change: render failed for project %s",
-                    change.project_id,
-                )
 
-        if not rows:
-            return
-        # ``Notification`` carries project_id per row, so the batch is one insert
-        # rather than one per project.
-        create_event_notifications_multi_project(
-            event_type=NotificationEventType.PROJECT_CONFIG_CHANGED,
-            rows=rows,
-        )
-    except Exception:
-        logger.exception("notify_project_surface_change: emit failed for projects %s", project_ids)
+            if not rows:
+                continue
+            # ``Notification`` carries project_id per row, so a chunk is one
+            # insert (itself capped at NOTIFICATION_BULK_BATCH_SIZE rows per
+            # statement) rather than one insert per project.
+            create_event_notifications_multi_project(
+                event_type=NotificationEventType.PROJECT_CONFIG_CHANGED,
+                rows=rows,
+            )
+        except Exception:
+            logger.exception(
+                "notify_project_surface_change: emit failed for projects %s", project_ids
+            )
