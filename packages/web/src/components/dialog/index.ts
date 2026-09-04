@@ -8,6 +8,7 @@
  *  - `DialogFooter`           — Save (primary) + Cancel (secondary) footer
  *  - `useUnsavedChangesGuard` — the dismiss-guard decision + prompt state
  *  - `UnsavedChangesDialog`   — the focus-trapped discard prompt
+ *  - `RefusalAlert`           — the `role="alert"` presentation of a refused save
  */
 export { useDirtyDraft, type DirtyDraft } from './useDirtyDraft';
 export { DialogFooter, type DialogFooterProps } from './DialogFooter';
@@ -18,3 +19,4 @@ export {
 } from './useUnsavedChangesGuard';
 export { UnsavedChangesDialog, type UnsavedChangesDialogProps } from './UnsavedChangesDialog';
 export { UnsavedDot } from './UnsavedDot';
+export { RefusalAlert, type RefusalAlertProps } from './RefusalAlert';

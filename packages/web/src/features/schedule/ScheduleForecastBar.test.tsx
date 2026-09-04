@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
+import { axiosRefusal } from '@/test/axiosError';
 
 // Mutable hook state, mirrored from the deleted MonteCarloRow test harness.
 let mockResult: {
@@ -22,13 +23,18 @@ vi.mock('@/hooks/useMonteCarloResult', () => ({
 }));
 
 const runMutate = vi.hoisted(() => vi.fn());
-let runState: { isPending: boolean; isError: boolean } = { isPending: false, isError: false };
+let runState: { isPending: boolean; isError: boolean; error: unknown } = {
+  isPending: false,
+  isError: false,
+  error: null,
+};
 
 vi.mock('@/hooks/useRunMonteCarlo', () => ({
   useRunMonteCarlo: () => ({
     mutate: runMutate,
     isPending: runState.isPending,
     isError: runState.isError,
+    error: runState.error,
   }),
 }));
 
@@ -40,7 +46,7 @@ vi.mock('./ForecastHistorySection', () => ({
 
 beforeEach(() => {
   runMutate.mockReset();
-  runState = { isPending: false, isError: false };
+  runState = { isPending: false, isError: false, error: null };
   mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
   localStorage.clear();
 });
@@ -61,9 +67,7 @@ describe('ScheduleForecastBar', () => {
   it('shows the single "Run a simulation" prompt when no result is cached', () => {
     mockResult = { data: undefined, isLoading: false, error: null };
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
-    expect(
-      screen.getByText(/Run a simulation to see P50\/P80\/P95/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Run a simulation to see P50\/P80\/P95/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Run Monte Carlo/i })).toBeInTheDocument();
   });
 
@@ -82,9 +86,7 @@ describe('ScheduleForecastBar', () => {
   });
 
   it('renders the P50/P80/P95 chips exactly once', () => {
-    renderWithProviders(
-      <ScheduleForecastBar projectId="p1" tasks={[]} cpmFinish="2026-10-05" />,
-    );
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} cpmFinish="2026-10-05" />);
     // Each label appears exactly once on the collapsed header (rule 189).
     expect(screen.getAllByText(/^P50:/)).toHaveLength(1);
     expect(screen.getAllByText(/^P80:/)).toHaveLength(1);
@@ -92,9 +94,7 @@ describe('ScheduleForecastBar', () => {
   });
 
   it('formats the P80 chip date in UTC and shows the server risk delta', () => {
-    renderWithProviders(
-      <ScheduleForecastBar projectId="p1" tasks={[]} cpmFinish="2026-10-05" />,
-    );
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} cpmFinish="2026-10-05" />);
     // 2026-11-03 → "Nov 3" in UTC regardless of host timezone; delta 29d.
     expect(screen.getByText(/P80: Nov 3 \(\+29d\)/)).toBeInTheDocument();
   });
@@ -173,9 +173,7 @@ describe('ScheduleForecastBar', () => {
       error: null,
     };
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
-    expect(screen.getByTestId('mc-recomputing')).toHaveTextContent(
-      /Edited since this run/,
-    );
+    expect(screen.getByTestId('mc-recomputing')).toHaveTextContent(/Edited since this run/);
     expect(screen.getByTestId('mc-recomputing')).not.toHaveTextContent(/plan changed/i);
     expect(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i })).toBeInTheDocument();
   });
@@ -234,12 +232,8 @@ describe('ScheduleForecastBar', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(localStorage.getItem('schedule.insightsExpanded')).toBe('true');
     // The histogram + tornado headings appear once expanded.
-    expect(
-      screen.getByRole('heading', { name: /Finish-date forecast/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: /What's holding the date/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Finish-date forecast/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /What's holding the date/i })).toBeInTheDocument();
   });
 
   it('caps its own height and makes the expanded body the scroller (#3166)', async () => {
@@ -276,13 +270,14 @@ describe('ScheduleForecastBar', () => {
   it('restores the expanded state from localStorage on mount', () => {
     localStorage.setItem('schedule.insightsExpanded', 'true');
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
-    expect(
-      screen.getByRole('button', { name: /Minimize forecast detail/i }),
-    ).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /Minimize forecast detail/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 
   it('shows the recomputing indicator while a rerun is pending', () => {
-    runState = { isPending: true, isError: false };
+    runState = { isPending: true, isError: false, error: null };
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     expect(screen.getByTestId('mc-recomputing')).toBeInTheDocument();
     // The button survives its own in-flight run (#3132): the gate is
@@ -298,5 +293,32 @@ describe('ScheduleForecastBar', () => {
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     await user.click(screen.getByTestId('mc-details-btn'));
     expect(screen.getByTestId('mc-detail-panel')).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleForecastBar — a refused run (#3332)', () => {
+  it("shows the SERVER's reason and announces it, instead of a generic sentence", () => {
+    // The desktop twin of MobileMonteCarloCard, off the same `useRunMonteCarlo`
+    // hook — it read `'Could not run simulation. Try again.'` for every refusal.
+    runState = {
+      isPending: false,
+      isError: true,
+      error: axiosRefusal(400, { detail: 'No tasks have three-point estimates yet.' }),
+    };
+    mockResult = { data: undefined, isLoading: false, error: null };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('No tasks have three-point estimates yet.');
+    expect(alert).not.toHaveTextContent(/try again/i);
+    // The verb survives — a 400 is a decision, and the act is still available
+    // once the planner estimates something (web-rule 372a).
+    expect(screen.getByRole('button', { name: 'Run Monte Carlo' })).toBeInTheDocument();
+  });
+
+  it('falls back to a plain sentence when the failure carries no readable body', () => {
+    runState = { isPending: false, isError: true, error: new Error('Network Error') };
+    mockResult = { data: undefined, isLoading: false, error: null };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't run the simulation.");
   });
 });

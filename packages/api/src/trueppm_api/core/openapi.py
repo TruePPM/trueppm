@@ -97,7 +97,6 @@ _TOP_TAG: dict[str, str] = {
     "velocity-suggestions": "sprints",
     "workspace": "workspace",
     "ws": "sync",
-    "workshops": "workshops",
 }
 
 # Second path segment under /projects/ or /programs/ -> tag, so nested resources
@@ -513,14 +512,44 @@ _VALIDATION_ERROR_DETAIL_SCHEMA = {
 #: that its nested forms are described too. Declaring only ``detail`` would be the
 #: more comfortable lie: a generated client would type the uncommon case and
 #: mis-type field validation, which is the majority of real 400s.
+#:
+#: ``detail`` and ``code`` reference that same component rather than declaring
+#: ``string`` (#3347). In JSON Schema ``additionalProperties`` applies only to keys
+#: **not** matched by ``properties``, so the widening #3324 made to the field-keyed
+#: map never reached the two keys named in the envelope — they stayed pinned to
+#: ``string``. That is only sound while each name means one thing, and ``code``
+#: means two: the refusal envelope's stable machine code, and the validation errors
+#: of the serializer field literally *named* ``code`` — ``Program.code`` and
+#: ``Project.code``, reachable on 21 operations. DRF keys the latter by field name
+#: and yields a list, so the 2026-09-04 nightly ``api:fuzz`` failed
+#: ``POST /programs/`` and ``POST /projects/`` on
+#: ``["Ensure this field has no more than 40 characters."] is not of type "string"``.
+#: The response was right and the declaration was narrow, exactly as in #3324.
+#:
+#: ``detail`` is widened with it. No serializer has a writable ``detail`` field
+#: today, so that half is latent — but it is the *same* declaration bug, and the
+#: one-instance fix is what left this open after #3324.
+#:
+#: The reference is exact, not merely permissive: ``ValidationErrorDetail``'s first
+#: ``oneOf`` branch is ``{"type": "string"}``, so the envelope form still validates
+#: against precisely one branch. What a client loses is the guarantee that ``code``
+#: is a string — which it never had. It gains the discriminator: a **string**
+#: ``code`` is a refusal code from the vocabulary in ``docs/api/errors.md``; a list
+#: or object under ``code`` is field validation of the field of that name.
+#:
+#: ``allOf`` wraps the ``$ref`` because this is OpenAPI 3.0.3, where sibling keys
+#: alongside a ``$ref`` are discarded — without it the description and example are
+#: silently dropped from the published schema.
 _VALIDATION_RESPONSE = {
     "description": (
         "The request was rejected. Either a field failed validation — in which case "
         "the body is keyed by field name with a list of messages — or the request was "
         "refused as a whole, in which case it carries ``detail`` and, when the failure "
         "is one a client is expected to handle rather than merely report, a stable "
-        "``code``. Branch on ``code``; ``detail`` is prose and may be reworded at any "
-        "time. See the error reference for the code vocabulary."
+        "``code``. Branch on ``code`` **when it is a string**; a list or object under "
+        "``code`` or ``detail`` is field validation of the field of that name, not the "
+        "envelope. ``detail`` is prose and may be reworded at any time. See the error "
+        "reference for the code vocabulary."
     ),
     "content": {
         "application/json": {
@@ -528,16 +557,105 @@ _VALIDATION_RESPONSE = {
                 "type": "object",
                 "properties": {
                     "detail": {
-                        "type": "string",
+                        "allOf": [_VALIDATION_ERROR_DETAIL_REF],
+                        "description": (
+                            "The refusal's human-readable explanation when the request "
+                            "was refused as a whole. A list or object here is instead "
+                            "the validation errors of a serializer field named "
+                            "``detail``."
+                        ),
                         "example": "Request body must be a JSON object.",
                     },
-                    "code": {"type": "string", "example": "invalid_body"},
+                    "code": {
+                        "allOf": [_VALIDATION_ERROR_DETAIL_REF],
+                        "description": (
+                            "The refusal's stable machine code when the request was "
+                            "refused as a whole — a string, drawn from the vocabulary "
+                            "in the error reference. A list or object here is instead "
+                            "the validation errors of the serializer field named "
+                            "``code`` (``Program.code``, ``Project.code``)."
+                        ),
+                        "example": "invalid_body",
+                    },
                 },
                 "additionalProperties": _VALIDATION_ERROR_DETAIL_REF,
             }
         }
     },
 }
+
+# ---------------------------------------------------------------------------
+# #3319 — the 400 a BODYLESS write returns when it refuses on state
+# ---------------------------------------------------------------------------
+
+#: The three wire shapes a bodyless write's refusal actually takes.
+#:
+#: Which one an endpoint emits is decided by *how* it raises, not by intent, and
+#: the three are not interchangeable — a client that types the wrong one mis-reads
+#: every refusal that endpoint produces:
+#:
+#:   ``detail``    ``Response({"detail": ...}, status=400)`` or
+#:                 ``ValidationError({"detail": ...})`` — a JSON **object**.
+#:   ``messages``  ``ValidationError("a bare string")`` — DRF wraps a string detail
+#:                 in a list, so the body is a top-level JSON **array**, not an
+#:                 object. Easy to declare wrongly; verified per site.
+#:   ``fields``    ``ValidationError({"field": "..."})`` — DRF's field-keyed object,
+#:                 described by the recursive ``ValidationErrorDetail`` component.
+_STATE_REFUSAL_SHAPES: dict[str, dict[str, Any]] = {
+    "detail": {
+        "type": "object",
+        "properties": {"detail": {"type": "string"}},
+    },
+    "messages": {"type": "array", "items": {"type": "string"}},
+    "fields": {
+        "type": "object",
+        "additionalProperties": _VALIDATION_ERROR_DETAIL_REF,
+    },
+}
+
+
+def state_refusal_400(
+    description: str,
+    *,
+    shape: str = "detail",
+    codes: tuple[str, ...] = (),
+) -> Any:
+    """Declare the 400 a **bodyless** write returns when it refuses on state (#3319).
+
+    #3286 injects a 400 wherever an operation has a ``requestBody``, because
+    ``requestBody`` present is precisely the condition under which DRF can raise
+    ``ValidationError`` — a real equivalence the generator already computed. A
+    write that takes no body has no equivalent signal, and blanket-declaring a 400
+    across all of them would advertise a refusal most cannot produce: the same
+    defect as omitting one, pointing the other way. So every site opts in by hand,
+    having been checked against what the handler actually returns.
+
+    Args:
+        description: The state that makes *this* endpoint refuse. Site-specific by
+            design — a generic string would make the declaration decoration rather
+            than contract, which is the thing this issue exists to avoid.
+        shape: Which of :data:`_STATE_REFUSAL_SHAPES` reaches the wire. Read it off
+            the ``raise``/``Response`` in the handler, not off the neighbours.
+        codes: Stable ``code`` values the refusal really puts in the response
+            **body**. Pass one only where the handler writes it into a literal
+            response dict — a ``ValidationError(..., code=...)`` keyword never
+            reaches the client (#2550), so declaring that would invert this fix.
+
+    Returns:
+        The ``OpenApiResponse`` to hang off ``responses={400: ...}``.
+    """
+    from drf_spectacular.utils import OpenApiResponse
+
+    schema = deepcopy(_STATE_REFUSAL_SHAPES[shape])
+    if codes:
+        # Only reachable on the object shapes; a list body has nowhere to carry it.
+        schema["properties"]["code"] = {
+            "type": "string",
+            "enum": list(codes),
+            "description": "Stable refusal code — branch on this, not on ``detail``.",
+        }
+    return OpenApiResponse(response=schema, description=description)
+
 
 _THROTTLE_RESPONSE = {
     "description": (

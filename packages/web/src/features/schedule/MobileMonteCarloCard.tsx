@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { RefusalAlert } from '@/components/dialog';
+import { describeWriteRefusal } from '@/lib/writeRefusal';
 import { useForecastPresentation } from './useForecastPresentation';
 import { MonteCarloSheet } from './MonteCarloSheet';
 import {
@@ -40,6 +42,14 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const { data: result, isLoading } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
+  // The server's own refusal (#3332). A run is refused for reasons the planner
+  // can act on — no estimates on the plan, a role that may not run one — and
+  // "Could not run simulation." plus an unconditional "Try again" told them
+  // neither which it was nor that a second press would be refused identically.
+  const runRefusal = useMemo(
+    () => describeWriteRefusal(runMc.error, "Couldn't run the simulation."),
+    [runMc.error],
+  );
   // Called before the early returns below — hooks cannot be conditional, and the
   // derivation is a no-op (`notRun`, empty chips) while `result` is undefined.
   const forecast = useForecastPresentation(result);
@@ -61,36 +71,50 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   if (!result) {
     // No project context yet — render nothing rather than a CTA that cannot fire.
     if (!projectId) return null;
-    const ctaLabel = runMc.isPending ? 'Running…' : runMc.isError ? 'Try again' : 'Run Monte Carlo';
+    // "Try again" only where a replay could succeed (web-rule 372a). On a 403 or
+    // a "nothing to simulate" 400 the CTA keeps its verb: the act is still
+    // available once the planner changes what the server objected to.
+    const ctaLabel = runMc.isPending
+      ? 'Running…'
+      : runRefusal?.retryable
+        ? 'Try again'
+        : 'Run Monte Carlo';
     return (
-      <button
-        type="button"
-        onClick={() => runMc.mutate({})}
-        disabled={runMc.isPending || isLoading}
-        aria-label="Run Monte Carlo simulation to see confidence dates"
-        className="md:hidden flex items-center gap-2 w-full min-h-11 px-4 py-2
+      <>
+        <button
+          type="button"
+          onClick={() => runMc.mutate({})}
+          disabled={runMc.isPending || isLoading}
+          aria-label="Run Monte Carlo simulation to see confidence dates"
+          className="md:hidden flex items-center gap-2 w-full min-h-11 px-4 py-2
           border-t border-neutral-border bg-neutral-surface-raised
           disabled:opacity-50 disabled:cursor-not-allowed
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
           active:bg-neutral-surface-sunken"
-      >
-        <span className="text-xs font-medium text-neutral-text-secondary tracking-wide uppercase">
-          MC
-        </span>
-        <span className="text-xs text-neutral-text-secondary truncate">
-          {isLoading
-            ? 'Loading forecast…'
-            : runMc.isError
-              ? 'Could not run simulation.'
-              : 'No forecast yet.'}
-        </span>
-        <span
-          className="ml-auto inline-flex items-center px-2 py-0.5 rounded-chip border border-brand-primary/60 text-xs font-medium text-brand-primary"
-          aria-hidden="true"
         >
-          {ctaLabel}
-        </span>
-      </button>
+          <span className="text-xs font-medium text-neutral-text-secondary tracking-wide uppercase">
+            MC
+          </span>
+          <span className="text-xs text-neutral-text-secondary truncate">
+            {isLoading ? 'Loading forecast…' : runRefusal ? 'Run failed.' : 'No forecast yet.'}
+          </span>
+          <span
+            className="ml-auto inline-flex items-center px-2 py-0.5 rounded-chip border border-brand-primary/60 text-xs font-medium text-brand-primary"
+            aria-hidden="true"
+          >
+            {ctaLabel}
+          </span>
+        </button>
+        {/* The reason, as a sibling `role="alert"` (web-rule 372b) — inside the
+          button it would be swallowed by the button's own `aria-label`, which
+          is what left this card announcing "Run Monte Carlo simulation…" and
+          nothing else after a refusal. */}
+        <RefusalAlert
+          refusal={runRefusal}
+          testId="mobile-mc-error"
+          className="md:hidden bg-neutral-surface-raised px-4 pb-2"
+        />
+      </>
     );
   }
 

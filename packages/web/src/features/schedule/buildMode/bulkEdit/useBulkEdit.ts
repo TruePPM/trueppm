@@ -1,12 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useBulkUpdateTasks, type TaskBulkResponse } from '@/hooks/useTaskMutations';
+import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import type { Task } from '@/types';
 import type { UseScheduleFocusReturn } from '../useScheduleFocus';
-import {
-  buildBulkEditOperations,
-  type BulkEditSpec,
-  type ProjectionContext,
-} from './bulkEditSpec';
+import { buildBulkEditOperations, type BulkEditSpec, type ProjectionContext } from './bulkEditSpec';
 
 /**
  * State and wiring for the ⌘⇧K bulk-edit sheet (#2756 pt.2, ADR-0810).
@@ -31,7 +28,8 @@ export interface UseBulkEditReturn {
   /** The selection the sheet is acting on, in visible order. */
   selectedTasks: Task[];
   isPending: boolean;
-  error: string | null;
+  /** The non-207 refusal (network, 403 on the batch itself), shaped once (#3332). */
+  error: WriteRefusal | null;
   result: TaskBulkResponse | null;
   /** Ids the sheet dropped before sending — the result phase counts them as left alone. */
   skippedLocallyIds: string[];
@@ -74,7 +72,7 @@ export function useBulkEdit({
   const [isOpen, setIsOpen] = useState(false);
   const [result, setResult] = useState<TaskBulkResponse | null>(null);
   const [skippedLocallyIds, setSkippedLocallyIds] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<WriteRefusal | null>(null);
   const mutation = useBulkUpdateTasks(projectId);
   const { mutate } = mutation;
 
@@ -149,7 +147,12 @@ export function useBulkEdit({
       setError(null);
       mutate(operations, {
         onSuccess: (data) => setResult(data),
-        onError: () => setError('Couldn’t apply the changes.'),
+        // The batch endpoint refuses whole-request the same three ways every
+        // other write does — a 403 on the project, a 400 on a malformed
+        // operation, a 5xx. Collapsing all of them to one sentence discarded the
+        // only thing that separates "you cannot do this" from "try again"
+        // (#3332). A 207 is not a refusal and never reaches here.
+        onError: (err) => setError(describeWriteRefusal(err, 'Couldn’t apply the changes.')),
       });
     },
     [projectId, selectedTasks, mutate],

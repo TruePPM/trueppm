@@ -1,6 +1,6 @@
 ---
 title: WebSocket API
-description: Real-time collaboration events over WebSocket — channels, event taxonomy, and the workshop protocol.
+description: Real-time collaboration events over WebSocket — channels and event taxonomy.
 documentedFor: "0.8"
 ---
 
@@ -13,7 +13,6 @@ There are two endpoints, both scoped to a single project by its UUID.
 | Endpoint | Consumer | Purpose |
 |----------|----------|---------|
 | `ws/v1/projects/{project_id}/` | `ProjectConsumer` | Board/schedule events + presence |
-| `ws/v1/projects/{project_id}/workshop/` | `WorkshopConsumer` | Live workshop session (cursors + edits) |
 
 `{project_id}` is the project's UUID. Use `wss://` against a TLS deployment and
 `ws://` only for local development.
@@ -82,7 +81,6 @@ close codes (rather than accepting and then dropping):
 |------|---------|
 | `4001` | Missing, invalid, expired, or already-consumed ticket (or, on the deprecated path, an invalid token) |
 | `4003` | Authenticated but lacks the required role on the project (Member+ to subscribe) |
-| `4004` | (workshop endpoint only) no active `WorkshopSession` for the project |
 
 A client that receives `4001` should mint a fresh ticket (refreshing the access
 token first if needed) and reconnect; a persistent `4001` means the session has
@@ -170,10 +168,6 @@ The set is open-ended and grows as features land; current event types include:
   tokens only — payload carries `token_prefix` + `name`, never the raw token or
   hash; personal access tokens broadcast nothing, see
   [API reference](/api/reference/#personal-access-tokens-apiv1meapi-tokens-adr-0214))
-- **Workshop lifecycle**: `workshop_started`, `workshop_ended` — broadcast on the
-  **board channel** (not the workshop channel below) so project members who
-  aren't in the live session still see that one started or ended; payload
-  carries the workshop `session_id`
 - **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`, `slip_conflicts_updated`
 - **Velocity suggestions**: `velocity_suggestion_accepted`, `velocity_suggestion_dismissed`
   — the suggestion settling. An *accept* also emits a normal `task_updated`
@@ -296,8 +290,6 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `milestone_forecast_updated` | **WS-only** |
 | `sprint_close_failed` | **WS-only** |
 | `program_sponsorship_transferred` | **WS-only** — ⚠️ **not deliverable** until 0.8 (#836) |
-| `workshop_started` | **WS-only** |
-| `workshop_ended` | **WS-only** |
 | `backlog_reranked` | **WS-only** |
 | `sprint_reranked` | **WS-only** |
 | `baseline_activated` | **WS-only** |
@@ -394,54 +386,3 @@ agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; th
 risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
 19. Adding a 20th event requires its own ADR — the cap is the gate against
 per-customer event proliferation, which is the Enterprise upsell line.
-
-## Workshop channel
-
-`ws/v1/projects/{project_id}/workshop/` requires an **active** `WorkshopSession`
-(otherwise `4004`). Messages are relayed to all other participants and are
-**not** echoed back to the sender. The consumer validates the message type against
-its `ALLOWED_EVENT_TYPES` allow-list; the seven accepted client message types are:
-
-- `cursor`
-- `cursor_move`
-- `phase_rename`
-- `phase_add`
-- `phase_move`
-- `task_add`
-- `task_move`
-
-> **`cursor` and `cursor_move` are both accepted.** `cursor` is the legacy name and
-> `cursor_move` is the current name; the consumer accepts either for backward
-> compatibility.
-
-The server also broadcasts `participant_joined` / `participant_left` as
-participants connect and disconnect.
-
-### Frame shape
-
-A client **sends** a flat frame with a top-level `type`:
-
-```json
-{ "type": "cursor_move", "x": 120, "y": 48 }
-```
-
-Everything the channel **delivers** — whether it originated as a server-pushed
-event or as a peer's relayed frame — arrives in one envelope:
-
-```json
-{
-  "event_type": "cursor_move",
-  "payload": { "x": 120, "y": 48, "user_id": "<uuid>", "display_name": "Ana" },
-  "protocol_version": 1
-}
-```
-
-The sender's `type` becomes `event_type`; everything else becomes the `payload`.
-`user_id` and `display_name` are stamped **server-side** on every relayed frame
-and overwrite anything the client supplied, so a participant cannot relay under
-another identity.
-
-This matches the board channel's `{event_type, payload, protocol_version}` shape,
-so one client can branch on `event_type` across both sockets — and it means
-`protocol_version` describes exactly one envelope on this channel, which is what
-makes it usable as a version at all.

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -273,6 +273,127 @@ describe('ProjectMethodologyPage', () => {
 
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'HYBRID' });
+    });
+
+    // #3298. The dialog has always accepted a `pending` prop and rendered a
+    // `Switching…` state from it, but the call site hard-coded `pending={false}`
+    // AND unmounted the dialog inside `onConfirm` — so the state was unreachable
+    // by construction and a slow PATCH showed an enabled button and no progress.
+    it('holds the dialog open in its pending state while the PATCH is in flight', async () => {
+      const user = userEvent.setup();
+      let releasePatch!: () => void;
+      mutateAsync.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            releasePatch = () => resolve();
+          }),
+      );
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+
+      let savePromise!: Promise<void>;
+      act(() => {
+        savePromise = useSettingsSaveStore.getState().triggerSave();
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      const confirm = within(dialog).getByRole('button', { name: 'Switch to Waterfall' });
+      expect(confirm).toBeEnabled();
+      await user.click(confirm);
+
+      // Still mounted, now showing progress, with both controls disabled so the
+      // flip cannot be re-fired or abandoned mid-write.
+      await waitFor(() => {
+        const pendingDialog = screen.getByRole('alertdialog', { name: 'Switch to Waterfall?' });
+        expect(within(pendingDialog).getByRole('button', { name: 'Switching…' })).toBeDisabled();
+        expect(within(pendingDialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+      });
+      expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'WATERFALL' });
+
+      await act(async () => {
+        releasePatch();
+        await savePromise;
+      });
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('dismisses the dialog when the PATCH fails, rather than stranding it', async () => {
+      const user = userEvent.setup();
+      mutateAsync.mockRejectedValue(new Error('boom'));
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+
+      let savePromise!: Promise<void>;
+      act(() => {
+        savePromise = useSettingsSaveStore.getState().triggerSave();
+      });
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      await user.click(within(dialog).getByRole('button', { name: 'Switch to Waterfall' }));
+      await act(async () => {
+        await savePromise;
+      });
+
+      // Closed by `handleSave`'s finally — a stranded pending dialog would trap
+      // the user behind a focus trap with every control disabled.
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(useSettingsSaveStore.getState().saveError).toBe('boom');
+      // The flip did not take, so the form stays dirty and the save bar armed.
+      expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    });
+  });
+
+  // #3298. Both reads gate the skeleton, so either failing used to strand the page
+  // on pulsing placeholders with no error and no retry (rule 246).
+  describe('when a read fails', () => {
+    it('renders the query-error state when the project GET fails', async () => {
+      const user = userEvent.setup();
+      const refetch = vi.fn();
+      useProject.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        refetch,
+      });
+      renderPage();
+
+      const failure = screen.getByRole('status');
+      expect(failure).toHaveTextContent("Couldn't load this project's methodology.");
+      expect(document.querySelectorAll('[class*="animate-pulse"]')).toHaveLength(0);
+      expect(screen.getByRole('heading', { name: 'Methodology' })).toBeInTheDocument();
+
+      await user.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(refetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders the query-error state when the workspace GET fails', async () => {
+      const user = userEvent.setup();
+      const refetchWs = vi.fn();
+      const refetchProject = vi.fn();
+      useProject.mockReturnValue({
+        data: makeProject(),
+        isLoading: false,
+        isError: false,
+        refetch: refetchProject,
+      });
+      useWorkspaceSettings.mockReturnValue({
+        data: undefined,
+        isError: true,
+        refetch: refetchWs,
+      });
+      renderPage();
+
+      const failure = screen.getByRole('status');
+      expect(failure).toHaveTextContent("Couldn't load this project's methodology.");
+      // `ws === undefined` gates the skeleton too — without this branch the page
+      // pulses forever even though the project itself loaded fine.
+      expect(document.querySelectorAll('[class*="animate-pulse"]')).toHaveLength(0);
+
+      // Retry re-runs only the request that actually failed.
+      await user.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(refetchWs).toHaveBeenCalledTimes(1);
+      expect(refetchProject).not.toHaveBeenCalled();
     });
   });
 });

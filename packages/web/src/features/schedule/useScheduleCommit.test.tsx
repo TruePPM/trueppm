@@ -8,6 +8,7 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import { GanttEngineStub } from './engine';
 import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from './engine';
 import type { Task, ApiSprint } from '@/types';
+import { axiosRefusal } from '@/test/axiosError';
 
 const { patchMock } = vi.hoisted(() => ({
   patchMock: vi.fn().mockResolvedValue({ data: {} }),
@@ -135,7 +136,17 @@ function makeContainerRef(): MutableRefObject<HTMLDivElement | null> {
   const el = document.createElement('div');
   // Mock getBoundingClientRect so the hook's anchor math is deterministic.
   Object.defineProperty(el, 'getBoundingClientRect', {
-    value: () => ({ left: 100, top: 50, right: 1000, bottom: 800, width: 900, height: 750, x: 100, y: 50, toJSON: () => ({}) }),
+    value: () => ({
+      left: 100,
+      top: 50,
+      right: 1000,
+      bottom: 800,
+      width: 900,
+      height: 750,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    }),
   });
   ref.current = el;
   return ref;
@@ -528,18 +539,14 @@ describe('useScheduleCommit', () => {
     const engine = new ControllableEngine();
     const { ariaAssertiveRef } = renderCommit(engine);
     act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
-    expect(ariaAssertiveRef.current?.textContent).toBe(
-      'Reschedule pending. Confirm or cancel.',
-    );
+    expect(ariaAssertiveRef.current?.textContent).toBe('Reschedule pending. Confirm or cancel.');
   });
 
   it('aria-live region announces "Resize pending" on a real resize-end', () => {
     const engine = new ControllableEngine();
     const { ariaAssertiveRef } = renderCommit(engine);
     act(() => engine.emit('resize-task-end', { id: 't1', right: 19, cancelled: false }));
-    expect(ariaAssertiveRef.current?.textContent).toBe(
-      'Resize pending. Confirm or cancel.',
-    );
+    expect(ariaAssertiveRef.current?.textContent).toBe('Resize pending. Confirm or cancel.');
   });
 
   it('confirm offline skips PATCH, reverts engine, and surfaces scheduleError', () => {
@@ -549,9 +556,7 @@ describe('useScheduleCommit', () => {
     act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
     act(() => result.current.handleConfirm());
     expect(patchMock).not.toHaveBeenCalled();
-    expect(useScheduleStore.getState().scheduleError).toBe(
-      "You're offline — change not saved.",
-    );
+    expect(useScheduleStore.getState().scheduleError).toBe("You're offline — change not saved.");
     expect(result.current.state).toBeNull();
     onlineSpy.mockRestore();
   });
@@ -724,7 +729,7 @@ describe('useScheduleCommit', () => {
 
     it('Snap keeps the prompt open with the server error message on PATCH failure', async () => {
       const engine = new ControllableEngine();
-      patchMock.mockRejectedValueOnce({ response: { data: { detail: 'Still too early.' } } });
+      patchMock.mockRejectedValueOnce(axiosRefusal(400, { detail: 'Still too early.' }));
       const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
       act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
       act(() => result.current.handleConfirm());
@@ -740,11 +745,7 @@ describe('useScheduleCommit', () => {
       // must NOT fire because the first step failed.
       patchMock.mockImplementation((url: string) =>
         url.startsWith('/projects/')
-          ? Promise.reject(
-              Object.assign(new Error('forbidden'), {
-                response: { data: { detail: 'Only admins may move the start date.' } },
-              }),
-            )
+          ? Promise.reject(axiosRefusal(403, { detail: 'Only admins may move the start date.' }))
           : Promise.resolve({ data: {} }),
       );
       const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
@@ -752,7 +753,9 @@ describe('useScheduleCommit', () => {
       act(() => result.current.handleConfirm());
       act(() => result.current.handleMoveProjectStart());
       await waitFor(() =>
-        expect(result.current.beforeStartPrompt?.error).toBe('Only admins may move the start date.'),
+        expect(result.current.beforeStartPrompt?.error).toBe(
+          'Only admins may move the start date.',
+        ),
       );
       expect(patchMock).not.toHaveBeenCalledWith('/tasks/t1/', expect.anything());
     });
@@ -763,15 +766,17 @@ describe('useScheduleCommit', () => {
       patchMock.mockImplementation((url: string) =>
         url.startsWith('/projects/')
           ? Promise.resolve({ data: {} })
-          : Promise.reject(Object.assign(new Error('task save failed'), { response: { data: {} } })),
+          : Promise.reject(axiosRefusal(400, {})),
       );
       const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
       act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
       act(() => result.current.handleConfirm());
       act(() => result.current.handleMoveProjectStart());
       await waitFor(() =>
+        // No "Try again." — a 400 is a decision, and the retry advice now lives
+        // on `WriteRefusal.retryable` rather than being baked into every sentence.
         expect(result.current.beforeStartPrompt?.error).toBe(
-          'Moved the project start, but saving the task failed. Try again.',
+          'Moved the project start, but saving the task failed.',
         ),
       );
     });
@@ -787,7 +792,7 @@ describe('useScheduleCommit', () => {
     });
   });
 
-  // --- extractErrorMessage variants via the snap onError path ---------------
+  // --- extractValidationMessage variants via the snap onError path ---------
   describe('error-message extraction', () => {
     function snapWithRejection(reason: unknown) {
       const engine = new ControllableEngine();
@@ -800,26 +805,28 @@ describe('useScheduleCommit', () => {
     }
 
     it('prefers the DRF `detail` string', async () => {
-      const result = snapWithRejection({ response: { data: { detail: 'A detail message.' } } });
-      await waitFor(() => expect(result.current.beforeStartPrompt?.error).toBe('A detail message.'));
+      const result = snapWithRejection(axiosRefusal(400, { detail: 'A detail message.' }));
+      await waitFor(() =>
+        expect(result.current.beforeStartPrompt?.error).toBe('A detail message.'),
+      );
     });
 
     it('falls back to the first field error array', async () => {
-      const result = snapWithRejection({
-        response: { data: { planned_start: ['Date is invalid.'] } },
-      });
+      const result = snapWithRejection(axiosRefusal(400, { planned_start: ['Date is invalid.'] }));
       await waitFor(() => expect(result.current.beforeStartPrompt?.error).toBe('Date is invalid.'));
     });
 
     it('falls back to a first field error that is a bare string', async () => {
-      const result = snapWithRejection({ response: { data: { non_field: 'Bare string error.' } } });
-      await waitFor(() => expect(result.current.beforeStartPrompt?.error).toBe('Bare string error.'));
+      const result = snapWithRejection(axiosRefusal(400, { non_field: 'Bare string error.' }));
+      await waitFor(() =>
+        expect(result.current.beforeStartPrompt?.error).toBe('Bare string error.'),
+      );
     });
 
     it('uses the fallback copy when the payload has no usable shape', async () => {
       const result = snapWithRejection(new Error('network down'));
       await waitFor(() =>
-        expect(result.current.beforeStartPrompt?.error).toBe("Couldn't save the change. Try again."),
+        expect(result.current.beforeStartPrompt?.error).toBe("Couldn't save the change."),
       );
     });
   });
@@ -828,24 +835,54 @@ describe('useScheduleCommit', () => {
   describe('confirm PATCH failure', () => {
     it('keeps the popover open and shows the server detail on error', async () => {
       const engine = new ControllableEngine();
-      patchMock.mockRejectedValueOnce({ response: { data: { detail: 'Task is locked.' } } });
+      patchMock.mockRejectedValueOnce(axiosRefusal(403, { detail: 'Task is locked.' }));
       const { result } = renderCommit(engine);
       act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
       act(() => result.current.handleConfirm());
-      await waitFor(() => expect(result.current.state?.error).toBe('Task is locked.'));
+      await waitFor(() =>
+        expect(result.current.state?.error).toEqual({
+          message: 'Task is locked.',
+          detail: null,
+          // A 403 is a decision, not a hiccup — the popover keeps its verb (#3332).
+          retryable: false,
+        }),
+      );
       // Popover stays open so the user can Retry or Cancel.
       expect(result.current.state).not.toBeNull();
     });
 
-    it('uses the generic fallback copy when the error has no detail', async () => {
+    it('uses the generic fallback copy when the error has no detail, and stays retryable', async () => {
       const engine = new ControllableEngine();
       patchMock.mockRejectedValueOnce(new Error('boom'));
       const { result } = renderCommit(engine);
       act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
       act(() => result.current.handleConfirm());
       await waitFor(() =>
-        expect(result.current.state?.error).toBe("Couldn't save the change. Try again or cancel."),
+        expect(result.current.state?.error).toEqual({
+          message: "Couldn't save the change.",
+          detail: null,
+          // Nothing came back from a server, so a replay may well land.
+          retryable: true,
+        }),
       );
+    });
+
+    it('a 5xx keeps the Retry affordance the popover offers', async () => {
+      const engine = new ControllableEngine();
+      patchMock.mockRejectedValueOnce(axiosRefusal(503, {}));
+      const { result } = renderCommit(engine);
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      await waitFor(() => expect(result.current.state?.error?.retryable).toBe(true));
+    });
+
+    it('a 429 is a TIMING refusal, so it stays retryable despite being a 4xx', async () => {
+      const engine = new ControllableEngine();
+      patchMock.mockRejectedValueOnce(axiosRefusal(429, { detail: 'Too many requests.' }));
+      const { result } = renderCommit(engine);
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      await waitFor(() => expect(result.current.state?.error?.retryable).toBe(true));
     });
   });
 

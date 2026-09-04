@@ -52,8 +52,29 @@ describe('DialogFooter', () => {
     expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
 
-  it('renders a save error as a separate alert', () => {
-    render(<DialogFooter onSave={vi.fn()} onCancel={vi.fn()} dirty error="Save failed" />);
-    expect(screen.getByRole('alert')).toHaveTextContent('Save failed');
+  it("renders the server's own refusal — message and remedy — as a separate alert (#3332)", () => {
+    render(
+      <DialogFooter
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+        dirty
+        error={{
+          message: 'You do not have permission to edit this task.',
+          detail: 'Ask an Admin for the Scheduler role.',
+          retryable: false,
+        }}
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('You do not have permission to edit this task.');
+    expect(alert).toHaveTextContent('Ask an Admin for the Scheduler role.');
+    // The hardcoded sentence the slot used to render, which discarded all of the
+    // above and advised the one act a 403 has already ruled out.
+    expect(alert).not.toHaveTextContent(/try again/i);
+  });
+
+  it('renders no alert node at all when there is no refusal', () => {
+    render(<DialogFooter onSave={vi.fn()} onCancel={vi.fn()} dirty error={null} />);
+    expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
   });
 });

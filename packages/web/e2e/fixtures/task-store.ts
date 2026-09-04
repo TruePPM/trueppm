@@ -46,6 +46,16 @@ export interface TaskStoreOptions {
    * returns, and the spec would be asserting against a shape the server cannot produce.
    */
   applyPatch?: (body: Record<string, unknown>, current: TaskRow) => TaskRow;
+  /**
+   * The `can_undo` the classification cascade's 200 reports (#3304). Defaults to
+   * `true` — the Admin/Owner case every existing spec was written against.
+   *
+   * Set `false` to drive the Member case: applying is `IsProjectPlanAuthor` but
+   * `/cascade-classification-operations/{id}/undo/` is Admin+, so the server tells
+   * the client not to offer an Undo it would refuse. This is an option rather than
+   * a derived value because the store has no role of its own to derive it from.
+   */
+  canUndoBatchOperations?: boolean;
 }
 
 export interface TaskStoreHandle {
@@ -419,6 +429,10 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
       skipped,
       capabilities_denied: [],
       operation_id: operationId,
+      // #3304: the caller's undo authority, which is a HIGHER floor than the one
+      // that let this cascade through. Independent of `operation_id` on the wire,
+      // exactly as the server sends it — the client requires both.
+      can_undo: opts.canUndoBatchOperations ?? true,
     };
     if (body.governance_class != null) {
       report.governance = {

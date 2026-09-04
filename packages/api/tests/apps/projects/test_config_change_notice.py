@@ -16,6 +16,8 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -1409,3 +1411,368 @@ def test_diff_is_silent_on_un_hiding_a_column() -> None:
     before = columns(hidden={"REVIEW"})
     removed, hidden = diff_board_config(before, columns())
     assert (removed, hidden) == ([], [])
+
+
+# ---------------------------------------------------------------------------
+# The emit's cost — bounded, not per-project (#3335)
+# ---------------------------------------------------------------------------
+
+#: Queries `_emit_surface_notifications` issues per CHUNK, for any chunk size.
+#:
+#: Eight reads — four for the cohort (membership scan, the two assignment reads,
+#: the facet join) and two for the grouped counts, plus the preference scan and
+#: the DND scan — then `ceil(rows / NOTIFICATION_BULK_BATCH_SIZE)` inserts, which
+#: is one for every cohort these tests build. Every read is `project_id IN (...)`,
+#: so within a chunk the count does not move with the project count: if a future
+#: change puts a read back inside the per-project loop, the 12-project assertion
+#: below fails while the 2-project one still passes.
+#:
+#: Across chunks it steps rather than staying flat — that is what chunking means,
+#: and `test_the_emit_cost_steps_per_chunk_and_never_per_project` pins the step so
+#: the property is asserted rather than assumed. A max-size apply is
+#: `ceil(200 / SURFACE_EMIT_CHUNK_SIZE) = 4` chunks, so ~36 queries against the
+#: ~1,800 the per-project emit issued.
+SURFACE_EMIT_QUERIES = 9
+
+
+def surface_snapshot(methodology: str) -> Any:
+    """A snapshot with every leaf surface shown, so only the preset differs.
+
+    Built by hand rather than through ``capture_project_surface`` so the fixture
+    costs no queries of its own — these tests are counting the emit, and a
+    workspace read inside the measured block would be noise attributed to it.
+    """
+    from trueppm_api.apps.projects.config_notice import ProjectSurfaceSnapshot
+
+    return ProjectSurfaceSnapshot(
+        methodology=methodology,
+        visibility={
+            "reporting": True,
+            "time_tracking": True,
+            "baselines": True,
+            "monte_carlo": True,
+        },
+    )
+
+
+def surface_change(project: Project, *, to: str = Methodology.WATERFALL) -> Any:
+    from trueppm_api.apps.projects.config_notice import SurfaceChange
+
+    return SurfaceChange(
+        project_id=str(project.pk),
+        before=surface_snapshot(Methodology.AGILE),
+        after=surface_snapshot(to),
+    )
+
+
+def cohort_project(calendar: Calendar, idx: int) -> tuple[Project, Any, Any]:
+    """A project shaped so every arm of the cohort has something to find.
+
+    A PO seated below the write gate (facet arm), a Scheduler with no work
+    (role arm), and a task the PO owns (assignment arm + a non-zero count) — so a
+    batched read that silently drops one arm changes the recipients, not just the
+    query count.
+    """
+    project = Project.objects.create(
+        name=f"Batch {idx}",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        methodology=Methodology.AGILE,
+    )
+    po = facet_member(project, Role.MEMBER, f"po{idx}", product_owner=True)
+    sched = member(project, Role.SCHEDULER, f"sched{idx}")
+    task_for_assignee(project, po, name=f"T{idx}")
+    return project, po, sched
+
+
+def emit(changes: list[Any]) -> None:
+    from trueppm_api.apps.projects.config_notice import _emit_surface_notifications
+
+    _emit_surface_notifications(changes, None, "Dana")
+
+
+@pytest.mark.django_db
+def test_the_surface_emit_cost_does_not_scale_with_the_batch(
+    calendar: Calendar, django_assert_num_queries: Any
+) -> None:
+    """The acceptance criterion of #3335, asserted at two materially different sizes.
+
+    A guard run at one batch size, or at two similar ones, proves nothing — the
+    per-project emit this replaces would pass any single-size assertion that was
+    calibrated against it. Two and twelve is a six-fold difference: before the
+    hoist the second block cost ~9x12 queries against ~9x2 for the first, so the
+    two assertions could not both hold, and the shared constant is what makes a
+    regression fail loudly rather than drift.
+
+    Both sizes sit inside one ``SURFACE_EMIT_CHUNK_SIZE`` chunk, deliberately:
+    this test isolates the property that the cost does not move **per project**.
+    The orthogonal property — that it steps once per chunk and no faster — is
+    pinned separately below, so neither assertion can quietly stand in for the
+    other.
+    """
+    small = [cohort_project(calendar, i) for i in range(2)]
+    large = [cohort_project(calendar, i) for i in range(100, 112)]
+    assert len(large) == 6 * len(small), "the two batch sizes must differ materially"
+
+    with django_assert_num_queries(SURFACE_EMIT_QUERIES):
+        emit([surface_change(project) for project, _, _ in small])
+    with django_assert_num_queries(SURFACE_EMIT_QUERIES):
+        emit([surface_change(project) for project, _, _ in large])
+
+    # Not vacuous: the bounded count is bounded because the reads are grouped,
+    # not because the emit quietly did nothing.
+    assert Notification.objects.filter(event_type=EVENT).count() == 2 * (2 + 12)
+    for _, po, sched in small + large:
+        assert len(inbox(po)) == 1
+        assert len(inbox(sched)) == 1
+
+
+@pytest.mark.django_db
+def test_the_emit_cost_steps_per_chunk_and_never_per_project(
+    calendar: Calendar, django_assert_num_queries: Any, monkeypatch: Any
+) -> None:
+    """The chunk boundary is the ONLY thing that adds queries.
+
+    Batching alone would be flat for any batch size; chunking trades a little of
+    that for a bounded ``rows`` list and a bounded failure blast radius, which
+    means the cost steps. That step is a real property of the emit, so it is
+    asserted here rather than left as a comment somebody has to trust — and it is
+    asserted as ``chunks x SURFACE_EMIT_QUERIES``, which is what distinguishes
+    "one pass per chunk" from "one pass per project" at the same six projects.
+
+    The chunk size is shrunk rather than the project count grown: at the shipped
+    fifty this would need 150 projects to see two boundaries, and the property has
+    nothing to do with how large the constant happens to be.
+    """
+    from trueppm_api.apps.projects import config_notice
+
+    projects = [cohort_project(calendar, 200 + i) for i in range(6)]
+    changes = [surface_change(project) for project, _, _ in projects]
+
+    monkeypatch.setattr(config_notice, "SURFACE_EMIT_CHUNK_SIZE", 2)
+    with django_assert_num_queries(3 * SURFACE_EMIT_QUERIES):
+        emit(changes)
+
+    # Every project still notified — a step count is only meaningful if the work
+    # actually happened in those passes.
+    for _, po, sched in projects:
+        assert len(inbox(po)) == 1
+        assert len(inbox(sched)) == 1
+
+
+@pytest.mark.django_db
+def test_chunking_changes_the_cost_and_not_the_output(calendar: Calendar, monkeypatch: Any) -> None:
+    """A chunk boundary must be invisible in what gets written.
+
+    Chunking splits the reads, so a recipient resolved in one pass and rendered
+    in another is exactly the kind of seam that drops or duplicates rows. Pinned
+    as equality between a single-chunk run and a one-project-per-chunk run over
+    the same changes.
+    """
+    from trueppm_api.apps.projects import config_notice
+
+    projects = [cohort_project(calendar, 300 + i) for i in range(5)]
+    changes = [surface_change(project) for project, _, _ in projects]
+
+    def written() -> set[tuple[Any, ...]]:
+        return {
+            (str(n.recipient_id), str(n.project_id), n.subject, n.body, n.email_pending)
+            for n in Notification.objects.filter(event_type=EVENT)
+        }
+
+    emit(changes)
+    one_chunk = written()
+    Notification.objects.all().delete()
+
+    monkeypatch.setattr(config_notice, "SURFACE_EMIT_CHUNK_SIZE", 1)
+    emit(changes)
+    many_chunks = written()
+
+    assert one_chunk == many_chunks
+    assert len(one_chunk) == 2 * len(projects)
+
+
+@pytest.mark.django_db
+def test_a_failed_chunk_does_not_drop_the_other_chunks(
+    calendar: Calendar, monkeypatch: Any
+) -> None:
+    """The blast-radius bound chunking exists to buy.
+
+    The hoist put the reads and the insert under one ``try``, so before chunking a
+    single failed read lost every project in the apply. This asserts the narrower
+    contract that replaced it: a chunk whose write fails costs that chunk and
+    nothing else.
+    """
+    from trueppm_api.apps.notifications import services as notification_services
+    from trueppm_api.apps.projects import config_notice
+
+    projects = [cohort_project(calendar, 400 + i) for i in range(4)]
+    changes = [surface_change(project) for project, _, _ in projects]
+
+    real = notification_services.create_event_notifications_multi_project
+    calls = {"n": 0}
+
+    def fail_second(**kwargs: Any) -> int:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("boom")
+        return int(real(**kwargs))
+
+    monkeypatch.setattr(config_notice, "SURFACE_EMIT_CHUNK_SIZE", 2)
+    monkeypatch.setattr(
+        notification_services, "create_event_notifications_multi_project", fail_second
+    )
+    emit(changes)
+
+    assert calls["n"] == 2, "both chunks must be attempted"
+    for _, po, sched in projects[:2]:
+        assert len(inbox(po)) == 1
+        assert len(inbox(sched)) == 1
+    for _, po, sched in projects[2:]:
+        assert inbox(po) == []
+        assert inbox(sched) == []
+
+
+@pytest.mark.django_db
+def test_one_project_whose_render_fails_does_not_drop_the_others(calendar: Calendar) -> None:
+    """Per-project failure isolation, which the hoist must not spend.
+
+    Moving every read above the loop leaves the loop rendering only — so the
+    per-project ``try`` now guards exactly the step that can still fail per
+    project, and a batch where one project's copy blows up must still deliver
+    every other project's notices rather than losing the whole apply.
+    """
+    from trueppm_api.apps.projects import config_notice
+
+    bad, bad_po, _ = cohort_project(calendar, 1)
+    good, good_po, good_sched = cohort_project(calendar, 2)
+    real_subject = config_notice._surface_subject
+
+    def explode(before: Any, after: Any) -> str:
+        if after.methodology == Methodology.HYBRID:
+            raise RuntimeError("boom")
+        return real_subject(before, after)
+
+    with patch.object(config_notice, "_surface_subject", side_effect=explode):
+        emit([surface_change(bad, to=Methodology.HYBRID), surface_change(good)])
+
+    assert inbox(bad_po) == []
+    assert len(inbox(good_po)) == 1
+    assert len(inbox(good_sched)) == 1
+    assert "from Agile to Waterfall" in only(good_po).body
+
+
+@pytest.mark.django_db
+def test_a_batched_emit_writes_exactly_what_separate_emits_would(calendar: Calendar) -> None:
+    """The refactor is behavior-preserving — same recipients, same bodies.
+
+    #3335 is a cost fix, not a cohort change, so the pin is an equality against
+    the pre-batch shape rather than a re-statement of the new one: the batch is
+    run once, its rows are frozen, and the identical changes are then emitted one
+    project at a time. Reading the expectation from the batched path itself would
+    be a tautology; running the one-project path is running the code the previous
+    implementation ran, since ``surface_recipient_ids`` still resolves the cohort
+    for a batch of one.
+    """
+    plain, plain_po, _ = cohort_project(calendar, 1)
+
+    booked = Project.objects.create(
+        name="Booked",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        methodology=Methodology.AGILE,
+    )
+    booked_user = member(booked, Role.MEMBER, "booked-member")
+    task_for_resource(booked, booked_user, name="B0")
+
+    # Nobody assigned anything: the whole cohort is the facet arm, which is the
+    # shape #3291 widened and the one a batched read is most likely to lose.
+    empty = Project.objects.create(
+        name="Empty",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        methodology=Methodology.AGILE,
+    )
+    empty_sm = facet_member(empty, Role.VIEWER, "empty-sm", scrum_master=True)
+
+    changes = [surface_change(p) for p in (plain, booked, empty)]
+
+    def written() -> set[tuple[Any, ...]]:
+        return {
+            (str(n.recipient_id), str(n.project_id), n.subject, n.body, n.email_pending)
+            for n in Notification.objects.filter(event_type=EVENT)
+        }
+
+    emit(changes)
+    batched = written()
+    Notification.objects.all().delete()
+    for change in changes:
+        emit([change])
+    separate = written()
+
+    assert batched == separate
+    # Non-vacuous: all three projects contributed, including the facet-only one.
+    assert {str(plain_po.pk), str(booked_user.pk), str(empty_sm.pk)} <= {row[0] for row in batched}
+    assert {str(plain.pk), str(booked.pk), str(empty.pk)} == {row[1] for row in batched}
+
+
+@pytest.mark.django_db
+def test_the_fan_out_insert_is_chunked_by_the_declared_batch_size(
+    calendar: Calendar, django_assert_num_queries: Any, monkeypatch: Any
+) -> None:
+    """``bulk_create`` is bounded, so a batch that spans many projects cannot
+    silently exceed Postgres's bind-parameter ceiling.
+
+    Asserted as chunking rather than as "the kwarg was passed": ``Notification``
+    has 18 columns, so an unbounded insert raises somewhere past ~3,600 rows and
+    the emit's ``except Exception`` swallows it whole, dropping every notice with
+    only a log line. The batch size is shrunk here so the behavior is observable
+    without materializing thousands of rows.
+    """
+    from trueppm_api.apps.notifications import services as notification_services
+
+    project = Project.objects.create(name="Fan out", start_date=date(2026, 1, 1), calendar=calendar)
+    recipients = [member(project, Role.MEMBER, f"fan{i}") for i in range(5)]
+    rows = [(u.pk, project.pk, "Subject", "Body", None) for u in recipients]
+
+    monkeypatch.setattr(notification_services, "NOTIFICATION_BULK_BATCH_SIZE", 2)
+    # 1 preference scan + 1 DND scan + ceil(5 / 2) inserts.
+    with django_assert_num_queries(2 + 3):
+        created = notification_services.create_event_notifications_multi_project(
+            event_type=EVENT, rows=rows
+        )
+    assert created == 5
+    assert Notification.objects.filter(event_type=EVENT).count() == 5
+
+
+@pytest.mark.django_db
+def test_the_assignment_read_actually_de_duplicates_in_the_database() -> None:
+    """``Task.Meta.ordering`` must not be allowed to defeat the ``distinct()``.
+
+    Asserted against the compiled SQL, because nothing else can see it. A
+    ``distinct()`` with no ``distinct_fields`` promotes every ORDER BY column into
+    the SELECT list, and ``Task.Meta.ordering`` is ``["wbs_path", "name"]`` — so
+    without ``order_by()`` the statement is ``SELECT DISTINCT project_id,
+    assignee_id, wbs_path, name``. ``projects_task`` has an ``ExclusionConstraint``
+    on ``(project, wbs_path)`` over live rows, making that tuple unique among
+    exactly the rows scanned, so the DISTINCT matches nothing and Postgres streams
+    one row per task to build a set of a few dozen user ids.
+
+    The returned value is identical either way — the caller builds a ``set`` — so
+    every behavioral assertion in this file passes with the bug present. That is
+    how it survived on main, and it is why this pin reads the query rather than
+    the result.
+    """
+    import uuid
+
+    from trueppm_api.apps.projects.config_notice import _assigned_candidates_by_project
+
+    with CaptureQueriesContext(connection) as ctx:
+        _assigned_candidates_by_project([uuid.uuid4()])
+
+    assignee_arm = next(q["sql"] for q in ctx.captured_queries if "assignee_id" in q["sql"])
+    assert "wbs_path" not in assignee_arm, (
+        "Task.Meta.ordering leaked into the DISTINCT — it now returns one row per "
+        f"task instead of one per (project, assignee):\n{assignee_arm}"
+    )
+    assert "ORDER BY" not in assignee_arm.upper()

@@ -263,6 +263,62 @@ def _can_author_plan_for_project_id(request: Request, project_id: Any) -> bool:
     return role_can_author_plan(_membership_role(request, str(project_id)))
 
 
+def role_can_undo_batch_operation(role: int | None) -> bool:
+    """May this role reverse a recorded batch write? (ADR-0810, ADR-0773's undo matrix)
+
+    Admin+, which is a **higher floor than the writes it reverses**: paste-many and
+    the classification cascade are both ``IsProjectPlanAuthor`` (Member+ minus the
+    resource-management band), so a Member can author a batch they may not undo.
+    That asymmetry is deliberate — undoing removes work other collaborators may
+    already be building on top of — but it is exactly why this has to be a *shared*
+    predicate rather than an inline comparison at each site: the apply endpoint has
+    to be able to tell the client which of the two floors the caller cleared, and a
+    client that re-derives the rule drifts from it (#3304).
+
+    A threshold, not a band exclusion, so the ADR-0072 band contract applies: an
+    Enterprise custom role registered in the 301-399 project-lead band inherits it.
+    Contrast :func:`role_can_author_plan`, whose rule genuinely is a band exclusion —
+    which is why *that* one could never be a client-side ``>=`` and this one could.
+
+    Fails closed: ``None`` (unresolved auth, or no membership) is ``False``.
+    """
+    return role is not None and role >= Role.ADMIN
+
+
+def can_user_undo_batch_operation(request: Request, project_id: Any) -> bool:
+    """Resolve the caller's role on ``project_id`` and apply the undo rule.
+
+    Backs the declarative ``can_undo`` field on the classification cascade's own 200
+    response. Enforcement calls :func:`role_can_undo_batch_operation` directly (from
+    ``batch_operation_views._require_admin``, which already has the role in hand), so
+    the two share the *predicate* rather than this wrapper — the ADR-0133 "one rule,
+    called twice" pattern that ``can_author`` follows. Change the predicate, not
+    either caller.
+
+    Two honest limits on that guarantee, so nobody reads it as stronger than it is:
+
+    - **The field is a snapshot, enforcement is live.** ``TaskClassificationView``
+      carries ``IdempotencyMixin``, which stores the rendered body and replays it on
+      a repeated ``Idempotency-Key`` without re-running the view; the request hash
+      covers method, path and body, not the caller's role. So a caller demoted after
+      a cascade can be replayed a stale ``can_undo: true`` inside the retention
+      window. Harmless — the undo endpoint re-derives the role and still refuses —
+      but the client's affordance is advisory, never the gate.
+    - **Two sibling modules disagree about the floor.**
+      ``csvimport.views._require_project_admin`` and
+      ``template_views`` still inline the same comparison, and
+      ``structural_operation_services`` deliberately implements *actor-or-Admin*
+      instead, on the argument that the undo skips rows touched since. Whether the
+      batch-undo floor should follow it is a real open question, not an oversight
+      here; see #3304's follow-ups.
+    """
+    if not (request.user and request.user.is_authenticated):
+        return False
+    if project_id is None:
+        return False
+    return role_can_undo_batch_operation(_membership_role(request, str(project_id)))
+
+
 def can_user_write_estimates(request: Request, project: Any) -> bool:
     """Authoritative "may this user write three-point estimates" predicate (ADR-0743).
 
