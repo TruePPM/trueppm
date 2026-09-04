@@ -15,10 +15,14 @@ Three properties, and the second is the one most likely to be eroded later:
    configuration updated" is precisely the notification this module exists to
    refuse. Each recipient's row is rendered for them, with their own count, via
    ``create_event_notifications_batch``.
-3. **It reaches everyone with work in the project, not just the actor.** The
-   recipient set is the union of ``Task.assignee`` and ``TaskResource`` over the
-   project — see :func:`assigned_recipient_ids` for why it is the union and not
-   either one alone — intersected with live membership.
+3. **It reaches everyone the change re-shapes, not just the actor.** For the
+   board notice that is everyone with work on the board: the union of
+   ``Task.assignee`` and ``TaskResource`` over the project — see
+   :func:`assigned_recipient_ids` for why it is the union and not either one
+   alone — intersected with live membership. For the **surface** notice it is
+   wider, because assignment is the wrong proxy for "this surface is yours":
+   :func:`surface_recipient_ids` adds the ADR-0078 facet holders and everyone
+   seated at ``role >= SCHEDULER`` (#3291).
 
 Never dispatched from a refusal path. Under ``ATOMIC_REQUESTS`` DRF's exception
 handler calls ``set_rollback()`` for every ``APIException``, which discards the
@@ -64,23 +68,40 @@ METHODOLOGY_LABELS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def assigned_recipient_ids(project_id: Any, *, exclude_user_id: Any = None) -> list[Any]:
+def assigned_recipient_ids(
+    project_id: Any,
+    *,
+    exclude_user_id: Any = None,
+    live_member_ids: set[Any] | None = None,
+) -> list[Any]:
     """User ids of everyone with work in ``project_id``, minus the actor.
+
+    The board notice's cohort, and the assignment-shaped half of
+    :func:`surface_recipient_ids`. A lane going away moves *cards*, so having a
+    card is what makes someone a recipient — the wider surface cohort is not
+    right here, because a Product Owner with no card on the board has had nothing
+    moved out from under them.
 
     The **union** of ``Task.assignee`` and ``TaskResource.resource.user``,
     deliberately — and this is the one place in the codebase where the union is
     right rather than one or the other. ``notify_amend`` uses ``TaskResource``
     alone because it is talking about committed *load*, and a bare assignee
-    carries none. This notice is about the **surface** a person works on, and a
-    bare assignee looks at exactly the same board as a resourced one; using
-    ``TaskResource`` alone would silently tell nobody in a project imported from
-    Jira (which writes neither) or seeded from a template (assignees, no
-    assignments).
+    carries none. This is about the board a person works on, and a bare assignee
+    looks at exactly the same board as a resourced one; using ``TaskResource``
+    alone would silently tell nobody in a project imported from Jira (which
+    writes neither) or seeded from a template (assignees, no assignments).
 
     Intersected with live ``ProjectMembership`` (``is_deleted=False``): an inbox
     row about a project the recipient can no longer open is a dead link, and
     naming a project's internal structure to a removed member is a scope leak
     (ADR-0104's back-door close — a non-member sits below every tier).
+
+    ``live_member_ids`` lets a caller that has already read the project's live
+    membership pass it in rather than making this run the same filter a second
+    time — :func:`surface_recipient_ids` needs the full ``(user_id, role)`` map
+    for its own cohorts, and that map is a strict superset of the answer this
+    liveness check would compute for itself. Defaulted to ``None`` so the board
+    call site stays self-contained.
     """
     from trueppm_api.apps.access.models import ProjectMembership
     from trueppm_api.apps.resources.models import TaskResource
@@ -106,12 +127,95 @@ def assigned_recipient_ids(project_id: Any, *, exclude_user_id: Any = None) -> l
     if not candidates:
         return []
 
-    live_members = set(
-        ProjectMembership.objects.filter(
-            project_id=project_id, is_deleted=False, user_id__in=candidates
-        ).values_list("user_id", flat=True)
+    live_members = (
+        live_member_ids
+        if live_member_ids is not None
+        else set(
+            ProjectMembership.objects.filter(
+                project_id=project_id, is_deleted=False, user_id__in=candidates
+            ).values_list("user_id", flat=True)
+        )
     )
     return sorted(candidates & live_members, key=str)
+
+
+def surface_recipient_ids(project_id: Any, *, exclude_user_id: Any = None) -> list[Any]:
+    """User ids of everyone a surface change re-shapes in ``project_id``, minus the actor.
+
+    Three cohorts, unioned:
+
+    1. everyone with work in the project — :func:`assigned_recipient_ids`;
+    2. the ADR-0078 Scrum Master and Product Owner facet holders;
+    3. ``ProjectMembership`` rows at ``role >= Role.SCHEDULER``.
+
+    Assignment alone is the wrong proxy for "this surface is yours" (#3291). A
+    Product Owner authors and prioritizes the backlog and is frequently assigned
+    none of it; a Scrum Master facilitates and is neither an assignee nor a booked
+    resource; a PM who owns the plan routinely assigns none of it to themselves.
+    Those are the three people a preset flip re-shapes hardest, and the ones
+    everyone else asks to explain it — and the assigned-only cohort excluded
+    exactly them. Same class as #2897 at a new sink, which is why the facet half
+    reads :func:`~trueppm_api.apps.teams.services.facet_holder_user_ids` — the
+    scope gate's own source — rather than reimplementing the team lookup here.
+
+    The two sinks are ``ProjectViewSet.perform_update`` (gated ``IsProjectScheduler``)
+    and the program bulk matrix (gated ``IsProgramAdmin`` — a program-level gate with
+    no project-role correspondence at all). ``role >= SCHEDULER`` therefore sits *at
+    or below* the write gate on both paths rather than mirroring either, and the
+    threshold is justified by **read** parity, not write parity: ``show_*`` and
+    ``effective_surface_visibility`` are already readable by any project member
+    (Viewer+), so telling a Scheduler discloses nothing they could not fetch
+    themselves. Note the cohort is deliberately not role-monotone — the facet arm
+    notifies Member- and Viewer-seated holders, per ADR-0078 and #2897.
+
+    **Every cohort is intersected with live ``ProjectMembership``**, and the facet
+    half genuinely needs it: the ADR-0078 §F mirror only ever *creates* team rows
+    (:mod:`trueppm_api.apps.teams.signals` has no ``post_delete`` receiver and
+    ``TeamMembership`` has no FK a cascade could travel), so soft-deleting a
+    ``ProjectMembership`` leaves the mirrored ``TeamMembership`` live with its
+    facet flags intact. Without the intersection, widening the cohort would widen
+    who keeps being told a project's internal structure after losing access — a
+    dead link and a scope leak (ADR-0104's back-door close: a non-member sits
+    below every tier).
+
+    The sibling facet cohorts do **not** yet apply this intersection and leak on
+    exactly that path — :func:`~trueppm_api.apps.projects.services._sprint_lead_recipient_ids`
+    and :func:`~trueppm_api.apps.projects.blocker_services.resolve_impediment_recipients`,
+    tracked in #3334. Copy this function, not those two.
+
+    One membership read serves all three cohorts: the ``(user_id, role)`` map is
+    the Scheduler+ set, the facet arm's liveness floor, **and** the liveness floor
+    :func:`assigned_recipient_ids` would otherwise query for itself — which is why
+    it is threaded in rather than letting that call repeat the same filter.
+
+    The actor is discarded **after** the union, not before it, and that order is
+    load-bearing: the actor of a surface change is Scheduler+ on the
+    ``perform_update`` path essentially by definition, so the Scheduler arm re-adds
+    them on every flip. This final ``discard`` is the only thing standing between a
+    PM and a notice about their own click.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.teams.services import facet_holder_user_ids
+
+    live_roles: dict[Any, int] = dict(
+        ProjectMembership.objects.filter(project_id=project_id, is_deleted=False).values_list(
+            "user_id", "role"
+        )
+    )
+    live_ids = set(live_roles)
+
+    recipients = set(
+        assigned_recipient_ids(
+            project_id, exclude_user_id=exclude_user_id, live_member_ids=live_ids
+        )
+    )
+    recipients |= {uid for uid, role in live_roles.items() if role >= Role.SCHEDULER}
+    recipients |= facet_holder_user_ids(project_id) & live_ids
+
+    recipients.discard(None)
+    if exclude_user_id is not None:
+        recipients.discard(exclude_user_id)
+    return sorted(recipients, key=str)
 
 
 def _counts_by_user(project_id: Any, task_filter: Any) -> Counter[Any]:
@@ -544,7 +648,14 @@ def _attribution_clauses(
 
 
 def _ownership_clause(item_count: int) -> str:
-    """The closing clause, which always speaks to the recipient's own items."""
+    """The closing clause, which always speaks to the recipient's own items.
+
+    The zero branch is load-bearing rather than an edge case: once the cohort
+    includes facet holders and Scheduler+ members (:func:`surface_recipient_ids`),
+    a recipient owning nothing is the *normal* case for a PO or Scrum Master, not
+    a rarity. It stays a sentence rather than an omission because a dropped clause
+    reads as an unstated many.
+    """
     if item_count:
         keeps = "keeps its" if item_count == 1 else "keep their"
         return (
@@ -625,7 +736,12 @@ def notify_project_surface_change(
     actor: Any,
     workspace: Any = None,
 ) -> None:
-    """Tell everyone with work in ``project`` that its preset or views moved."""
+    """Tell everyone this project's surface belongs to that its preset or views moved.
+
+    The cohort is :func:`surface_recipient_ids` — wider than the board notice's,
+    because a preset flip re-shapes the working surface of people who hold no
+    assigned task.
+    """
     change = collect_project_surface_change(project, before=before, workspace=workspace)
     if change is None:
         return
@@ -655,7 +771,7 @@ def _emit_surface_notifications(
         # Per project, not per batch: one project's failure must not swallow the
         # notices for the others in a bulk apply.
         try:
-            recipient_ids = assigned_recipient_ids(change.project_id, exclude_user_id=actor_id)
+            recipient_ids = surface_recipient_ids(change.project_id, exclude_user_id=actor_id)
             if not recipient_ids:
                 continue
             counts = _counts_by_user(change.project_id, Q())
