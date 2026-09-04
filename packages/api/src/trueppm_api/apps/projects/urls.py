@@ -371,7 +371,7 @@ urlpatterns = [
         TaskCustomFieldValueView.as_view(),
         name="project-task-custom-field-value",
     ),
-    # Phase reorder — workshop mode drag-to-reorder (ADR-0046)
+    # Phase reorder — drag-to-reorder on the Workflow settings page (#521)
     path(
         "projects/<pk>/phases/reorder/",
         PhaseReorderView.as_view(),

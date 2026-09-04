@@ -154,13 +154,21 @@ test.describe('Workspace methodology defaults', () => {
     expect(patchBody).toMatchObject({ methodology: 'AGILE', methodology_override_policy: 'inherit' });
   });
 
-  // #3314 — the page must fail closed on its own, not lean on RequireWorkspaceAdmin.
-  // `workspace_role: null` is the one verdict that reaches this component: the guard
-  // redirects only on a *positively resolved* non-admin, so a resolved sub-admin role
-  // never renders the page at all, while a null (loading / errored / field-less
-  // /auth/me) falls through the guard by design. Before the fix that landed a
-  // non-admin on a live, editable form whose PATCH would 403.
-  test('fails closed — a null workspace_role renders the section read-only', async ({ page }) => {
+  // #3314 gave this page its own fail-closed role gate because `RequireWorkspaceAdmin`
+  // used to admit on a verdict-less /auth/me — `workspace_role: null` was the one
+  // non-admin verdict that reached the component through the route.
+  //
+  // #3330 closed the guard, so that route path no longer reaches the component at
+  // all: a null role is now `unknown` and the guard renders its error instead. This
+  // test therefore asserts the property it always cared about — a null role never
+  // yields an editable methodology form, and never issues a PATCH — at the layer that
+  // now decides it. The component's own fail-closed behavior (the #3314 fix, which is
+  // NOT being removed: it is defense in depth for any future non-routed mount) stays
+  // covered directly by `WorkspaceMethodologyPage.test.tsx`, parameterised over both
+  // `null` and `false`.
+  test('fails closed — a null workspace_role never reaches an editable methodology form', async ({
+    page,
+  }) => {
     await baseSetup(page, { workspaceRole: null });
 
     let patched = false;
@@ -173,23 +181,13 @@ test.describe('Workspace methodology defaults', () => {
 
     await page.goto('/settings/methodology');
 
-    const methodology = page.locator('[data-settings-section="methodology"]');
-
-    // The effective values stay legible — read-only, not hidden. ReadOnlyIndicator
-    // renders one composite labeled graphic per setting (ADR-0133), never a
-    // disabled input.
+    // The guard's no-verdict state, not the settings page and not a redirect.
     await expect(
-      methodology.getByRole('img', { name: /Default methodology: Waterfall/i }),
-    ).toBeVisible();
-    await expect(
-      methodology.getByRole('img', { name: /Program and project override policy: Suggest/i }),
+      page.getByRole('alert').filter({ hasText: "Couldn't confirm your workspace role." }),
     ).toBeVisible();
 
-    // Every mutating control is gone — not merely disabled.
-    await expect(methodology.getByRole('radio')).toHaveCount(0);
-    await expect(methodology.getByRole('combobox')).toHaveCount(0);
-
-    // `apiReady: false` keeps the save bar unarmed, so no PATCH can be issued.
+    // The section never mounts, so there is nothing editable and no save bar.
+    await expect(page.locator('[data-settings-section="methodology"]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Save changes/i })).toHaveCount(0);
     expect(patched).toBe(false);
   });

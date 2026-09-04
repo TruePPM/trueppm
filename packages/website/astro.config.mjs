@@ -390,7 +390,6 @@ export default defineConfig({
                 { slug: "features/flow-analytics" },
                 { slug: "features/daily-standup" },
                 { slug: "features/wip-overload" },
-                { slug: "features/workshops" },
                 { slug: "features/sprints" },
                 { slug: "features/plan-sprint" },
                 { slug: "features/estimation-poker" },
