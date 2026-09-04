@@ -21,6 +21,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.permissions import role_can_undo_batch_operation
 from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
 from trueppm_api.apps.csvimport.parser import parse_spreadsheet
 from trueppm_api.apps.msproject.importer import import_project
@@ -357,6 +358,213 @@ def test_cascade_undo_requires_admin(
         f"/api/v1/cascade-classification-operations/{operation.pk}/undo/", {}, format="json"
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# `can_undo` on the cascade's own 200 (#3304)
+#
+# Apply is `IsProjectPlanAuthor` (Member+ minus the resource-management band) and
+# the undo endpoint is Admin+, so a Member clears one floor and not the other. The
+# receipt has to say which, because the Undo affordance lives on an 8-second toast
+# with no second route to it. `role_can_undo_batch_operation` is the one rule both
+# the field and `_require_admin` call, so these assertions and the 403 above cannot
+# drift apart.
+# ---------------------------------------------------------------------------
+
+
+def _classify(client: APIClient, project: Project, root: Task) -> Any:
+    with _no_recalc():
+        return client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "gated"},
+            format="json",
+        )
+
+
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [
+        (None, False),
+        (Role.VIEWER, False),
+        (Role.MEMBER, False),
+        # The one ordinal where the two rules diverge non-obviously: `role_can_author_plan`
+        # excludes the resource band as a BAND, this one refuses it as a THRESHOLD. Same
+        # answer, different reason, and only one of them survives a renumber.
+        (Role.SCHEDULER, False),
+        (Role.ADMIN, True),
+        # 301-399 is the Enterprise project-lead band (ADR-0072). The docstring claims a
+        # custom role registered there inherits undo authority — this is that claim.
+        (350, True),
+        (Role.OWNER, True),
+    ],
+)
+def test_role_can_undo_batch_operation_band_table(role: int | None, expected: bool) -> None:
+    """The predicate itself, as a pure function — no request, no database.
+
+    Pinned directly because it is now the single definition both the undo endpoint's
+    refusal and the cascade's ``can_undo`` field resolve through, and because its
+    docstring makes two checkable claims (threshold not band exclusion; fails closed
+    on ``None``) that nothing else asserts.
+    """
+    assert role_can_undo_batch_operation(role) is expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.ADMIN, Role.OWNER])
+def test_cascade_can_undo_agrees_with_the_predicate_for_every_role_that_can_apply(
+    project: Project, role: int
+) -> None:
+    """The field and the predicate, asserted against each other rather than hard-coded.
+
+    The whole justification for shipping ``can_undo`` is that the client must not
+    re-derive the rule. Hard-coding ``is True`` / ``is False`` per role would let the
+    field drift from the predicate and only the enumerated roles would notice; this
+    says they are the same answer. Mirrors ``test_task_bulk_contract``'s ``can_author``
+    coverage.
+
+    Scoped to the roles that can reach a 200 at all: Viewer and Scheduler are refused
+    by the apply gate, so there is no response for the field to be on.
+    """
+    user = User.objects.create_user(username=f"role-{role}", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=role)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    root = Task.objects.create(
+        project=project,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        governance_class="flow",
+        # A Member may only cascade rows assigned to them (ADR-0790 §6 is
+        # all-or-nothing over ``can_user_edit_task``); Admin+ needs no assignment.
+        assignee=user if role == Role.MEMBER else None,
+    )
+    r = _classify(client, project, root)
+    assert r.status_code == 200, r.data
+    assert r.data["can_undo"] is role_can_undo_batch_operation(role)
+
+
+@pytest.mark.django_db
+def test_cascade_undo_refuses_the_resource_band_too(
+    owner_client: APIClient, project: Project
+) -> None:
+    """Scheduler (200) is above Member but still below the undo floor.
+
+    The existing 403 coverage used Member alone, which cannot tell a threshold from a
+    band rule — and the resource band is genuinely reachable here, because the undo
+    viewsets gate on ``IsAuthenticated`` plus a membership-scoped queryset rather than
+    on the plan-authoring class that excludes the band at apply time.
+    """
+    scheduler_client = _member(project, "scheduler", Role.SCHEDULER)
+    root = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=5, governance_class="flow"
+    )
+    with _no_recalc():
+        owner_client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "gated"},
+            format="json",
+        )
+    operation = CascadeClassificationOperation.objects.get(project=project)
+
+    resp = scheduler_client.post(
+        f"/api/v1/cascade-classification-operations/{operation.pk}/undo/", {}, format="json"
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_cascade_response_reports_can_undo_true_for_an_owner(
+    owner_client: APIClient, project: Project
+) -> None:
+    root = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=5, governance_class="flow"
+    )
+    r = _classify(owner_client, project, root)
+    assert r.status_code == 200, r.data
+    assert r.data["can_undo"] is True
+
+
+@pytest.mark.django_db
+def test_cascade_response_reports_can_undo_true_for_an_admin(
+    project: Project,
+) -> None:
+    """Admin (300) is the floor itself, not just Owner — a `>` would pass Owner alone."""
+    admin_client = _member(project, "admin", Role.ADMIN)
+    root = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=5, governance_class="flow"
+    )
+    r = _classify(admin_client, project, root)
+    assert r.status_code == 200, r.data
+    assert r.data["can_undo"] is True
+
+
+@pytest.mark.django_db
+def test_cascade_response_reports_can_undo_false_for_a_member_who_may_apply(
+    project: Project,
+) -> None:
+    """The bug's exact shape: the cascade succeeds, the ledger row exists, and the
+    caller still may not undo it. `operation_id` alone therefore cannot decide the
+    affordance — which is why `can_undo` is a separate field rather than folded in.
+
+    The Member has to be the **assignee**, and that is the whole reachable path.
+    `IsProjectPlanAuthor` admits Member+, but the cascade is all-or-nothing per
+    ADR-0790 §6 and resolves each row through ``can_user_edit_task``, which lets a
+    Member edit only their own assigned tasks. So an unassigned subtree 403s at
+    apply and never reaches the toast at all — the bug needs a Member classifying
+    work that is genuinely theirs, which is exactly the case the feature is for.
+    """
+    user = User.objects.create_user(username="assigned-member", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    member_client = APIClient()
+    member_client.force_authenticate(user=user)
+
+    root = Task.objects.create(
+        project=project,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        governance_class="flow",
+        assignee=user,
+    )
+    r = _classify(member_client, project, root)
+    assert r.status_code == 200, r.data
+    # The Member really did apply it, and a real ledger row was written.
+    assert r.data["operation_id"] is not None
+    assert CascadeClassificationOperation.objects.filter(project=project).count() == 1
+    assert r.data["can_undo"] is False
+
+    # And the field is honest: the undo it withholds is genuinely refused.
+    resp = member_client.post(
+        f"/api/v1/cascade-classification-operations/{r.data['operation_id']}/undo/",
+        {},
+        format="json",
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_cascade_response_reports_can_undo_independently_of_operation_id(
+    owner_client: APIClient, project: Project
+) -> None:
+    """A no-op cascade records nothing, but the caller's authority is unchanged.
+
+    Pinned because collapsing the two into one boolean is the obvious
+    simplification, and it would make a `false` mean either "nothing to undo" or
+    "not your role" with no way for a client to tell them apart.
+    """
+    root = Task.objects.create(
+        project=project,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        governance_class="gated",
+        parent_governance_inherited=False,
+    )
+    r = _classify(owner_client, project, root)
+    assert r.status_code == 200, r.data
+    assert r.data["operation_id"] is None
+    assert r.data["can_undo"] is True
 
 
 # ---------------------------------------------------------------------------

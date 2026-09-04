@@ -241,7 +241,17 @@ export function useClassificationPopover({
             ]
               .filter(Boolean)
               .join(' · ');
-            const operationId = report.operation_id;
+            // Two conditions, and they answer different questions (#3304).
+            // `operation_id` is null when the cascade wrote nothing, so there is
+            // no ledger row to reverse. `can_undo` is the server's verdict on
+            // whether THIS caller's role may reverse one at all — apply is
+            // `IsProjectPlanAuthor` and the undo endpoint is Admin+, so a Member
+            // reaches this success handler and would 403 on the click. The toast
+            // is the only route to that undo and it lives 8 seconds, so a control
+            // offered here and refused there is unrecoverable: omit it, the way
+            // `SeedBanner` omits its Admin-only controls rather than disabling
+            // them. The server still enforces; this only stops the false offer.
+            const operationId = report.can_undo ? report.operation_id : null;
             announce({
               message: `Classified: ${parts.join(', ')} — ${detail}.`,
               durationMs: 8000,

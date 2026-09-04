@@ -78,7 +78,10 @@ function groomingPayload() {
   };
 }
 
-async function setup(page: import('@playwright/test').Page, { canManage = true } = {}) {
+async function setup(
+  page: import('@playwright/test').Page,
+  { canManage = true, canUndo = true } = {},
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: FIXTURE_PROJECT_ID });
@@ -136,6 +139,13 @@ async function setup(page: import('@playwright/test').Page, { canManage = true }
         },
         skipped: [],
         operation_id: 'op-3035',
+        // #3304: undo authority is Admin+, above the floor that admits the apply —
+        // so the receipt carries it and the client never offers an Undo the undo
+        // endpoint would refuse. Never hardcoded `true`: `can_manage_backlog` here
+        // is `Admin+ OR the Product Owner facet`, so a PO below Admin reaches this
+        // response and cannot undo it, and a fixture that always said `true` would
+        // model a server state the real one cannot produce.
+        can_undo: canUndo,
       }),
     });
   });
@@ -198,5 +208,59 @@ test.describe('Classification from the product backlog (#3035)', () => {
     await page.getByRole('button', { name: 'Classify PCI audit trail' }).click();
     await expect(page.getByTestId('classification-popover')).toBeVisible();
     await expect(page.getByRole('dialog', { name: 'PCI audit trail' })).toBeHidden();
+  });
+});
+
+/**
+ * The Undo affordance on this surface (#3304).
+ *
+ * Covered here as well as on the Schedule because the two surfaces do NOT share a
+ * toast: `ScheduleView` passes `setScheduleActionToast` and renders its own, while
+ * this page routes through the global `ToastHost` via
+ * `announceClassification` — `toast.action(...)` when the announcement carries one,
+ * `toast.info(...)` when it does not. The shared hook decides; only this spec proves
+ * the `toast.info` branch actually renders.
+ *
+ * The backlog is also where the split bites hardest. Its entry point is gated on
+ * `can_manage_backlog`, which is `Admin+ OR the Product Owner facet` — so a PO
+ * *below* Admin is invited to classify and cannot reverse it. That user does not
+ * exist on the Schedule's gate at all.
+ */
+async function classifyFromBacklog(page: import('@playwright/test').Page): Promise<void> {
+  await gotoBacklog(page);
+  await page.getByRole('button', { name: 'Classify PCI audit trail' }).click();
+  const popover = page.getByTestId('classification-popover');
+  await expect(popover).toBeVisible();
+  await popover.getByTestId('classification-preset-gated').click();
+  await popover.getByTestId('classification-apply').click();
+  await expect(popover).toBeHidden();
+}
+
+test.describe('Classification undo from the product backlog (#3304)', () => {
+  test('an Admin gets the success toast WITH an Undo action', async ({ page }) => {
+    await setup(page, { canUndo: true });
+    await classifyFromBacklog(page);
+
+    const toast = page.getByRole('status').filter({ hasText: 'Classified' });
+    await expect(toast).toBeVisible();
+    await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
+  });
+
+  test('a Product Owner below Admin gets the same toast with no Undo action', async ({ page }) => {
+    const undoAttempts: string[] = [];
+    await page.route(/\/api\/v1\/cascade-classification-operations\/[^/]+\/undo\/$/, (route) => {
+      undoAttempts.push(route.request().url());
+      return route.fallback();
+    });
+    await setup(page, { canUndo: false });
+    await classifyFromBacklog(page);
+
+    // Gate on the receipt being rendered before asserting the button's absence, so
+    // this cannot pass by racing an empty DOM.
+    const toast = page.getByRole('status').filter({ hasText: 'Classified' });
+    await expect(toast).toBeVisible();
+    await expect(toast.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+    // Nothing to click, so the 403 the user would have hit never happens.
+    expect(undoAttempts).toHaveLength(0);
   });
 });
