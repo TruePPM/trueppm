@@ -203,3 +203,62 @@ def _apply_test_db_name(databases: dict[str, Any], env: Mapping[str, str]) -> No
 
 
 _apply_test_db_name(DATABASES, os.environ)
+
+
+# ---------------------------------------------------------------------------
+# Fast password hashing under pytest (#3391)
+# ---------------------------------------------------------------------------
+# Django 5.2 defaults to PBKDF2-SHA256 at 1,000,000 iterations. That cost is the
+# whole point in production and pure waste in the test suite, which makes 1,054
+# `create_user(..., password=...)` calls and asserts nothing about hash strength.
+# Measured: 76.3ms per PBKDF2 hash vs 0.026ms for MD5 — 2,899x, several minutes
+# of every api:test run spent proving nothing.
+#
+# Gated on pytest actually being loaded rather than applied to all of dev: a
+# local `runserver` keeps the production hasher, so a developer never logs in
+# against a weaker algorithm than the one they ship. `"pytest" in sys.modules`
+# is ONE of the four signals `_assert_dev_environment_safe` trusts above, not
+# the same test — that guard also accepts PYTEST_CURRENT_TEST from the env,
+# which this deliberately does not, because it is set per test rather than at
+# settings-import time. The gap is worth naming: a subprocess spawned from a
+# test inherits PYTEST_CURRENT_TEST but not the parent's module table, so it
+# would load PBKDF2 while its parent used MD5, and a cross-process
+# check_password against an md5 hash would raise "Unknown password hashing
+# algorithm". Latent, not live — the suite's only subprocess use is a mocked
+# Popen — but a future test that really shells out has to know this.
+#
+# Where settings.dev actually loads, so the next reader does not have to guess:
+# the local compose stack (docker-compose.yml, three services, which set
+# TRUEPPM_ALLOW_DEV_SETTINGS=1), every api:* CI job, the Makefile, and
+# scripts/export-openapi.sh — plus pytest. It is routine infrastructure, not a
+# rare manual opt-in. The branch is unreachable in all of those but pytest for
+# one reason: packages/api/Dockerfile installs `api[c]`/`api[binary]` and never
+# `api[dev]`, and uninstalls pip, so the runtime image has no pytest to import.
+# Every deployed path (helm values, docker-compose.prod, docker-compose.demo)
+# loads settings.prod and never reaches this file at all.
+#
+# The list is deliberately a SINGLE entry. Adding PBKDF2 back as a fallback
+# looks safer and is not: `hasher_changed` would then be True on every login, so
+# check_password's setter fires and ModelBackend REWRITES stored PBKDF2 hashes
+# as MD5. One entry fails those rows closed instead of silently downgrading them.
+#
+# DX note: with --reuse-db, a test database created before this change still
+# holds PBKDF2 hashes, which no longer verify (Django catches the unknown-hasher
+# ValueError and returns False rather than raising). That reads as an auth
+# regression; it is a stale test DB. Use --create-db once.
+#
+# Asserted by tests/test_password_hashers.py, including the invariant this
+# gate rests on: nothing under src/ may import pytest.
+
+
+def _use_fast_password_hashers(modules: Mapping[str, Any]) -> bool:
+    """Report whether the test-only fast password hasher should be installed.
+
+    Injectable so the predicate is unit-testable without mutating the global
+    module table (mirrors ``_assert_dev_environment_safe``).
+    """
+    return "pytest" in modules
+
+
+if _use_fast_password_hashers(sys.modules):
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

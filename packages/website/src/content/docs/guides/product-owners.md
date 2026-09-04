@@ -88,7 +88,7 @@ Run these steps in order — they start from a machine with nothing running.
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in.** Open `http://localhost:5173` and sign in as **`maya`** — the Scrum Master persona, seeded with the **Member** role. That surface shows the backlog and board the way you work them. (A dedicated Product Owner login arrived with the 0.3 sample projects — see the [evaluation guide](/getting-started/evaluation-guide/).)
+2. **Sign in.** Open `http://localhost:5173` and sign in as **`atlas-jordan`** — Jordan Blake, the Product Owner persona, seeded with the **Admin** role and owning Platform Core's sprints and release forecast. That surface shows the backlog and board the way you work them.
 
 3. **Open the backlog.** In the left navigation rail, under **Deliver**, click **Backlog** (`/projects/:id/product-backlog`). It's ordered by priority — drag to reorder. The order is your statement of what matters; the team pulls from the top.
 
@@ -130,4 +130,4 @@ This is your one-question filter — *does it tell me when the feature ships, in
 - [Burn charts](/features/burn-charts/) — the release forecasting charts
 - [Product backlog](/features/product-backlog/) — epics, ordering, and the dual backlog
 
-To see the same data from the schedule side, sign in as `raj` (PM, Scheduler role) and open **Plan → Schedule** — your stories are child tasks of his work packages, in one hierarchy.
+To see the same data from the schedule side, sign in as `atlas-sam` (Sam Okafor, Project Scheduler, Scheduler role) and open **Plan → Schedule** — your stories are child tasks of his work packages, in one hierarchy.

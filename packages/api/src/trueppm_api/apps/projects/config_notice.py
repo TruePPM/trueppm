@@ -254,10 +254,13 @@ def surface_recipient_ids(project_id: Any, *, exclude_user_id: Any = None) -> li
     dead link and a scope leak (ADR-0104's back-door close: a non-member sits
     below every tier).
 
-    The sibling facet cohorts do **not** yet apply this intersection and leak on
-    exactly that path — :func:`~trueppm_api.apps.projects.services._sprint_lead_recipient_ids`
-    and :func:`~trueppm_api.apps.projects.blocker_services.resolve_impediment_recipients`,
-    tracked in #3334. Copy this function, not those two.
+    The two sibling facet cohorts leaked on exactly that path until #3334 moved the
+    guard into ``facet_holder_user_ids`` itself, where it is now the default for
+    every caller — :func:`~trueppm_api.apps.projects.services._sprint_lead_recipient_ids`
+    and :func:`~trueppm_api.apps.projects.blocker_services.resolve_impediment_recipients`
+    get it without asking. This function opts *out* of the helper's own subquery
+    (``live_project_members_only=False``) precisely because it has already read live
+    membership and intersects in Python — see the paragraph below.
 
     One membership read serves all three cohorts: the ``(user_id, role)`` map is
     the Scheduler+ set, the facet arm's liveness floor, **and** the liveness floor

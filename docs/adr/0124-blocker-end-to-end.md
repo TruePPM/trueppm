@@ -116,6 +116,19 @@ blocked_by    = ForeignKey(AUTH_USER_MODEL, on_delete=SET_NULL, null=True, blank
   returns assignee (existing) **+** the SM (`TeamMembership.is_scrum_master` on the team(s)
   linked to the task's sprint/project) **+** the PM (project `Role.ADMIN`). Built next to
   `access/groups.py::resolve_group_members`; reuses the facet defined in ADR-0078.
+
+  > **Amendment (#3334, 2026-09):** the SM arm now reads the project's **default team
+  > only**, and intersects live `ProjectMembership`, by routing through the shared
+  > `teams.services.facet_holder_user_ids` helper rather than its own query. The
+  > "team(s)" plural above is a no-op today — there is no team-create route and every
+  > project has exactly one default team until multi-team lands (#599) — and the
+  > original query filtered neither `Team.is_default` nor `Team.is_deleted`, so it
+  > also matched soft-deleted teams. The live-membership intersection is the actual
+  > fix: the ADR-0078 §F mirror is create-only, so a revoked project member kept the
+  > mirrored `TeamMembership` and kept receiving impediment notices naming a task on
+  > a project they could no longer open. **#599 must revisit this arm** — restoring
+  > multi-team SM routing means widening the shared helper, not re-forking a local
+  > query here.
 - **The notification to SM/PM carries type + age + link, NEVER the reason text.** The
   pre-rendered `subject`/`body` read: *"Task X flagged blocked — External vendor · 2d."*
   This is the privacy boundary enforced at the point of render, not just at the serializer.
