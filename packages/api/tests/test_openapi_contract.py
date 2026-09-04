@@ -35,6 +35,10 @@ def _load_schema() -> dict:
 #: The recursive component the 400's field-keyed values reference (#3324).
 _ERROR_DETAIL = "ValidationErrorDetail"
 
+#: Opening of the description `TruePPMAutoSchema` injects on every 400 it adds. The
+#: only marker distinguishing an injected 400 from one an operation declared by hand.
+_INJECTED_400 = "The request was rejected. Either a field failed validation"
+
 
 @pytest.fixture(scope="module")
 def schema() -> dict:
@@ -248,14 +252,13 @@ def test_the_400_is_not_advertised_where_there_is_no_body_to_reject(schema: dict
     invent one, by checking no bodyless operation carries the injected
     description.
     """
-    INJECTED = "The request was rejected. Either a field failed validation"
     invented = [
         f"{method.upper()} {path}"
         for path, ops in schema["paths"].items()
         for method, op in ops.items()
         if method in ("post", "put", "patch", "delete")
         and "requestBody" not in op
-        and INJECTED in (op.get("responses", {}).get("400", {}).get("description") or "")
+        and _INJECTED_400 in (op.get("responses", {}).get("400", {}).get("description") or "")
     ]
     assert not invented, (
         f"the 400 injection reached {len(invented)} operation(s) with no request "
@@ -269,18 +272,26 @@ def test_the_declared_400_admits_the_shapes_the_api_actually_returns(schema: dic
     A schema declaring only `detail` would type the uncommon case and mis-type
     field validation, which is the majority of real 400s.
 
-    The field-keyed value is a `$ref` rather than an inline `array<string>` since
-    #3324: DRF nests, and this assertion previously pinned the flat form that made
-    the nightly `api:fuzz` fail three operations. The shapes themselves are
+    Every value in the body — the two envelope keys included — is the recursive
+    `ValidationErrorDetail`. This assertion used to pin `detail` and `code` to
+    `string`, which is what #3347 fixed: `additionalProperties` governs only keys
+    *not* named in `properties`, so #3324's widening stopped at the envelope's own
+    two names, and `code` is a name the API uses twice — the refusal code, and the
+    serializer field `Program.code` / `Project.code`. The shapes themselves are
     asserted against real bodies in
     `test_declared_400_validates_the_bodies_drf_actually_returns`.
     """
     op = schema["paths"]["/api/v1/projects/"]["post"]
     body = op["responses"]["400"]["content"]["application/json"]["schema"]
-    assert body["properties"]["detail"]["type"] == "string"  # Shape 1
-    assert body["properties"]["code"]["type"] == "string"  # Shape 2 — the contract
+    ref = {"$ref": f"#/components/schemas/{_ERROR_DETAIL}"}
+    # Shapes 1 and 2 — a string is `ValidationErrorDetail`'s first `oneOf` branch, so
+    # the envelope form still validates; `allOf` is how OpenAPI 3.0.3 carries the
+    # description and example, which a bare `$ref` discards (#3347).
+    assert body["properties"]["detail"]["allOf"] == [ref]
+    assert body["properties"]["code"]["allOf"] == [ref]
+    assert body["properties"]["code"]["example"] == "invalid_body"
     # DRF's field-keyed errors, flat or nested (#3324).
-    assert body["additionalProperties"] == {"$ref": f"#/components/schemas/{_ERROR_DETAIL}"}
+    assert body["additionalProperties"] == ref
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +534,55 @@ def test_no_operation_declares_a_flat_field_error_map(schema: dict) -> None:
     )
 
 
+def test_no_400_declares_an_envelope_key_narrower_than_its_field_map(schema: dict) -> None:
+    """No named key in a 400 may reject what an unnamed key accepts (#3347).
+
+    The class guard, and the reason it sweeps rather than spot-checks the one
+    operation the nightly drew. `additionalProperties` governs only keys that
+    `properties` does not name, so every name the envelope adds is a hole punched
+    through the field-keyed map underneath it — silently, because a key named in
+    `properties` looks *more* specified, not less. #3286 punched two (`detail`,
+    `code`), #3324 widened the map and could not reach them, and `api:fuzz` found
+    `code` eleven weeks later on the one night Hypothesis generated a `Program.code`
+    over 40 characters.
+
+    Asserted behaviorally: a field-keyed value is fed under *every* declared name,
+    on every operation. A structural check ("each property must be an `allOf`
+    `$ref`") would pass a third narrow-but-differently-shaped declaration; this
+    cannot. The envelope's own string form is validated alongside it so that
+    "widen it" is not satisfied by deleting the keys the vocabulary depends on.
+
+    Denominator at the time of writing: 191 operations carry the injected 400, two
+    envelope keys each, both previously narrow. 21 operations expose a writable
+    serializer field named `code` (every `Program`/`Project` request body) and 0
+    expose one named `detail` — so `code` was the live instance and `detail` the
+    latent one, and both are covered here.
+    """
+    field_errors = ["Ensure this field has no more than 40 characters."]
+    offenders: list[str] = []
+    for path, ops in schema["paths"].items():
+        for method, op in ops.items():
+            if not isinstance(op, dict):
+                continue
+            response = (op.get("responses") or {}).get("400") or {}
+            declared = (response.get("content") or {}).get("application/json", {}).get("schema", {})
+            if _INJECTED_400 not in (response.get("description") or ""):
+                continue
+            validator = jsonschema.Draft202012Validator(
+                {**declared, "components": schema["components"]}
+            )
+            bodies = [{name: field_errors} for name in declared.get("properties", {})]
+            bodies.append({"detail": "Request body must be a JSON object.", "code": "invalid_body"})
+            for body in bodies:
+                if errors := sorted(validator.iter_errors(body), key=str):
+                    offenders.append(f"{method.upper()} {path} {body}: {errors[0].message}")
+    assert not offenders, (
+        "a key named in a 400's `properties` must admit everything "
+        f"`additionalProperties` does — DRF keys serializer errors by field name and "
+        f"does not skip the names the envelope happens to use (#3347): {offenders[:5]}"
+    )
+
+
 @pytest.mark.parametrize(
     ("label", "body"),
     [
@@ -540,6 +600,15 @@ def test_no_operation_declares_a_flat_field_error_map(schema: dict) -> None:
             "profile.hidden_views",
             {"hidden_views": {"0": ["Not a valid string."], "9": ["Not a valid string."]}},
         ),
+        # The two the 2026-09-04 nightly api:fuzz reported, verbatim in shape (#3347).
+        # `code` is both the refusal envelope's key and a serializer field name, and
+        # `properties.code` shadowed `additionalProperties` for the second meaning.
+        ("programs.code", {"code": ["Ensure this field has no more than 40 characters."]}),
+        ("projects.code", {"code": ["Ensure this field has no more than 12 characters."]}),
+        # `detail` had the identical declaration bug. No serializer has a writable
+        # field of that name today, so this is the latent half of the same class —
+        # pinned here so the fix is not quietly narrowed back to the live half.
+        ("detail as a field key", {"detail": ["This field is required."]}),
         # Shapes the flat declaration already admitted — kept so widening the
         # contract is not mistaken for abandoning it.
         ("flat field", {"name": ["This field is required."]}),

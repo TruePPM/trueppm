@@ -21,8 +21,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from trueppm_api.apps.access.models import Role
-from trueppm_api.apps.access.permissions import _membership_role
+from trueppm_api.apps.access.permissions import (
+    _membership_role,
+    role_can_undo_batch_operation,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     CascadeClassificationOperation,
@@ -49,9 +51,12 @@ def _require_admin(request: Request, project_id: Any) -> None:
     (ADR-0773's "who may reverse a plan-shaping batch write" matrix). A plain
     Member may have authored the paste/cascade under Author mode, but undoing
     it removes work other collaborators may already be building on top of.
+
+    Defers the comparison to :func:`role_can_undo_batch_operation` rather than
+    testing the ordinal here, because the cascade's apply endpoint reports the
+    same rule to the client as ``can_undo`` and the two must not drift (#3304).
     """
-    role = _membership_role(request, project_id)
-    if role is None or role < Role.ADMIN:
+    if not role_can_undo_batch_operation(_membership_role(request, project_id)):
         raise PermissionDenied("You need at least Project Manager role to undo this.")
 
 

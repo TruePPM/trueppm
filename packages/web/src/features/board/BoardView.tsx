@@ -67,8 +67,6 @@ import {
   type DragOverEvent,
   DragOverlay,
 } from '@dnd-kit/core';
-import { useSortable, arrayMove } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { isTaskScheduled } from '@/lib/task';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
@@ -84,13 +82,9 @@ import { ChevronDownIcon, ChevronUpIcon } from '@/components/Icons';
 import { PhaseResizeHandle } from './BoardResizeHandle';
 import { useBoardColumnWidths, useBoardPhaseHeights } from '@/hooks/useBoardResize';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
-import { useQueryClient } from '@tanstack/react-query';
-import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
-import { usePhaseReorder } from '@/hooks/usePhaseReorder';
 import { useQueueReorder } from '@/hooks/useQueueReorder';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
-import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
-import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
+import { useCreateTask } from '@/hooks/useTaskMutations';
 import type { ApiSprint, Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
 import { readinessIsInformative } from './card/cardFormat';
@@ -287,10 +281,10 @@ interface Phase {
  *    the project node, so the lane carries the project's own name. A lane with
  *    no object behind it could not be renamed, reordered, linked or scheduled,
  *    and its `+` had to say `Add to backlog` because there was nothing to name.
- *  - **Workshop mode no longer promotes childless roots to lanes.** An object's
- *    identity must not depend on which mode the viewer has toggled. Declaring
- *    the role — and with it a legal empty container — is `structure_role` in
- *    0.5 (#2946); until then a childless row is a task, consistently.
+ *  - **A childless root task is not promoted to a lane.** An object's identity
+ *    must not depend on the view it is seen through. Declaring the role — and
+ *    with it a legal empty container — is `structure_role` in 0.5 (#2946);
+ *    until then a childless row is a task, consistently.
  */
 function buildPhases(allTasks: Task[], projectName: string | undefined): Phase[] {
   const placements = buildLaneIndex(allTasks);
@@ -895,11 +889,6 @@ interface PhaseLaneProps {
   scopeActions: BoardCardScopeActions;
   /** Closed-sprint read-only (#1141): disables drag-to-assign on every card. */
   readOnly?: boolean;
-  /** Workshop mode: editable names, drag handle, tinted bg. */
-  workshop?: boolean;
-  onPhaseRename?: (phaseId: string, newName: string) => void;
-  dragHandleListeners?: Record<string, unknown>;
-  dragHandleAttributes?: Record<string, unknown>;
   /** Per-status explicit column widths (issue 285), keyed by status. */
   columnWidths?: Record<string, number>;
   /** Explicit lane height in px (issue 285), or undefined for the natural height. */
@@ -1156,10 +1145,6 @@ function PhaseLaneImpl({
   showReadiness,
   scopeActions,
   readOnly = false,
-  workshop = false,
-  onPhaseRename,
-  dragHandleListeners,
-  dragHandleAttributes,
   facetMatchIds,
   columnWidths,
   phaseHeight,
@@ -1266,10 +1251,6 @@ function PhaseLaneImpl({
               taskCount={phase.tasks.length}
               committedTaskCount={committedTaskCount}
               railColor={color}
-              workshop={workshop}
-              onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}
-              dragHandleListeners={dragHandleListeners}
-              dragHandleAttributes={dragHandleAttributes}
               onAddTask={onAddTask ? () => onAddTask(phase.id, phase.name, isSynthetic) : undefined}
               addTaskLabel={isSynthetic ? 'Add to backlog' : undefined}
               collapseToggle={collapseToggle}
@@ -1385,35 +1366,6 @@ function PhaseLaneImpl({
 // stable task-aware callbacks, hoisted empty fallbacks, and a memoized columns
 // array — instead of per-lane closures.
 const PhaseLane = memo(PhaseLaneImpl);
-
-// ---------------------------------------------------------------------------
-// Sortable phase lane — workshop mode drag-to-reorder wrapper
-// ---------------------------------------------------------------------------
-
-function SortablePhaseLane(props: PhaseLaneProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: `phase:${props.phase.id}`,
-  });
-
-  const style: CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : undefined,
-  };
-
-  // `attributes` (role=button, tabIndex, aria-*) go on the real ⋮⋮ handle button
-  // inside LaneMeta — NOT here. Spreading them on the wrapper turned the entire
-  // swimlane into one giant role="button" and left the handle keyboard/SR-inert (#2201).
-  return (
-    <div ref={setNodeRef} style={style}>
-      <PhaseLane
-        {...props}
-        dragHandleListeners={listeners as Record<string, unknown>}
-        dragHandleAttributes={attributes as unknown as Record<string, unknown>}
-      />
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // localStorage-backed hooks
@@ -1619,16 +1571,10 @@ export function BoardView() {
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectIdOrNull);
   const { tasks, isLoading, error } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
-  const updateTask = useUpdateTask();
-  const queryClient = useQueryClient();
   // Board offline (ADR-0220): hydrate the offline card-status queue, seed the
   // board from the last cached fetch when opened offline, and flush queued moves
   // on reconnect. Scoped to card-status moves; all other writes keep ADR-0205.
   useBoardOffline(projectIdOrNull);
-  const { data: workshopSession } = useWorkshopSession(projectIdOrNull);
-  const startWorkshop = useStartWorkshop(projectIdOrNull);
-  const endWorkshop = useEndWorkshop(projectIdOrNull);
-  const phaseReorder = usePhaseReorder(projectIdOrNull);
   const queueReorder = useQueueReorder(projectIdOrNull);
   const canManageBacklog = useCanManageBacklog(projectIdOrUndefined);
   // BACKLOG cards live in the band above the phase grid (ADR-0057), not in an
@@ -1692,17 +1638,6 @@ export function BoardView() {
   // Scope-injection drop toast (#1140) — set when a drop into the ACTIVE sprint
   // creates a pending scope-change; `BoardDropNotice` auto-dismisses it.
   const [dropNotice, setDropNotice] = useState<{ key: number; text: string } | null>(null);
-  const [workshopMode, setWorkshopMode] = useState(false);
-  // Open the workshop WS channel while a session is active so participant
-  // join/leave events update the banner in real time.
-  useWorkshopSocket(projectIdOrNull, workshopMode && !!workshopSession, (event) => {
-    if (event.event_type === 'participant_joined' || event.event_type === 'participant_left') {
-      void queryClient.invalidateQueries({ queryKey: ['workshopSession', projectId] });
-    }
-  });
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
-  const workshopToggleRef = useRef<HTMLButtonElement>(null);
-  const [phaseOrder, setPhaseOrder] = useState<string[]>([]);
   const [sort, setSort] = useState<BoardSortKey>('priority');
   const [showWip, setShowWip] = useState(true);
   const [showColTints, setShowColTints] = useState(true);
@@ -2042,9 +1977,8 @@ export function BoardView() {
     toolbarPrefs.layoutExplicit,
     isMobile,
   );
-  // Effective swimlane grouping (324). Workshop mode authors WBS phase
-  // structure, so it always groups by phase regardless of the saved preference.
-  const groupMode: BoardGroupMode = workshopMode ? 'phase' : toolbarPrefs.groupBy;
+  // Effective swimlane grouping (324).
+  const groupMode: BoardGroupMode = toolbarPrefs.groupBy;
   const { data: projectDetail } = useProject(projectIdOrNull);
   const iterationLabel = useIterationLabel(projectIdOrUndefined);
 
@@ -2289,7 +2223,7 @@ export function BoardView() {
     // case where the root lane renders empty — it is still the project node,
     // named after the project, not a synthetic catch-all (#2947).
     const hasRootLane = built.some((p) => p.id === ROOT_LANE_ID);
-    if (!workshopMode && !hasRootLane && built.length === 0 && backlogTasks.length > 0) {
+    if (!hasRootLane && built.length === 0 && backlogTasks.length > 0) {
       built.push({
         id: ROOT_LANE_ID,
         name: projectName ?? 'Project',
@@ -2299,7 +2233,7 @@ export function BoardView() {
       });
     }
     return built;
-  }, [committedTasks, workshopMode, backlogTasks.length, groupMode, epicNameById, projectName]);
+  }, [committedTasks, backlogTasks.length, groupMode, epicNameById, projectName]);
 
   // Board PDF export (issue 326, ADR-0159). An off-screen `BoardPrintLayout`
   // (mounted below) is rasterized on demand; we render it from the same
@@ -2446,41 +2380,6 @@ export function BoardView() {
     return counts;
   }, [laned, phases, trackKeyOf]);
 
-  const handleAddPhase = useCallback(() => {
-    const name = `Phase ${phases.filter((p) => p.id !== 'root').length + 1}`;
-    createTask.mutate(
-      { name, duration: 0, parent_id: null },
-      // The create is fire-and-forget; without this a failed POST added nothing
-      // to the board and told the user nothing (#2030).
-      { onError: () => toast.error(`Couldn't add ${name} — try again.`) },
-    );
-  }, [createTask, phases]);
-
-  // Keep phaseOrder in sync with server data; only reset when the phase set changes.
-  // Preserve manual drag order: keep existing positions, append new phases at the end.
-  const phaseIdKey = phases.map((p) => p.id).join(',');
-  useEffect(() => {
-    setPhaseOrder((prev) => {
-      const newIds = phases.map((p) => p.id);
-      const existing = prev.filter((id) => newIds.includes(id));
-      const added = newIds.filter((id) => !prev.includes(id));
-      return [...existing, ...added];
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phaseIdKey]);
-
-  // In workshop mode, sort phases by the locally-managed phaseOrder (optimistic).
-  const sortedPhases = useMemo(() => {
-    if (!workshopMode || phaseOrder.length === 0) return phases;
-    return [...phases].sort((a, b) => {
-      const ai = phaseOrder.indexOf(a.id);
-      const bi = phaseOrder.indexOf(b.id);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
-  }, [phases, phaseOrder, workshopMode]);
-
   // Lookup index for jump-to-card from popovers (#182, #195) and milestone classification.
   const taskIndex = useMemo(() => {
     const m = new Map<string, Task>();
@@ -2608,25 +2507,6 @@ export function BoardView() {
     [activeTask, trackKeyOf],
   );
 
-  // Phase reorder (workshop mode) — the dragged id is prefixed with 'phase:'.
-  // Optimistic: the local order moves first and rolls back if the PATCH fails.
-  const reorderPhases = useCallback(
-    (activeIdStr: string, overIdStr: string) => {
-      if (activeIdStr === overIdStr) return;
-      const fromIdx = phaseOrder.indexOf(activeIdStr.replace('phase:', ''));
-      const toIdx = phaseOrder.indexOf(overIdStr.replace('phase:', ''));
-      if (fromIdx === -1 || toIdx === -1) return;
-      const prevOrder = phaseOrder;
-      const newOrder = arrayMove(phaseOrder, fromIdx, toIdx);
-      setPhaseOrder(newOrder);
-      phaseReorder.mutate(
-        newOrder.map((id) => ({ id, serverVersion: taskIndex.get(id)?.serverVersion ?? 0 })),
-        { onError: () => setPhaseOrder(prevOrder) },
-      );
-    },
-    [phaseOrder, phaseReorder, taskIndex],
-  );
-
   // Drop onto the BACKLOG band above the phase grid (ADR-0057).
   const dropOnBacklogBand = useCallback(
     (task: Task) => {
@@ -2661,8 +2541,8 @@ export function BoardView() {
   );
 
   // Drop into a `${phaseId}:${status}` grid cell — the status move, plus the
-  // phase-lane re-parent (#2681: any phase-grouped board, not just workshop
-  // mode) and the sprint-view assignment that ride with it.
+  // phase-lane re-parent (#2681, on any phase-grouped board) and the
+  // sprint-view assignment that ride with it.
   const dropOnCell = useCallback(
     (task: Task, cellId: string) => {
       // Same read-only defense in depth as `dropOnBacklogBand` above: a
@@ -2676,17 +2556,12 @@ export function BoardView() {
       // it when the column has one. Splitting them here is what keeps `status`
       // canonical on the wire — the lane rides alongside it, never inside it.
       const { status: newStatus, laneKey: newLaneKey } = parseTrackKey(newTrackKey);
-      // #2681: re-parenting used to be gated on workshopMode, so a cross-phase
-      // drop outside Workshop mode moved the status but left parentId alone —
-      // the card snapped back into its original lane on the next render. That
-      // gate was an oversight, not a deliberate restriction: workshopMode always
-      // implies groupMode === 'phase' (see the groupMode derivation above), but
-      // the reverse isn't true — a non-workshop board with phase grouping (the
-      // default view) hit the same gate. Key on groupMode === 'phase' instead so
-      // every phase-lane drop re-parents regardless of workshop mode, while the
-      // deliberate assignee/epic status-only asymmetry below (drag-to-reassign
-      // isn't available yet) is untouched — this fix is scoped to phase-lane
-      // grouping only.
+      // #2681: re-parenting is keyed on `groupMode === 'phase'`, so every
+      // phase-lane drop re-parents. It was previously gated on a mode toggle,
+      // which meant a cross-phase drop on the default phase-grouped board moved
+      // the status but left parentId alone and the card snapped back on the next
+      // render. The deliberate assignee/epic status-only asymmetry below
+      // (drag-to-reassign isn't available yet) is untouched.
       // Compare against the lane the card is actually IN, not its parentId.
       // Under the case 16 rule those differ for any card below a nested
       // container: a card parented to `2.3 Electrical` renders in lane `2`, so
@@ -2779,17 +2654,11 @@ export function BoardView() {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const { active, over } = event;
-      const activeIdStr = String(active.id);
+      const { over } = event;
       setActiveId(null);
       setOverCell(null);
 
-      if (activeIdStr.startsWith('phase:')) {
-        if (over) reorderPhases(activeIdStr, String(over.id));
-        return;
-      }
-
-      // Card status change (and optional phase move in workshop mode)
+      // Card status change, and a phase move when the board is phase-grouped
       const overId = over?.id;
       if (!overId || !activeTask) return;
       if (String(overId) === BACKLOG_BAND_DROPPABLE_ID) {
@@ -2798,7 +2667,7 @@ export function BoardView() {
       }
       dropOnCell(activeTask, String(overId));
     },
-    [activeTask, reorderPhases, dropOnBacklogBand, dropOnCell],
+    [activeTask, dropOnBacklogBand, dropOnCell],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -3026,14 +2895,6 @@ export function BoardView() {
     [announce, composeDestinationLabel, createTask, projectId, readOnly, composeStatus],
   );
 
-  const handlePhaseRename = useCallback(
-    (phaseId: string, newName: string) => {
-      if (!phaseId || phaseId === 'root') return;
-      updateTask.mutate({ id: phaseId, projectId, name: newName });
-    },
-    [updateTask, projectId],
-  );
-
   const handleCardFocus = useCallback((taskId: string, trackKey: string, phaseId: string) => {
     setFocusedCardId(taskId);
     setFocusedColumn(trackKey);
@@ -3237,8 +3098,6 @@ export function BoardView() {
     showReadiness: showReadinessOnCards,
     scopeActions,
     readOnly,
-    workshop: workshopMode,
-    onPhaseRename: workshopMode ? handlePhaseRename : undefined,
     // Board resize (issue 285): per-column widths + this lane's height.
     columnWidths,
     phaseHeight: phaseHeights[phase.id],
@@ -3253,7 +3112,6 @@ export function BoardView() {
     onComposeClose: handleComposeClose,
   });
 
-  // Workshop mode makes lanes sortable; every other mode renders them plain.
   // Deliberately not memoized: `laneProps` closes over ~40 board values and is
   // rebuilt every render regardless, so a useCallback here would never hit — and
   // `BoardPhaseLanes` is not memoized, so nothing downstream depends on the
@@ -3261,11 +3119,7 @@ export function BoardView() {
   // and it is preserved because `laneProps` still feeds reference-stable values.
   const renderLane = (lane: LaneShape) => {
     const phase = lane as Phase;
-    return workshopMode ? (
-      <SortablePhaseLane key={phase.id} {...laneProps(phase)} />
-    ) : (
-      <PhaseLane key={phase.id} {...laneProps(phase)} />
-    );
+    return <PhaseLane key={phase.id} {...laneProps(phase)} />;
   };
 
   // Chrome-band inputs (#2378). `tasks ?? []` was defaulted inline at two call
@@ -3277,7 +3131,6 @@ export function BoardView() {
     () => phases.find((p) => p.id === focusedLanePhaseId)?.name ?? null,
     [phases, focusedLanePhaseId],
   );
-  const openWorkshopExitConfirm = useCallback(() => setShowExitConfirm(true), []);
   const openScopeReview = useCallback(() => setScopeReviewOpen(true), []);
   const clearMyTasksFilter = useCallback(() => myTasksFilter.setEnabled(false), [myTasksFilter]);
   const clearDebtOnly = useCallback(() => setDebtOnly(false), []);
@@ -3400,18 +3253,6 @@ export function BoardView() {
             onShare={canShareBoard && projectId ? () => setShareOpen(true) : undefined}
             onExportPdf={onExportPdf}
             exportingPdf={exportingPdf}
-            workshopMode={workshopMode}
-            workshopDisabled={startWorkshop.isPending}
-            workshopButtonRef={workshopToggleRef}
-            onWorkshopToggle={() => {
-              if (workshopMode) {
-                setShowExitConfirm(true);
-              } else {
-                startWorkshop.mutate(undefined, {
-                  onSuccess: () => setWorkshopMode(true),
-                });
-              }
-            }}
           />
           {activeSavedView && danglingLabelIds.length > 0 && (
             <DeletedLabelNotice
@@ -3447,10 +3288,6 @@ export function BoardView() {
             exportRequested={exportRequested}
             boardPrintRef={boardPrintRef}
             boardPrintData={boardPrintData}
-            workshopMode={workshopMode}
-            workshopSession={workshopSession}
-            workshopEnding={endWorkshop.isPending}
-            onEndWorkshop={openWorkshopExitConfirm}
             scopePendingCount={scopePendingCount}
             canManageScope={canManageScope}
             onReviewScope={openScopeReview}
@@ -3529,7 +3366,7 @@ export function BoardView() {
             wipTrendSeriesByStatus={wipTrendSeriesByStatus}
             onToggleColumn={toggleColumn}
             onResizeColumn={setColumnWidth}
-            lanes={visibleLanes(sortedPhases, focusedLanePhaseId, phaseTaskMap, {
+            lanes={visibleLanes(phases, focusedLanePhaseId, phaseTaskMap, {
               cpOnly,
               dueSoonDays,
               mineActive,
@@ -3537,9 +3374,6 @@ export function BoardView() {
               riskLinkedOnly,
             })}
             renderLane={renderLane}
-            workshopMode={workshopMode}
-            onAddPhase={handleAddPhase}
-            isAddingPhase={createTask.isPending}
             mineActive={mineActive}
             onShowAllTasks={() => myTasksFilter.setEnabled(false)}
             // An EMPTY board is the one create surface that is genuinely the
@@ -3630,19 +3464,6 @@ export function BoardView() {
         }}
         scheduleDialogTask={scheduleDialogTask}
         onScheduleDialogClose={handleScheduleDialogClose}
-        workshopExitOpen={showExitConfirm}
-        workshopEnding={endWorkshop.isPending}
-        workshopToggleRef={workshopToggleRef}
-        onWorkshopExitCancel={() => setShowExitConfirm(false)}
-        onWorkshopExitConfirm={() => {
-          endWorkshop.mutate(undefined, {
-            onSettled: () => {
-              setWorkshopMode(false);
-              setShowExitConfirm(false);
-              workshopToggleRef.current?.focus();
-            },
-          });
-        }}
       />
 
       {taskTrashOpen && projectId && (

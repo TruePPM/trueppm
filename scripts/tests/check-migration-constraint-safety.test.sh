@@ -279,9 +279,9 @@ check "a comment missing the colon form is not the marker" "$rc"
 python3 "$GATE" >"$TMP/real" 2>&1 \
   && check "the committed tree passes the gate" 0 \
   || { cat "$TMP/real"; check "the committed tree passes the gate" 1; }
-grep -q "71 checked" "$TMP/real" \
-  && check "all 71 AddConstraint sites are accounted for" 0 \
-  || check "all 71 AddConstraint sites are accounted for" 1
+grep -q "69 checked" "$TMP/real" \
+  && check "all 69 AddConstraint sites are accounted for" 0 \
+  || check "all 69 AddConstraint sites are accounted for" 1
 
 echo
 if [[ "$fail" -gt 0 ]]; then

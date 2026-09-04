@@ -391,7 +391,7 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
             # nothing maps IntegrityError, so it escaped as a 500 (#2875). Caught
             # here rather than pre-checked with an ``exists()`` because the
             # constraint is the only race-free arbiter, matching the established
-            # pattern at ``workshops/views.py`` and ``projects/services.py`` (#1349).
+            # pattern at ``projects/services.py`` (#1349).
             #
             # Narrowed to that one constraint on purpose. ``create()`` also writes a
             # SocialApp and an M2M row against Site, so a bare ``except`` would

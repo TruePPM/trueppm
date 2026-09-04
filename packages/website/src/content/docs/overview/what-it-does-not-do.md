@@ -83,9 +83,11 @@ around this and TruePPM is not, yet.
 
 ## Scale — a measured ceiling, and an unflattering one
 
-A project stays comfortable in the Schedule view to roughly **1,000 tasks**, bounded
-by the whole-project client load rather than by the engine. The engine itself handles
-considerably more; the browser is the constraint.
+A project stays comfortable in the Schedule view to roughly **1,000 tasks**. The engine
+itself handles considerably more, and so does the database — the constraint is that
+opening a project makes the Schedule read *every* page of its task list, and each of
+those requests spends about 80% of its database time on a pagination count that
+recomputes every annotation over every row.
 
 The full per-dimension measurement — tasks per project, dependency edges, concurrent
 users and WebSocket connections, Monte Carlo iterations at the task ceiling, the

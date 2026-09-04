@@ -13,8 +13,9 @@ Three properties, and the second is the one most likely to be eroded later:
    costs the signal this exists to carry.
 2. **The body names what the change did to the recipient's own items.** "Board
    configuration updated" is precisely the notification this module exists to
-   refuse. Each recipient's row is rendered for them, with their own count, via
-   ``create_event_notifications_batch``.
+   refuse. Each recipient's row is rendered for them, with their own count, and
+   the batch is written in one insert — ``create_event_notifications_batch`` for
+   the board notice, its project-spanning form for the surface notice.
 3. **It reaches everyone the change re-shapes, not just the actor.** For the
    board notice that is everyone with work on the board: the union of
    ``Task.assignee`` and ``TaskResource`` over the project — see
@@ -41,6 +42,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from django.db import transaction
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from .models import Project
 
 logger = logging.getLogger(__name__)
@@ -55,6 +58,39 @@ SURFACE_LABELS: dict[str, str] = {
     "monte_carlo": "Monte Carlo",
 }
 
+#: Projects whose surface notices are resolved, rendered and written together.
+#:
+#: The reads are batched, so on query count alone the best chunk is the whole
+#: apply — two hundred projects for eight reads. This trades a little of that
+#: (four passes instead of one for a max-size apply, against ~1,800 before the
+#: batching) for two bounds one flat batch does not have:
+#:
+#: * **Peak memory.** The rendered ``rows`` list holds a subject and a body
+#:   string per recipient. Flat, that is the sum over the whole apply; chunked it
+#:   is the maximum over one chunk.
+#: * **Blast radius.** The reads and the insert sit under one ``try``, so a
+#:   failure in either loses every project that shares it. Flat, one bad read
+#:   drops the whole apply's notices; chunked it drops one chunk's.
+#:
+#: Fifty is the size at which the two bounds in play agree rather than one
+#: dominating: a chunk of fifty projects at a typical ten-recipient cohort
+#: renders ~500 rows, which is exactly ``NOTIFICATION_BULK_BATCH_SIZE`` — so the
+#: list being accumulated and the statement it becomes are capped at the same
+#: order of magnitude, and neither bound is doing all the work alone.
+SURFACE_EMIT_CHUNK_SIZE = 50
+
+
+def _chunked(items: Sequence[SurfaceChange], size: int) -> list[Sequence[SurfaceChange]]:
+    """``items`` split into consecutive runs of at most ``size``.
+
+    ``itertools.batched`` is the stdlib answer and this is not it, deliberately:
+    the runtime floor is Python 3.12 but ``[tool.mypy] python_version`` is 3.11,
+    where the stubs have no ``batched`` and ``mypy --strict`` fails. Widening a
+    global type-checker setting to import one helper is the wrong trade.
+    """
+    return [items[start : start + size] for start in range(0, len(items), size)]
+
+
 #: Human labels for the methodology preset values.
 METHODOLOGY_LABELS: dict[str, str] = {
     "WATERFALL": "Waterfall",
@@ -66,6 +102,61 @@ METHODOLOGY_LABELS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Recipients — "everyone assigned in the project"
 # ---------------------------------------------------------------------------
+
+
+def _assigned_candidates_by_project(project_ids: Sequence[Any]) -> dict[str, set[Any]]:
+    """``{str(project_id): {user_id, ...}}`` — everyone with work, for a batch.
+
+    Two queries for any number of projects, which is the whole point: the union
+    of ``Task.assignee`` and ``TaskResource.resource.user`` is the same pair of
+    reads whether it is asked of one project or two hundred, and asking it per
+    project inside a bulk apply is how the emit reached ~2,000 round-trips
+    (#3335). :func:`assigned_recipient_ids` is the one-project caller.
+
+    Keys are stringified because the ids that reach here travel through an
+    ``on_commit`` payload as ``str``, while the ORM yields ``uuid.UUID`` — a
+    mapping keyed on the raw column would silently miss every lookup.
+
+    ``.distinct()`` matters on both arms: without it Postgres streams one row per
+    TASK to build a set of maybe thirty user ids, so a 10k-task project pulls 10k
+    UUIDs over the wire twice. The de-dupe belongs in the database.
+
+    **``.order_by()`` is what makes that ``.distinct()`` real, and it is not
+    cosmetic.** ``Task.Meta.ordering`` is ``["wbs_path", "name"]``, and a
+    ``.distinct()`` with no ``distinct_fields`` promotes every ORDER BY column
+    into the SELECT list — so the statement becomes ``SELECT DISTINCT project_id,
+    assignee_id, wbs_path, name``. ``projects_task`` carries an
+    ``ExclusionConstraint`` on ``(project, wbs_path)`` over live rows, which makes
+    that tuple unique among exactly the rows being scanned, so the DISTINCT
+    matches nothing and returns one row per task — the de-dupe silently does not
+    happen. Clearing the default ordering is the only thing standing between this
+    and the full-table transfer the previous paragraph exists to prevent.
+    """
+    from trueppm_api.apps.resources.models import TaskResource
+
+    from .models import Task
+
+    by_project: dict[str, set[Any]] = {}
+    for project_id, user_id in (
+        Task.objects.filter(project_id__in=project_ids, is_deleted=False)
+        .exclude(assignee_id=None)
+        .order_by()
+        .values_list("project_id", "assignee_id")
+        .distinct()
+    ):
+        by_project.setdefault(str(project_id), set()).add(user_id)
+    for project_id, user_id in (
+        # `TaskResource.Meta.ordering` is empty today, so this `order_by()` is a
+        # no-op — kept so that giving the model a default ordering later cannot
+        # quietly defeat this `distinct()` the way it does the Task arm above.
+        TaskResource.objects.filter(task__project_id__in=project_ids, task__is_deleted=False)
+        .exclude(resource__user__isnull=True)
+        .order_by()
+        .values_list("task__project_id", "resource__user_id")
+        .distinct()
+    ):
+        by_project.setdefault(str(project_id), set()).add(user_id)
+    return by_project
 
 
 def assigned_recipient_ids(
@@ -104,23 +195,8 @@ def assigned_recipient_ids(
     call site stays self-contained.
     """
     from trueppm_api.apps.access.models import ProjectMembership
-    from trueppm_api.apps.resources.models import TaskResource
 
-    from .models import Task
-
-    # `.distinct()` matters here: without it Postgres streams one row per TASK to
-    # build a set of maybe thirty user ids, so a 10k-task project pulls 10k UUIDs
-    # over the wire twice. The de-dupe belongs in the database.
-    tasks = Task.objects.filter(project_id=project_id, is_deleted=False)
-    candidates: set[Any] = set(
-        tasks.exclude(assignee_id=None).values_list("assignee_id", flat=True).distinct()
-    )
-    candidates |= set(
-        TaskResource.objects.filter(task__project_id=project_id, task__is_deleted=False)
-        .exclude(resource__user__isnull=True)
-        .values_list("resource__user_id", flat=True)
-        .distinct()
-    )
+    candidates = set(_assigned_candidates_by_project([project_id]).get(str(project_id), set()))
     candidates.discard(None)
     if exclude_user_id is not None:
         candidates.discard(exclude_user_id)
@@ -193,29 +269,66 @@ def surface_recipient_ids(project_id: Any, *, exclude_user_id: Any = None) -> li
     ``perform_update`` path essentially by definition, so the Scheduler arm re-adds
     them on every flip. This final ``discard`` is the only thing standing between a
     PM and a notice about their own click.
+
+    Implemented by :func:`surface_recipient_ids_by_project` with a one-element
+    batch — same four queries, one definition of the cohort.
+    """
+    return surface_recipient_ids_by_project([project_id], exclude_user_id=exclude_user_id).get(
+        str(project_id), []
+    )
+
+
+def surface_recipient_ids_by_project(
+    project_ids: Sequence[Any], *, exclude_user_id: Any = None
+) -> dict[str, list[Any]]:
+    """``{str(project_id): [user_id, ...]}`` — the surface cohort, for a batch.
+
+    Four queries for any number of projects, and exactly the four
+    :func:`surface_recipient_ids` used to issue for one: the membership scan, the
+    two assignment reads and the facet join. Each is ``project_id IN (...)``
+    grouped by project, and nothing in the batch depends on another project's
+    result, so the per-project loop that used to hold them belongs above them
+    rather than around them (#3335).
+
+    Cohort semantics, liveness and actor exclusion are :func:`surface_recipient_ids`'s
+    — read that docstring; this is the same function asked of a set of projects,
+    and the single-project form now delegates here so the two cannot drift.
+
+    The facet arm reads :func:`~trueppm_api.apps.teams.services.facet_holder_user_ids_by_project`,
+    the batch counterpart of the scope gate's own source, and intersects it with
+    ``live_ids`` here — the same intersection the one-project path applied, from
+    the same membership map, so widening the batch cannot widen who keeps being
+    told a project's internal structure after losing access.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
-    from trueppm_api.apps.teams.services import facet_holder_user_ids
+    from trueppm_api.apps.teams.services import facet_holder_user_ids_by_project
 
-    live_roles: dict[Any, int] = dict(
-        ProjectMembership.objects.filter(project_id=project_id, is_deleted=False).values_list(
-            "user_id", "role"
-        )
-    )
-    live_ids = set(live_roles)
+    live_roles: dict[str, dict[Any, int]] = {}
+    for project_id, user_id, role in ProjectMembership.objects.filter(
+        project_id__in=project_ids, is_deleted=False
+    ).values_list("project_id", "user_id", "role"):
+        live_roles.setdefault(str(project_id), {})[user_id] = role
 
-    recipients = set(
-        assigned_recipient_ids(
-            project_id, exclude_user_id=exclude_user_id, live_member_ids=live_ids
-        )
-    )
-    recipients |= {uid for uid, role in live_roles.items() if role >= Role.SCHEDULER}
-    recipients |= facet_holder_user_ids(project_id) & live_ids
+    assigned = _assigned_candidates_by_project(project_ids)
+    facets = {
+        str(pid): holders for pid, holders in facet_holder_user_ids_by_project(project_ids).items()
+    }
 
-    recipients.discard(None)
-    if exclude_user_id is not None:
-        recipients.discard(exclude_user_id)
-    return sorted(recipients, key=str)
+    cohorts: dict[str, list[Any]] = {}
+    for raw_id in project_ids:
+        pid = str(raw_id)
+        roles = live_roles.get(pid, {})
+        live_ids = set(roles)
+
+        recipients = assigned.get(pid, set()) & live_ids
+        recipients |= {uid for uid, role in roles.items() if role >= Role.SCHEDULER}
+        recipients |= facets.get(pid, set()) & live_ids
+
+        recipients.discard(None)
+        if exclude_user_id is not None:
+            recipients.discard(exclude_user_id)
+        cohorts[pid] = sorted(recipients, key=str)
+    return cohorts
 
 
 def _counts_by_user(project_id: Any, task_filter: Any) -> Counter[Any]:
@@ -234,6 +347,24 @@ def _counts_by_user(project_id: Any, task_filter: Any) -> Counter[Any]:
     a user booked twice on one task through two resource rows would otherwise
     count twice; the assignee arm groups by ``assignee_id`` over a join-free
     queryset, so its ``id`` is already unique per group.
+
+    Implemented by :func:`_counts_by_user_by_project` with a one-element batch —
+    still two queries, one definition of the count.
+    """
+    return _counts_by_user_by_project([project_id], task_filter).get(str(project_id), Counter())
+
+
+def _counts_by_user_by_project(
+    project_ids: Sequence[Any], task_filter: Any
+) -> dict[str, Counter[Any]]:
+    """``{str(project_id): Counter({user_id: n})}`` — :func:`_counts_by_user`, batched.
+
+    Two **grouped** queries for any number of projects: the grouping key gains
+    ``project_id`` and the filter becomes ``IN (...)``, which is the entire
+    difference. The surface notice runs this once per bulk apply rather than once
+    per project (#3335), and every de-duplication rule described above is
+    unchanged — ``project_id`` only partitions groups a single project's query
+    already kept separate, since a task belongs to exactly one project.
     """
     from django.db.models import Count, F
 
@@ -241,24 +372,24 @@ def _counts_by_user(project_id: Any, task_filter: Any) -> Counter[Any]:
 
     from .models import Task
 
-    affected = Task.objects.filter(project_id=project_id, is_deleted=False).filter(task_filter)
-    counts: Counter[Any] = Counter()
-    for uid, n in (
+    affected = Task.objects.filter(project_id__in=project_ids, is_deleted=False).filter(task_filter)
+    counts: dict[str, Counter[Any]] = {}
+    for pid, uid, n in (
         affected.exclude(assignee_id=None)
-        .values("assignee_id")
+        .values("project_id", "assignee_id")
         .annotate(n=Count("id"))
-        .values_list("assignee_id", "n")
+        .values_list("project_id", "assignee_id", "n")
     ):
-        counts[uid] += n
-    for uid, n in (
+        counts.setdefault(str(pid), Counter())[uid] += n
+    for pid, uid, n in (
         TaskResource.objects.filter(task__in=affected)
         .exclude(resource__user__isnull=True)
         .exclude(resource__user_id=F("task__assignee_id"))
-        .values("resource__user_id")
+        .values("task__project_id", "resource__user_id")
         .annotate(n=Count("task_id", distinct=True))
-        .values_list("resource__user_id", "n")
+        .values_list("task__project_id", "resource__user_id", "n")
     ):
-        counts[uid] += n
+        counts.setdefault(str(pid), Counter())[uid] += n
     return counts
 
 
@@ -762,35 +893,86 @@ def _emit_surface_notifications(
     actor_id: Any,
     actor_name: str,
 ) -> None:
+    """Render and write one notice per recipient across every changed project.
+
+    **Every read is hoisted out of the per-project loop** (#3335). The program
+    settings matrix can hand this up to ``MAX_BULK_TARGETS`` projects, and the
+    whole emit runs inline in the request thread — ``transaction.on_commit``
+    fires synchronously in the worker after COMMIT, not on Celery — so a read
+    left inside the loop is response latency multiplied by two hundred. Each read
+    is ``project_id IN (...)`` grouped by project, and nothing in the batch
+    depends on another project's result.
+
+    The work is then processed in chunks of :data:`SURFACE_EMIT_CHUNK_SIZE`
+    projects rather than as one batch, which is a deliberate trade of a little of
+    that saving for two bounds the flat version did not have — see that constant
+    for why. Within a chunk the cost is flat: the same eight reads whether the
+    chunk holds one project or fifty.
+
+    The per-project ``try`` survives the hoist and now guards **only rendering**,
+    which is where a per-project failure can actually originate: a malformed
+    snapshot in one project's copy must not swallow the notices for the rest of
+    the batch. The per-chunk ``try`` is both the on-commit contract — this
+    callback runs after the write has been accepted and must never raise into it
+    — and the reason a failed read or insert costs one chunk rather than the
+    whole apply.
+    """
     from django.db.models import Q
 
     from trueppm_api.apps.notifications.models import NotificationEventType
-    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+    from trueppm_api.apps.notifications.services import (
+        create_event_notifications_multi_project,
+    )
 
-    for change in changes:
-        # Per project, not per batch: one project's failure must not swallow the
-        # notices for the others in a bulk apply.
+    for chunk in _chunked(changes, SURFACE_EMIT_CHUNK_SIZE):
+        project_ids = [change.project_id for change in chunk]
         try:
-            recipient_ids = surface_recipient_ids(change.project_id, exclude_user_id=actor_id)
-            if not recipient_ids:
+            recipients_by_project = surface_recipient_ids_by_project(
+                project_ids, exclude_user_id=actor_id
+            )
+            counts_by_project = _counts_by_user_by_project(project_ids, Q())
+
+            rows: list[tuple[Any, Any, str, str, Any]] = []
+            for change in chunk:
+                try:
+                    pid = str(change.project_id)
+                    recipient_ids = recipients_by_project.get(pid, [])
+                    if not recipient_ids:
+                        continue
+                    counts = counts_by_project.get(pid, Counter())
+                    subject = _surface_subject(change.before, change.after)
+                    # Materialized before it is appended, so a render that fails
+                    # half-way through one project's recipients contributes
+                    # nothing rather than a partial fan-out.
+                    rendered = [
+                        (
+                            rid,
+                            change.project_id,
+                            subject,
+                            _surface_body(
+                                actor_name, change.before, change.after, counts.get(rid, 0)
+                            ),
+                            None,
+                        )
+                        for rid in recipient_ids
+                    ]
+                    rows.extend(rendered)
+                except Exception:
+                    logger.exception(
+                        "notify_project_surface_change: render failed for project %s",
+                        change.project_id,
+                    )
+
+            if not rows:
                 continue
-            counts = _counts_by_user(change.project_id, Q())
-            subject = _surface_subject(change.before, change.after)
-            rows = [
-                (
-                    rid,
-                    subject,
-                    _surface_body(actor_name, change.before, change.after, counts.get(rid, 0)),
-                    None,
-                )
-                for rid in recipient_ids
-            ]
-            create_event_notifications_batch(
+            # ``Notification`` carries project_id per row, so a chunk is one
+            # insert (itself capped at NOTIFICATION_BULK_BATCH_SIZE rows per
+            # statement) rather than one insert per project.
+            create_event_notifications_multi_project(
                 event_type=NotificationEventType.PROJECT_CONFIG_CHANGED,
-                project_id=change.project_id,
                 rows=rows,
             )
         except Exception:
             logger.exception(
-                "notify_project_surface_change: emit failed for project %s", change.project_id
+                "notify_project_surface_change: emit failed for projects %s", project_ids
             )

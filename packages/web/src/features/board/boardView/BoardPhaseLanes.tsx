@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { Task, TaskStatus } from '@/types';
 import { BoardIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
@@ -53,72 +52,6 @@ export function visibleLanes(
   });
 }
 
-interface AddPhaseButtonProps {
-  onAddPhase: () => void;
-  isPending: boolean;
-  className: string;
-}
-
-function AddPhaseButton({ onAddPhase, isPending, className }: AddPhaseButtonProps) {
-  return (
-    <button type="button" onClick={onAddPhase} disabled={isPending} className={className}>
-      {isPending ? 'Adding…' : '+ Add Phase'}
-    </button>
-  );
-}
-
-interface WorkshopLanesProps {
-  lanes: LaneShape[];
-  renderLane: (lane: LaneShape) => ReactNode;
-  onAddPhase: () => void;
-  isAddingPhase: boolean;
-}
-
-/**
- * Workshop mode authors WBS phase structure, so lanes are sortable and the
- * "+ Add Phase" affordance is always reachable — as the empty-state CTA when
- * there are no phases yet, and as a trailing button once there are.
- */
-function WorkshopLanes({ lanes, renderLane, onAddPhase, isAddingPhase }: WorkshopLanesProps) {
-  return (
-    <>
-      <SortableContext
-        items={lanes.map((p) => `phase:${p.id}`)}
-        strategy={verticalListSortingStrategy}
-      >
-        {lanes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary">
-            <p className="text-sm">No phases yet. Add your first phase to start planning.</p>
-            <AddPhaseButton
-              onAddPhase={onAddPhase}
-              isPending={isAddingPhase}
-              className="border border-brand-primary/40 rounded-control px-4 py-2 text-sm
-                              text-brand-primary font-medium
-                              hover:bg-brand-primary/10 disabled:opacity-50
-                              focus:ring-2 focus:ring-brand-primary focus:outline-none"
-            />
-          </div>
-        ) : (
-          lanes.map((lane) => renderLane(lane))
-        )}
-      </SortableContext>
-      {lanes.length > 0 && (
-        <div className="flex justify-start px-4 py-3">
-          <AddPhaseButton
-            onAddPhase={onAddPhase}
-            isPending={isAddingPhase}
-            className="border border-dashed border-neutral-border rounded-control px-3 py-1.5 text-xs
-                            text-neutral-text-secondary hover:border-brand-primary/40
-                            hover:text-brand-primary
-                            hover:bg-brand-primary/5 disabled:opacity-50
-                            focus:ring-2 focus:ring-brand-primary focus:outline-none"
-          />
-        </div>
-      )}
-    </>
-  );
-}
-
 interface EmptyLanesProps {
   mineActive: boolean;
   onShowAllTasks: () => void;
@@ -165,37 +98,21 @@ function EmptyLanes({ mineActive, onShowAllTasks, canCreate, onAddTask }: EmptyL
 interface BoardPhaseLanesProps {
   lanes: LaneShape[];
   renderLane: (lane: LaneShape) => ReactNode;
-  workshopMode: boolean;
-  onAddPhase: () => void;
-  isAddingPhase: boolean;
   mineActive: boolean;
   onShowAllTasks: () => void;
   canCreate: boolean;
   onAddTask: () => void;
 }
 
-/** The lane list: workshop authoring, the empty states, or the lanes themselves. */
+/** The lane list: the empty states, or the lanes themselves. */
 export function BoardPhaseLanes({
   lanes,
   renderLane,
-  workshopMode,
-  onAddPhase,
-  isAddingPhase,
   mineActive,
   onShowAllTasks,
   canCreate,
   onAddTask,
 }: BoardPhaseLanesProps) {
-  if (workshopMode) {
-    return (
-      <WorkshopLanes
-        lanes={lanes}
-        renderLane={renderLane}
-        onAddPhase={onAddPhase}
-        isAddingPhase={isAddingPhase}
-      />
-    );
-  }
   if (lanes.length === 0) {
     return (
       <EmptyLanes
