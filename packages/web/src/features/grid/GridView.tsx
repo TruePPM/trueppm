@@ -459,7 +459,7 @@ export function GridView() {
   } | null>(null);
 
   // Give the Undo affordance a longer dwell than a plain confirmation (#2078), and
-  // pause that dwell while the toast is hovered or contains focus (web rule 377) —
+  // pause that dwell while the toast is hovered or contains focus (web rule 378) —
   // the bulk-delete Undo is the only route back and it must not be removed out from
   // under a keyboard user's focus ring (WCAG 2.2.1, 2.4.3). Same hook as `ToastHost`
   // and the Schedule's action toast (#3356).

@@ -69,6 +69,25 @@ function serverCanAuthor(): boolean | undefined {
   return mockRole >= ROLE_MEMBER;
 }
 let mockSurfaces = { monte_carlo: true, baselines: true };
+// #3312: the seeding state reads the polled template application. `result_summary`
+// is required even while pending — `SeedBanner` dereferences it unguarded once the
+// status reaches `success`, and crashes the whole render without it.
+let mockApplicationStatus: string | undefined = 'success';
+vi.mock('@/hooks/useProjectTemplates', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  useTemplateApplication: (applicationId: string | null) => ({
+    data: applicationId
+      ? {
+          id: applicationId,
+          template_name: 'Delivery skeleton',
+          status: mockApplicationStatus,
+          result_summary: { tasks_created: 0, milestones_created: 0, dependencies_created: 0 },
+          undone_at: null,
+        }
+      : undefined,
+    isPending: applicationId !== null && mockApplicationStatus === undefined,
+  }),
+}));
 let mockBreakpoint: 'sm' | 'md' | 'lg' = 'lg';
 let mockIsExporting = false;
 let mockExportError: string | null = null;
@@ -502,8 +521,8 @@ vi.mock('./TaskListPanel', () => ({
   ),
 }));
 vi.mock('./mobile/MobileSchedule', () => ({
-  MobileSchedule: ({ onAddTask }: { onAddTask: () => void }) => (
-    <div data-testid="mobile-schedule">
+  MobileSchedule: ({ onAddTask, seeding }: { onAddTask: () => void; seeding?: boolean }) => (
+    <div data-testid="mobile-schedule" data-seeding={String(seeding ?? false)}>
       <button type="button" onClick={onAddTask}>
         mobile add task
       </button>
@@ -698,7 +717,12 @@ vi.mock('./CaptureBaselineConfirmDialog', () => ({ CaptureBaselineConfirmDialog:
 vi.mock('./SubtreeDeleteConfirmDialog', () => ({ SubtreeDeleteConfirmDialog: () => null }));
 
 // Import AFTER mocks so the mocked modules resolve.
-import { ScheduleView, schedulePanelWidth, scheduleOutlineRendered } from './ScheduleView';
+import {
+  ScheduleView,
+  schedulePanelWidth,
+  scheduleOutlineRendered,
+  resolveScheduleSeeding,
+} from './ScheduleView';
 
 /**
  * The Schedule's transient status surface (toast / export progress).
@@ -808,6 +832,7 @@ beforeEach(() => {
   mockCanAuthorOverride = undefined;
   mockRoleError = false;
   mockSurfaces = { monte_carlo: true, baselines: true };
+  mockApplicationStatus = 'success';
   mockBreakpoint = 'lg';
   mockMobile = false;
   mockIsExporting = false;
@@ -2766,6 +2791,7 @@ describe('ScheduleView — F8/Shift+F8 unresolved-owner-token navigation (#2727,
   });
 });
 
+
 // ───────────────────────────────────────────────────────────────────────────
 // #3356 — the Schedule's own action toast had an unconditional auto-dismiss.
 // The global `ToastHost` has paused on hover/focus since #2203, and the two
@@ -2841,5 +2867,178 @@ describe('ScheduleView — action toast auto-dismiss is pausable (#3356)', () =>
     });
     expect(undo.className).toContain('min-h-[44px]');
     expect(undo.className).toContain('min-w-[44px]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveScheduleSeeding (#3312) — the one predicate the desktop canvas, the
+// outline's draft row and the mobile body all answer from, so they cannot
+// disagree about whether a template apply is still writing.
+// ---------------------------------------------------------------------------
+
+describe('resolveScheduleSeeding (#3312)', () => {
+  const base = {
+    applicationId: 'app-1',
+    status: 'pending' as string | undefined,
+    applicationLoading: false,
+    timedOut: false,
+    taskCount: 0,
+  };
+
+  it('is true while the apply is pending or running on an empty project', () => {
+    expect(resolveScheduleSeeding({ ...base, status: 'pending' })).toBe(true);
+    expect(resolveScheduleSeeding({ ...base, status: 'running' })).toBe(true);
+  });
+
+  it('is true before the first poll resolves', () => {
+    // The blank canvas painting for even one render lets `BlankOutlineDraftRow`'s
+    // mount effect steal the caret — unreproducible, and the exact invitation
+    // this state exists to withhold.
+    expect(
+      resolveScheduleSeeding({ ...base, status: undefined, applicationLoading: true }),
+    ).toBe(true);
+  });
+
+  it('is false when the poll resolved with no status — an errored application', () => {
+    // Settled (`applicationLoading: false`) but carrying no status: the query
+    // rejected. Treating that as seeding would strand the user on a skeleton for
+    // an apply nothing is tracking.
+    expect(
+      resolveScheduleSeeding({ ...base, status: undefined, applicationLoading: false }),
+    ).toBe(false);
+  });
+
+  it('is false with no application at all — an ordinary blank project', () => {
+    expect(
+      resolveScheduleSeeding({ ...base, applicationId: null, applicationLoading: true }),
+    ).toBe(false);
+  });
+
+  it('is false once any row has landed', () => {
+    // The exit is self-healing: the first seeded row over the WebSocket ends the
+    // wait, with no timer and no second poll of our own.
+    expect(resolveScheduleSeeding({ ...base, taskCount: 1 })).toBe(false);
+  });
+
+  it('is false on every terminal status', () => {
+    // `failed` is deliberately not seeding (#3348): that project really is empty,
+    // and a live first row is the right affordance for it.
+    for (const status of ['success', 'failed', 'undone']) {
+      expect(resolveScheduleSeeding({ ...base, status })).toBe(false);
+    }
+  });
+
+  it('is false once timed out, even while the status still says running', () => {
+    // The bounded exit. A worker that dies without writing a terminal status
+    // leaves the query SUCCEEDING with `running` forever — nothing errors, so
+    // without this the skeleton pulses indefinitely over a surface offering no
+    // row to type and no template to apply.
+    expect(resolveScheduleSeeding({ ...base, status: 'running', timedOut: true })).toBe(false);
+    expect(
+      resolveScheduleSeeding({ ...base, applicationLoading: true, timedOut: true }),
+    ).toBe(false);
+  });
+
+  it('lets a landed row outrank a still-pending status', () => {
+    expect(
+      resolveScheduleSeeding({ ...base, status: 'running', taskCount: 3 }),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The two effects that make `resolveScheduleSeeding`'s inputs real (#3312).
+//
+// The predicate above is a pure function and exhaustively covered, but the code
+// that SETS its `timedOut` argument and the code that re-derives the rows on the
+// terminal transition both live in the component body — the half an extraction
+// leaves behind, and the half nothing was looking at. Both were deletable with
+// every other test in this file green.
+// ---------------------------------------------------------------------------
+
+describe('ScheduleView — the seeding effects (#3312)', () => {
+  const SEED_URL = ['/?templateApplication=app-1'];
+
+  it('renders the seeding state on an empty project while the apply is running', () => {
+    mockTasks = [];
+    mockApplicationStatus = 'running';
+    renderSchedule(SEED_URL);
+    expect(screen.getByTestId('schedule-seeding-state')).toBeInTheDocument();
+  });
+
+  it('falls through to the ordinary empty state after the 60s bounded exit', () => {
+    // Web rule 374(a). `running` has no terminal condition when the worker dies
+    // without writing one: the query keeps SUCCEEDING, so nothing errors and the
+    // skeleton would pulse forever over a surface offering no row to type.
+    vi.useFakeTimers();
+    try {
+      mockTasks = [];
+      mockApplicationStatus = 'running';
+      renderSchedule(SEED_URL);
+      expect(screen.getByTestId('schedule-seeding-state')).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+
+      // The status still says `running` — only the timer changed.
+      expect(screen.queryByTestId('schedule-seeding-state')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-derives the rows when the apply reports success', async () => {
+    // Web rule 374's corollary: `success` does NOT mean the rows are on screen.
+    // They ride `task_created` WS events and the fallback poll is 30s on a healthy
+    // socket, so without this the user is handed straight back to the
+    // caret-stealing draft row the seeding state exists to withhold.
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    try {
+      mockTasks = [];
+      mockApplicationStatus = 'success';
+      renderSchedule(SEED_URL);
+
+      await waitFor(() => {
+        const keys = invalidate.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+        expect(keys.some((k) => k?.includes('tasks'))).toBe(true);
+        expect(keys.some((k) => k?.includes('dependencies'))).toBe(true);
+      });
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+
+  it('does not re-derive while the apply is still running', async () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    try {
+      mockTasks = [];
+      mockApplicationStatus = 'running';
+      renderSchedule(SEED_URL);
+      // Await a real signal rather than sampling immediately — `expect(...).toBe(0)`
+      // on the first tick passes before the effect could ever have run.
+      await screen.findByTestId('schedule-seeding-state');
+      const keys = invalidate.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+      expect(keys.some((k) => k?.includes('dependencies'))).toBe(false);
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+
+  it('threads the seeding flag into the mobile surface', () => {
+    // The mobile arm has no Playwright project, so this is the only layer that
+    // pins it — mutating the prop at its call site survived everything before.
+    mockMobile = true;
+    mockTasks = [];
+    mockApplicationStatus = 'running';
+    renderSchedule(SEED_URL);
+    expect(screen.getByTestId('mobile-schedule')).toHaveAttribute('data-seeding', 'true');
+  });
+
+  it('leaves the mobile surface unseeded with no application in flight', () => {
+    mockMobile = true;
+    mockTasks = [];
+    renderSchedule(['/']);
+    expect(screen.getByTestId('mobile-schedule')).toHaveAttribute('data-seeding', 'false');
   });
 });

@@ -98,7 +98,7 @@ export function GridToast({
 }: {
   toast: GridToastState | null;
   /**
-   * Hover/focus-within pause for the dwell (web rule 377). Owned by `GridView`,
+   * Hover/focus-within pause for the dwell (web rule 378). Owned by `GridView`,
    * which holds the timer, because the toast state lives there — this component
    * only paints it. Optional so a caller that renders a toast with no Undo need
    * not thread it, though `GridView` always does.

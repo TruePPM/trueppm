@@ -406,7 +406,7 @@ describe('RetroBoardSurface — sticky edit / LWW reconcile', () => {
     expect(screen.queryByText(/your version was replaced/i)).not.toBeInTheDocument();
   });
 
-  it('never times out the reconcile toast while it holds focus (rule 377, WCAG 2.2.1)', async () => {
+  it('never times out the reconcile toast while it holds focus (rule 378, WCAG 2.2.1)', async () => {
     // Undo here is the only route back to the local text a peer's write replaced,
     // so the 8s dwell must stop while a keyboard user is on the button (#3356).
     mocks.updateItem.mutate.mockImplementation(

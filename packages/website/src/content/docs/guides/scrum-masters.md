@@ -143,7 +143,7 @@ The test: you should never need to open the Gantt. Run these steps in order — 
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as the Scrum Master.** Open `http://localhost:5173` and sign in as **`maya`** — Maya Singh, seeded with the **Member** role.
+2. **Sign in as the person running the sprint.** Open `http://localhost:5173` and sign in as **`atlas-jordan`** — Jordan Blake, seeded with the **Admin** role, who owns Platform Core's sprints. Atlas seeds no dedicated Scrum Master persona; the agile-only **Aurora** sample does (`aurora-sam`), and the evaluation guide walks it.
 
 3. **Open the Sprints workspace.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`). Switch the sprint selector to a closed sprint: it carries a real burndown curve, and the velocity bar chart with its rolling average sits in the bottom half of the metrics row's right column — not a single fabricated number. Switch back to the active sprint and it sits mid-window.
 

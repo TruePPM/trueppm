@@ -1387,7 +1387,7 @@ describe('GridView — toast dwell (#2078)', () => {
     expect(screen.queryByText(/^1 task deleted\.$/)).not.toBeInTheDocument();
   });
 
-  it('never times out the undoable toast while it holds focus (rule 377, WCAG 2.2.1)', async () => {
+  it('never times out the undoable toast while it holds focus (rule 378, WCAG 2.2.1)', async () => {
     // The bulk-delete Undo is the only route back, so a keyboard user traversing
     // toward it must not have it removed out from under the focus ring (#3356).
     bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {

@@ -44,11 +44,11 @@ Run these steps in order — they start from a machine with nothing running.
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as the resource manager.** Open `http://localhost:5173` and sign in as **`sarah`** — Sarah Lee, seeded with the **Scheduler** role.
+2. **Sign in as the resource manager.** Open `http://localhost:5173` and sign in as **`atlas-sam`** — Sam Okafor, Project Scheduler, seeded with the **Scheduler** role. Atlas has no dedicated resource-manager persona; the Scheduler seat is the one that holds the plan and its assignments.
 
 3. **Open capacity preflight.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`). The **capacity preflight** panel is in the top half of the metrics row's right column. It surfaces an over-allocated member before the sprint is activated — that's your core test, *catch the conflict before it's locked in*, at project scope.
 
-4. **Look at an assignment.** Open **People → Resources** (`/projects/:id/resources`) for the roster, then open any assigned task from the board or schedule and read its assignment in the drawer. Units and work hours are fractional, not a binary 100% / 0% — the demo seeds a 0.8 DevOps engineer and a 0.5 resource manager, so the roster is not everyone-at-100%.
+4. **Look at an assignment.** Open **People → Resources** (`/projects/:id/resources`) for the roster, then open any assigned task from the board or schedule and read its assignment in the drawer. Units and work hours are fractional, not a binary 100% / 0% — the demo seeds a 0.8 DevOps engineer, a 0.5 program manager, and a 0.2 solutions architect, so the roster is not everyone-at-100%.
 
 Be clear-eyed about the gap. Your top two criteria — one view of a person across *all* their projects, and a pre-commit warning that fires across projects — land in **0.5**. Today the conflict check is per-project. A pre-0.5 evaluation should expect that; it's sequenced on the roadmap, not an oversight.
 

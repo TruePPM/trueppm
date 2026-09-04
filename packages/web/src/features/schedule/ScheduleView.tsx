@@ -159,6 +159,9 @@ import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 import type { DependencyDirection } from './deps/linkTypes';
 import { PendingCrossProjectReview } from './PendingCrossProjectReview';
 import { SeedBanner } from './SeedBanner';
+import { ScheduleSeedingState } from './ScheduleSeedingState';
+import { useTemplateApplication } from '@/hooks/useProjectTemplates';
+import { useQueryClient } from '@tanstack/react-query';
 import { NextStrip } from './NextStrip';
 import { ScheduleCommitPopover } from './ScheduleCommitPopover';
 import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
@@ -640,6 +643,40 @@ type AddDependencyMutation = ReturnType<typeof useAddDependency>;
  */
 export function schedulePanelWidth(outlineRendered: boolean, outlineWidth: number): number {
   return outlineRendered ? outlineWidth : 0;
+}
+
+/**
+ * Is a just-dispatched template apply still writing this project's rows? (#3312)
+ *
+ * ONE predicate, so the three surfaces that answer it — the desktop canvas, the
+ * outline's draft row, and the mobile body — cannot disagree. They disagreeing is
+ * the failure this replaces: each rendered its own empty state independently, and
+ * every one of them was wrong in the same window.
+ *
+ * Four inputs, and each is load-bearing:
+ *
+ * - `applicationLoading` covers the window BEFORE the first poll resolves.
+ *   Without it the blank canvas paints for one render and `BlankOutlineDraftRow`'s
+ *   mount effect steals the caret — the exact invitation this state exists to
+ *   withhold, just briefly enough to be unreproducible.
+ * - `timedOut` is the bounded exit. `pending`/`running` has no terminal condition
+ *   when the worker dies without writing one: the query keeps SUCCEEDING with a
+ *   non-terminal value, so nothing errors and the skeleton would pulse forever over
+ *   a surface offering no row to type and no template to apply.
+ * - `taskCount` gates on ALL tasks, never the visible subset. A filter that hides
+ *   every row of a populated project is a filter result, and keeps its own state.
+ * - A terminal `failed` is deliberately NOT seeding (#3348) — that project really
+ *   is empty, and a live first row is the right affordance for it.
+ */
+export function resolveScheduleSeeding(input: {
+  applicationId: string | null;
+  status: string | undefined;
+  applicationLoading: boolean;
+  timedOut: boolean;
+  taskCount: number;
+}): boolean {
+  if (input.applicationId === null || input.timedOut || input.taskCount > 0) return false;
+  return input.applicationLoading || input.status === 'pending' || input.status === 'running';
 }
 
 /**
@@ -2010,6 +2047,7 @@ export function ScheduleView() {
   // same reasoning as the `?import=csv` param above: consumed into local state
   // once, then stripped so a refresh does not reopen a banner for an apply the
   // user may have already dismissed or undone.
+  const seedQueryClient = useQueryClient();
   const [seedApplicationId, setSeedApplicationId] = useState<string | null>(null);
   const seedParamConsumedRef = useRef(false);
   useEffect(() => {
@@ -2020,6 +2058,49 @@ export function ScheduleView() {
     setSeedApplicationId(applicationId);
     setSearchParam(setSearchParams, 'templateApplication', null);
   }, [searchParams, setSearchParams]);
+
+  // The same polled application the seed banner reads (#3312) — same query key,
+  // so this shares its cache entry and adds no request. The banner summarizes a
+  // FINISHED apply; this answers the question it deliberately does not: is one
+  // still running, and should this project's empty state therefore say "filling"
+  // rather than "start typing"?
+  const { data: seedApplication, isPending: seedApplicationLoading } =
+    useTemplateApplication(seedApplicationId);
+
+  // The bounded exit `resolveScheduleSeeding` consumes as `timedOut`. Mirrors
+  // `ProductBacklogPage`'s `seedingTimedOut` fallback; longer than its 10s because
+  // this one polls real status rather than guessing from a URL flag, so the timer
+  // is the last resort rather than the primary exit.
+  const [seedingTimedOut, setSeedingTimedOut] = useState(false);
+  useEffect(() => {
+    if (!seedApplicationId) return;
+    const timer = setTimeout(() => setSeedingTimedOut(true), 60_000);
+    return () => clearTimeout(timer);
+  }, [seedApplicationId]);
+
+
+  // The apply reporting `success` does NOT mean the rows are on screen: they ride
+  // `task_created` WS events, and `useScheduleTasks` drops its fallback poll to 30s
+  // when the socket is healthy — so on a degraded socket the seeding state would
+  // clear at the 2s poll and hand the user straight back to the caret-stealing
+  // draft row this whole change exists to withhold. Re-derive the rows ourselves on
+  // the terminal transition instead of waiting for an event that may not come.
+  const seedTerminalHandledRef = useRef(false);
+  useEffect(() => {
+    if (seedTerminalHandledRef.current || !projectId) return;
+    if (seedApplication?.status !== 'success') return;
+    seedTerminalHandledRef.current = true;
+    void seedQueryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+    void seedQueryClient.invalidateQueries({ queryKey: ['dependencies', projectId] });
+  }, [seedApplication?.status, projectId, seedQueryClient]);
+
+  const scheduleSeeding = resolveScheduleSeeding({
+    applicationId: seedApplicationId,
+    status: seedApplication?.status,
+    applicationLoading: seedApplicationLoading,
+    timedOut: seedingTimedOut,
+    taskCount: allTasks.length,
+  });
   // Public share links (#1486): mint/manage is Admin+ (mirrors board sharing). The
   // instance/workspace kill switch is enforced server-side — the dialog surfaces the
   // verbatim 403 detail if sharing is off, so the button never silently no-ops.
@@ -4344,6 +4425,7 @@ export function ScheduleView() {
         canLinkDependencies={!dependenciesReadOnly}
         canEditRow={canEditRow}
         outlineRendered={outlineRendered}
+        scheduleSeeding={scheduleSeeding}
         isLoading={isLoading}
         error={error}
         setShowAddForm={setShowAddForm}
@@ -6098,6 +6180,13 @@ interface ScheduleMainAreaProps {
   /** Is the outline panel rendered on this surface? (#2960) — the same predicate
    *  the canvas overlay offsets are computed from, so the two cannot disagree. */
   outlineRendered: boolean;
+  /**
+   * A template apply is still writing this project's rows, and nothing has landed
+   * yet (#3312) — resolved in `ScheduleView`, which owns the `?templateApplication=`
+   * id and polls the application. Swaps the blank/empty state for a seeding
+   * skeleton on every surface: desktop canvas, outline, and mobile.
+   */
+  scheduleSeeding: boolean;
   isLoading: boolean;
   error: ReturnType<typeof useScheduleTasks>['error'];
   setShowAddForm: Dispatch<SetStateAction<boolean>>;
@@ -6295,6 +6384,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     readOnly,
     canEditRow,
     outlineRendered,
+    scheduleSeeding,
     isLoading,
     error,
     setShowAddForm,
@@ -6374,6 +6464,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         error={error}
         onAddTask={() => setShowAddForm(true)}
         effectiveMethodology={effectiveMethodology}
+        seeding={scheduleSeeding}
       />
     );
   }
@@ -6422,6 +6513,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               plannedByPhase={plannedByPhase}
               resourcePool={resourcePool}
               onCommitDraftRow={readOnly ? undefined : handleCommitDraftRow}
+              seeding={scheduleSeeding}
               rowModes={rowModes}
               onClassifyRequest={onClassifyRequest}
               onMoveRow={onMoveRow}
@@ -6457,6 +6549,17 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               primaryLabel={`Go to ${itl.plural}`}
               primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
             />
+          ) : scheduleSeeding ? (
+            // #3312: a template apply is still writing. Fully replaces the blank
+            // canvas rather than layering over it. That canvas's whole sentence is
+            // "this empty project is a plan surface YOU fill" — an empty horizon
+            // plus an aside of ways to fill it — and that is wrong right now,
+            // because the user is not the one filling it. Drawing the ruler behind
+            // a skeleton says "still empty" at the same moment the skeleton says
+            // "filling", and the reader believes the ruler, because it is the
+            // larger element. AGILE keeps priority above: that project has no
+            // schedule to build regardless of what is being written into it.
+            <ScheduleSeedingState />
           ) : buildModeActive ? (
             // #2733: a blank project is a canvas, not a card. The horizon draws
             // against the chosen calendar so an empty project reads as a plan

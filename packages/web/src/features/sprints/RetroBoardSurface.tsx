@@ -145,7 +145,7 @@ export function RetroBoardSurface({
   const inflightEditsRef = useRef<Map<string, string>>(new Map()); // itemId -> local text
   const [toast, setToast] = useState<ReconcileToast | null>(null);
 
-  // The dwell pauses on hover and on focus-within (web rule 377): this toast holds
+  // The dwell pauses on hover and on focus-within (web rule 378): this toast holds
   // the ONLY route back to the local edit a peer's write replaced, so counting it
   // down while a keyboard user is still traversing toward Undo removes the control
   // out from under them (WCAG 2.2.1, 2.4.3). Same hook as `ToastHost` and the

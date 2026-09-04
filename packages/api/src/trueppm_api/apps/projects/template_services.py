@@ -42,7 +42,15 @@ def enqueue_template_apply(
     Returns the application immediately — the Start sheet polls it and never blocks
     on seeding (issue §2).
     """
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
     from trueppm_api.apps.projects.models import TemplateApplication
+
+    # Archived is lifecycle state, not authority — a property of the target plan, so
+    # it holds regardless of who is calling (#3354). This module's contract is that
+    # *every* caller comes through here, which makes it the one place the check
+    # cannot be routed around; `ProjectTemplateViewSet.apply` repeats it so the
+    # refusal arrives before any row is written (ADR-0184 defense-in-depth).
+    assert_project_not_archived(project)
 
     application = TemplateApplication.objects.create(
         template=template,
@@ -93,7 +101,13 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
     CPM ``bulk_update`` path (ADR-0091), so a recalculation between apply and undo
     does not falsely protect every row and turn undo into a no-op.
     """
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
     from trueppm_api.apps.projects.models import Task, TemplateApplicationStatus
+
+    # Lifecycle floor, mirroring `enqueue_template_apply` above and the two
+    # `task_batch_services` undos: an undo soft-deletes rows, which is a write, and
+    # an archived plan takes no writes from any caller (#3354).
+    assert_project_not_archived(application.project_id)
 
     ids = list(application.created_task_ids or [])
     if not ids:

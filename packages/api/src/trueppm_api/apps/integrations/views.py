@@ -54,6 +54,7 @@ from .git_automation_services import apply_git_event_to_card
 from .models import BoardAutomation, IntegrationCredential, TaskLink
 from .registry import TASK_LINK_PROVIDERS
 from .serializers import (
+    GIT_WEBHOOK_PAYLOAD_SCHEMA,
     GIT_WEBHOOK_RESULT_SCHEMA,
     CredentialSummarySerializer,
     CredentialUpsertSerializer,
@@ -662,7 +663,21 @@ def _webhook_body_within_cap(request: Request) -> bool:
 
 @extend_schema(
     tags=["integrations"],
-    request=None,
+    # Not ``None`` (#3364). ``request=None`` published "this endpoint accepts no
+    # body" while ``post`` reads ``request.data`` and refuses a non-object — a
+    # generated client had no parameter to send the provider payload through at all.
+    # See GIT_WEBHOOK_PAYLOAD_SCHEMA for why this is an open object rather than a
+    # serializer: the shape belongs to GitHub/GitLab, not to us.
+    #
+    # Keyed by media type, NOT passed bare. ``responses=`` accepts a raw schema dict
+    # (which is why the sibling GIT_WEBHOOK_RESULT_SCHEMA below is written that way),
+    # but ``request=`` does not: handed a bare dict it reads the dict's own top-level
+    # keys as media types, so ``type``/``additionalProperties``/``description`` became
+    # three bogus content entries and the real schema was replaced by drf-spectacular's
+    # "Unspecified request body" placeholder. It fails silently — the operation still
+    # has a ``requestBody``, so it looks declared from every angle except reading the
+    # generated document.
+    request={"application/json": GIT_WEBHOOK_PAYLOAD_SCHEMA},
     responses={
         200: GIT_WEBHOOK_RESULT_SCHEMA,
         400: OpenApiResponse(description="Malformed webhook payload (signature verified)."),
@@ -939,6 +954,13 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
         data = GitAutomationConfigSerializer(self._config_payload(request, automation)).data
         return Response(data)
 
+    # The class-level ``@extend_schema`` covers GET and PUT alike and names no
+    # request, so PUT published no ``requestBody`` while requiring ``enabled``
+    # (#3364). Declared on the method, not the class, because GET must keep taking
+    # no body. This is a plain ``APIView``: there is no ``serializer_class`` for
+    # drf-spectacular to infer a writable shape from, so nothing supplies this but
+    # the annotation.
+    @extend_schema(request=GitAutomationUpdateSerializer)
     def put(self, request: Request, project_pk: str) -> Response:
         serializer = GitAutomationUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
