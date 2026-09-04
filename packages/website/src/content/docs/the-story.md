@@ -245,7 +245,7 @@ The [`load_sample_project`](/getting-started/quickstart/) management command loa
 docker compose exec api python manage.py load_sample_project --with-personas
 ```
 
-Then sign in as `maya`, `raj`, `diana`, `sarah`, `carlos`, or `tom` (password: `demo`) and walk the story end-to-end on your own machine.
+Then sign in as one of the sample's own personas — `atlas-alex` (Program Manager, Owner), `atlas-jordan` (Product Owner), `atlas-sam` (Project Scheduler), `atlas-priya` (Engineering Lead, Admin), `atlas-tom` (Engineer), or `atlas-ada` (Executive Sponsor, Viewer) — and walk the story end-to-end on your own machine. The command prints the full list and the shared password when it finishes; on a local Docker stack (`DEBUG=True`) that password is `demo`.
 
 Prefer not to install at all? A hosted read-only demo lands with the 0.4 beta — the same sample program, preloaded, one click from the docs. And once your own instance is running, the read-only MCP server (0.4 beta) will let you point Claude Desktop or any MCP client at it and ask the story's questions in your own words.
 

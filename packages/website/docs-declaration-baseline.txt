@@ -1,6 +1,7 @@
 # Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh.
 #
-# Pages under: features administration getting-started overview that carry NO "documentedFor" front-matter key,
+# Pages under: features administration getting-started overview guides that carry NO "documentedFor" front-matter key,
+# plus these docs-root behavior pages: the-story.md
 # (exempt: overview/roadmap.md — the source of truth, not a page derived from it)
 # with the sha256 of the contents they had when they were last recorded here.
 # Editing one of these pages breaks its hash and fails docs:version-accuracy
@@ -42,6 +43,14 @@ features/unified-data-model.md c2eff42dd7eea9c61a9821f1f3401066e540f78a4c26299a6
 features/velocity-calibration.md b2d5e6dd2b3753d65331ac5bbddb578a3957e4d66081b3b5c93aac39137992f7
 features/velocity.md 553c2841897dab2d8ddf070c27deaa366117abe152f2d47ea8a43873837b6305
 features/wip-overload.md 4fec6e11d6aea17e8729f43aec30891985e28dafd0a742d320abd9b8915b7f76
+guides/agile-coaches.md 4560ebac2adc9f85ad25a0d050ee160819c61214404ada2d7e2c295a782e140c
+guides/executives.md 3a657f2cf3bae8d0e6895b8139c874b9ac9227f7ca95c593bcabb19b8de217fc
+guides/pmo-directors.md 003adff785adcb858bbfca5fc2cd71f04ec2cf613998be268e43c10d0ecc09f2
+guides/product-owners.md 2b441fc538c0b1cb28ab077a1bc79f170ea0634aec81851ed8b63f6c7d5f8eef
+guides/project-managers.md cc31911ef1195d3aba47afaf12b036aaa2132019038181f2a054386f6b31feda
+guides/resource-managers.md be1e54982a89efc91d3cf376073c58f0d0dcacc9f6efac7bcc7f0193a0e7d43f
+guides/scrum-masters.md efa70003aefabb56ccc4cbb76a1eaff516942ffde79b5f54b5bdec4fada0df05
+guides/team-members.md e099c0c0cc2dbcfd5fdf36034d41419adadac3094a1dd4a259a47a59ff37008b
 overview/data-model.md 7457bf7eae21f7e6bc22fe27cc8e3b5884ca3046afd5be67f48dea778ce770fd
 overview/how-this-was-built.md 59a8715cc9e40c2a823ab3ef1fa68b61a5cca70a66d6310208119182b30395ad
 overview/index.md 740f8ad52a06f4b1fe003c5e5d8d1246c09ee0477a9db24fce997b7d1ef09a4e
@@ -51,3 +60,4 @@ overview/sso-is-not-enterprise.md 341af901e840f8ad28d9d3c36dcba41b63e16170a433de
 overview/team-ownership-not-surveillance.md 16cf95931e99d9a2aeee63df051291a2cf0adededcbb3a247afbe0c5e2a75b34
 overview/what-it-does-not-do.md a55fe5c3866065b00eb09f8ab58fd891a869985ae7dfe27ac38dbd22a704dadd
 overview/why-now.md dcc249a428f6309e185bf63cf3c45813bfaec4e1f0a2c6ff30a2a0efddb0ed8b
+the-story.md bed515f58946bb5676f3573000ee020d50d607ce9404287a408392a29acd03c3

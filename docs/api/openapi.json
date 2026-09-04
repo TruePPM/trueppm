@@ -3342,6 +3342,9 @@
                         },
                         "description": "This cascade has already been undone. Verified against the status guard in ``undo`` (#3319)."
                     },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below the role floor for this action, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -4807,6 +4810,26 @@
                 "tags": [
                     "integrations"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GitAutomationUpdateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GitAutomationUpdateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GitAutomationUpdateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -4840,6 +4863,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -4927,6 +4983,17 @@
                 "tags": [
                     "integrations"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "description": "The provider's own webhook event payload, forwarded verbatim — GitHub's `pull_request` event or GitLab's `merge_request` event. Its shape is defined by the provider, not by TruePPM, so it is typed here only as far as this receiver actually constrains it: a JSON object. A non-object body is refused with a 400 once the signature has verified. The signature is computed over these exact bytes, so the body must be sent unmodified."
+                            }
+                        }
+                    }
+                },
                 "security": [],
                 "responses": {
                     "200": {
@@ -5279,6 +5346,26 @@
                 "tags": [
                     "me"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MyApiTokenCreateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MyApiTokenCreateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MyApiTokenCreateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -5309,7 +5396,7 @@
                                 }
                             }
                         },
-                        "description": "Either the active-token cap is already reached — a refusal on the caller's own state, carrying a flat ``detail`` — or ``MyApiTokenCreateSerializer`` rejected the body, which answers with DRF's field-keyed object. Both shapes fit the declaration below. Declared by hand for the same reason as the project token viewset: the operation publishes no ``requestBody`` for #3286's injection to key off (#3319)."
+                        "description": "Either the active-token cap is already reached — a refusal on the caller's own state, carrying a flat ``detail`` — or ``MyApiTokenCreateSerializer`` rejected the body, which answers with DRF's field-keyed object. Both shapes fit the declaration below. Kept explicit rather than left to #3286's injection now that the ``requestBody`` above exists: the cap refusal is a refusal on *state*, not on the body, so the injected text would describe only half of what this operation can return (#3319, #3364)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -8389,6 +8476,9 @@
                             }
                         },
                         "description": "This batch has already been undone. Verified against the status guard in ``undo`` (#3319)."
+                    },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below the role floor for this action, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -11718,6 +11808,26 @@
                 "tags": [
                     "programs"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectApiTokenCreateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectApiTokenCreateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectApiTokenCreateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -11748,7 +11858,7 @@
                                 }
                             }
                         },
-                        "description": "``ProjectApiTokenCreateSerializer`` rejected the body — ``name`` is required, ``status_map`` must be an object of strings, and ``mcp:read`` is refused outright on a project or program token (the MCP read surface accepts only personal tokens, so one minted here could read nothing). The body is DRF's field-keyed object. Declared by hand because the operation publishes no ``requestBody`` for #3286's injection to key off: the viewset's ``serializer_class`` is the all-read-only read serializer, and ``create`` reaches for the write serializer itself (#3319)."
+                        "description": "``ProjectApiTokenCreateSerializer`` rejected the body — ``name`` is required, ``status_map`` must be an object of strings, and ``mcp:read`` is refused outright on a project or program token (the MCP read surface accepts only personal tokens, so one minted here could read nothing). The body is DRF's field-keyed object. Kept as an explicit declaration rather than left to #3286's injection now that the ``requestBody`` above exists: the generic injected text says only that a field failed validation, and the ``mcp:read`` refusal is the one an integrator will actually hit and cannot guess (#3319, #3364)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -12660,7 +12770,7 @@
         "/api/v1/programs/{program_pk}/backlog-items/{id}/pull/": {
             "post": {
                 "operationId": "v1_programs_backlog_items_pull_create",
-                "description": "Pull a PROPOSED item into a project's backlog (ADR-0069 Erratum §5).\n\nBody: ``{\"project_id\": \"<uuid>\"}``. Creates a Task (status=BACKLOG,\nsprint=NULL) in the target project and transitions the item to PULLED.\nRequires program-write (gated by ``get_permissions``) **and** write role\non the target project (checked here). Never assigns a sprint.\n\nReturns ``201`` with the created task and the updated backlog item.\n``400`` if project_id is missing / not in this program; ``403`` if the\ncaller lacks project-write; ``409`` if the item is no longer PROPOSED.",
+                "description": "Pull a PROPOSED item into a project's backlog (ADR-0069 Erratum §5).\n\nBody: ``{\"project_id\": \"<uuid>\"}``. Creates a Task (status=BACKLOG,\nsprint=NULL) in the target project and transitions the item to PULLED.\nRequires program-write (gated by ``get_permissions``) **and** write role\non the target project (checked here). Never assigns a sprint.\n\nReturns ``201`` with the created task and the updated backlog item.\n``400`` if project_id is missing / not in this program; ``403`` if the\ncaller lacks project-write **or the target project is archived** (the\nlatter clears for no role — the project must be unarchived); ``409`` if\nthe item is no longer PROPOSED.",
                 "summary": "Pull a backlog item into a project's backlog",
                 "parameters": [
                     {
@@ -12729,7 +12839,7 @@
                         "description": "project_id missing, or the target project is not in this program."
                     },
                     "403": {
-                        "description": "Caller lacks Team Member+ on the target project."
+                        "description": "Caller lacks Team Member+ on the target project, **or** the target project is archived. The archived case is not a role problem and no role clears it — unarchive the project and retry (#3354)."
                     },
                     "409": {
                         "description": "The item is no longer PROPOSED."
@@ -17299,6 +17409,9 @@
                     "202": {
                         "description": "{\"queued\": true, \"application\": \"<uuid>\"}"
                     },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below Project Manager (Admin) on the project, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -18080,6 +18193,26 @@
                 "tags": [
                     "tasks"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceResultIngestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceResultIngestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptanceResultIngestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "projectApiTokenAuth": []
@@ -18108,6 +18241,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -20877,6 +21043,25 @@
                 "tags": [
                     "projects"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectNotificationPreferenceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectNotificationPreferenceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectNotificationPreferenceRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -20903,6 +21088,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -24361,6 +24579,26 @@
                 "tags": [
                     "projects"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectApiTokenCreateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectApiTokenCreateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectApiTokenCreateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -24391,7 +24629,7 @@
                                 }
                             }
                         },
-                        "description": "``ProjectApiTokenCreateSerializer`` rejected the body — ``name`` is required, ``status_map`` must be an object of strings, and ``mcp:read`` is refused outright on a project or program token (the MCP read surface accepts only personal tokens, so one minted here could read nothing). The body is DRF's field-keyed object. Declared by hand because the operation publishes no ``requestBody`` for #3286's injection to key off: the viewset's ``serializer_class`` is the all-read-only read serializer, and ``create`` reaches for the write serializer itself (#3319)."
+                        "description": "``ProjectApiTokenCreateSerializer`` rejected the body — ``name`` is required, ``status_map`` must be an object of strings, and ``mcp:read`` is refused outright on a project or program token (the MCP read surface accepts only personal tokens, so one minted here could read nothing). The body is DRF's field-keyed object. Kept as an explicit declaration rather than left to #3286's injection now that the ``requestBody`` above exists: the generic injected text says only that a field failed validation, and the ``mcp:read`` refusal is the one an integrator will actually hit and cannot guess (#3319, #3364)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -47475,6 +47713,9 @@
                         },
                         "description": "The application is not in a state that can be undone — it never reached SUCCESS, or it has already been undone. Verified against the status guard in ``undo`` (#3319)."
                     },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below Project Manager (Admin) on the project, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -48167,6 +48408,25 @@
                 "tags": [
                     "workspace"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceEmailSettingsRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceEmailSettingsRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceEmailSettingsRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -48197,6 +48457,39 @@
                                 }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Update email setting"
@@ -48207,6 +48500,25 @@
                 "tags": [
                     "workspace"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceEmailSettingsRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceEmailSettingsRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceEmailSettingsRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -48233,6 +48545,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -51152,6 +51497,39 @@
                 "required": [
                     "task",
                     "text"
+                ]
+            },
+            "AcceptanceResultIngestRequest": {
+                "type": "object",
+                "description": "Validates the inbound CI acceptance-result batch (ADR-0148).\n\nBody shape ``{\"results\": [{\"criterion_id\": <uuid>, \"passed\": <bool>}, ...]}``.\nCapped at ``ACCEPTANCE_RESULT_BATCH_CAP`` items per request and rejects a\npayload that names the same criterion twice (an ambiguous double verdict).",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AcceptanceResultItemRequest"
+                        },
+                        "maxItems": 200
+                    }
+                },
+                "required": [
+                    "results"
+                ]
+            },
+            "AcceptanceResultItemRequest": {
+                "type": "object",
+                "description": "One CI-reported acceptance-test outcome (ADR-0148).\n\n``criterion_id`` is the AcceptanceCriterion UUID — matching by the stable PK\nmeans no external-ref column and therefore no migration. ``passed`` is the test\nverdict that flips ``met``.",
+                "properties": {
+                    "criterion_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "passed": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "criterion_id",
+                    "passed"
                 ]
             },
             "ActionEnum": {
@@ -54698,6 +55076,18 @@
                     "webhook_url"
                 ]
             },
+            "GitAutomationUpdateRequest": {
+                "type": "object",
+                "description": "Write payload for toggling Git-event automation (project-admin only).",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "enabled"
+                ]
+            },
             "GovernanceClassEnum": {
                 "enum": [
                     "gated",
@@ -55920,6 +56310,34 @@
                     "revoked_at",
                     "scopes",
                     "token_prefix"
+                ]
+            },
+            "MyApiTokenCreateRequest": {
+                "type": "object",
+                "description": "Write serializer for minting a Personal Access Token (ADR-0214).\n\nAccepts ``name`` (required), an optional ``expires_at``, and an optional\n``scopes`` list. Scopes default to ``['legacy:full']`` (a full-access PAT that\nacts as the user — the historical behavior), but the MCP read server needs a\nread-only personal token, so ``['mcp:read']`` is accepted here (#1712/#1713):\nthe MCP read surface admits only owner-scoped tokens, and mcp:read cannot\nwrite. Any ``mcp:read`` token must carry a non-null ``expires_at`` no more than\n``MCP_READ_TOKEN_MAX_EXPIRY_DAYS`` days out (#2764), so a leaked read\ncredential is self-limiting. The raw token is generated in the viewset and\nreturned once via a separate response shape.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Human-readable label (e.g. 'Jira Production').  Not unique.",
+                        "maxLength": 128
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true,
+                        "description": "Optional expiry (ADR-0214). Null = non-expiring. The authenticator rejects a token whose expiry is in the past; project/program tokens leave this null and are unaffected."
+                    },
+                    "scopes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScopesEnum"
+                        },
+                        "description": "Capabilities to grant. Defaults to ['legacy:full'] (full access, acts as you). Send ['mcp:read'] to mint a read-only personal token for the MCP server; an mcp:read token requires a non-null expires_at."
+                    }
+                },
+                "required": [
+                    "name"
                 ]
             },
             "Notification": {
@@ -58729,6 +59147,195 @@
                     }
                 }
             },
+            "PatchedProjectNotificationPreferenceRequest": {
+                "type": "object",
+                "description": "Per-(project, user) notification preferences.\n\nThe full matrix and quiet-hours window are returned in one document; the\nPATCH path merges the supplied matrix onto the stored one so a partial\ntoggle does not have to repost the full 9×4 grid.\n\nOn read, matrix is run through the forward-migration registry\n(``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204, #1916): a\nstale stored payload is upgraded to the current shape before any client\nsees it, mirroring ``BoardSavedViewSerializer``. The view layer's\n``_merge_matrix`` overlay still runs afterward (it also drops unknown\ngarbage keys, #675 — a distinct concern from the version upgrade), so this\nis defense-in-depth for any caller that reads this serializer directly\nrather than through ``ProjectNotificationPreferenceView``.",
+                "properties": {
+                    "matrix": {
+                        "type": "object",
+                        "description": "Per-event, per-channel routing grid. Keys are event types; each value is an object of channel to boolean. A PATCH may send a partial grid — the supplied cells are merged onto the stored ones, so a single toggle need not repost the whole matrix. Any key outside these two enumerations, or any non-boolean leaf, is rejected with a 400.",
+                        "properties": {
+                            "budget_alert": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "comment_mention": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "milestone_reached": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "risk_created": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_end": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_start": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "status_change": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_assigned": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_overdue": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "paused": {
+                        "type": "boolean"
+                    },
+                    "quiet_hours_enabled": {
+                        "type": "boolean"
+                    },
+                    "quiet_hours_from": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "quiet_hours_until": {
+                        "type": "string",
+                        "format": "time"
+                    }
+                }
+            },
             "PatchedProjectRequest": {
                 "type": "object",
                 "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0171).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
@@ -59827,6 +60434,81 @@
                     },
                     "is_active": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "PatchedWorkspaceEmailSettingsRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the workspace SMTP singleton (#712, ADR-0213).\n\nThe password is **write-only** and never echoed — the response carries only\n``password_is_set``. On update, an omitted/blank ``password`` keeps the\nstored secret (rotate-vs-keep); a non-empty value replaces it. The\nvalidate-before-persist probe opens the candidate transport before ``save``\nso a bad configuration cannot lock the workspace out of mail. All admin-\nsupplied network/header inputs are validated against SSRF and header\ninjection (security review H1/M2/M3).",
+                "properties": {
+                    "transport_mode": {
+                        "$ref": "#/components/schemas/TransportModeEnum"
+                    },
+                    "host": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "port": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "security": {
+                        "$ref": "#/components/schemas/SecurityEnum"
+                    },
+                    "username": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "maxLength": 4096
+                    },
+                    "from_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "from_email": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "maxLength": 254
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    },
+                    "reply_to": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "maxLength": 254
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    },
+                    "dkim_selector": {
+                        "type": "string",
+                        "maxLength": 63
+                    },
+                    "max_recipients": {
+                        "type": "integer",
+                        "maximum": 50,
+                        "minimum": 0,
+                        "description": "Queued emails one drain tick sends, 1-50. 0 means no explicit cap (50 per tick)."
+                    },
+                    "throttle_per_min": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
                     }
                 }
             },
@@ -62075,6 +62757,37 @@
                     "scopes",
                     "status_map",
                     "token_prefix"
+                ]
+            },
+            "ProjectApiTokenCreateRequest": {
+                "type": "object",
+                "description": "Write serializer for minting a new token.\n\nAccepts ``name``, optional ``status_map``, and optional ``scopes`` — the raw\ntoken is generated server-side and returned to the caller once via a separate\nresponse shape (see ``ProjectApiTokenViewSet.create``).  ``status_map`` and\n``scopes`` are immutable after creation by design; this serializer is the only\ncode path that writes them.  Omitting ``scopes`` (or sending an empty list)\nmints a full-access ``legacy:full`` token, preserving pre-scopes behavior.\n\n``mcp:read`` is rejected here (#2890): a token minted at project or program\nscope has a null ``owner``, and the MCP read surface admits owner-scoped\n(personal) tokens only (``TokenIsOwnerScoped``, #1712). Personal tokens are\nminted from ``/api/v1/me/api-tokens/`` (``MyApiTokenCreateSerializer``).",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Human-readable label (e.g. 'Jira Production').  Not unique.",
+                        "maxLength": 128
+                    },
+                    "status_map": {
+                        "description": "Maps external source-status strings → TaskStatus values.  Empty dict falls back to the default map: {'todo': 'NOT_STARTED', 'in_progress': 'IN_PROGRESS', 'done': 'COMPLETE'}."
+                    },
+                    "scopes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScopesEnum"
+                        },
+                        "description": "Capabilities to grant. Defaults to ['legacy:full'] (full access). 'mcp:read' is NOT available here — the MCP read surface accepts only owner-scoped (personal) tokens, so mint one from POST /api/v1/me/api-tokens/ instead."
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true,
+                        "description": "Optional expiry. Required (non-null, in the future, and no more than 365 days out) for any token carrying the 'mcp:read' scope so a leaked read token cannot live forever; optional for legacy:full sync tokens (backward-compatible)."
+                    }
+                },
+                "required": [
+                    "name"
                 ]
             },
             "ProjectCustomField": {
@@ -65078,6 +65791,15 @@
                 ],
                 "type": "string",
                 "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read"
+            },
+            "SecurityEnum": {
+                "enum": [
+                    "none",
+                    "tls",
+                    "ssl"
+                ],
+                "type": "string",
+                "description": "* `none` - None\n* `tls` - STARTTLS\n* `ssl` - SSL/TLS"
             },
             "SeedImportQueuedResponse": {
                 "type": "object",
@@ -71644,6 +72366,16 @@
                     "new_owner_user_id"
                 ]
             },
+            "TransportModeEnum": {
+                "enum": [
+                    "cloud",
+                    "smtp",
+                    "sendgrid",
+                    "ses"
+                ],
+                "type": "string",
+                "description": "* `cloud` - TruePPM cloud (Django settings)\n* `smtp` - Custom SMTP\n* `sendgrid` - SendGrid\n* `ses` - Amazon SES"
+            },
             "TrashProjectList": {
                 "type": "object",
                 "properties": {
@@ -72434,6 +73166,81 @@
                 "required": [
                     "delivery_id"
                 ]
+            },
+            "WorkspaceEmailSettingsRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the workspace SMTP singleton (#712, ADR-0213).\n\nThe password is **write-only** and never echoed — the response carries only\n``password_is_set``. On update, an omitted/blank ``password`` keeps the\nstored secret (rotate-vs-keep); a non-empty value replaces it. The\nvalidate-before-persist probe opens the candidate transport before ``save``\nso a bad configuration cannot lock the workspace out of mail. All admin-\nsupplied network/header inputs are validated against SSRF and header\ninjection (security review H1/M2/M3).",
+                "properties": {
+                    "transport_mode": {
+                        "$ref": "#/components/schemas/TransportModeEnum"
+                    },
+                    "host": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "port": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "security": {
+                        "$ref": "#/components/schemas/SecurityEnum"
+                    },
+                    "username": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "maxLength": 4096
+                    },
+                    "from_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "from_email": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "maxLength": 254
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    },
+                    "reply_to": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "maxLength": 254
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    },
+                    "dkim_selector": {
+                        "type": "string",
+                        "maxLength": 63
+                    },
+                    "max_recipients": {
+                        "type": "integer",
+                        "maximum": 50,
+                        "minimum": 0,
+                        "description": "Queued emails one drain tick sends, 1-50. 0 means no explicit cap (50 per tick)."
+                    },
+                    "throttle_per_min": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    }
+                }
             },
             "WorkspaceExportJob": {
                 "type": "object",

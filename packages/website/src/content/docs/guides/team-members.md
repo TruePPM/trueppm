@@ -107,7 +107,7 @@ The only question that matters: does this remove a click, or add one? Run these 
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as a team member.** Open `http://localhost:5173` and sign in as **`tom`** — Tom Nguyen, Senior Engineer, seeded with the **Member** role.
+2. **Sign in as a team member.** Open `http://localhost:5173` and sign in as **`atlas-tom`** — Tom Becker, Engineer, seeded with the **Member** role and carrying work in the active sprint.
 
 3. **Open My Work.** Click **My Work**, pinned at the top of the left sidebar (`/me/work`). Everything assigned to you, across every project, active-sprint tasks first. Update status right here — you never have to open the full project.
 

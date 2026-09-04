@@ -661,7 +661,7 @@ def test_hiding_a_view_names_the_view_and_leaves_the_work_alone(
 
     with django_capture_on_commit_callbacks(execute=True):
         resp = client_for(actor).patch(
-            f"/api/v1/projects/{project.pk}/", data={"show_time_tracking": False}, format="json"
+            f"/api/v1/projects/{project.pk}/", data={"show_reporting": False}, format="json"
         )
     assert resp.status_code == 200
 
@@ -669,7 +669,7 @@ def test_hiding_a_view_names_the_view_and_leaves_the_work_alone(
     # The override IS the deliberate act here, so it carries the attribution —
     # unlike the preset case, where the surfaces fall out of the preset and
     # naming the actor on each one would credit them with a choice they never made.
-    assert "pm hid Time tracking in this project." in row.body
+    assert "pm hid Reporting in this project." in row.body
     assert row.subject == "The views in this project changed"
 
 
@@ -739,7 +739,7 @@ def test_a_recipient_with_nothing_of_their_own_is_told_plainly(
 
     with django_capture_on_commit_callbacks(execute=True):
         client_for(actor).patch(
-            f"/api/v1/projects/{project.pk}/", data={"show_time_tracking": False}, format="json"
+            f"/api/v1/projects/{project.pk}/", data={"show_reporting": False}, format="json"
         )
 
     assert inbox(sam) == []
@@ -778,6 +778,154 @@ def test_an_override_that_matches_the_resolved_value_notifies_nobody(
         )
     assert resp.status_code == 200
     assert inbox(priya) == []
+
+
+@pytest.mark.django_db
+def test_hiding_time_tracking_notifies_nobody_because_nothing_reads_it(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The one surface no client reads must not announce itself (#3376).
+
+    ``show_time_tracking`` persists and every time surface ignores it — the
+    top-bar timer, Quick log, My Work and the timesheet are all user-scoped and
+    cross-project. So hiding it moves nothing on screen, and a notice saying
+    "pm hid Time tracking in this project" is the write talking, not the
+    consequence. Asserting an empty inbox (rather than an absent phrase) is the
+    point: a notice whose only surviving sentence is "Nothing you own moved."
+    would pass a phrase check and still be the noise this removes.
+    """
+    actor = member(project, Role.ADMIN, "pm")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="P0")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(actor).patch(
+            f"/api/v1/projects/{project.pk}/", data={"show_time_tracking": False}, format="json"
+        )
+    assert resp.status_code == 200
+    # The write still lands — this suppresses the notice, not the column.
+    project.refresh_from_db()
+    assert project.show_time_tracking is False
+    assert inbox(priya) == []
+
+
+@pytest.mark.django_db
+def test_a_preset_switch_never_names_time_tracking_even_when_it_flips(
+    calendar: Calendar, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The suppression holds on the preset arm too, not just the override arm.
+
+    A preset switch recomputes all four defaults at once, so it is the path that
+    would re-introduce the label through the back door if the filter lived in the
+    copy instead of in :func:`capture_project_surface`. Pinned with an explicit
+    override so ``time_tracking``'s effective value genuinely flips across the
+    write and the clause is suppressed on merit rather than by not moving.
+    """
+    from trueppm_api.apps.projects.config_notice import ENFORCED_SURFACE_KEYS
+
+    assert "time_tracking" not in ENFORCED_SURFACE_KEYS
+
+    waterfall = Project.objects.create(
+        name="Waterfall",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        methodology=Methodology.WATERFALL,
+        show_time_tracking=None,
+    )
+    actor = member(waterfall, Role.ADMIN, "pm")
+    priya = member(waterfall, Role.MEMBER, "priya")
+    task_for_assignee(waterfall, priya, name="P0")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(actor).patch(
+            f"/api/v1/projects/{waterfall.pk}/",
+            data={"methodology": Methodology.AGILE, "show_time_tracking": False},
+            format="json",
+        )
+    assert resp.status_code == 200
+
+    body = only(priya).body
+    assert "from Waterfall to Agile" in body
+    assert "Time tracking" not in body
+
+
+@pytest.mark.django_db
+def test_a_suppressed_notice_says_why_in_the_log(
+    project: Project, django_capture_on_commit_callbacks: Any, caplog: Any
+) -> None:
+    """The suppression must not be a silent non-event (#3376).
+
+    An operator can see the write in ``HistoricalProject`` and see zero
+    Notification rows, and nothing connects the two — so "I hid Time tracking and
+    nobody was told, is the notice system broken?" is answerable only by reading a
+    frozenset in ``config_notice``. One log line at the moment of suppression
+    makes the decision visible where it takes effect.
+
+    Asserted on the DELIBERATE case only: an ordinary no-op write (nothing moved
+    at all) must stay quiet, or the line becomes the noise this module exists to
+    refuse.
+    """
+    import logging
+
+    actor = member(project, Role.ADMIN, "pm")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="P0")
+
+    with (
+        caplog.at_level(logging.INFO, logger="trueppm_api.apps.projects.config_notice"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = client_for(actor).patch(
+            f"/api/v1/projects/{project.pk}/", data={"show_time_tracking": False}, format="json"
+        )
+    assert resp.status_code == 200
+    assert inbox(priya) == []
+    assert "surface notice suppressed" in caplog.text
+    assert "time_tracking" in caplog.text
+
+    # A genuine no-op stays silent — the diagnostic fires on the suppression, not
+    # on every unchanged save.
+    caplog.clear()
+    with (
+        caplog.at_level(logging.INFO, logger="trueppm_api.apps.projects.config_notice"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        client_for(actor).patch(
+            f"/api/v1/projects/{project.pk}/", data={"name": "Atlas II"}, format="json"
+        )
+    assert "surface notice suppressed" not in caplog.text
+
+
+def test_the_notice_speaks_for_every_surface_except_the_one_with_no_reader() -> None:
+    """Pin the two surface maps against the LIVE ``SURFACE_KEYS`` tuple (#3376).
+
+    ``ENFORCED_SURFACE_KEYS`` is an allowlist, so a fifth surface added to
+    ``SURFACE_KEYS`` later is absent from it **by default** — and that failure is
+    in the quiet direction: the notice simply never mentions the new surface, and
+    nothing observes a notification that did not happen. Asserting
+    ``"time_tracking" not in ENFORCED_SURFACE_KEYS`` cannot see it; asserting the
+    *relationship* can.
+
+    ``SURFACE_LABELS`` is pinned here too because it is the same drift from the
+    other side: ``_join_labels`` falls back to ``.get(k, k)``, so a key with no
+    label puts a raw column name ("monte_carlo") into user-facing notice copy.
+    This change deliberately made that map wider than the enforced set, which is
+    exactly when an unpinned pair stops being observable in either direction.
+    """
+    from trueppm_api.apps.projects.config_notice import (
+        ENFORCED_SURFACE_KEYS,
+        SURFACE_LABELS,
+    )
+    from trueppm_api.apps.projects.surface_visibility import SURFACE_KEYS
+
+    # Non-vacuity first: an empty registry would satisfy the label assertion below
+    # while proving nothing, which is how a pinning test goes quietly useless.
+    assert len(SURFACE_KEYS) >= 4
+
+    # Every surface is either spoken for by the notice or is the one documented
+    # exception. A new key lands in neither and fails here.
+    assert set(ENFORCED_SURFACE_KEYS) | {"time_tracking"} == set(SURFACE_KEYS)
+    assert set(SURFACE_LABELS) == set(SURFACE_KEYS)
 
 
 # ---------------------------------------------------------------------------
@@ -1441,17 +1589,17 @@ def surface_snapshot(methodology: str) -> Any:
     Built by hand rather than through ``capture_project_surface`` so the fixture
     costs no queries of its own — these tests are counting the emit, and a
     workspace read inside the measured block would be noise attributed to it.
+    Keyed on ``ENFORCED_SURFACE_KEYS`` so the hand-built shape matches what the
+    real capture produces (``time_tracking`` is excluded, #3376).
     """
-    from trueppm_api.apps.projects.config_notice import ProjectSurfaceSnapshot
+    from trueppm_api.apps.projects.config_notice import (
+        ENFORCED_SURFACE_KEYS,
+        ProjectSurfaceSnapshot,
+    )
 
     return ProjectSurfaceSnapshot(
         methodology=methodology,
-        visibility={
-            "reporting": True,
-            "time_tracking": True,
-            "baselines": True,
-            "monte_carlo": True,
-        },
+        visibility=dict.fromkeys(ENFORCED_SURFACE_KEYS, True),
     )
 
 

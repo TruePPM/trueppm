@@ -50,15 +50,15 @@ The real test isn't what a feature does — it's what *each role can see and do*
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-**First, as the team.** Sign in at `http://localhost:5173` as **`maya`** — the Scrum Master, seeded with the **Member** role:
+**First, as the team.** Sign in at `http://localhost:5173` as **`atlas-mei`** — Mei Tanaka, Senior Engineer, seeded with the **Member** role and working the active sprint:
 
 2. Open **Deliver → Sprints** in the left navigation rail (`/projects/:id/sprints`), select a closed sprint, and scroll to the **retrospective** panel below the timeline. Find an action item promoted to the backlog and confirm the pipeline actually carried it forward — it appears in the next sprint with a `→ T-XXXXXX` chip back to the retro.
 3. Open **Deliver → Board** and walk to the WIP-overload column (amber or red). The team sees its own pressure without anyone reporting it.
 4. Open **Settings → Signal privacy** and note that velocity's audience is the team's own choice — it is not published upward by default.
 
-**Then, as management.** Sign out and sign back in as **`diana`** (PMO Director, **Admin**) or **`carlos`** (Executive Sponsor, **Viewer**):
+**Then, as management.** Sign out and sign back in as **`atlas-priya`** (Priya Nair, Engineering Lead, **Admin**) or **`atlas-ada`** (Ada Boyega, Executive Sponsor, **Viewer**):
 
-5. Retrace steps 2–4 and confirm what management **cannot** reach: per-person hours, edit counts, or a velocity scoreboard. They see milestone and schedule health; the sprint internals stay with the team. `carlos` in particular is read-only everywhere — a sponsor who cannot quietly reshape a sprint.
+5. Retrace steps 2–4 and confirm what management **cannot** reach: per-person hours, edit counts, or a velocity scoreboard. They see milestone and schedule health; the sprint internals stay with the team. `atlas-ada` in particular is read-only everywhere — a sponsor who cannot quietly reshape a sprint.
 
 That contrast — the team owns the sprint, management sees health, and neither can quietly become the other — is the thing you've been hired to protect. If it holds, this is a tool a skeptical senior developer will open *voluntarily*, which is the only adoption that survives.
 

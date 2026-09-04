@@ -518,10 +518,13 @@ class TestFieldKeyedRefusals:
     ) -> None:
         """The cap is a refusal on the caller's *state*, not on the body.
 
-        This operation publishes no ``requestBody`` — its ``serializer_class`` is
-        the all-read-only read serializer while ``create`` reaches for the write
-        serializer itself — so #3286's injection could not see it and the 400 is
-        declared by hand.
+        The operation now declares a ``requestBody`` (#3364 — until then its
+        ``serializer_class`` was the all-read-only read serializer while ``create``
+        reached for the write serializer itself, so nothing was published), which
+        means #3286's injection would supply a 400 on its own. The hand-written one
+        is kept anyway and is what this asserts against: the injected text describes
+        only a field failing validation, and the cap refusal is not that — it is a
+        flat ``detail`` about the account, reachable with a perfectly valid body.
         """
         settings.TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS = 1
         first = client.post("/api/v1/me/api-tokens/", {"name": "one"}, format="json")
