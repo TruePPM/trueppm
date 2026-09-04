@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useClassifySubtree, type ClassificationApply } from '@/hooks/useTaskClassification';
 import { useUndoCascadeClassificationOperation, describeUndo } from '@/hooks/useBatchOperations';
-import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
+import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import type { Task } from '@/types';
 
 /**
@@ -44,14 +44,7 @@ export interface ClassificationAnnouncement {
  * means it is bounded server-side to stay under {@link MAX_MESSAGE_LENGTH} — a
  * longer sentence would be discarded here for the generic fallback.
  */
-export interface ClassificationError {
-  /** The server's own sentence, or {@link CLASSIFICATION_FALLBACK} when it sent none. */
-  message: string;
-  /** A second line built from the refusal's structured fields; `null` when it has none. */
-  detail: string | null;
-  /** Whether replaying the identical request could plausibly succeed. */
-  retryable: boolean;
-}
+export type ClassificationError = WriteRefusal;
 
 /** Shown only when the failure carries no readable server message (offline, opaque 5xx). */
 export const CLASSIFICATION_FALLBACK = "Couldn't apply the classification.";
@@ -75,57 +68,18 @@ export interface ClassificationPopoverController {
  * Pure and exported so the three refusal shapes can be driven through it
  * directly — passing a finished string in as a prop tests the slot, not the
  * wiring, which is how all three collapsed to one sentence unnoticed (#3302).
+ *
+ * The shaping itself is {@link describeWriteRefusal}, shared with the eight
+ * other write surfaces that had each reinvented it (#3332); what stays here is
+ * the only part that is genuinely about classification — this endpoint's
+ * fallback sentence and its `subtree_too_large` remedy.
  */
 export function describeClassificationError(error: unknown): ClassificationError | null {
-  if (error === null || error === undefined) return null;
-  const message = presentable(extractValidationMessage(error, CLASSIFICATION_FALLBACK));
-  return {
-    message,
-    detail: structuredDetail(error, message),
-    retryable: isRetryable(error),
-  };
-}
-
-/**
- * Whether replaying the identical request could plausibly succeed.
- *
- * `isClientRejection`'s definition is the rule: a `4xx` is a decision the server
- * has already made, so an identical replay is refused identically. Two `4xx`
- * codes are the documented exception — they refuse the request's *timing*, not
- * its content, and the same bytes sent later do succeed.
- */
-const RETRYABLE_CLIENT_STATUSES = new Set([408, 429]);
-
-function isRetryable(error: unknown): boolean {
-  if (!isClientRejection(error)) return true;
-  const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-  return status !== undefined && RETRYABLE_CLIENT_STATUSES.has(status);
-}
-
-/** Longest server sentence worth showing inline before it stops being a sentence. */
-const MAX_MESSAGE_LENGTH = 300;
-
-/**
- * Guard against a body that is not a message at all.
- *
- * A genuine crash on this endpoint never reaches DRF's JSON renderer — Django
- * serves an HTML 500 page, and axios hands that whole page over as a string,
- * which `extractValidationMessage` faithfully returns. Rendering it drops markup
- * (or, under `DEBUG`, a traceback) into a 400px popover where a sentence belongs.
- * Not a disclosure — anyone who can reach that response can read it in devtools —
- * but it is unreadable, so fall back rather than paste it.
- */
-function presentable(message: string): string {
-  const trimmed = message.trim();
-  if (trimmed === '' || trimmed.startsWith('<') || trimmed.length > MAX_MESSAGE_LENGTH) {
-    return CLASSIFICATION_FALLBACK;
-  }
-  return trimmed;
+  return describeWriteRefusal(error, CLASSIFICATION_FALLBACK, structuredDetail);
 }
 
 /** What the planner can do about a cap refusal — the client's half of the message. */
-const SUBTREE_TOO_LARGE_REMEDY =
-  'Classify a smaller branch, or turn off “Cascade to descendants”.';
+const SUBTREE_TOO_LARGE_REMEDY = 'Classify a smaller branch, or turn off “Cascade to descendants”.';
 
 /**
  * The client's second line for a refusal that carries structured fields.

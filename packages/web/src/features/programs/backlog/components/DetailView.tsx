@@ -25,6 +25,7 @@ import {
   useUnsavedChangesGuard,
 } from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import {
   BACKLOG_ITEM_TYPES,
   SETTABLE_STATUSES,
@@ -116,7 +117,7 @@ export function DetailView({
   // the missing `key` on this component).
   const { draft, setField, dirty, reset, commit } = useDirtyDraft<DetailDraft>(toDraft(item));
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<WriteRefusal | null>(null);
 
   // The wrapping mobile BottomSheet already handles Escape/scrim dismissal, so
   // the desktop pane owns the Escape-to-close guard; on mobile it would double
@@ -140,8 +141,11 @@ export function DetailView({
         storyPoints: draft.storyPoints,
       });
       commit();
-    } catch {
-      setSaveError('Could not save. Try again.');
+    } catch (err) {
+      // `err`, not a hardcoded sentence: the program backlog refuses a status
+      // transition, an unknown tag and a read-only role in three different ways,
+      // and this catch used to discard all three (#3332).
+      setSaveError(describeWriteRefusal(err, "Couldn't save the item."));
     } finally {
       setSaving(false);
     }

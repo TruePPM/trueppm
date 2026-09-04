@@ -91,9 +91,7 @@ describe('BulkEditSheet — form phase', () => {
 
   it('groups the fields Plan · Placement & policy · People, People last (S1, S2)', () => {
     renderSheet();
-    const headings = screen
-      .getAllByRole('heading', { level: 3 })
-      .map((h) => h.textContent?.trim());
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.trim());
     expect(headings).toEqual(['Plan', 'Placement & policy', 'People']);
   });
 
@@ -120,12 +118,16 @@ describe('BulkEditSheet — form phase', () => {
   });
 
   it('labels the untouched classification option "Leave — Mixed" when rows disagree', () => {
-    renderSheet({ tasks: [task('a', { deliveryMode: 'scrum' }), task('b', { deliveryMode: 'kanban' })] });
+    renderSheet({
+      tasks: [task('a', { deliveryMode: 'scrum' }), task('b', { deliveryMode: 'kanban' })],
+    });
     expect(screen.getByTestId('bulk_delivery_mode-leave')).toHaveTextContent('Leave — Mixed');
   });
 
   it('shows the shared value instead of Mixed when the rows agree', () => {
-    renderSheet({ tasks: [task('a', { deliveryMode: 'scrum' }), task('b', { deliveryMode: 'scrum' })] });
+    renderSheet({
+      tasks: [task('a', { deliveryMode: 'scrum' }), task('b', { deliveryMode: 'scrum' })],
+    });
     expect(screen.getByTestId('bulk_delivery_mode-leave')).toHaveTextContent('Leave — scrum');
   });
 
@@ -274,9 +276,7 @@ describe('BulkEditSheet — owner, at its final size (#3153, S9–S12)', () => {
     expect(screen.getByTestId('bulk-owner-remove-badge')).toHaveAttribute('aria-hidden', 'true');
     // An explicit `aria-label`, because the accname computation trims each text
     // node before joining and the space between two siblings does not survive.
-    expect(
-      screen.getByRole('radio', { name: 'Remove — ships in 0.5' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Remove — ships in 0.5' })).toBeInTheDocument();
   });
 
   it('mounts the refusal live region before it has anything to say (rule 335)', () => {
@@ -365,7 +365,9 @@ describe('BulkEditSheet — review block (S14)', () => {
 
   it('draws no line for a field on Leave (S4)', () => {
     renderSheet();
-    expect(screen.getByTestId('bulk-edit-review')).toHaveTextContent('Choose a value on any field.');
+    expect(screen.getByTestId('bulk-edit-review')).toHaveTextContent(
+      'Choose a value on any field.',
+    );
     expect(screen.queryByRole('listitem')).toBeNull();
   });
 });
@@ -450,14 +452,20 @@ function bulkResult(over: Partial<TaskBulkResponse> = {}): TaskBulkResponse {
 function readLineTerms(el: HTMLElement): { terms: Record<string, number>; denominator: number } {
   const text = el.textContent ?? '';
   const terms: Record<string, number> = {};
-  for (const [, n, word] of text.matchAll(/(\d+) (to update|updated|unchanged|left alone|refused)/g)) {
+  for (const [, n, word] of text.matchAll(
+    /(\d+) (to update|updated|unchanged|left alone|refused)/g,
+  )) {
     terms[word] = Number(n);
   }
   return { terms, denominator: Number(el.getAttribute('data-denominator')) };
 }
 
 describe('BulkEditSheet — result phase (S17–S20)', () => {
-  async function applyOver(tasks: Task[], result: TaskBulkResponse, skippedLocallyIds: string[] = []) {
+  async function applyOver(
+    tasks: Task[],
+    result: TaskBulkResponse,
+    skippedLocallyIds: string[] = [],
+  ) {
     const { rerender } = render(
       <BulkEditSheet
         tasks={tasks}
@@ -541,7 +549,9 @@ describe('BulkEditSheet — result phase (S17–S20)', () => {
         isPending={false}
         error={null}
         result={bulkResult({
-          rejected: [{ index: 1, id: 'b', code: 'forbidden', message: 'You may not edit this task.' }],
+          rejected: [
+            { index: 1, id: 'b', code: 'forbidden', message: 'You may not edit this task.' },
+          ],
         } as Partial<TaskBulkResponse>)}
         skippedLocallyIds={[]}
         onApply={vi.fn()}
@@ -602,5 +612,58 @@ describe('BulkEditSheet — result phase (S17–S20)', () => {
     // …and the panel is its own keyboard scroll seat, since rule 335 deliberately
     // leaves it with no focusable descendant of its own.
     expect(panel).toHaveAttribute('tabindex', '0');
+  });
+});
+
+describe('BulkEditSheet — refusal presentation (#3332, web-rule 372)', () => {
+  it('renders the refusal in a role="alert" SIBLING of the review block, not inside it', () => {
+    // Before #3332 the message was a bare `<div>` nested inside the review — no
+    // live region anywhere on the sheet, so a refused batch announced nothing.
+    renderSheet({
+      error: {
+        message: 'You do not have permission to edit 3 of these rows.',
+        detail: null,
+        retryable: false,
+      },
+    });
+    const alert = screen.getByTestId('bulk-edit-error');
+    expect(alert).toHaveAttribute('role', 'alert');
+    expect(alert).toHaveTextContent('You do not have permission to edit 3 of these rows.');
+    // A sibling: the review block must not contain it, or `aria-atomic` on the
+    // description makes AT re-read the whole preview before the refusal.
+    expect(screen.getByTestId('bulk-edit-review')).not.toContainElement(alert);
+  });
+
+  it('keeps "Apply to N items" — not "Retry" — on a refusal a replay cannot fix', () => {
+    renderSheet({
+      error: { message: 'Only a Scheduler may set a sprint.', detail: null, retryable: false },
+    });
+    expect(screen.getByTestId('bulk-edit-apply')).toHaveTextContent('Apply to 2 items');
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('switches Apply to "Retry" when the failure is genuinely replayable', () => {
+    renderSheet({
+      error: { message: 'Couldn’t apply the changes.', detail: null, retryable: true },
+    });
+    expect(screen.getByTestId('bulk-edit-apply')).toHaveTextContent('Retry');
+  });
+
+  it('shows "Applying…" while in flight even with a prior refusal on screen', () => {
+    renderSheet({
+      isPending: true,
+      error: { message: 'Nope.', detail: null, retryable: true },
+    });
+    expect(screen.getByTestId('bulk-edit-apply')).toHaveTextContent('Applying…');
+  });
+
+  it('mounts the refusal live region before it has anything to say (rule 335)', () => {
+    // Matches the `bulk-owner-refusal` region 400 lines up in this same file: a
+    // live region inserted together with its content is announced
+    // inconsistently, and for an AT user this announcement IS the refusal.
+    renderSheet();
+    const region = screen.getByTestId('bulk-edit-error');
+    expect(region).toHaveAttribute('role', 'alert');
+    expect(region).toBeEmptyDOMElement();
   });
 });

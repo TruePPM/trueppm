@@ -12,6 +12,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BacklogItem } from '../types';
 import { DetailView, type DetailViewProps } from './DetailView';
+import { axiosRefusal } from '@/test/axiosError';
 
 function makeItem(over: Partial<BacklogItem> = {}): BacklogItem {
   return {
@@ -161,15 +162,39 @@ describe('DetailView — save round-trip', () => {
     );
   });
 
-  it('keeps the draft dirty and shows an inline error when the save rejects', async () => {
+  it('keeps the draft dirty and shows the fallback when the save rejects on the wire', async () => {
     const onSave = vi.fn().mockRejectedValue(new Error('network'));
     render(<DetailView {...makeProps({ onSave })} />);
     makeDirty();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not save'));
+    await waitFor(() =>
+      expect(screen.getByTestId('dialog-footer-error')).toHaveTextContent(
+        "Couldn't save the item.",
+      ),
+    );
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+  });
+
+  it("surfaces the SERVER's own refusal instead of a hardcoded sentence (#3332)", async () => {
+    // The catch used to be `catch { setSaveError('Could not save. Try again.') }`
+    // — it did not even bind the error, so a status-transition refusal, an
+    // unknown tag and a read-only role all read identically.
+    const onSave = vi
+      .fn()
+      .mockRejectedValue(axiosRefusal(400, { status: ['PULLED is set by the Pull action.'] }));
+    render(<DetailView {...makeProps({ onSave })} />);
+    makeDirty();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('dialog-footer-error')).toHaveTextContent(
+        'PULLED is set by the Pull action.',
+      ),
+    );
+    expect(screen.getByTestId('dialog-footer-error')).not.toHaveTextContent(/try again/i);
   });
 
   it('Discard reverts the draft to the last-saved values and clears the bar', () => {
