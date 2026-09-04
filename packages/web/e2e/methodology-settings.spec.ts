@@ -248,6 +248,15 @@ test.describe('Project methodology', () => {
       r.fulfill(json([{ id: 'mem-1', role }])),
     );
     await page.route('**/api/v1/projects/*/presence/', (r) => r.fulfill(json([])));
+    // #3313 — the methodology page now gates its skeleton on the sprint count and
+    // treats a FAILED sprints read as "cannot rule out sprints" (so the flip
+    // warning arms). Under the 404 catch-all an unmocked endpoint is a failure,
+    // which would arm the consent dialog in every flip test below. Default to an
+    // explicit empty list so these specs describe a sprint-free project. Tests
+    // that need sprints re-route this after calling projectRoutes (last wins).
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
+      r.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
+    );
   }
 
   test('golden path — an Admin overrides the method under SUGGEST', async ({ page }) => {
@@ -416,7 +425,7 @@ test.describe('Project methodology', () => {
 
     const block = page.locator('[data-settings-anchor="methodology"]');
     await expect(block.getByText("Couldn't load this project's methodology.")).toBeVisible();
-    await expect(block.getByRole('heading', { name: 'Methodology' })).toBeVisible();
+    await expect(block.getByRole('heading', { name: 'Methodology', exact: true })).toBeVisible();
 
     await block.getByRole('button', { name: 'Retry' }).click();
     await expect(block.getByRole('radio', { name: /Agile/i, checked: true })).toBeVisible();
@@ -495,6 +504,100 @@ test.describe('Project methodology', () => {
       .toBe(true);
 
     releasePatch();
+    await expect(dialog).toBeHidden();
+  });
+
+  // #3313 — two defects in the same predicate, both reproducible only against a
+  // real render: the save was live before the sprint count was known (so a fast
+  // save skipped the consent gate on timing alone), and the count the dialog
+  // printed was the length of page 1 rather than the project's total.
+  test('the save waits for the sprint count, and the dialog names the server total', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    // Hold the sprints read open so the pre-settle window is observable rather
+    // than a race — this is exactly the window a fast PM saved in.
+    let releaseSprints!: () => void;
+    const sprintGate = new Promise<void>((resolve) => {
+      releaseSprints = resolve;
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, async (r) => {
+      await sprintGate;
+      // 37 sprints across the whole list; page 1 carries two of them.
+      await r.fulfill(
+        json({
+          count: 37,
+          next: `http://localhost/api/v1/projects/${PROJECT_ID}/sprints/?page=2`,
+          previous: null,
+          results: [
+            { id: 'sp-1', name: 'Sprint 1', state: 'COMPLETED' },
+            { id: 'sp-2', name: 'Sprint 2', state: 'ACTIVE' },
+          ],
+        }),
+      );
+    });
+
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => r.fulfill(json(projectDetail())));
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    // The block itself renders — the sprints read gates the SAVE, not the page,
+    // so the picker is reachable and the section heading (which the settings
+    // jump strip focuses) stays in the DOM throughout.
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await expect(block.getByRole('heading', { name: 'Methodology', exact: true })).toBeVisible();
+
+    const waterfall = block.getByRole('radio', { name: /Waterfall/i });
+    await waterfall.click();
+    // The flip is chosen but not yet committable: with the count unknown, a save
+    // here would evaluate the orphan-sprints trigger against 0 and skip the
+    // consent dialog. The section is not dirty, so the save bar never arms.
+    await expect(page.getByRole('button', { name: /Save changes/i })).toBeHidden();
+
+    releaseSprints();
+
+    // The pending selection survives the query landing, and the bar arms.
+    await expect(waterfall).toBeChecked();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    const dialog = page.getByRole('alertdialog', { name: 'Switch to Waterfall?' });
+    await expect(dialog).toBeVisible();
+    // 37, not 2 — the number the user reads has to be the project's total.
+    await expect(dialog.getByText('37 sprints already committed')).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+  });
+
+  // #3313 — a failed sprints read must not read as "no sprints". The count is 0
+  // either way, so without an explicit error branch the one warning that exists
+  // for this flip is silently suppressed by an unrelated outage.
+  test('a failed sprints read still warns, with the count declared unknown', async ({ page }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
+      r.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: pj({ detail: 'boom' }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => r.fulfill(json(projectDetail())));
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await block.getByRole('radio', { name: /Waterfall/i }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    const dialog = page.getByRole('alertdialog', { name: 'Switch to Waterfall?' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('may have sprints already committed')).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
   });
 });

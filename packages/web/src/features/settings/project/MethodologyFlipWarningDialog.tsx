@@ -3,8 +3,16 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { IterationLabelForms } from '@/lib/iterationLabel';
 
 interface MethodologyFlipWarningDialogProps {
-  /** Count of the project's existing sprints, all states (issue #2619). */
-  count: number;
+  /**
+   * Count of the project's existing sprints, all states (issue #2619) — the
+   * server's total, not the length of a loaded page.
+   *
+   * `null` when the sprints read failed and the total is therefore unknown
+   * (#3313). The dialog still warns — the safe direction on a flip that hides
+   * sprints from the nav — but says the count could not be determined instead
+   * of printing a number it cannot stand behind.
+   */
+  count: number | null;
   itl: IterationLabelForms;
   pending: boolean;
   onCancel: () => void;
@@ -75,10 +83,19 @@ export function MethodologyFlipWarningDialog({
           Switch to Waterfall?
         </h2>
         <p id="methodology-flip-body" className="text-xs text-neutral-text-secondary">
-          This project has {count} {noun} already committed. Waterfall hides the {itl.lowerPlural}{' '}
-          views from the nav — the {itl.lowerPlural} are not deleted and stay reachable by direct
-          URL, but no one will see them from the sidebar until you switch back or navigate there
-          directly.
+          {count === null ? (
+            <>
+              This project may have {itl.lowerPlural} already committed. The {itl.lowerPlural} list
+              failed to load, so the number could not be checked.{' '}
+            </>
+          ) : (
+            <>
+              This project has {count} {noun} already committed.{' '}
+            </>
+          )}
+          Waterfall hides the {itl.lowerPlural} views from the nav — the {itl.lowerPlural} are not
+          deleted and stay reachable by direct URL, but no one will see them from the sidebar until
+          you switch back or navigate there directly.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={pending}>

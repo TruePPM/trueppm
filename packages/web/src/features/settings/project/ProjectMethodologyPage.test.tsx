@@ -36,6 +36,7 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprints: () =>
     useSprints() as {
       sprints: unknown[];
+      totalCount: number;
       isLoading: boolean;
       error: unknown;
       refetch: () => void;
@@ -55,13 +56,19 @@ function makeProject(overrides: Record<string, unknown> = {}) {
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  // A FRESH element each call — React bails out of a re-render when handed the
+  // identical element reference, which would leave the mocked hooks unread.
+  const tree = () => (
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <ProjectMethodologyPage />
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const utils = render(tree());
+  // Re-render in place so a test can move a mocked query from loading to
+  // settled without remounting the page (which would lose its local state).
+  return { ...utils, rerenderSame: () => utils.rerender(tree()) };
 }
 
 describe('ProjectMethodologyPage', () => {
@@ -74,7 +81,13 @@ describe('ProjectMethodologyPage', () => {
     useCurrentUserRole.mockReturnValue({ role: 400, isLoading: false });
     useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'suggest' } });
     useProject.mockReturnValue({ data: makeProject() });
-    useSprints.mockReturnValue({ sprints: [], isLoading: false, error: null, refetch: vi.fn() });
+    useSprints.mockReturnValue({
+      sprints: [],
+      totalCount: 0,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
     useSettingsSaveStore.getState().reset();
   });
 
@@ -199,6 +212,7 @@ describe('ProjectMethodologyPage', () => {
     beforeEach(() => {
       useSprints.mockReturnValue({
         sprints: [{ id: 's1' }, { id: 's2' }],
+        totalCount: 2,
         isLoading: false,
         error: null,
         refetch: vi.fn(),
@@ -341,6 +355,130 @@ describe('ProjectMethodologyPage', () => {
       expect(useSettingsSaveStore.getState().saveError).toBe('boom');
       // The flip did not take, so the form stays dirty and the save bar armed.
       expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    });
+  });
+
+  // ── #3313: the trigger failing on its own terms ──────────────────────────
+  // Distinct from #2619 (which surfaces the dialog) and #3294 (which surfaces
+  // *more* things it should consider): these are cases where the existing
+  // predicate evaluates against a count it does not yet, or cannot, know.
+  describe('the sprints read has not resolved', () => {
+    it('cannot save a Waterfall flip while the sprints query is still loading', async () => {
+      const user = userEvent.setup();
+      useSprints.mockReturnValue({
+        sprints: [],
+        totalCount: 0,
+        isLoading: true,
+        error: null,
+        refetch: vi.fn(),
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+
+      // The harm: with the save live before the count is known, a flip saved in
+      // that window evaluates the trigger against a not-yet-known 0, skips the
+      // consent dialog, and PATCHes — on timing alone, on a project that does
+      // have sprints. `apiReady: false` keeps the section out of the store's
+      // dirty set, so `triggerSave` cannot reach `handleSave` at all.
+      expect(useSettingsSaveStore.getState().dirty).toBe(false);
+      await act(async () => {
+        await useSettingsSaveStore.getState().triggerSave();
+      });
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(mutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('arms the save once the sprints query settles, and then warns', async () => {
+      const user = userEvent.setup();
+      useSprints.mockReturnValue({
+        sprints: [],
+        totalCount: 0,
+        isLoading: true,
+        error: null,
+        refetch: vi.fn(),
+      });
+      const { rerenderSame } = renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+      expect(useSettingsSaveStore.getState().dirty).toBe(false);
+
+      // The query lands: 4 sprints. The pending selection survives, the bar arms,
+      // and the save now evaluates the trigger against a count that exists.
+      useSprints.mockReturnValue({
+        sprints: [{ id: 's1' }],
+        totalCount: 4,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+      act(() => {
+        rerenderSame();
+      });
+      await waitFor(() => expect(useSettingsSaveStore.getState().dirty).toBe(true));
+
+      act(() => {
+        void useSettingsSaveStore.getState().triggerSave();
+      });
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      expect(within(dialog).getByText(/has 4 sprints already committed/)).toBeInTheDocument();
+      expect(mutateAsync).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    });
+
+    it('warns on a Waterfall flip when the sprints read failed, rather than reading 0 as none', async () => {
+      const user = userEvent.setup();
+      useSprints.mockReturnValue({
+        sprints: [],
+        totalCount: 0,
+        isLoading: false,
+        error: new Error('boom'),
+        refetch: vi.fn(),
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+
+      let savePromise!: Promise<void>;
+      act(() => {
+        savePromise = useSettingsSaveStore.getState().triggerSave();
+      });
+
+      // A failed read is "cannot rule out sprints", so the consent gate still
+      // arms — and says the total is unknown instead of claiming zero.
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      expect(within(dialog).getByText(/may have sprints already committed/)).toBeInTheDocument();
+      expect(within(dialog).queryByText(/has 0 sprints already committed/)).toBeNull();
+      expect(mutateAsync).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Switch to Waterfall' }));
+      await act(async () => {
+        await savePromise;
+      });
+      expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'WATERFALL' });
+    });
+
+    it("names the server's total in the dialog, not the length of the loaded page", async () => {
+      const user = userEvent.setup();
+      useSprints.mockReturnValue({
+        // Page 1 carries two rows; the project has 37 sprints in total.
+        sprints: [{ id: 's1' }, { id: 's2' }],
+        totalCount: 37,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+      act(() => {
+        void useSettingsSaveStore.getState().triggerSave();
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      expect(within(dialog).getByText(/has 37 sprints already committed/)).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     });
   });
 
