@@ -34,13 +34,41 @@ interface MockProgram {
   my_role: number | null;
   is_closed: boolean;
   effective_methodology?: string;
-  effective_calendar?: { id: string; name: string; working_days: number; hours_per_day: number; holiday_count: number } | null;
+  effective_calendar?: {
+    id: string;
+    name: string;
+    working_days: number;
+    hours_per_day: number;
+    holiday_count: number;
+  } | null;
   calendar_source?: string;
 }
 const programsResult = {
   data: [
-    { id: 'program-uuid-123', name: 'Apollo', code: '', my_role: 300, is_closed: false, effective_methodology: 'AGILE', effective_calendar: { id: 'cal-apollo', name: 'Apollo Cal', working_days: 31, hours_per_day: 8, holiday_count: 0 }, calendar_source: 'program' },
-    { id: 'program-uuid-456', name: 'Zephyr', code: 'ZPH', my_role: 300, is_closed: false, effective_methodology: 'WATERFALL' },
+    {
+      id: 'program-uuid-123',
+      name: 'Apollo',
+      code: '',
+      my_role: 300,
+      is_closed: false,
+      effective_methodology: 'AGILE',
+      effective_calendar: {
+        id: 'cal-apollo',
+        name: 'Apollo Cal',
+        working_days: 31,
+        hours_per_day: 8,
+        holiday_count: 0,
+      },
+      calendar_source: 'program',
+    },
+    {
+      id: 'program-uuid-456',
+      name: 'Zephyr',
+      code: 'ZPH',
+      my_role: 300,
+      is_closed: false,
+      effective_methodology: 'WATERFALL',
+    },
     // Below ADMIN (Member=100) — must never be offered (would 400 at submit, ADR-0070).
     { id: 'program-viewer', name: 'Viewer Only Program', code: '', my_role: 100, is_closed: false },
     // ADMIN but closed — MoveToProgramModal's precedent excludes closed programs too.
@@ -54,7 +82,9 @@ vi.mock('@/hooks/usePrograms', () => ({
 }));
 
 const workspaceResult = {
-  data: { methodology: 'HYBRID', calendar: null } as { methodology: string; calendar: string | null } | undefined,
+  data: { methodology: 'HYBRID', calendar: null } as
+    | { methodology: string; calendar: string | null }
+    | undefined,
   isLoading: false,
 };
 vi.mock('@/features/settings/hooks/useWorkspaceSettings', () => ({
@@ -62,7 +92,14 @@ vi.mock('@/features/settings/hooks/useWorkspaceSettings', () => ({
 }));
 
 const libraryResult = {
-  data: [] as Array<{ id: string; name: string; working_days: number; hours_per_day: number; timezone: string; exceptions: unknown[] }>,
+  data: [] as Array<{
+    id: string;
+    name: string;
+    working_days: number;
+    hours_per_day: number;
+    timezone: string;
+    exceptions: unknown[];
+  }>,
   isLoading: false,
 };
 vi.mock('@/hooks/useProjectCalendars', () => ({
@@ -118,9 +155,37 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     mockMutation.isPending = false;
     mockMutation.isError = false;
     programsResult.data = [
-      { id: 'program-uuid-123', name: 'Apollo', code: '', my_role: 300, is_closed: false, effective_methodology: 'AGILE', effective_calendar: { id: 'cal-apollo', name: 'Apollo Cal', working_days: 31, hours_per_day: 8, holiday_count: 0 }, calendar_source: 'program' },
-      { id: 'program-uuid-456', name: 'Zephyr', code: 'ZPH', my_role: 300, is_closed: false, effective_methodology: 'WATERFALL' },
-      { id: 'program-viewer', name: 'Viewer Only Program', code: '', my_role: 100, is_closed: false },
+      {
+        id: 'program-uuid-123',
+        name: 'Apollo',
+        code: '',
+        my_role: 300,
+        is_closed: false,
+        effective_methodology: 'AGILE',
+        effective_calendar: {
+          id: 'cal-apollo',
+          name: 'Apollo Cal',
+          working_days: 31,
+          hours_per_day: 8,
+          holiday_count: 0,
+        },
+        calendar_source: 'program',
+      },
+      {
+        id: 'program-uuid-456',
+        name: 'Zephyr',
+        code: 'ZPH',
+        my_role: 300,
+        is_closed: false,
+        effective_methodology: 'WATERFALL',
+      },
+      {
+        id: 'program-viewer',
+        name: 'Viewer Only Program',
+        code: '',
+        my_role: 100,
+        is_closed: false,
+      },
       { id: 'program-closed', name: 'Closed Program', code: '', my_role: 300, is_closed: true },
     ];
     programsResult.isLoading = false;
@@ -229,10 +294,11 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(screen.queryByText(/until you press creating/i)).not.toBeInTheDocument();
   });
 
-  it('does not state a silent discard the sheet has no unsaved-changes guard for', () => {
-    // Rule 217 requires a guard on any dirty dismiss; this sheet has none on its
-    // four dismiss paths. Saying "closing discards what you have entered" as
-    // reassurance would ship that gap as though it were the intended contract.
+  it('leaves the discard warning to the guard, not the footer note', () => {
+    // The note used to omit this because the sheet had no guard to back it up.
+    // Since #3310 it omits it for the opposite reason: the guard states the
+    // warning at the moment the user can act on it, and repeating it in a note
+    // nobody is reading at dismiss time gives one fact two owners (rule 328).
     renderModal();
     expect(screen.queryByText(/closing this sheet discards/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/will be (lost|discarded)/i)).not.toBeInTheDocument();
@@ -315,7 +381,9 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(screen.queryByPlaceholderText(/optional/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: /copy settings from/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /use .*defaults/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: /default role for new members/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: /default role for new members/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('focuses the name input on mount', () => {
@@ -354,6 +422,109 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(screen.getByRole('button', { name: /create project/i })).toBeDisabled();
   });
 
+  // ---------------------------------------------------------------------------
+  // Unsaved-changes guard (web-rule 217, #3310)
+  //
+  // The sheet is the only in-app project-create surface, mounted from six
+  // places, and every one of its four dismiss paths used to discard the whole
+  // setup silently. Each path is asserted separately: they were four separate
+  // bare `onClose()` call sites, so a fix that reaches three of them is the
+  // realistic regression, not an all-or-nothing one.
+  // ---------------------------------------------------------------------------
+
+  const DISMISS: Array<[string, () => Promise<void>]> = [
+    [
+      'Escape',
+      async () => {
+        await userEvent.keyboard('{Escape}');
+      },
+    ],
+    [
+      'the backdrop',
+      async () => {
+        await userEvent.click(screen.getByRole('button', { name: /close dialog/i }));
+      },
+    ],
+    [
+      'Cancel',
+      async () => {
+        await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+      },
+    ],
+  ];
+
+  describe.each(DISMISS)('dismissing a dirty sheet via %s', (_label, dismiss) => {
+    it('prompts instead of discarding', async () => {
+      renderModal();
+      await fillName();
+
+      await dismiss();
+
+      expect(onClose).not.toHaveBeenCalled();
+      const guard = screen.getByRole('alertdialog');
+      expect(guard).toHaveTextContent('Discard unsaved changes?');
+    });
+
+    it('keeps the typed values when Keep editing is chosen', async () => {
+      renderModal();
+      await fillName('Apollo replan');
+
+      await dismiss();
+      await userEvent.click(screen.getByRole('button', { name: /keep editing/i }));
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole('textbox', { name: /^name/i })).toHaveValue('Apollo replan');
+    });
+
+    it('closes once Discard changes is confirmed', async () => {
+      renderModal();
+      await fillName();
+
+      await dismiss();
+      await userEvent.click(screen.getByRole('button', { name: /discard changes/i }));
+
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe.each(DISMISS)('dismissing an untouched sheet via %s', (_label, dismiss) => {
+    it('closes immediately with no prompt', async () => {
+      renderModal();
+
+      await dismiss();
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('treats each guarded field as dirtying — not just the name', async () => {
+    // The name is the obvious one and the easy one to special-case. Start date,
+    // program, calendar override and the draft flag are equally re-entered work.
+    renderModal();
+    await userEvent.click(screen.getByRole('checkbox', { name: /create as a draft/i }));
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('does not treat browsing the ways as unsaved work', async () => {
+    // Flipping between Blank / Template / Import to compare them is browsing,
+    // not authoring — the same reading that makes a picked template survive a
+    // way switch. Prompting here would fire the guard at a user who has typed
+    // nothing and has nothing to lose.
+    renderModal();
+    await userEvent.click(screen.getByRole('radio', { name: /import/i }));
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('calls onClose when Cancel is clicked', async () => {
     renderModal();
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
@@ -387,7 +558,9 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     renderModal({ programId: 'program-uuid-123', programName: 'Apollo' });
     const picker = screen.getByRole('combobox', { name: /^program$/i });
     expect(picker).toHaveValue('program-uuid-123');
-    expect(within(picker).getByRole('option', { name: 'Apollo', selected: true })).toBeInTheDocument();
+    expect(
+      within(picker).getByRole('option', { name: 'Apollo', selected: true }),
+    ).toBeInTheDocument();
   });
 
   it('offers only open programs where the user holds ADMIN+', () => {
@@ -395,8 +568,12 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     const picker = screen.getByRole('combobox', { name: /^program$/i });
     expect(within(picker).getByRole('option', { name: 'Apollo' })).toBeInTheDocument();
     expect(within(picker).getByRole('option', { name: 'Zephyr (ZPH)' })).toBeInTheDocument();
-    expect(within(picker).queryByRole('option', { name: /viewer only program/i })).not.toBeInTheDocument();
-    expect(within(picker).queryByRole('option', { name: /closed program/i })).not.toBeInTheDocument();
+    expect(
+      within(picker).queryByRole('option', { name: /viewer only program/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(picker).queryByRole('option', { name: /closed program/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('omits program from the payload when left standalone', async () => {
@@ -428,13 +605,19 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
 
   it('derives from the selected program’s effective_methodology once one is picked', async () => {
     renderModal();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), 'program-uuid-456');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /^program$/i }),
+      'program-uuid-456',
+    );
     expect(screen.getByText(/waterfall — gantt, wbs, and critical path/i)).toBeInTheDocument();
   });
 
   it('sends the derived methodology explicitly in the create payload', async () => {
     renderModal();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), 'program-uuid-456');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /^program$/i }),
+      'program-uuid-456',
+    );
     await fillName('Waterfall Project');
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
     expect(mutateMock).toHaveBeenCalledWith(
@@ -462,7 +645,9 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
   it('importFirst preselects Import instead of Blank', () => {
     renderModal({ importFirst: true });
     expect(screen.getByRole('radio', { name: /^import/i })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('button', { name: /create & import spreadsheet/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /create & import spreadsheet/i }),
+    ).toBeInTheDocument();
   });
 
   it('selecting Template shows the template list and lands on a template already chosen', async () => {
@@ -470,7 +655,10 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     renderModal();
     await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
     expect(screen.getByRole('radiogroup', { name: /start from a template/i })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /alpha skeleton/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /alpha skeleton/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   });
 
   it('Create is disabled on the Template way until a template exists to select', async () => {
@@ -485,7 +673,9 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     renderModal();
     await userEvent.click(screen.getByRole('radio', { name: /^import/i }));
     expect(screen.getByText(/opens the import wizard/i)).toBeInTheDocument();
-    expect(screen.queryByRole('radiogroup', { name: /start from a template/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('radiogroup', { name: /start from a template/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('fires applyTemplate after create when Template way is active', async () => {
@@ -505,7 +695,9 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
   });
 
   it('reports methodology + templateApplied intent when Template way is active (#2734)', async () => {
-    templatesResult.data = [makeTemplate({ id: 'tmpl-a', name: 'Agile skeleton', methodology: 'AGILE' })];
+    templatesResult.data = [
+      makeTemplate({ id: 'tmpl-a', name: 'Agile skeleton', methodology: 'AGILE' }),
+    ];
     renderModal();
     await fillName('Templated Agile');
     await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
@@ -567,10 +759,21 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
 
   it('shows the inherited default calendar and omits `calendar` from the payload when left alone', async () => {
     workspaceResult.data = { methodology: 'HYBRID', calendar: 'cal-ws' };
-    libraryResult.data = [{ id: 'cal-ws', name: 'Standard 40h', working_days: 31, hours_per_day: 8, timezone: 'UTC', exceptions: [] }];
+    libraryResult.data = [
+      {
+        id: 'cal-ws',
+        name: 'Standard 40h',
+        working_days: 31,
+        hours_per_day: 8,
+        timezone: 'UTC',
+        exceptions: [],
+      },
+    ];
     renderModal();
     const picker = screen.getByRole('combobox', { name: /working calendar/i });
-    expect(within(picker).getByRole('option', { name: /standard 40h \(inherited\)/i })).toBeInTheDocument();
+    expect(
+      within(picker).getByRole('option', { name: /standard 40h \(inherited\)/i }),
+    ).toBeInTheDocument();
 
     await fillName('Inherits calendar');
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
@@ -580,10 +783,20 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
 
   it('sends an explicit `calendar` in the payload when the picker is overridden', async () => {
     libraryResult.data = [
-      { id: 'cal-1', name: 'Compressed 4x10', working_days: 30, hours_per_day: 10, timezone: 'UTC', exceptions: [] },
+      {
+        id: 'cal-1',
+        name: 'Compressed 4x10',
+        working_days: 30,
+        hours_per_day: 10,
+        timezone: 'UTC',
+        exceptions: [],
+      },
     ];
     renderModal();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /working calendar/i }), 'cal-1');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /working calendar/i }),
+      'cal-1',
+    );
     await fillName('Overrides calendar');
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
     expect(mutateMock).toHaveBeenCalledWith(
@@ -594,9 +807,14 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
 
   it('shows the selected program’s effective_calendar as the inherited default', async () => {
     renderModal();
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), 'program-uuid-123');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /^program$/i }),
+      'program-uuid-123',
+    );
     const picker = screen.getByRole('combobox', { name: /working calendar/i });
-    expect(within(picker).getByRole('option', { name: /apollo cal \(inherited\)/i })).toBeInTheDocument();
+    expect(
+      within(picker).getByRole('option', { name: /apollo cal \(inherited\)/i }),
+    ).toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------
@@ -740,6 +958,8 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     // that the compact branch shares the same field set, not to re-derive the
     // breakpoint logic itself.
     renderModal();
-    expect(screen.getByRole('radiogroup', { name: /start from$/i }).querySelectorAll('[role="radio"]')).toHaveLength(3);
+    expect(
+      screen.getByRole('radiogroup', { name: /start from$/i }).querySelectorAll('[role="radio"]'),
+    ).toHaveLength(3);
   });
 });

@@ -19,6 +19,7 @@ import {
 import { ROLE_ADMIN } from '@/lib/roles';
 import { SELECT_CHEVRON } from './selectChevron';
 import { DRAFT_EXCLUSION_SENTENCE } from '@/features/project/draftExclusion';
+import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 import type { Methodology } from '@/types';
 
 /** Where the user asked to land after the project exists (#2710). */
@@ -130,13 +131,13 @@ const COMMIT_NOTE_ID = 'new-project-commit-note';
  * what *is* true of the sheet as built: `handleSubmit` is the only caller of
  * `useCreateProject`, so nothing is written before the press.
  *
- * It deliberately stops there. An earlier draft added "Closing this sheet discards
- * what you have entered" — true today, but rule 217 requires an unsaved-changes
- * guard on a dirty dismiss, and this sheet has none on any of its four dismiss
- * paths (Escape, backdrop, compact ×, Cancel). Stating the silent discard as
- * reassurance would ship a rule-217 gap as though it were the intended contract,
- * in a place where the user cannot act on the warning. The gap is real and stays
- * open; this line is not the place to declare it settled.
+ * It deliberately stops there, and now for a different reason than it once did.
+ * An earlier draft added "Closing this sheet discards what you have entered" —
+ * true at the time, because the sheet had no unsaved-changes guard on any of its
+ * four dismiss paths, in violation of rule 217. That gap is closed (#3310): a
+ * dirty dismiss opens `UnsavedChangesDialog` on all four. So the sentence is no
+ * longer true, and it is also no longer needed — the guard states the warning at
+ * the moment the user can act on it, which is exactly where the note could not.
  *
  * `commitLabel` is passed in rather than hard-coded because the button renames
  * itself on the Import way — a note naming a button that is not on screen is the
@@ -149,13 +150,11 @@ function commitNote(commitLabel: string): string {
 const WAY_DETAIL: Record<Exclude<WayIn, 'template'>, { title: string; body: string }> = {
   blank: {
     title: 'Start empty',
-    body:
-      'Opens straight into the outline with the cursor already in the first row (#2733) — the fastest way in when you already know the shape.',
+    body: 'Opens straight into the outline with the cursor already in the first row (#2733) — the fastest way in when you already know the shape.',
   },
   import: {
     title: 'Bring in a spreadsheet',
-    body:
-      'Creates the project, then opens the import wizard so you can paste or upload rows straight into the outline.',
+    body: 'Creates the project, then opens the import wizard so you can paste or upload rows straight into the outline.',
   },
 };
 
@@ -249,6 +248,43 @@ export function NewProjectModal({
   const triggerRef = useRef<Element | null>(null);
   const compact = useStartSheetCompact();
 
+  // ── Unsaved-changes guard (web-rule 217, #3310) ────────────────────────────
+  //
+  // The sheet collects a name, a program, a start date, a calendar override and
+  // a draft flag, and every one of its four dismiss paths — Escape, backdrop,
+  // the compact ×, Cancel — used to throw all of it away silently. It is the
+  // only in-app project-create surface and is mounted from six places, so an
+  // accidental backdrop click during a busy day meant re-entering the whole
+  // setup with no indication anything had been lost.
+  //
+  // `startDate` seeds from `new Date()`, which is not stable across renders, so
+  // the baseline is captured once at mount rather than recomputed — otherwise a
+  // sheet left open across midnight would read dirty on its own.
+  const baselineRef = useRef({
+    name: '',
+    startDate,
+    calendarOverride: null as string | null,
+    startAsDraft: false,
+    selectedProgramId: programId ?? null,
+  });
+  // Rule 217's structural compare. `way` and `template` are deliberately NOT in
+  // it: flipping between the ways to compare them is browsing, not authoring —
+  // the same reading that makes `template` survive a way switch above — and
+  // prompting on it would fire the guard on a user who has typed nothing.
+  const dirty =
+    JSON.stringify({ name, startDate, calendarOverride, startAsDraft, selectedProgramId }) !==
+    JSON.stringify(baselineRef.current);
+
+  // `escapeToClose: false` because this component already owns a document-level
+  // keydown handler for its own focus trap; letting the hook install a second
+  // one is the rule-204 double-fire. The existing handler calls `requestClose`
+  // instead of `onClose`, so all four paths route through one decision.
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty,
+    onClose,
+    escapeToClose: false,
+  });
+
   const queryClient = useQueryClient();
   const createProject = useCreateProject();
   const applyTemplate = useApplyTemplate();
@@ -327,25 +363,47 @@ export function NewProjectModal({
     }
   }, [way, template, templatesForWay]);
 
-  // Escape closes; Tab/Shift+Tab cycles within the dialog.
+  // Escape requests a close (guarded when dirty); Tab/Shift+Tab cycles within
+  // the dialog. Both yield entirely while the unsaved-changes prompt is open:
+  // that prompt is a nested `alertdialog` running its own `useFocusTrap`, and a
+  // parent trap that keeps cycling underneath it fights the child for focus and
+  // double-handles Escape (rule 245(b)).
   useEffect(() => {
+    if (guardOpen) return undefined;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key === 'Escape') {
+        // Capture phase + stopPropagation, because an open modal owns Escape.
+        // The sheet is mounted as a sibling of the Sidebar, whose Browse
+        // switcher installs its own document-level Escape listener while it is
+        // open — and the switcher is *how you reach this sheet*, so it is still
+        // open behind it on the primary entry path. Both listeners sit on
+        // `document`, so ordering is registration order and the switcher's is
+        // first; on a plain bubble-phase listener its handler ran, moved focus
+        // to the Browse trigger, and the guard never appeared. Escape looked
+        // inert on a dirty sheet, and a second press was needed to prompt.
+        // Only Escape is swallowed — every other key, Tab included, propagates.
+        e.stopPropagation();
+        requestClose();
+        return;
+      }
       if (e.key !== 'Tab' || !dialogRef.current) return;
       const focusable = getFocusable(dialogRef.current);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
       } else if (document.activeElement === last) {
         e.preventDefault();
         first.focus();
       }
     };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
+  }, [guardOpen, requestClose]);
 
   const canSubmit =
     name.trim().length > 0 && startDate.length > 0 && (way !== 'template' || template !== null);
@@ -448,7 +506,7 @@ export function NewProjectModal({
           aria-label="Close dialog"
           tabIndex={-1}
           className="fixed inset-0 z-50 bg-neutral-overlay cursor-default"
-          onClick={onClose}
+          onClick={requestClose}
         />
       )}
       <div
@@ -475,7 +533,7 @@ export function NewProjectModal({
               <button
                 type="button"
                 aria-label="Close dialog"
-                onClick={onClose}
+                onClick={requestClose}
                 className="h-8 w-8 rounded-control text-neutral-text-secondary hover:text-neutral-text-primary
                   focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
               >
@@ -495,7 +553,11 @@ export function NewProjectModal({
               way cards always open on a valid selection, so the only thing that
               blocks Create is the one field that starts empty. */}
           <div className="flex-1 overflow-y-auto min-h-0">
-            <form id="new-project-form" onSubmit={handleSubmit} className="flex flex-col gap-4 px-6 pb-4">
+            <form
+              id="new-project-form"
+              onSubmit={handleSubmit}
+              className="flex flex-col gap-4 px-6 pb-4"
+            >
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium text-neutral-text-secondary">Start from</span>
                 <StartWayCards value={way} onChange={setWay} compact={compact} />
@@ -542,76 +604,76 @@ export function NewProjectModal({
                   divides the two halves of the body rather than hanging off the
                   first <label>, and so the spacing above and below it matches. */}
               <div className="flex flex-col gap-4 pt-4 border-t border-neutral-border">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-neutral-text-secondary">
-                  Name <span aria-hidden="true">*</span>
-                </span>
-                <input
-                  ref={nameRef}
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  maxLength={255}
-                  required
-                  aria-required="true"
-                  placeholder="My Project"
-                  className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-neutral-text-secondary">
+                    Name <span aria-hidden="true">*</span>
+                  </span>
+                  <input
+                    ref={nameRef}
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={255}
+                    required
+                    aria-required="true"
+                    placeholder="My Project"
+                    className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                     text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
                     focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-                />
-              </label>
+                  />
+                </label>
 
-              {/* Program picker (#2673, ADR-0764) — determines rollup, cadence
+                {/* Program picker (#2673, ADR-0764) — determines rollup, cadence
                   inheritance, and (via effective_methodology/effective_calendar)
                   two of the derived values below. Options are scoped to open
                   programs the caller administers (ADR-0070) — offering anything
                   less would 400 at submit. */}
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-neutral-text-secondary">Program</span>
-                <select
-                  value={selectedProgramId ?? ''}
-                  onChange={handleProgramChange}
-                  disabled={programsLoading}
-                  aria-label="Program"
-                  style={{ backgroundImage: SELECT_CHEVRON }}
-                  className="h-9 pl-3 pr-8 rounded-control border border-neutral-border bg-neutral-surface
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-neutral-text-secondary">Program</span>
+                  <select
+                    value={selectedProgramId ?? ''}
+                    onChange={handleProgramChange}
+                    disabled={programsLoading}
+                    aria-label="Program"
+                    style={{ backgroundImage: SELECT_CHEVRON }}
+                    className="h-9 pl-3 pr-8 rounded-control border border-neutral-border bg-neutral-surface
                     text-sm text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.5rem_center]
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                     disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <option value="">None — standalone project</option>
-                  {selectedProgramId && !selectedProgramInEligible && (
-                    <option value={selectedProgramId}>
-                      {selectedProgramName ?? (programsLoading ? 'Loading…' : 'Unnamed program')}
-                    </option>
-                  )}
-                  {eligiblePrograms.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.code ? `${p.name} (${p.code})` : p.name}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-xs text-neutral-text-secondary">
-                  Groups this project for shared rollup and cadence. You can move it to a
-                  different program later from project settings.
-                </span>
-              </label>
+                  >
+                    <option value="">None — standalone project</option>
+                    {selectedProgramId && !selectedProgramInEligible && (
+                      <option value={selectedProgramId}>
+                        {selectedProgramName ?? (programsLoading ? 'Loading…' : 'Unnamed program')}
+                      </option>
+                    )}
+                    {eligiblePrograms.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code ? `${p.name} (${p.code})` : p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-neutral-text-secondary">
+                    Groups this project for shared rollup and cadence. You can move it to a
+                    different program later from project settings.
+                  </span>
+                </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-neutral-text-secondary">
-                  Start date <span aria-hidden="true">*</span>
-                </span>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  required
-                  aria-required="true"
-                  className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-neutral-text-secondary">
+                    Start date <span aria-hidden="true">*</span>
+                  </span>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    required
+                    aria-required="true"
+                    className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                     text-sm text-neutral-text-primary
                     focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-                />
-              </label>
+                  />
+                </label>
               </div>
 
               {createProject.isError && (
@@ -709,7 +771,7 @@ export function NewProjectModal({
             <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={requestClose}
                 disabled={createProject.isPending}
                 className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                   text-neutral-text-secondary hover:text-neutral-text-primary
@@ -736,6 +798,15 @@ export function NewProjectModal({
           </div>
         </div>
       </div>
+
+      {/*
+        Rendered last so it stacks above the sheet (z-[60] vs z-[51]) and mounts
+        after it, which is what lets its own `useFocusTrap` take focus from the
+        sheet's. Nothing is written before Create is pressed, so "discard" here
+        costs the user only what they typed — hence the shared non-destructive
+        copy rather than a bespoke warning.
+      */}
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
     </>
   );
 }
