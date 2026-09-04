@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import jsonschema
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
@@ -378,3 +382,69 @@ def test_user_can_only_touch_own_display_prefs() -> None:
     alice_profile = UserProfile.objects.get(user=alice)
     assert alice_profile.timezone == "Australia/Sydney"
     assert alice_profile.date_format == "iso"
+
+
+# ---------------------------------------------------------------------------
+# #3324 — the shape a rejected ListField actually returns.
+#
+# The contract half of this lives in tests/test_openapi_contract.py, which
+# validates hand-written bodies against the committed 400 schema. That alone
+# would keep passing if DRF ever changed the shape it emits, because nothing in
+# it asks the API. This is the other half: drive a real rejection and pin what
+# comes back, so the two can only agree by being right.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_rejected_list_field_errors_are_keyed_by_item_index() -> None:
+    """A bad `hidden_views` item yields `{"hidden_views": {"<index>": [...]}}` (#3324).
+
+    `ListField.to_internal_value` collects per-item errors into a dict keyed by
+    item index — the index is what lets a client point at the offending element —
+    so the value under the field key is an OBJECT, not the flat `array<string>`
+    the schema declared until #3324. The 2026-09-02 nightly `api:fuzz` failed
+    `POST /projects/`, `POST /programs/` and `PATCH /auth/me/profile/` on exactly
+    this, one per `ListField` on those payloads.
+    """
+    user = User.objects.create_user(username="listerr", password="pw")
+    resp = _client(user).patch(URL, {"hidden_views": [{"not": "a string"}]}, format="json")
+
+    assert resp.status_code == 400
+    errors = resp.data["hidden_views"]
+    assert isinstance(errors, dict), (
+        f"expected per-index dict from ListField, got {type(errors).__name__}: {errors!r}"
+    )
+    assert set(errors) == {0}, f"keys must be item indices, got {sorted(errors)}"
+    assert errors[0], "the offending index must carry at least one message"
+
+
+@pytest.mark.django_db
+def test_that_rejection_conforms_to_the_committed_400_schema() -> None:
+    """The live body must validate against what `openapi.json` promises (#3324).
+
+    Reading the committed artifact rather than regenerating: it is the published
+    contract and the thing a generated client is built from. Reverting
+    `additionalProperties` to `{"type": "array", "items": {"type": "string"}}`
+    must turn this red — that is the negative control, and it is why this asserts
+    against the file rather than against a literal copied from the fix.
+    """
+    user = User.objects.create_user(username="listconform", password="pw")
+    resp = _client(user).patch(URL, {"hidden_views": [{"not": "a string"}]}, format="json")
+    assert resp.status_code == 400
+
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "docs" / "api" / "openapi.json"
+        if candidate.exists():
+            schema = json.loads(candidate.read_text())
+            break
+    else:  # pragma: no cover - the repo always has one
+        raise AssertionError("Could not locate docs/api/openapi.json above the test file.")
+
+    op = schema["paths"][URL]["patch"]
+    declared = op["responses"]["400"]["content"]["application/json"]["schema"]
+    validator = jsonschema.Draft202012Validator({**declared, "components": schema["components"]})
+    errors = sorted(validator.iter_errors(json.loads(resp.content)), key=str)
+    assert not errors, (
+        "the live 400 body violates the declared 400 schema — the same failure the "
+        f"nightly api:fuzz reports: {[e.message for e in errors]}"
+    )

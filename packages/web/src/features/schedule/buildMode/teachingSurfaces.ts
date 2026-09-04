@@ -143,13 +143,20 @@ export function shouldRenderCoachBar({
  * one-per-column property does not need the term — the focus-mode partition
  * below already delivers it.
  *
- * `hasEditRights` is absent for a WEAKER reason and the two must not be read as
- * one decision: it is simply what shipped. A Viewer does reach `RowFocused`
- * (build mode is on for every desktop reader and the row's focus handler has no
- * rights gate) and is then taught three mutations they cannot perform, against
- * rule 302. That is a real defect, filed as #3231 — #3134 restated the shipped
- * predicate faithfully rather than fixing it here, because choosing between
- * "no strip for a reader" and "a read-appropriate hint set" is a design call.
+ * `hasEditRights` is absent for a DIFFERENT reason, and the two must not be read
+ * as one decision. #3231 settled the call this function deliberately did not
+ * make, and settled it in favor of a **read-appropriate hint set** rather than
+ * withholding the strip: the `? All shortcuts` route is the strip's only job
+ * that survives without rights, and taking the band away would take that route
+ * with it while leaving a reader who arrows the outline with no key hints at
+ * all. So the rights term lives in `BuildModeHintStrip`'s *content*
+ * (`READER_HINTS`) and not in this predicate, which stays a pure statement about
+ * which surface owns the column.
+ *
+ * Read that as a scope boundary, not an omission: rule 302 is satisfied by the
+ * strip teaching only acts the reader can perform, which is a question about
+ * what it says. Whether it renders at all is a question about the column, and
+ * the answer to that one does not depend on rights.
  */
 export function shouldRenderHintStrip({
   buildModeActive,

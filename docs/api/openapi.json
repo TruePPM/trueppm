@@ -164,10 +164,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -330,10 +327,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -434,10 +428,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -773,10 +764,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -879,10 +867,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -966,10 +951,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -1053,10 +1035,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -1585,10 +1564,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -1807,10 +1783,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -1945,10 +1918,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -2158,10 +2128,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -2347,10 +2314,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -2525,10 +2489,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -2635,10 +2596,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -2859,10 +2817,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -2963,10 +2918,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -3419,10 +3371,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -3585,10 +3534,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -3689,10 +3635,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -4219,10 +4162,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -4391,10 +4331,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -5974,10 +5911,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -6356,10 +6290,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -6475,10 +6406,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -6615,10 +6543,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -6895,10 +6820,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -7005,10 +6927,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -7100,10 +7019,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -7394,10 +7310,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -7591,10 +7504,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -8210,10 +8120,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -8430,10 +8337,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -8612,10 +8516,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -8781,10 +8682,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -8885,10 +8783,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -9038,10 +8933,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -9145,10 +9037,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -10072,10 +9961,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -10179,10 +10065,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -10459,10 +10342,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -10692,10 +10572,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -11016,10 +10893,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -11827,10 +11701,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -12008,10 +11879,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -12118,10 +11986,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -12461,10 +12326,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -12639,10 +12501,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -12749,10 +12608,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -12992,10 +12848,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -13173,10 +13026,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -13544,10 +13394,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -13725,10 +13572,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -13976,10 +13820,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -14157,10 +13998,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -14333,10 +14171,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -14517,10 +14352,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -14746,10 +14578,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -14936,10 +14765,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -15113,10 +14939,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -15223,10 +15046,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -15462,10 +15282,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -15550,10 +15367,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -15720,10 +15534,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -15815,10 +15626,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -16126,10 +15934,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -16292,10 +16097,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -16396,10 +16198,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -16934,10 +16733,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -17103,10 +16899,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -17207,10 +17000,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -17429,10 +17219,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -17754,10 +17541,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -17919,10 +17703,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -18031,10 +17812,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -18467,10 +18245,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -20283,10 +20058,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -20664,10 +20436,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -21805,10 +21574,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -21915,10 +21681,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -22162,10 +21925,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -22267,10 +22027,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -22371,10 +22128,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -22476,10 +22230,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -22581,10 +22332,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -22686,10 +22434,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -22947,10 +22692,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -24210,10 +23952,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -24784,10 +24523,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -25028,10 +24764,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -25212,10 +24945,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -25325,10 +25055,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -25547,10 +25274,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -26470,10 +26194,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -26657,10 +26378,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -26770,10 +26488,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -27022,10 +26737,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -27203,10 +26915,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -27454,10 +27163,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -27635,10 +27341,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -27811,10 +27514,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -27995,10 +27695,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -28254,10 +27951,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -28438,10 +28132,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -28551,10 +28242,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -28806,10 +28494,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -28993,10 +28678,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -29106,10 +28788,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -29374,10 +29053,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -29479,10 +29155,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -29799,10 +29472,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -30030,10 +29700,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -30205,10 +29872,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -30387,10 +30051,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -30638,10 +30299,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -31211,10 +30869,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -31711,10 +31366,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -31833,10 +31485,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -32111,10 +31760,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -32312,10 +31958,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -32509,10 +32152,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -32784,10 +32424,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -32966,10 +32603,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -33232,10 +32866,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -33431,10 +33062,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -33795,10 +33423,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -33994,10 +33619,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -34508,10 +34130,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -34685,10 +34304,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -34795,10 +34411,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -35034,10 +34647,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -35477,10 +35087,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -35643,10 +35250,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -35747,10 +35351,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -35970,10 +35571,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -36136,10 +35734,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -36240,10 +35835,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -36489,10 +36081,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -36655,10 +36244,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -36759,10 +36345,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -37072,10 +36655,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -37592,10 +37172,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -37758,10 +37335,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -37862,10 +37436,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -38342,10 +37913,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -38452,10 +38020,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -38562,10 +38127,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -38730,10 +38292,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -38834,10 +38393,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -39593,10 +39149,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -40060,10 +39613,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -40308,10 +39858,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -40491,10 +40038,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -40602,10 +40146,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -40773,10 +40314,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -40896,10 +40434,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -41240,10 +40775,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -41354,10 +40886,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -41461,10 +40990,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -41629,10 +41155,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -42056,10 +41579,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -42222,10 +41742,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -42326,10 +41843,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -42558,10 +42072,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -42724,10 +42235,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -42828,10 +42336,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -43268,10 +42773,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -43434,10 +42936,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -43538,10 +43037,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -43882,10 +43378,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -44061,10 +43554,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -44175,10 +43665,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -44734,10 +44221,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -44849,10 +44333,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -44965,10 +44446,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -45081,10 +44559,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -45330,10 +44805,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -45820,10 +45292,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -46496,10 +45965,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -47198,10 +46664,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -47361,10 +46824,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -47518,10 +46978,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -47683,10 +47140,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -47848,10 +47302,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -48014,10 +47465,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -48243,10 +47691,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -48433,10 +47878,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -48588,10 +48030,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -48778,10 +48217,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -48976,10 +48412,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -49137,10 +48570,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -49344,10 +48774,7 @@
                                         }
                                     },
                                     "additionalProperties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -70224,6 +69651,26 @@
                     "id",
                     "initials",
                     "username"
+                ]
+            },
+            "ValidationErrorDetail": {
+                "description": "One field's validation errors. A flat field yields a list of messages. A list field or nested serializer nests one level further, as an object keyed by item index or by subfield name; a ``many=True`` serializer yields one entry per submitted item, ``{}`` where that item validated. Nesting is arbitrarily deep and the leaves are always message strings.",
+                "oneOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                        }
+                    }
                 ]
             },
             "ValueEnum": {
