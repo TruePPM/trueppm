@@ -164,7 +164,7 @@ The CPM engine's Rust sibling: a `petgraph`-based implementation compiled to Web
 
 ### packages/mobile
 
-React Native (0.81) + Expo tooling, TypeScript, NativeWind (Tailwind for React Native). Offline-first by design: `src/db/` holds the on-device WatermelonDB-compatible store, `src/sync/` implements the delta-sync client against the same `GET /api/v1/projects/{pk}/sync/` endpoint described in [Offline-first sync protocol](#offline-first-sync-protocol), and `src/auth/`, `src/api/`, `src/features/`, and `src/navigation/` mirror the web app's layering. Android phones are the primary reference design, Android tablets second, iPhone deferred to 1.0 GA.
+A **scaffold**, not a working client — this section describes the package as it exists today, and today it is a shell. React Native (0.81) bare workflow (not Expo managed, per ADR-0026), TypeScript, NativeWind (Tailwind for React Native). `src/navigation/` and `src/features/` are implemented: a five-tab bottom-tab shell over placeholder screens. `src/db/`, `src/sync/`, `src/auth/`, and `src/api/` are **typed boundaries only** — they declare the contracts the offline store, delta-sync client, token storage, and HTTP client will satisfy, and nothing implements them yet (#41). There are no native `android/` or `ios/` projects, so the package cannot be built or installed, and there is no test suite; CI gates it with lint and type-check alone. Android phones are the primary reference design, Android tablets second, iPhone deferred to 1.0 GA. The native Android app ships in 0.6.
 
 ### packages/mcp
 

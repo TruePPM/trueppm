@@ -1,11 +1,20 @@
 // NativeWind / Tailwind config for the mobile app.
 //
-// DESIGN-TOKEN PARITY HOOKUP (ADR-0026): this config consumes the *same*
-// canonical token source the web app's design system derives from —
-// packages/web/brand/tokens.json — rather than re-declaring hex values. One
-// source of truth across web and mobile: editing tokens.json reskins both
-// surfaces. The typed counterpart for component code is src/theme/tokens.ts,
-// which imports the identical file.
+// Reads packages/web/brand/tokens.json rather than re-declaring hex values.
+// The typed counterpart for component code is src/theme/tokens.ts, which
+// imports the identical file.
+//
+// NOT a parity hookup, despite the shared file. packages/web/tailwind.config.ts
+// imports nothing from tokens.json — web's shipped semantic colors are CSS
+// custom properties in src/styles/globals.css, and they have diverged from it.
+// Editing tokens.json reskins mobile only. Closing that gap is design-system
+// work, not a config change (ADR-0026 assumed the parity that was never wired).
+//
+// The divergence is not cosmetic: the semantic values below are FILL/BORDER
+// weights. `warning` (#DE9326) fails WCAG 1.4.3 as text on light — web replaced
+// its text weight for exactly that reason (#1377, globals.css --semantic-*).
+// Do not use text-warning / text-critical until the mobile palette carries its
+// own AA-checked text weights.
 const tokens = require('../web/brand/tokens.json');
 
 const { color, fontSize, space, radius } = tokens;

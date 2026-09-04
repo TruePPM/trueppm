@@ -106,11 +106,13 @@ today, and we are not going to pretend otherwise.
 ## Mobile — no released app yet
 
 - **Today:** the web UI is responsive, but there is nothing installable and no
-  offline-capable shell you can add to a home screen. A React Native app already
-  exists in the repository — five working screens (Projects, Schedule, Tasks, Time,
-  Settings), offline sync, and authentication — and is under active CI, but it is an
-  internal build with no store distribution and no public release. "No app yet"
-  describes what you can install, not what has been written.
+  offline-capable shell you can add to a home screen. A React Native **scaffold**
+  exists in the repository: a five-tab navigation shell with placeholder screens,
+  plus typed module boundaries for the offline store, the sync client, and
+  authentication that are not yet implemented. There are no native Android or iOS
+  projects, so it cannot be built or installed — not by us either. CI runs lint and
+  type-check on it; there is no test suite. Treat it as the foundation the 0.6 app
+  is being built on, not as an unreleased app.
 - **0.5:** an installable PWA with an offline shell — add to home screen, time entry
   and board reads without a signal.
 - **0.6:** the in-progress React Native app above reaches GA on Android — Android

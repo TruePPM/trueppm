@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { palette } from '../theme/tokens';
 
 interface ScreenProps {
-  /** Detox/test handle and accessibility anchor for the screen root. */
+  /** Test handle and accessibility anchor for the screen root. */
   testID: string;
   /** Screen title rendered in the header band. */
   title: string;
@@ -18,7 +18,7 @@ interface ScreenProps {
  * Shared placeholder screen primitive for the scaffold. Wraps content in a
  * safe-area view (notch / gesture-bar aware) and renders a token-styled header.
  * Feature work replaces the placeholder body per surface; the header + testID
- * contract stays stable so the navigation smoke test keeps passing.
+ * contract stays stable so screens stay addressable as features land.
  */
 export function Screen({ testID, title, subtitle, children }: ScreenProps): ReactNode {
   return (

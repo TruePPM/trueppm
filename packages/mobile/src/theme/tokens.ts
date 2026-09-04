@@ -1,12 +1,14 @@
 /**
- * Typed design-token bridge — the code-level half of the web↔mobile parity
- * hookup (ADR-0026).
+ * Typed design-token bridge for the mobile app.
  *
- * Imports the SAME canonical source the web design system derives from
- * (`packages/web/brand/tokens.json`) so a single edit to that file reskins both
- * surfaces. `tailwind.config.js` consumes the identical file for NativeWind
- * class generation; this module exposes the values as a typed object for
- * `StyleSheet` / `style`-prop component code.
+ * Imports `packages/web/brand/tokens.json` — the file web's design system was
+ * derived from, not a live parity hookup: `packages/web/tailwind.config.ts`
+ * imports nothing from it, and web's shipped semantic colors (CSS custom
+ * properties in `src/styles/globals.css`) have diverged. An edit to tokens.json
+ * reskins mobile only. `tailwind.config.js` consumes the identical file for
+ * NativeWind class generation; this module exposes the values as a typed object
+ * for `StyleSheet` / `style`-prop component code. See that config's header for
+ * the WCAG consequence of the divergence (#1377).
  */
 import tokens from '../../../web/brand/tokens.json';
 

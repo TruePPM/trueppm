@@ -10,7 +10,7 @@
  *             WatermelonDB-formatted, per-project, Viewer+ may pull.
  *   - POST /api/v1/projects/{pk}/sync/
  *           → push; write-role required; per-row idempotency + conflict resolve.
- *   - POST /api/v1/sync/ws/ticket/  → WebSocket auth ticket.
+ *   - POST /api/v1/ws/ticket/  → WebSocket auth ticket (apps/sync/urls.py).
  */
 import type { SyncedTable } from '../db/schema';
 

@@ -70,8 +70,9 @@ const Tab = createBottomTabNavigator<RootTabParamList>();
 
 /**
  * Root bottom-tab shell. Tasks is the initial route (the contributor's most
- * frequent surface). Each tab button carries a stable `tabBarButtonTestID` the
- * Detox launch smoke (e2e/flows/app-launch.e2e.ts) targets.
+ * frequent surface). Each tab button carries a stable `tabBarButtonTestID` from
+ * TAB_TEST_IDS so the shell stays addressable once a runnable e2e harness
+ * returns with the native projects (#1599).
  */
 export function RootTabs(): ReactNode {
   return (
