@@ -3292,11 +3292,20 @@ class Task(VersionedModel):
     effort_estimate = models.FloatField(null=True, blank=True)
 
     # ── Hybrid governance / delivery model (ADR-0036, #407) ─────────────────────
-    # The three foundational fields every hybrid feature reads: the rollup engine
-    # (#408), the agile-aware Monte Carlo (#411), and the governance overlays. All
-    # carry defaults so every pre-existing row keeps its current waterfall/flow
+    # The three foundational fields of the hybrid taxonomy. They are NOT read to
+    # the same depth, and the comment that claimed they were sent readers looking
+    # for consumers that do not exist (#3303):
+    #   `delivery_mode` — the rollup engine (#408) and the agile-aware Monte Carlo
+    #     (#411) both branch on it, as does the Schedule's row presentation.
+    #   `type` — board lane, work-item badge, schedulable-effort rule.
+    #   `governance_class` — stored, cascaded, imported and exported faithfully,
+    #     but exactly ONE place branches on its value: the template gate count in
+    #     `project_templates.extract_structure`. Whether it grows real consumers is
+    #     #3299; until it does, do not describe it as one.
+    # All carry defaults so every pre-existing row keeps its current waterfall/flow
     # semantics — purely additive, no behavioral change. db_index on the two choice
-    # fields because the rollup + overlay queries filter subtrees by them.
+    # fields because the rollup queries filter subtrees by them, and because a
+    # classification cascade selects a subtree by them.
     governance_class = models.CharField(
         max_length=8,
         choices=GovernanceClass.choices,

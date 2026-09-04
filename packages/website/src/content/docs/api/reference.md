@@ -957,8 +957,15 @@ set one row at a time through `PATCH /api/v1/tasks/{id}/`, and
 
 | Field | Values | Means | Inherit bit |
 |---|---|---|---|
-| `governance_class` | `gated` · `flow` · `hybrid` | which overlay governs the subtree | **yes** (`parent_governance_inherited`) |
+| `governance_class` | `gated` · `flow` · `hybrid` | declares how the subtree is governed | **yes** (`parent_governance_inherited`) |
 | `delivery_mode` | `waterfall` · `scrum` · `kanban` · `milestone` | how work is executed, estimated, rolled up | no |
+
+The two are not read to the same depth, and it matters if you are integrating.
+`delivery_mode` changes what the server computes — rollup, Monte Carlo sampling,
+schedule presentation. `governance_class` is stored, inherited, cascaded and
+returned faithfully, but only one thing branches on its value today: the `gates`
+count in a project template's structure. Set it to describe your plan; do not
+expect a different rollup or forecast because a subtree is `gated`.
 
 `scrum` and `kanban` are not interchangeable: a `scrum` node rolls up from
 story-point burndown and samples the team velocity distribution in Monte Carlo, a

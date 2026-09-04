@@ -26,6 +26,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Program,
     Project,
     ProjectTemplate,
     Task,
@@ -818,6 +819,114 @@ class TestRepublishVersioning:
 
 
 @pytest.mark.django_db
+class TestProgramScopedUniqueness:
+    """A name collision is only a collision inside a pool the publisher can see (#3309).
+
+    ``ProjectTemplateViewSet.get_queryset`` narrows a program's gallery to that
+    program's templates plus the workspace-wide ones. Publishing used to look a
+    name up across the whole workspace, so two programs sharing a template name —
+    the ordinary shape for a PMO running several programs — collided in two
+    user-visible ways: a ``superseded`` chip on a card whose cause the owner
+    cannot see, and a 409 disclosing the name and version of a template the
+    caller has no access to.
+    """
+
+    def _publish(self, client: APIClient, project: Project, **extra: Any) -> Any:
+        return client.post(
+            "/api/v1/project-templates/publish/",
+            {"project": str(project.pk), "name": "Delivery skeleton", **extra},
+            format="json",
+        )
+
+    @pytest.fixture
+    def two_programs(self, calendar: Calendar, owner: Any) -> tuple[Project, Project, APIClient]:
+        """One workspace, two programs, one Admin on a project in each."""
+        a = Project.objects.create(
+            name="A1",
+            start_date=date(2026, 4, 1),
+            calendar=calendar,
+            program=Program.objects.create(name="Program A"),
+        )
+        b = Project.objects.create(
+            name="B1",
+            start_date=date(2026, 4, 1),
+            calendar=calendar,
+            program=Program.objects.create(name="Program B"),
+        )
+        for project in (a, b):
+            ProjectMembership.objects.create(project=project, user=owner, role=Role.ADMIN)
+            _shape(project)
+        client = APIClient()
+        client.force_authenticate(user=owner)
+        return a, b, client
+
+    def test_a_sibling_programs_template_is_not_a_name_collision(
+        self, two_programs: tuple[Project, Project, APIClient]
+    ) -> None:
+        """No 409, so nothing about A's template leaks into B's rejection."""
+        a, b, client = two_programs
+        assert self._publish(client, a).status_code == 201
+
+        resp = self._publish(client, b)
+
+        assert resp.status_code == 201, resp.data
+        assert resp.data["version"] == 1
+        assert resp.data["supersedes"] is None
+
+    def test_republishing_in_one_program_never_supersedes_a_siblings_template(
+        self, two_programs: tuple[Project, Project, APIClient]
+    ) -> None:
+        """The chip A's PM sees must never be caused by a row A cannot see."""
+        a, b, client = two_programs
+        first_a = self._publish(client, a).data
+        self._publish(client, b)
+
+        second_b = self._publish(client, b, new_version=True).data
+
+        assert second_b["version"] == 2
+        assert str(second_b["supersedes"]) != str(first_a["id"])
+        assert ProjectTemplate.objects.get(pk=first_a["id"]).superseded_by.exists() is False
+        # And the gallery A actually renders agrees.
+        rows = {
+            str(r["id"]): r
+            for r in client.get("/api/v1/project-templates/", {"program": str(a.program_id)}).data[
+                "results"
+            ]
+        }
+        assert rows[str(first_a["id"])]["is_superseded"] is False
+
+    def test_a_program_still_supersedes_its_own_earlier_version(
+        self, two_programs: tuple[Project, Project, APIClient]
+    ) -> None:
+        """The scoping must not cost a program its own version chain."""
+        a, _b, client = two_programs
+        first = self._publish(client, a).data
+
+        conflict = self._publish(client, a)
+        assert conflict.status_code == 409
+        assert conflict.data["next_version"] == 2
+
+        second = self._publish(client, a, new_version=True).data
+        assert second["version"] == 2
+        assert str(second["supersedes"]) == str(first["id"])
+
+    def test_a_program_extends_its_own_chain_over_a_higher_workspace_wide_version(
+        self, two_programs: tuple[Project, Project, APIClient]
+    ) -> None:
+        """Own-pool rows outrank shared ones, so the chain cannot fork on version alone."""
+        a, _b, client = two_programs
+        own = self._publish(client, a).data
+        # A workspace-wide row of the same name, at a HIGHER version than A's own.
+        shared = ProjectTemplate.objects.create(
+            name="Delivery skeleton", program=None, version=7, structure={}, is_published=True
+        )
+
+        second = self._publish(client, a, new_version=True).data
+
+        assert str(second["supersedes"]) == str(own["id"])
+        assert ProjectTemplate.objects.get(pk=shared.pk).superseded_by.exists() is False
+
+
 class TestUsageCount:
     """ "12 projects" is the PMO's only evidence that a shape is the house standard."""
 
