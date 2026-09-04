@@ -268,6 +268,51 @@ def test_revoked_facet_holder_is_not_notified(
     ).exists()
 
 
+def test_facet_holder_whose_project_membership_was_revoked_is_not_notified(
+    project: Project,
+    actor: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Revoking the *project* membership must silence the facet half too (#3334).
+
+    The sibling of the test above, and the one that actually happens. Offboarding
+    soft-deletes a ``ProjectMembership``; nothing touches the ``TeamMembership``,
+    because the ADR-0078 §F mirror is create-only — no ``post_delete`` receiver, and
+    no FK a cascade could travel over. So the case above (a soft-deleted *team* row)
+    is the state a facet handoff produces, while this one is the state every
+    offboarding produces, and only the second was leaking: the facet arm kept sending
+    an offboarded PO the task and sprint names of a project they can no longer open.
+
+    The ADMIN+ arm is asserted alongside deliberately. Both arms have to clear the
+    same floor, and a cohort that filtered one and not the other is exactly the
+    defect — the old docstring said the filter applied "on both halves" while the
+    facet half only ever filtered the team row.
+    """
+    gone_po = _facet_member(project, "ex-po", Role.MEMBER, product_owner=True)
+    gone_admin = _member(project, "ex-admin", Role.ADMIN)
+    still_here = _facet_member(project, "sm", Role.MEMBER, scrum_master=True)
+    ProjectMembership.objects.filter(project=project, user__in=[gone_po, gone_admin]).update(
+        is_deleted=True
+    )
+    # The precondition the leak depended on: the mirrored team row survived intact.
+    assert TeamMembership.objects.filter(user=gone_po, is_deleted=False).exists()
+
+    active = _sprint(project, "S-active", SprintState.ACTIVE)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=active)
+
+    _fire(task, None, active.pk, actor, django_capture_on_commit_callbacks)
+
+    recipients = set(
+        Notification.objects.filter(
+            event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED
+        ).values_list("recipient_id", flat=True)
+    )
+    assert gone_po.pk not in recipients
+    assert gone_admin.pk not in recipients
+    # Narrowing the cohort must not silence it for the people still on the project.
+    assert recipients == {still_here.pk}
+
+
 @pytest.mark.parametrize("role", [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN])
 @pytest.mark.parametrize(
     ("scrum_master", "product_owner"),
@@ -292,6 +337,20 @@ def test_notified_set_covers_authorized_set(
     The converse (notified => authorized) is deliberately not asserted: an ADMIN who
     is not a facet holder is both, but a future cohort could reasonably widen to
     interested-but-unauthorized watchers. Authorized-without-notice is the defect.
+
+    **What this matrix cannot see (#3334).** Every subject is seated through
+    ``_facet_member`` → ``_member``, so all sixteen cells carry a live
+    ``ProjectMembership``. The one cell that would now diverge — a live facet with
+    **no** live project membership — is unreachable from this parametrization, so
+    this pin passes vacuously on that axis rather than covering it. It is not an
+    oversight to fix by adding the cell: against the raw ``assert_scope_gate_for_project``
+    predicate that cell is authorized-and-unnotified and the assertion below would
+    fail, even though no HTTP path can reach it (both entry points 404 a non-member
+    first). Covering it honestly means asserting the *reachable* invariant — the
+    viewset's 404 — which is a different test than this one. Until that exists,
+    ``test_facet_holder_whose_project_membership_was_revoked_is_not_notified`` above
+    is the only thing pinning the revoked case, and it pins the cohort, not the
+    relationship.
     """
     from trueppm_api.apps.projects.services import (
         ScopeAcceptForbidden,

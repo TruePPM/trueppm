@@ -491,3 +491,59 @@ def test_the_inventory_is_not_vacuous() -> None:
         "the endpoint #2749 is specifically about is missing from the inventory — "
         "the walker is not seeing what it should"
     )
+
+
+# ---------------------------------------------------------------------------
+# The archive bypass stays scoped to ProjectViewSet (#3354)
+# ---------------------------------------------------------------------------
+
+
+def test_no_viewset_but_projectviewset_exposes_an_archive_bypass_action() -> None:
+    """`_ARCHIVE_BYPASS_ACTIONS` matches on action NAME, for any viewset carrying
+    `IsProjectNotArchived` — so the permission class's own comment says to scope it
+    by viewset class before a second viewset ever names one of those actions.
+
+    Nothing enforced that. #3354 took the class from one viewset to four; all four
+    are safe today because the three new ones are `ReadOnlyModelViewSet`s whose only
+    extra action is `undo`. The live hazard is a later promotion to `ModelViewSet`,
+    which mints a `destroy` route that would silently inherit an archived bypass —
+    re-opening exactly the hole #3354 closed, in a diff that would look like it only
+    changed a base class. This is the test that turns that into a loud failure.
+    """
+    from trueppm_api.apps.access.permissions import IsProjectNotArchived
+
+    bypass = IsProjectNotArchived._ARCHIVE_BYPASS_ACTIONS
+    seen: set[str] = set()
+    offenders: list[str] = []
+
+    for _path, entry in _walk():
+        cls = _view_class(entry)
+        if cls is None or not issubclass(cls, ViewSetMixin):
+            continue
+        perms = getattr(cls, "permission_classes", []) or []
+        if not any(p is IsProjectNotArchived for p in perms):
+            continue
+        seen.add(cls.__name__)
+        if cls.__name__ == "ProjectViewSet":
+            continue
+        # `initkwargs["actions"]` maps HTTP method -> action name for a router route.
+        actions = set((getattr(entry.callback, "initkwargs", {}) or {}).get("actions", {}).values())
+        for action in sorted(actions & bypass):
+            offenders.append(f"{cls.__name__}.{action}")
+
+    assert not offenders, (
+        "these viewsets carry IsProjectNotArchived AND expose an action named in "
+        f"_ARCHIVE_BYPASS_ACTIONS, so that action bypasses the archived check: "
+        f"{sorted(set(offenders))}. Scope the bypass by viewset class (see the NOTE "
+        "on _ARCHIVE_BYPASS_ACTIONS) before shipping this."
+    )
+    # Guard the guard: if the walk stopped finding these viewsets, the assertion
+    # above would pass vacuously forever.
+    assert "ProjectViewSet" in seen, (
+        "the walker found no ProjectViewSet route carrying IsProjectNotArchived — "
+        "it is broken, not the surface"
+    )
+    assert len(seen) >= 4, (
+        f"expected at least the 4 viewsets carrying IsProjectNotArchived after "
+        f"#3354, found {sorted(seen)}"
+    )

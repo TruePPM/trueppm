@@ -6,8 +6,15 @@
  * one-shot and stripped from the URL — ADR-0799 §1), plus the Next strip's
  * derived suggestions and the untouched-seeded tick mark in the task-list
  * margin. Golden path covers the banner's counts and the delete-untouched flow;
- * the edge case covers the application still `pending` (nothing to summarize
+ * the edge cases cover the application still `pending` (nothing to summarize
  * yet — the banner is not a progress bar) and the Next strip's own empty state.
+ *
+ * The pending cases are deliberately TWO, seeded with and without rows (#3312).
+ * The original single case set `applicationStatus: 'pending'` but seeded the
+ * fixture WITH tasks, so the empty-and-pending window — the one a user lands in
+ * between the 202 and the first row arriving, and the only one where the blank
+ * canvas invites a write into a project a template is mid-write on — was
+ * asserted by nothing while nominally being the case that owned it.
  *
  * Every task read goes through `setupTaskStore`, not the stateless default list
  * mock — the delete-untouched assertion reads DOM state after a write, which
@@ -102,7 +109,10 @@ const APPLICATION_SUCCESS = {
   undone_at: null,
 };
 
-async function setup(page: Page, opts: { applicationStatus?: string } = {}) {
+async function setup(
+  page: Page,
+  opts: { applicationStatus?: string; tasks?: typeof FIXTURE_TASKS } = {},
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
@@ -117,7 +127,10 @@ async function setup(page: Page, opts: { applicationStatus?: string } = {}) {
       }),
     });
   });
-  return setupTaskStore(page, { tasks: FIXTURE_TASKS });
+  // `tasks: []` is the state #3312 is about — the apply has been dispatched but
+  // no row has landed. It has to be reachable from this helper, because seeding
+  // the fixture WITH rows is exactly how the pending case below used to miss it.
+  return setupTaskStore(page, { tasks: opts.tasks ?? FIXTURE_TASKS });
 }
 
 async function gotoAndWaitForSchedule(page: Page) {
@@ -210,7 +223,9 @@ test.describe('Seeded landing (#2731, ADR-0799)', () => {
     await expect(page.getByTestId('seed-banner')).toBeHidden();
   });
 
-  test('edge case: an application still applying shows no banner', async ({ page }) => {
+  test('edge case: an application still applying, with rows already landed, shows no banner', async ({
+    page,
+  }) => {
     await setup(page, { applicationStatus: 'pending' });
     await gotoAndWaitForSchedule(page);
 
@@ -220,6 +235,59 @@ test.describe('Seeded landing (#2731, ADR-0799)', () => {
     // untouched-seeded rows.
     await expect(page.getByTestId('seed-banner')).toBeHidden();
     await expect(page.getByTestId('next-strip')).toBeVisible();
+    // Rows are on screen, so there is no wait left to narrate.
+    await expect(page.getByTestId('schedule-seeding-state')).toBeHidden();
+  });
+
+  // #3312. This is the state the pending case above did NOT cover: it set
+  // `applicationStatus: 'pending'` but seeded the fixture WITH rows, so the
+  // empty-and-pending window — the one a user actually lands in — was asserted
+  // by nothing. Seeded with zero tasks, it reaches the state for real.
+  test('empty and still applying: a seeding state, not an invitation to type', async ({ page }) => {
+    await setup(page, { applicationStatus: 'pending', tasks: [] });
+    await page.goto(SCHEDULE_URL);
+
+    const seeding = page.getByTestId('schedule-seeding-state');
+    await expect(seeding).toBeVisible({ timeout: 10_000 });
+    // Announced, not merely painted — a wait a screen reader cannot hear is the
+    // same silence for that user.
+    await expect(
+      page.getByRole('status', { name: 'Setting up your schedule', exact: true }),
+    ).toBeVisible();
+    await expect(seeding).toContainText('Setting up your schedule');
+    await expect(seeding).toContainText('Writing rows from your template');
+
+    // The regression itself: the blank-project draft row invited a first item
+    // into a project the template is mid-write on, and the mobile card said
+    // "No items yet", which reads as "the apply failed".
+    await expect(page.getByPlaceholder('Type your first item, then press Enter')).toBeHidden();
+    await expect(page.getByRole('textbox', { name: 'First item name' })).toBeHidden();
+    // The blank canvas is replaced outright, aside included — its "ways to fill
+    // this project" panel is addressed to a user who is not the one filling it.
+    // ("No items yet" is the MOBILE copy; this project runs Desktop Chrome only,
+    // so that arm is pinned in `MobileSchedule.test.tsx` instead.)
+    await expect(page.getByRole('button', { name: 'Import a file' })).toBeHidden();
+    await expect(page.getByLabel('Ways to fill this project')).toBeHidden();
+
+    // Still no banner: the application has nothing to summarize yet.
+    await expect(page.getByTestId('seed-banner')).toBeHidden();
+  });
+
+  test('empty and NOT applying: the ordinary blank-project canvas is untouched', async ({
+    page,
+  }) => {
+    // The negative control. A `failed` application is deliberately not seeding
+    // (#3348) — that project really is empty, and the live draft row is the
+    // right affordance for it. Without this, the assertion above would pass just
+    // as well against a state that swallowed the blank canvas unconditionally.
+    await setup(page, { applicationStatus: 'failed', tasks: [] });
+    await page.goto(SCHEDULE_URL);
+
+    await expect(page.getByRole('textbox', { name: 'First item name' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByLabel('Ways to fill this project')).toBeVisible();
+    await expect(page.getByTestId('schedule-seeding-state')).toBeHidden();
   });
 
   test('edge case: a fully hand-authored plan shows no Next strip', async ({ page }) => {

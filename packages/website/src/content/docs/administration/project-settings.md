@@ -58,7 +58,17 @@ The **General** page edits the project's identity:
 
 - **Name**, **description**, and **code**
 - **Health** indicator and **visibility**
-- **Time zone** and **default view** (which view opens when you enter the project)
+- **Time zone** — the clock this project's
+  [quiet hours](/features/settings/project-notifications/#quiet-hours) are read in, and
+  the only thing it does. It does not change how dates are displayed to you: task dates are calendar
+  dates, so no time zone moves them, and timestamps follow your own
+  [personal time zone](/features/timezone-and-date-format/#timezone). Leaving it on
+  **Workspace default** falls back to the server's time zone, which is UTC.
+- **Default view** — the view this project states it leads with. TruePPM does **not**
+  route on it: opening a project takes you to the view your own
+  [view focus](/features/view-focus/) prefers, so two people opening the same project
+  land in different places regardless of what is set here. The value is saved, returned
+  by the API, and shown on an empty schedule among the project's stated facts.
 - **Public sharing** and **guest access** — these inherit from the workspace (or the
   project's program) and an Owner/Admin can override them per project. A control with no
   override reads **Inherit (On/Off)**, showing the value that would apply from the parent
@@ -324,6 +334,27 @@ direct link.** Turning off the Schedule surface does not stop CPM from running o
 the schedule private; it removes the navigation entry. Treat this as decluttering, not
 as an access control. Use [Access](#access) for permissions and [Sharing](#sharing) for
 external exposure.
+
+### Time tracking is stored but not read
+
+Three of the four toggles do what they say. **Time tracking does not**, and the row is
+shown inert rather than editable so you are not offered a save that changes nothing.
+
+Every time-logging surface in TruePPM is **personal and cross-project** — the top-bar
+timer, **Quick log**, [My Work](/features/my-work/), and your
+[timesheet](/features/timesheet/) each cover every project you are on. None of them is
+per-project chrome that a per-project setting could hide, so there is nothing for the
+toggle to switch off.
+
+The column, the API field, and the methodology default are all still live: the value
+saves, round-trips on reload, and is returned by `GET /api/v1/projects/{id}/`. Only the
+consequence is missing. Hiding it also no longer notifies the team — a
+[config-change notice](#notifications) about a change nobody can see is noise, so this
+one surface is excluded from that notice.
+
+Making it real needs a per-task delivery signal on the My Work payload, which is a
+feature rather than a wiring fix; nothing tracks it yet. Until then, treat the row as a
+statement of intent, not as a control.
 
 ## Sharing
 

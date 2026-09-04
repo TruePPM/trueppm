@@ -200,6 +200,7 @@ dev = [
     "pytest-cov>=4.0,<8.0",
     "pytest-xdist>=3.6,<4.0",
     "pytest-split>=0.9,<1.0",
+    "pytest-timeout>=2.4,<3.0",
     "pytest-socket>=0.8,<1.0",
     "diff-cover>=9.0,<10.0",
     "mypy==1.20.2",
@@ -221,7 +222,31 @@ packages = ["src/trueppm_api"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers --tb=short -q"
+# --timeout=180: a per-test wall-clock ceiling so a wedged test fails with its
+# own name and stack instead of stalling the run until the CI job timeout, which
+# names nothing (#3390). The ceiling is deliberately far outside normal
+# variance. Two measurements bound it: the slowest genuine test is 8.14s in a
+# freshly generated duration baseline (the 10.43s max in the older committed
+# baseline is the same session-setup artifact described on the
+# api:test-durations job, not a slow test), and the longest deliberate sleep in
+# the suite is 3s. The timer wraps setup+call+teardown, so a session fixture is
+# charged to the first test — measured worst case is a cold --create-db
+# replaying all 315 migrations at 19.9s, still 9x under the ceiling. The
+# testcontainers Postgres boot happens in pytest_configure, outside the timer
+# entirely.
+#
+# `thread` method (not `signal`) because it works on every platform and under
+# pytest-xdist workers, and it dumps the stack of the stuck thread — that stack
+# is the whole point, and it prints frames without locals, so it cannot spill
+# secrets into a CI log. Caveat worth knowing: on a fire it calls os._exit(1),
+# which kills the xdist worker without pytest-cov's finish handshake, so that
+# worker's coverage (~1/4 of the shard) is lost and the coverage gate may fail
+# with a number that does not point back at the timeout. Only reachable on a
+# real hang, which is currently unbounded, so it is still strictly better.
+#
+# pytest-timeout cancels itself when a debugger attaches, so local pdb sessions
+# are unaffected.
+addopts = "--strict-markers --tb=short -q --timeout=180 --timeout-method=thread"
 asyncio_mode = "auto"
 DJANGO_SETTINGS_MODULE = "trueppm_api.settings.dev"
 

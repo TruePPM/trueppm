@@ -871,6 +871,13 @@ export function ProjectGeneralPage() {
             />
           </FieldRow>
 
+          {/* One reader: notifications.services._project_timezone, the quiet-hours
+              anchor. It does NOT drive due dates, Gantt rendering or sprint
+              cutovers — a task's start/finish are calendar dates and no zone can
+              move them — and it does not decide how dates are shown to you, which
+              follows your own Profile.timezone (ADR-0410). The copy said all four
+              (#3376). "Workspace default" is the option's historical label; the
+              real fallback is settings.TIME_ZONE, hardcoded UTC — #3377. */}
           <FieldRow
             label="Timezone"
             hint="Anchors this project's notification quiet hours. Leave on Workspace default to inherit."
@@ -948,7 +955,22 @@ export function ProjectGeneralPage() {
             </div>
           </FieldRow>
 
-          <FieldRow label="Default view">
+          {/* Pattern C (#3234): the select stays enabled and the copy stops
+              over-claiming. Nothing navigational reads default_view — /projects/:id
+              redirects on lensDefaultView(user.role_context) per ADR-0162, a
+              per-user frame that never consults the project column. The one
+              consumer is cosmetic (the blank-schedule facts strip). Kept editable
+              rather than disabled because it IS a real project-level statement of
+              intent; whether it should beat the lens is #3380, not a wiring bug. */}
+          <FieldRow
+            label="Default view"
+            hint="Saved here, but it does not decide where you land — opening a project follows your own role-context lens."
+            help={fieldHelp({
+              label: 'Default view',
+              body: "The view this project states it leads with. TruePPM does not route on it: opening a project takes you to the view your own role context prefers — Schedule for a delivery lens, Board for a Scrum Master lens — so two people opening the same project land in different places regardless of what is set here. The value is saved, returned by the API, and shown on an empty schedule as one of the project's stated facts.",
+              docHref: 'administration/project-settings/#general',
+            })}
+          >
             <div className="relative inline-block w-[200px]">
               <select
                 value={defaultView}

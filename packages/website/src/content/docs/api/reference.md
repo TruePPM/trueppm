@@ -712,6 +712,20 @@ only tier that depends on who is asking.
 Publishing and applying both require **Project Manager (Admin)** or above on the
 project in question (ADR-0773). Reading the gallery requires only authentication.
 
+**Apply and undo are refused on an archived project** with a `403`, at every role
+including Owner — archiving makes a plan read-only, and that is a property of the
+plan rather than of the caller. Reads are unaffected: you can still list
+applications and poll one on an archived project. **Publishing from an archived
+project still works**, because extracting a template reads the source plan and
+writes nothing into it. Unarchive the target project first, then re-apply.
+
+Because apply is asynchronous, a project archived *after* a `202` is refused at
+seeding time rather than at request time: the application lands on
+`status: "failed"` with `error_detail` naming the archived project, and no rows
+are written. Poll `GET /api/v1/template-applications/{id}/` for it — there is no
+second `403` to catch, because the request that would have carried one already
+returned.
+
 Apply is rate-limited on the shared `seed_import` throttle scope — the same bound
 the seed and spreadsheet import paths carry.
 
@@ -1092,6 +1106,14 @@ Member the apply above admits. So a Member can receive a `200` here, with a real
 `operation_id`, and still be refused the undo. `can_undo` is that answer, computed
 from the same rule the undo endpoint enforces; read it rather than comparing role
 ordinals yourself, exactly as with `can_author` on the project resource.
+
+`can_undo` answers the **role** question only. Both batch undos —
+`POST /api/v1/cascade-classification-operations/{operation_id}/undo/` and
+`POST /api/v1/paste-many-operations/{operation_id}/undo/` — are separately refused
+with a `403` once the project is **archived**, at every role including Owner.
+Archiving makes a plan read-only; that is a property of the plan, not of the
+caller, so no role clears it, and `can_undo` does not report it. Reading a ledger
+row on an archived project still works — unarchive the project to undo.
 
 ### Task attachments
 
@@ -1747,6 +1769,13 @@ default read is the active pool. The caller needs program-write **and** Team
 Member+ on the target project — program authority alone cannot drop a task into
 a project. A `project_id` outside this program returns `400`; an item that is no
 longer `PROPOSED` returns `409`.
+
+:::note[Ships in 0.4]
+From **0.4**, a pull into an **archived** target project is refused with a `403`.
+On the current release only the *program's* closed state is checked, so a pull
+into an archived project succeeds. The archived refusal clears for no role — the
+project has to be unarchived.
+:::
 
 ### Mention groups
 

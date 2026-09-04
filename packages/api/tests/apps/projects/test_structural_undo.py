@@ -632,10 +632,13 @@ def test_a_member_cannot_undo_once_their_anchor_row_is_reassigned(
 
 @pytest.mark.django_db
 def test_undo_is_refused_on_an_archived_project(project: Project, owner_client: APIClient) -> None:
-    """`IsProjectNotArchived` is the only place `is_archived` is enforced.
+    """`IsProjectNotArchived` is the load-bearing gate on this route.
 
-    Without it on the undo route, a Member who indented before archival could still
-    rewrite an archived plan's WBS — a write no role can otherwise make.
+    Without it, a Member who indented before archival could still rewrite an
+    archived plan's WBS — a write no role can otherwise make. (It is not the *only*
+    place `is_archived` is enforced, as this docstring used to claim: most write
+    routes carry the class, and since #3354 `undo_structural_operation` repeats the
+    check at the service layer too.)
     """
     tasks = make_tasks(project, ["1", "2"])
     response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
@@ -888,3 +891,39 @@ def test_max_region_is_a_real_bound() -> None:
 @pytest.mark.django_db
 def test_undo_of_an_unknown_operation_is_404(project: Project, owner_client: APIClient) -> None:
     assert undo(owner_client, str(uuid.uuid4())).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Archived-project floor at the service layer (#3354)
+#
+# `StructuralOperationViewSet` has carried `IsProjectNotArchived` since it shipped,
+# so unlike the four paths #3354 fixed there was never an open hole here, and the
+# endpoint case is already covered by `test_undo_is_refused_on_an_archived_project`
+# above. What is new is that `undo_structural_operation` repeats the check itself,
+# so the floor is uniform across the family and holds for a caller DRF never sees.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_undo_structural_service_refuses_an_archived_project(project: Project) -> None:
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.projects.structural_operation_services import (
+        undo_structural_operation,
+    )
+
+    make_tasks(project, ["1", "2"])
+    operation = StructuralOperation.objects.create(
+        project=project, kind=StructuralOperationKind.INDENT
+    )
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    before = shape(project)
+
+    with pytest.raises(PermissionDenied):
+        undo_structural_operation(operation)
+
+    # Inert, not merely refused — the other three service tests assert this and
+    # this one is the weakest of the four without it.
+    assert shape(project) == before

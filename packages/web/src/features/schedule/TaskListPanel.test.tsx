@@ -748,3 +748,40 @@ describe('TaskListPanel — append-at-the-end footer (#2957)', () => {
     expect(screen.queryByTestId('schedule-append-task-footer')).toBeNull();
   });
 });
+
+describe('TaskListPanel — the seeding stand-in (#3312)', () => {
+  it('withholds the draft row while a template apply is still writing', () => {
+    renderPanel({ tasks: [], onCommitDraftRow: vi.fn(), seeding: true });
+    // The draft row focuses itself on mount, so leaving it present-but-disabled
+    // would still put the caret in "Type your first item" on a project a
+    // template is mid-write on.
+    expect(screen.queryByRole('textbox', { name: 'First item name' })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Type your first item/);
+    expect(screen.getByTestId('schedule-seeding-outline')).toBeInTheDocument();
+  });
+
+  it('keeps the draft row when nothing is being applied', () => {
+    renderPanel({ tasks: [], onCommitDraftRow: vi.fn() });
+    expect(screen.getByRole('textbox', { name: 'First item name' })).toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-seeding-outline')).toBeNull();
+  });
+
+  it('puts no rows in the treegrid, so the header-only rowcount is honest', () => {
+    renderPanel({ tasks: [], onCommitDraftRow: vi.fn(), seeding: true });
+    // The load-bearing half is the row COUNT: `BlankOutlineDraftRow` renders a
+    // real `role="row"`, so this fails the moment the swap stops happening.
+    // `aria-rowcount` is `tasks.length + 1` either way, so it cannot fail here on
+    // its own — it is asserted to pin that 1 is the truthful value, not the swap.
+    expect(screen.queryAllByRole('row')).toHaveLength(0);
+    expect(screen.getByRole('treegrid', { name: 'Item list' })).toHaveAttribute(
+      'aria-rowcount',
+      '1',
+    );
+  });
+
+  it('has no effect once rows have landed', () => {
+    renderPanel({ tasks: [task({ id: 'a', name: 'Alpha' })], seeding: true });
+    expect(screen.getByTestId('row-a')).toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-seeding-outline')).toBeNull();
+  });
+});

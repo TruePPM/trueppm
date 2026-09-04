@@ -28,6 +28,11 @@ export interface InheritableToggleFieldProps {
   canEdit: boolean;
   /** Optional secondary line under the override switch. */
   overrideHint?: string;
+  /** Present when NOTHING in the product reads this field. The control renders
+   *  inert for every role with this sentence bound to it, replacing an editable
+   *  toggle whose save would be accepted and change nothing. Say what is true
+   *  today and what would make it real — not "coming soon". */
+  notEnforced?: string;
 }
 
 const chipClass = (selected: boolean) =>
@@ -51,6 +56,10 @@ const chipClass = (selected: boolean) =>
  *
  * Below role >= ADMIN (`canEdit === false`) it collapses to a read-only indicator:
  * a status dot + the literal word + provenance, one composite `aria-label`.
+ *
+ * `notEnforced` is a third state and takes precedence over both: when nothing
+ * reads the field, an ADMIN's edit is as inert as a Viewer's, so the honest
+ * answer is the same for every role (#3376).
  */
 export function InheritableToggleField({
   value,
@@ -63,11 +72,72 @@ export function InheritableToggleField({
   ariaLabel,
   canEdit,
   overrideHint,
+  notEnforced,
 }: InheritableToggleFieldProps) {
   const radioName = useId();
+  const noteId = useId();
   const inheriting = value === null;
   const effective = value ?? inherited;
   const word = (on: boolean) => (on ? onLabel : offLabel);
+
+  if (notEnforced) {
+    // Deliberately NOT the `!canEdit` branch below, whose composite name ends
+    // "View only." — that sentence promises the value is enforced for somebody
+    // with more rights, which is the exact false assurance this state removes.
+    // `role="group"`, not the `role="img"` the read-only branch uses: an `img`
+    // is atomic and would swallow the note, and this region's whole point is
+    // that it carries exposed prose. Some role is required either way — a bare
+    // div is `role="generic"`, on which browsers drop `aria-label` (#2265).
+    // No `disabled` control is rendered at all: `disabled` strips the tab stop
+    // and the accessible name, which would move the explanation out of reach of
+    // the reader who most needs it (rule 361c).
+    //
+    // What actually guarantees the note is read is DOM containment — it is a
+    // non-hidden child of the labelled group, so it is in normal browse order.
+    // `aria-describedby` is belt-and-braces: descriptions are surfaced reliably
+    // on FOCUS, and nothing here takes focus. Do not rely on it alone elsewhere.
+    const provenance = inheriting
+      ? `inherited from ${inheritFromLabel}`
+      : `set on this ${scopeNoun}`;
+    return (
+      <div
+        role="group"
+        aria-label={`${ariaLabel}: ${effective ? 'On' : 'Off'}, ${provenance}. Not enforced.`}
+        aria-describedby={noteId}
+        className="flex flex-col gap-1.5"
+      >
+        <span className="flex items-center gap-2 text-[13px]" aria-hidden="true">
+          {/* The dot tracks the stored value like the read-only branch, so it can
+              never contradict the word beside it (rule 7 — state is carried by
+              text as well as color). What the pair does NOT claim is that the
+              value has an effect; the bound note owns that. */}
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className={
+                effective
+                  ? 'w-2 h-2 rounded-full bg-brand-primary'
+                  : // input-border, not neutral-border: at 1.15:1 on white the
+                  // "Off" dot reads as a dot that failed to paint. Not a 1.4.11
+                  // failure (it is aria-hidden and "Off" sits beside it), but
+                  // the token exists for exactly this ≥3:1 boundary case.
+                  'w-2 h-2 rounded-full border border-input-border'
+              }
+            />
+            <span className="font-medium text-neutral-text-primary">
+              {effective ? 'On' : 'Off'}
+            </span>
+          </span>
+          <span className="text-neutral-text-secondary">· {provenance}</span>
+        </span>
+        {/* neutral-text-secondary, never -disabled: this sentence is the whole
+            point of the state and has to stay readable (rule 169). Capped for
+            measure at the settings shell's 12px prose width (rule 293). */}
+        <p id={noteId} className="max-w-[440px] text-[12px] text-neutral-text-secondary">
+          {notEnforced}
+        </p>
+      </div>
+    );
+  }
 
   if (!canEdit) {
     // Read-only indicator (ADR-0133): state conveyed by text + dot, never color
@@ -78,6 +148,15 @@ export function InheritableToggleField({
       : `set on this ${scopeNoun}`;
     return (
       <div
+        // role="img": `aria-label` on a bare div is `role="generic"`, where
+        // browsers drop the name — and every child here is aria-hidden, so the
+        // row announced NOTHING to a Member. jsdom computes the name anyway, so
+        // the unit tests below passed on the broken form (#3376). `img` rather
+        // than `group` because this readout is ATOMIC: it has no exposed content
+        // of its own, so it is named as a single labeled graphic — the shape
+        // ReadOnlyIndicator settled on in #2265, and this branch is what that
+        // component was extracted from.
+        role="img"
         className="flex items-center gap-2 text-[13px]"
         aria-label={`${ariaLabel}: ${effective ? 'On' : 'Off'}, ${provenance}. View only.`}
       >
@@ -86,7 +165,11 @@ export function InheritableToggleField({
             className={
               effective
                 ? 'w-2 h-2 rounded-full bg-brand-primary'
-                : 'w-2 h-2 rounded-full border border-neutral-border'
+                : // input-border, not neutral-border: at 1.15:1 on white the
+                  // "Off" dot reads as a dot that failed to paint. Not a 1.4.11
+                  // failure (it is aria-hidden and "Off" sits beside it), but
+                  // the token exists for exactly this ≥3:1 boundary case.
+                  'w-2 h-2 rounded-full border border-input-border'
             }
           />
           <span className="font-medium text-neutral-text-primary">{effective ? 'On' : 'Off'}</span>

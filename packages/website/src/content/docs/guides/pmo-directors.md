@@ -45,29 +45,28 @@ Each project carries a Monte Carlo forecast — P50 / P80 / P95 — instead of a
 
 Run these steps in order — they start from a machine with nothing running.
 
-1. **Start the stack and load both data sets.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+1. **Start the stack and load the program data set.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
    ```bash
    make up
-   docker compose exec api python manage.py load_sample_project --with-personas
-   docker compose exec api python manage.py load_sample_project --with-personas   # Atlas
+   docker compose exec api python manage.py load_sample_project --with-personas   # Atlas (default)
    ```
 
-   You need both: the demo seed gives you the two-project multi-team view and the persona roles, and **Atlas is the only bundled data set that contains an actual program** — three related projects under one lead, which is what steps 4 and 5 are about. Each command prints its persona logins and shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
+   **Atlas is the bundled data set that contains an actual program** — three related projects under one lead, which is what steps 4 and 5 are about. The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as the PMO director.** Open `http://localhost:5173` and sign in as **`diana`** — Diana Khan, seeded with the **Admin** role, which is what makes step 6 reachable.
+2. **Sign in as the PMO director.** Open `http://localhost:5173` and sign in as **`atlas-priya`** — Priya Nair, Engineering Lead, seeded with the **Admin** role, which is what makes step 6 reachable.
 
 3. **Open the multi-team sprints lens.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`), then flip the **`[ This project | My Teams ]`** toggle in the breadcrumb row to **My Teams**. It aggregates the active sprints across projects into one view — day-of-sprint, remaining points, capacity, trend, and forecast, sorted most-behind first. This is program-level visibility without opening each project.
 
-   :::note[No `My Teams` toggle?]
-   It only appears for someone active in two or more sprints at once — otherwise there is nothing to aggregate and the control stays hidden. The demo seeds `diana` and `sarah` across both of its projects for exactly this reason, so sign in as one of them rather than `raj` or `maya`.
+   :::caution[No bundled sample can show this toggle yet]
+   It only appears for someone holding unfinished work in two or more *simultaneously active* sprints — otherwise there is nothing to aggregate and the control stays hidden. No persona in any bundled sample currently meets that bar: Atlas has two active sprints (Platform Core and GTM Readiness) but their assignees do not overlap, and persona accounts are namespaced per sample (`atlas-…`, `aurora-…`), so loading a second sample cannot give one account work in both. Tracked in [#3393](https://gitlab.com/trueppm/trueppm/-/issues/3393). To see the lens today, assign yourself a task in each project's active sprint first.
    :::
 
 4. **Open the program view.** Sign in as **`atlas-alex`** (the Atlas program lead) and use the top-bar location switcher to select the **Atlas Platform Launch** *program* rather than a project inside it. Open its **Overview** (`/programs/:id/overview`) — the rollup across its three projects, the cross-project picture a program manager works from.
 
 5. **Follow the cross-project critical path.** Click **Schedule** in the same rail (`/programs/:id/schedule`). Platform Core gates Migration, which gates the public-launch milestone — one critical path running straight through three project boundaries.
 
-6. **Open the audit log** at **Settings → Audit log**, back on the `diana` account. Confirm that operational changes are recorded with who and when. This step needs Admin or Owner — it is why the walkthrough uses `diana` rather than `raj`.
+6. **Open the audit log** at **Settings → Audit log**, back on the `atlas-priya` account. Confirm that operational changes are recorded with who and when. This step needs Admin or Owner — it is why the walkthrough uses `atlas-priya` rather than `atlas-sam`.
 
 Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and a tamper-evident audit trail — are **enterprise**, and intentionally not in this repo. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
 
