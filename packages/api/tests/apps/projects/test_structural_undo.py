@@ -919,5 +919,11 @@ def test_undo_structural_service_refuses_an_archived_project(project: Project) -
     project.is_archived = True
     project.save(update_fields=["is_archived"])
 
+    before = shape(project)
+
     with pytest.raises(PermissionDenied):
         undo_structural_operation(operation)
+
+    # Inert, not merely refused — the other three service tests assert this and
+    # this one is the weakest of the four without it.
+    assert shape(project) == before

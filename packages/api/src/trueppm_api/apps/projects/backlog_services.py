@@ -111,9 +111,10 @@ def pull_to_project_backlog(
 
     # A pull creates a Task, and archived plans take no writes (#3354). The view
     # checks this too, but archived is lifecycle state — a property of the target
-    # plan, not of the caller — so it holds for every caller, and this service has
-    # non-view callers already. Placed before the transaction so nothing is opened
-    # on a write that must not happen.
+    # plan, not of the caller — so it holds for every caller rather than only for
+    # one that arrives through DRF. Every caller is a view today; the point is that
+    # nothing makes that stay true. Placed before the transaction so nothing is
+    # opened on a write that must not happen.
     assert_project_not_archived(project.pk)
 
     new_label_ids: list[str] = []

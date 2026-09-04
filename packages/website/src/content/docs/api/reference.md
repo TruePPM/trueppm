@@ -719,6 +719,13 @@ applications and poll one on an archived project. **Publishing from an archived
 project still works**, because extracting a template reads the source plan and
 writes nothing into it. Unarchive the target project first, then re-apply.
 
+Because apply is asynchronous, a project archived *after* a `202` is refused at
+seeding time rather than at request time: the application lands on
+`status: "failed"` with `error_detail` naming the archived project, and no rows
+are written. Poll `GET /api/v1/template-applications/{id}/` for it — there is no
+second `403` to catch, because the request that would have carried one already
+returned.
+
 Apply is rate-limited on the shared `seed_import` throttle scope — the same bound
 the seed and spreadsheet import paths carry.
 
@@ -1756,6 +1763,13 @@ default read is the active pool. The caller needs program-write **and** Team
 Member+ on the target project — program authority alone cannot drop a task into
 a project. A `project_id` outside this program returns `400`; an item that is no
 longer `PROPOSED` returns `409`.
+
+:::note[Ships in 0.4]
+From **0.4**, a pull into an **archived** target project is refused with a `403`.
+On the current release only the *program's* closed state is checked, so a pull
+into an archived project succeeds. The archived refusal clears for no role — the
+project has to be unarchived.
+:::
 
 ### Mention groups
 

@@ -1164,3 +1164,28 @@ def test_assert_project_not_archived_passes_a_live_project(project: Project) -> 
 
     with pytest.raises(PermissionDenied):
         assert_project_not_archived(project.pk)
+
+
+@pytest.mark.django_db
+def test_assert_project_not_archived_re_reads_a_stale_instance(project: Project) -> None:
+    """The helper's "always re-read the flag" contract, pinned.
+
+    Every other test archives through `_archive()`, which saves via the instance and
+    leaves it fresh — so all of them would still pass if the helper were "optimized"
+    into an in-memory fast path (`if isinstance(project, Project): return not
+    project.is_archived`), which is a fail-open the docstring exists to forbid.
+    `enqueue_template_apply` takes a `Project` by signature, so a caller cannot opt
+    out of that shape.
+
+    Archiving out of band leaves the in-memory row stale at `is_archived=False`,
+    which is the state that tells the two apart.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
+
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+    assert project.is_archived is False  # the instance never saw the write
+
+    with pytest.raises(PermissionDenied):
+        assert_project_not_archived(project)

@@ -203,7 +203,13 @@ class BacklogItemViewSet(
             400: OpenApiResponse(
                 description="project_id missing, or the target project is not in this program."
             ),
-            403: OpenApiResponse(description="Caller lacks Team Member+ on the target project."),
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks Team Member+ on the target project, **or** the target "
+                    "project is archived. The archived case is not a role problem and no "
+                    "role clears it — unarchive the project and retry (#3354)."
+                )
+            ),
             409: OpenApiResponse(description="The item is no longer PROPOSED."),
         },
     )
@@ -218,7 +224,9 @@ class BacklogItemViewSet(
 
         Returns ``201`` with the created task and the updated backlog item.
         ``400`` if project_id is missing / not in this program; ``403`` if the
-        caller lacks project-write; ``409`` if the item is no longer PROPOSED.
+        caller lacks project-write **or the target project is archived** (the
+        latter clears for no role — the project must be unarchived); ``409`` if
+        the item is no longer PROPOSED.
         """
         # Confirm the program exists and the caller holds program-write.
         self._resolve_program()

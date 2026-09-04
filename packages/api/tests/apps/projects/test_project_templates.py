@@ -1152,6 +1152,13 @@ def test_apply_is_refused_when_the_target_project_is_archived(
     )
 
     assert resp.status_code == 403, resp.data
+    # The helper claims it reuses `IsProjectNotArchived.message` verbatim so the
+    # contract is identical whichever layer refuses, and docs/api/reference.md now
+    # publishes that. This route is one of only two where the body comes from the
+    # helper rather than the permission class, so nothing else pins it.
+    from trueppm_api.apps.access.permissions import IsProjectNotArchived
+
+    assert resp.data["detail"] == IsProjectNotArchived.message
     # Inert, not merely refused: `enqueue_template_apply` writes the application row
     # before it dispatches, so a 403 raised too late would still have queued a seed.
     assert TemplateApplication.objects.filter(project=target_project).count() == 0

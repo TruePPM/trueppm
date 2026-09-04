@@ -55,6 +55,16 @@ from trueppm_api.core.request_body import object_body
 # Shared user-facing response details.
 _NO_SUCH_PROJECT_DETAIL = "No such project."
 
+#: `apply` and `undo` both refuse for two unrelated reasons that share a status
+#: code. Spelling them out is the difference between a client retrying usefully
+#: and a client retrying forever (#3354).
+_ARCHIVED_403 = (
+    "Two causes, and a client must tell them apart: the caller is below Project "
+    "Manager (Admin) on the project, **or** the project is archived. The archived "
+    "case clears for no role — including Owner — so escalating the caller will "
+    "never succeed; the project has to be unarchived (#3354)."
+)
+
 
 def _publish_inputs(data: Any) -> tuple[Any, str, Any]:
     """Read and type-check ``publish``'s three body fields, before any project read.
@@ -592,7 +602,10 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
 
     @extend_schema(
         request=_ApplyRequestSerializer,
-        responses={202: OpenApiResponse(description='{"queued": true, "application": "<uuid>"}')},
+        responses={
+            202: OpenApiResponse(description='{"queued": true, "application": "<uuid>"}'),
+            403: OpenApiResponse(description=_ARCHIVED_403),
+        },
         description="Apply this template to a project. Returns 202; seeding runs async.",
     )
     @action(
@@ -696,6 +709,7 @@ class TemplateApplicationViewSet(
                 "reached SUCCESS, or it has already been undone. Verified against "
                 "the status guard in ``undo`` (#3319)."
             ),
+            403: OpenApiResponse(description=_ARCHIVED_403),
         },
         description="Undo this application — removes the rows it wrote that nobody has edited.",
     )

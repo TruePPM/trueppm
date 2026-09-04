@@ -998,6 +998,12 @@ def test_pull_is_refused_when_the_target_project_is_archived(
     )
 
     assert resp.status_code == 403, resp.data
+    # Same message-parity pin as the template apply route — and it doubles as the
+    # only thing distinguishing this refusal from the role refusal above it, which
+    # is also a 403. The comment on the assert claims that ordering; this checks it.
+    from trueppm_api.apps.access.permissions import IsProjectNotArchived
+
+    assert resp.data["detail"] == IsProjectNotArchived.message
     assert Task.objects.filter(project=project).count() == 0
     item.refresh_from_db()
     assert item.status == BacklogItemStatus.PROPOSED
