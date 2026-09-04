@@ -584,6 +584,79 @@ _VALIDATION_RESPONSE = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# #3319 — the 400 a BODYLESS write returns when it refuses on state
+# ---------------------------------------------------------------------------
+
+#: The three wire shapes a bodyless write's refusal actually takes.
+#:
+#: Which one an endpoint emits is decided by *how* it raises, not by intent, and
+#: the three are not interchangeable — a client that types the wrong one mis-reads
+#: every refusal that endpoint produces:
+#:
+#:   ``detail``    ``Response({"detail": ...}, status=400)`` or
+#:                 ``ValidationError({"detail": ...})`` — a JSON **object**.
+#:   ``messages``  ``ValidationError("a bare string")`` — DRF wraps a string detail
+#:                 in a list, so the body is a top-level JSON **array**, not an
+#:                 object. Easy to declare wrongly; verified per site.
+#:   ``fields``    ``ValidationError({"field": "..."})`` — DRF's field-keyed object,
+#:                 described by the recursive ``ValidationErrorDetail`` component.
+_STATE_REFUSAL_SHAPES: dict[str, dict[str, Any]] = {
+    "detail": {
+        "type": "object",
+        "properties": {"detail": {"type": "string"}},
+    },
+    "messages": {"type": "array", "items": {"type": "string"}},
+    "fields": {
+        "type": "object",
+        "additionalProperties": _VALIDATION_ERROR_DETAIL_REF,
+    },
+}
+
+
+def state_refusal_400(
+    description: str,
+    *,
+    shape: str = "detail",
+    codes: tuple[str, ...] = (),
+) -> Any:
+    """Declare the 400 a **bodyless** write returns when it refuses on state (#3319).
+
+    #3286 injects a 400 wherever an operation has a ``requestBody``, because
+    ``requestBody`` present is precisely the condition under which DRF can raise
+    ``ValidationError`` — a real equivalence the generator already computed. A
+    write that takes no body has no equivalent signal, and blanket-declaring a 400
+    across all of them would advertise a refusal most cannot produce: the same
+    defect as omitting one, pointing the other way. So every site opts in by hand,
+    having been checked against what the handler actually returns.
+
+    Args:
+        description: The state that makes *this* endpoint refuse. Site-specific by
+            design — a generic string would make the declaration decoration rather
+            than contract, which is the thing this issue exists to avoid.
+        shape: Which of :data:`_STATE_REFUSAL_SHAPES` reaches the wire. Read it off
+            the ``raise``/``Response`` in the handler, not off the neighbours.
+        codes: Stable ``code`` values the refusal really puts in the response
+            **body**. Pass one only where the handler writes it into a literal
+            response dict — a ``ValidationError(..., code=...)`` keyword never
+            reaches the client (#2550), so declaring that would invert this fix.
+
+    Returns:
+        The ``OpenApiResponse`` to hang off ``responses={400: ...}``.
+    """
+    from drf_spectacular.utils import OpenApiResponse
+
+    schema = deepcopy(_STATE_REFUSAL_SHAPES[shape])
+    if codes:
+        # Only reachable on the object shapes; a list body has nowhere to carry it.
+        schema["properties"]["code"] = {
+            "type": "string",
+            "enum": list(codes),
+            "description": "Stable refusal code — branch on this, not on ``detail``.",
+        }
+    return OpenApiResponse(response=schema, description=description)
+
+
 _THROTTLE_RESPONSE = {
     "description": (
         "Rate limit exceeded. The client is issuing requests faster than the "

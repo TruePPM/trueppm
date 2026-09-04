@@ -46,6 +46,7 @@ from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.core.openapi import state_refusal_400
 
 from . import providers
 from .encryption import encrypt_secret
@@ -650,7 +651,16 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
         payload = _summary(getattr(source_cls, "label", source), row)
         return Response(ExternalConnectionSummarySerializer(payload).data)
 
-    @extend_schema(responses={204: None})
+    @extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "``source`` does not name a registered external task source. The "
+                "path segment is free text, so an unregistered value reaches the "
+                "handler and is refused here rather than 404ing (#3319)."
+            ),
+        }
+    )
     def delete(self, request: Request, source: str) -> Response:
         """Disconnect: hard-remove the ciphertext, config, and cached items.
 
@@ -704,6 +714,11 @@ class ExternalConnectionSyncView(IdempotencyMixin, APIView):
         request=None,
         responses={
             202: ExternalSyncQueuedSerializer,
+            400: state_refusal_400(
+                "``source`` does not name a registered external task source. The "
+                "path segment is free text, so an unregistered value reaches the "
+                "handler and is refused here rather than 404ing (#3319)."
+            ),
             429: ExternalSyncCooldownSerializer,
         },
     )

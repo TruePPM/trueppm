@@ -670,6 +670,29 @@ no template system — the collection does not exist.
 | GET | `/api/v1/template-applications/` | Adoption records (filter: `?project=`) |
 | POST | `/api/v1/template-applications/{id}/undo/` | Reverse one application |
 
+Both writes take a JSON body. `publish` requires `project` and `name`; `apply`
+requires `project`:
+
+```json
+// POST /api/v1/project-templates/publish/
+{
+  "project": "<uuid>",           // required — the project to freeze
+  "name": "House shape",         // required — trimmed, truncated at 200 chars
+  "description": "…",            // optional — truncated at 2000 chars
+  "source_kind": "workspace",    // optional — provenance chip, defaults to workspace
+  "new_version": true            // optional — publish v(n+1) instead of getting a 409
+}
+
+// POST /api/v1/project-templates/{id}/apply/
+{"project": "<uuid>"}            // required — the project to seed
+```
+
+`name` and `description` are **truncated**, not rejected, when they exceed their
+limits. `new_version` is read permissively: `true`, `"true"` and `"1"` all enable
+it, anything else is false. Publishing under a name that already exists in the
+pool you can see returns **`409`** with `code: name_taken` and a `next_version` —
+resend with `new_version: true` to extend that template's chain.
+
 `apply` returns **`202 {"queued": true, "application": "<uuid>"}`** — not a task id.
 Dispatch is best-effort behind a transactional outbox, so there may be no Celery id
 yet (or ever, for a delivery the drain re-dispatches). The **application id** is the

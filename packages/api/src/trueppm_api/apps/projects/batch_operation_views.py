@@ -35,6 +35,7 @@ from trueppm_api.apps.projects.task_batch_services import (
     undo_cascade_classification_operation,
     undo_paste_many_operation,
 )
+from trueppm_api.core.openapi import state_refusal_400
 
 
 def _caller_project_ids(request: Request) -> QuerySet[Any]:
@@ -90,7 +91,13 @@ class PasteManyOperationViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: PasteManyOperationSerializer},
+        responses={
+            200: PasteManyOperationSerializer,
+            400: state_refusal_400(
+                "This batch has already been undone. Verified against the status "
+                "guard in ``undo`` (#3319)."
+            ),
+        },
         description=(
             "Undo this paste-many batch — removes the rows it created that nobody has edited."
         ),
@@ -144,7 +151,13 @@ class CascadeClassificationOperationViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: CascadeClassificationOperationSerializer},
+        responses={
+            200: CascadeClassificationOperationSerializer,
+            400: state_refusal_400(
+                "This cascade has already been undone. Verified against the status "
+                "guard in ``undo`` (#3319)."
+            ),
+        },
         description="Undo this cascade — restores each untouched row's prior classification.",
     )
     @action(detail=True, methods=["post"], url_path="undo")
