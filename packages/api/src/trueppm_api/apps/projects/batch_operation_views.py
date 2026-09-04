@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.db.models import QuerySet
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -22,6 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from trueppm_api.apps.access.permissions import (
+    IsProjectNotArchived,
     _membership_role,
     role_can_undo_batch_operation,
 )
@@ -36,6 +37,16 @@ from trueppm_api.apps.projects.task_batch_services import (
     undo_paste_many_operation,
 )
 from trueppm_api.core.openapi import state_refusal_400
+
+#: Both ``undo`` actions refuse for two unrelated reasons that share a status code.
+#: Spelling them out is the difference between a client retrying usefully and a
+#: client retrying forever (#3354).
+ARCHIVED_403 = (
+    "Two causes, and a client must tell them apart: the caller is below the role "
+    "floor for this action, **or** the project is archived. The archived case clears "
+    "for no role — including Owner — so escalating the caller will never succeed; "
+    "the project has to be unarchived (#3354)."
+)
 
 
 def _caller_project_ids(request: Request) -> QuerySet[Any]:
@@ -89,7 +100,18 @@ class PasteManyOperationViewSet(
     IdempotencyMixin, viewsets.ReadOnlyModelViewSet[PasteManyOperation]
 ):
     serializer_class = PasteManyOperationSerializer
-    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    # `undo` hard-deletes task rows, so this route is a write path and carries the
+    # archived floor every sibling in the family carries (`StructuralOperationViewSet`,
+    # `CsvImportUndoView`, `TaskBulkView`, `TaskClassificationView`). Reads are
+    # unaffected — `IsProjectNotArchived` passes every SAFE_METHOD, so polling a
+    # ledger row on an archived project still works (#3354).
+    #
+    # It resolves the project from the *object*, not a URL kwarg: this viewset is
+    # router-registered at the top level, so `has_permission` finds no `project_pk`
+    # and returns True, and the real check runs in `has_object_permission` off the
+    # operation's `project_id` during `get_object()`. Role authority stays in
+    # `_require_admin` below — this class enforces lifecycle state only.
+    permission_classes = [IsAuthenticated, IsProjectNotArchived]  # noqa: RUF012
 
     def get_queryset(self) -> QuerySet[PasteManyOperation]:
         qs = PasteManyOperation.objects.filter(project_id__in=_caller_project_ids(self.request))
@@ -106,6 +128,7 @@ class PasteManyOperationViewSet(
                 "This batch has already been undone. Verified against the status "
                 "guard in ``undo`` (#3319)."
             ),
+            403: OpenApiResponse(description=ARCHIVED_403),
         },
         description=(
             "Undo this paste-many batch — removes the rows it created that nobody has edited."
@@ -147,7 +170,10 @@ class CascadeClassificationOperationViewSet(
     IdempotencyMixin, viewsets.ReadOnlyModelViewSet[CascadeClassificationOperation]
 ):
     serializer_class = CascadeClassificationOperationSerializer
-    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    # Same reasoning as `PasteManyOperationViewSet` above — `undo` writes
+    # classification fields back onto existing rows, so it is a write path and takes
+    # the archived floor (#3354).
+    permission_classes = [IsAuthenticated, IsProjectNotArchived]  # noqa: RUF012
 
     def get_queryset(self) -> QuerySet[CascadeClassificationOperation]:
         qs = CascadeClassificationOperation.objects.filter(
@@ -166,6 +192,7 @@ class CascadeClassificationOperationViewSet(
                 "This cascade has already been undone. Verified against the status "
                 "guard in ``undo`` (#3319)."
             ),
+            403: OpenApiResponse(description=ARCHIVED_403),
         },
         description="Undo this cascade — restores each untouched row's prior classification.",
     )

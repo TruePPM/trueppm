@@ -3342,6 +3342,9 @@
                         },
                         "description": "This cascade has already been undone. Verified against the status guard in ``undo`` (#3319)."
                     },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below the role floor for this action, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -8474,6 +8477,9 @@
                         },
                         "description": "This batch has already been undone. Verified against the status guard in ``undo`` (#3319)."
                     },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below the role floor for this action, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -12764,7 +12770,7 @@
         "/api/v1/programs/{program_pk}/backlog-items/{id}/pull/": {
             "post": {
                 "operationId": "v1_programs_backlog_items_pull_create",
-                "description": "Pull a PROPOSED item into a project's backlog (ADR-0069 Erratum §5).\n\nBody: ``{\"project_id\": \"<uuid>\"}``. Creates a Task (status=BACKLOG,\nsprint=NULL) in the target project and transitions the item to PULLED.\nRequires program-write (gated by ``get_permissions``) **and** write role\non the target project (checked here). Never assigns a sprint.\n\nReturns ``201`` with the created task and the updated backlog item.\n``400`` if project_id is missing / not in this program; ``403`` if the\ncaller lacks project-write; ``409`` if the item is no longer PROPOSED.",
+                "description": "Pull a PROPOSED item into a project's backlog (ADR-0069 Erratum §5).\n\nBody: ``{\"project_id\": \"<uuid>\"}``. Creates a Task (status=BACKLOG,\nsprint=NULL) in the target project and transitions the item to PULLED.\nRequires program-write (gated by ``get_permissions``) **and** write role\non the target project (checked here). Never assigns a sprint.\n\nReturns ``201`` with the created task and the updated backlog item.\n``400`` if project_id is missing / not in this program; ``403`` if the\ncaller lacks project-write **or the target project is archived** (the\nlatter clears for no role — the project must be unarchived); ``409`` if\nthe item is no longer PROPOSED.",
                 "summary": "Pull a backlog item into a project's backlog",
                 "parameters": [
                     {
@@ -12833,7 +12839,7 @@
                         "description": "project_id missing, or the target project is not in this program."
                     },
                     "403": {
-                        "description": "Caller lacks Team Member+ on the target project."
+                        "description": "Caller lacks Team Member+ on the target project, **or** the target project is archived. The archived case is not a role problem and no role clears it — unarchive the project and retry (#3354)."
                     },
                     "409": {
                         "description": "The item is no longer PROPOSED."
@@ -17402,6 +17408,9 @@
                 "responses": {
                     "202": {
                         "description": "{\"queued\": true, \"application\": \"<uuid>\"}"
+                    },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below Project Manager (Admin) on the project, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -47703,6 +47712,9 @@
                             }
                         },
                         "description": "The application is not in a state that can be undone — it never reached SUCCESS, or it has already been undone. Verified against the status guard in ``undo`` (#3319)."
+                    },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart: the caller is below Project Manager (Admin) on the project, **or** the project is archived. The archived case clears for no role — including Owner — so escalating the caller will never succeed; the project has to be unarchived (#3354)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
