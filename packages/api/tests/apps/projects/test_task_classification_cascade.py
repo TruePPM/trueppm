@@ -486,6 +486,35 @@ def test_member_who_cannot_edit_every_row_gets_403_not_a_partial_cascade(
     assert design.delivery_mode == DeliveryMode.WATERFALL
 
 
+def test_unauthorized_member_is_403_before_the_cap_is_evaluated(
+    project: Project, phase: Task
+) -> None:
+    """#3305: authorization runs before the subtree is resolved, counted, or capped.
+
+    A Member with no authorship on any row of the subtree used to receive a 400 whose
+    body named the subtree's exact task count, because ``resolve_subtree`` — which
+    locks the root, resolves descendants and evaluates the cap — ran ahead of the
+    authorization check. The refusal must be a 403 that discloses no count.
+    """
+    User = get_user_model()
+    user = User.objects.create_user(username="member_capless", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    # Cap set below the subtree size, so the old ordering reached SubtreeTooLarge
+    # first. The Member is assigned nothing, so they can author no row including the
+    # root.
+    with patch("trueppm_api.apps.projects.task_classification.TASK_CLASSIFY_MAX_SUBTREE", 2):
+        r = _patch(client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.KANBAN)
+
+    assert r.status_code == 403, r.data
+    body = str(r.data)
+    assert "subtree_too_large" not in body
+    # The subtree resolves 5 rows; none of that may reach an unauthorized caller.
+    assert "5" not in body, body
+
+
 def test_non_member_cannot_cascade(project: Project, phase: Task, other_project: Project) -> None:
     """A member of *some* project is not a member of *this* one."""
     outsider = _member(other_project, "outsider_c", Role.OWNER)

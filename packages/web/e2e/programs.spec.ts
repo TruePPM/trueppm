@@ -525,7 +525,9 @@ test.describe('Programs — shell nav', () => {
     // One screen (#2728) — no step navigation between name and Create.
     await page.getByRole('button', { name: /create project/i }).click();
 
-    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
+    // Blank is the default way, and a blank create lands on the Schedule outline
+    // the Start sheet's Blank card names (#3311) — not Overview.
+    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/schedule`);
     expect(capturedBody).not.toBeNull();
     expect(capturedBody!.program).toBe(PROGRAM_ID);
     expect(capturedBody!.name).toBe('Tower A Buildout');
@@ -610,7 +612,9 @@ test.describe('Programs — shell nav', () => {
     await dialog.getByRole('combobox', { name: /working calendar/i }).selectOption(CALENDAR_ID);
     await dialog.getByRole('button', { name: /create project/i }).click();
 
-    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
+    // Blank is the default way, and a blank create lands on the Schedule outline
+    // the Start sheet's Blank card names (#3311) — not Overview.
+    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/schedule`);
     expect(capturedBody).not.toBeNull();
     expect(capturedBody!.calendar).toBe(CALENDAR_ID);
     expect(capturedBody!.name).toBe('Seeded Project');

@@ -254,14 +254,14 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
   // mixed state was carried by a color band and a texture alone (WCAG 1.4.1).
   it('announces the ROLLED-UP mode over the row’s own field, and names the constituents', () => {
     const phase = makeTask('p1', 'Phase 4', { deliveryMode: 'scrum' });
-    expect(buildTaskAriaLabel(phase, undefined, { kind: 'mixed', parts: ['gated', 'scrum'] })).toBe(
-      'Phase 4, 5 days, starts Apr 6, finishes Apr 10, Mixed delivery — this branch contains gated and scrum work',
+    expect(buildTaskAriaLabel(phase, undefined, { kind: 'mixed', parts: ['waterfall', 'scrum'] })).toBe(
+      'Phase 4, 5 days, starts Apr 6, finishes Apr 10, Mixed delivery — this branch contains waterfall and scrum work',
     );
   });
 
   it('drops the suffix for a baseline row, matching the chip that draws nothing', () => {
     const t = makeTask('t1', 'Design', { deliveryMode: 'waterfall' });
-    expect(buildTaskAriaLabel(t, undefined, { kind: 'gated', parts: ['gated'] })).toBe(
+    expect(buildTaskAriaLabel(t, undefined, { kind: 'waterfall', parts: ['waterfall'] })).toBe(
       'Design, 5 days, starts Apr 6, finishes Apr 10',
     );
   });

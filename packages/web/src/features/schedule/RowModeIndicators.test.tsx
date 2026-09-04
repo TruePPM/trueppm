@@ -3,10 +3,10 @@ import { render, screen } from '@testing-library/react';
 import { ModeChip, ModeGutter } from './RowModeIndicators';
 
 describe('ModeGutter', () => {
-  it('draws nothing for the gated baseline', () => {
+  it('draws nothing for the waterfall baseline', () => {
     // Matching the canvas (`drawDeliveryModeMark` returns early on waterfall) is
-    // what keeps a 400-row gated plan from carrying 400 identical marks.
-    const { container } = render(<ModeGutter mode={{ kind: 'gated', parts: ['gated'] }} />);
+    // what keeps a 400-row waterfall plan from carrying 400 identical marks.
+    const { container } = render(<ModeGutter mode={{ kind: 'waterfall', parts: ['waterfall'] }} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -41,8 +41,8 @@ describe('ModeGutter', () => {
 });
 
 describe('ModeChip', () => {
-  it('draws nothing for the gated baseline', () => {
-    const { container } = render(<ModeChip mode={{ kind: 'gated', parts: ['gated'] }} />);
+  it('draws nothing for the waterfall baseline', () => {
+    const { container } = render(<ModeChip mode={{ kind: 'waterfall', parts: ['waterfall'] }} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -52,7 +52,7 @@ describe('ModeChip', () => {
   });
 
   it('reads MIXED on a parent whose subtree disagrees', () => {
-    render(<ModeChip mode={{ kind: 'mixed', parts: ['gated', 'scrum'] }} />);
+    render(<ModeChip mode={{ kind: 'mixed', parts: ['waterfall', 'scrum'] }} />);
     expect(screen.getByTestId('mode-chip')).toHaveTextContent('MIXED');
   });
 

@@ -3485,19 +3485,19 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
 
   it('draws the ROLLED-UP mode on a phase, not the phase’s own stored field', () => {
     // The #3040 case exactly: phase 4 was cascaded to scrum, child 4.1 kept a
-    // gated override, so `computeRowModes` reads the phase MIXED while its own
+    // waterfall override, so `computeRowModes` reads the phase MIXED while its own
     // `delivery_mode` still says scrum.
     const phase = { ...SUMMARY_TASK, id: 'p1', deliveryMode: 'scrum' } as Task;
-    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['gated', 'scrum'] } as const]]));
+    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['waterfall', 'scrum'] } as const]]));
     const { ctx, calls } = makeCtxSpy();
     drawSummaryBar(ctx, phase, 0, scales, 0, false);
     const bands = gutterBands(calls);
     expect(bands).toHaveLength(1);
     expect(styles(calls, 'fillStyle')).toContain(COLOR.deliveryScrum);
     // HALF height, not the full-height band the row's own scrum field would give
-    // — the gated half is a gap, so band GEOMETRY is what says "mixed".
+    // — the waterfall half is a gap, so band GEOMETRY is what says "mixed".
     expect(bands[0].args[3] as number).toBeLessThan(SUMMARY_BAR_HEIGHT * 0.6);
-    // ...and it sits in the LOWER slot, because `gated` is first in canonical order.
+    // ...and it sits in the LOWER slot, because `waterfall` is first in canonical order.
     expect(bands[0].args[1] as number).toBeGreaterThan(barTopOf(calls));
   });
 
@@ -3524,12 +3524,12 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
     expect(second.args[1] as number).toBeGreaterThan(firstBottom);
   });
 
-  it('never paints a gated band in the bar’s own fill color — the slot is left empty', () => {
-    // `--ink-2`, the outline's neutral for gated, maps to `barSummary` on the
-    // canvas, which IS a phase bar's fill. A gated band would be the bar painted
+  it('never paints a waterfall band in the bar’s own fill color — the slot is left empty', () => {
+    // `--ink-2`, the outline's neutral for waterfall, maps to `barSummary` on the
+    // canvas, which IS a phase bar's fill. A waterfall band would be the bar painted
     // onto itself: invisible, and indistinguishable from a single-mode row.
     const phase = { ...SUMMARY_TASK, id: 'p1' } as Task;
-    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['gated', 'kanban'] } as const]]));
+    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['waterfall', 'kanban'] } as const]]));
     const { ctx, calls } = makeCtxSpy();
     drawSummaryBar(ctx, phase, 0, scales, 0, false);
     expect(gutterBands(calls)).toHaveLength(1);
@@ -3552,7 +3552,7 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
 
   it('draws NO body texture for mixed — two overlaid textures would name a mode neither half has', () => {
     const leaf = makeBarTask({ deliveryMode: 'scrum' });
-    setRendererRowModes(new Map([[leaf.id, { kind: 'mixed', parts: ['gated', 'scrum'] } as const]]));
+    setRendererRowModes(new Map([[leaf.id, { kind: 'mixed', parts: ['waterfall', 'scrum'] } as const]]));
     const { ctx, calls } = makeCtxSpy();
     drawTaskBar(ctx, leaf, 0, scales, 0, false, VIEWPORT_W);
     expect(styles(calls, 'strokeStyle')).not.toContain(COLOR.deliveryTexture);
@@ -3567,9 +3567,9 @@ describe('delivery-mode mark reads the outline rollup (#3040)', () => {
   it('keeps the milestone cross-hatch ahead of the rollup — computeRowModes cannot describe a milestone', () => {
     // `contributedMode` returns null for a milestone so a gate inside a scrum
     // phase does not read MIXED; consulting the rollup here would silently
-    // report `gated` and drop the mark this edge case has drawn since #2727.
+    // report `waterfall` and drop the mark this edge case has drawn since #2727.
     const t = makeBarTask({ deliveryMode: 'milestone' });
-    setRendererRowModes(new Map([[t.id, { kind: 'gated', parts: ['gated'] } as const]]));
+    setRendererRowModes(new Map([[t.id, { kind: 'waterfall', parts: ['waterfall'] } as const]]));
     const { ctx, calls } = makeCtxSpy();
     drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
     expect(styles(calls, 'fillStyle')).toContain(COLOR.milestone);
