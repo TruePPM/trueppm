@@ -76,9 +76,11 @@ const METHOD_SUMMARY: Record<Methodology, { label: string; gives: (iteration: st
  * false on this very page:
  *   - the preset **hides** Board / Schedule / Sprints; it does not disable them,
  *     and it is not Settings → Surfaces that brings them back (Surfaces toggles
- *     Reports, Time tracking, Baselines and the Monte-Carlo forecast — a
- *     different set). The way back is to change the preset, which is one block
- *     below;
+ *     Reports, Baselines and the Monte-Carlo forecast — a different set). The way
+ *     back is to change the preset, which is one block below. Time tracking is on
+ *     that page too but is **not** switched by it: nothing reads the column, so
+ *     the row renders inert (#3376). Listing it among the working toggles was the
+ *     same over-claim in miniature;
  *   - **Sprint guardrails**, further down this same page, genuinely can stop an
  *     action: an Owner may escalate a composition rule from Warn to Block. Saying
  *     "nothing on this page stops anyone" would be contradicted two screens later
@@ -147,11 +149,11 @@ function PresetSummary() {
         one place this section can stop an action is{' '}
         <span className="font-medium">{itl.singular} guardrails</span>, at the end of the page,
         where a project Owner may escalate a rule from Warn to Block. Optional surfaces — Reports,
-        Time tracking, Baselines, the forecast — are switched on under{' '}
+        Baselines, the forecast — are switched on under{' '}
         <a href="#surfaces" className={`text-[12px] ${DOCS_LINK_INLINE}`}>
           Surfaces
         </a>
-        .
+        , which also lists Time tracking, a setting nothing reads yet.
       </p>
     </div>
   );

@@ -202,4 +202,45 @@ test.describe('Project surface visibility settings', () => {
       page.getByLabel(/Show the Reports surface: On, inherited from the methodology default/i),
     ).toBeVisible();
   });
+
+  test('Time tracking renders inert with a bound note — no toggle for an Admin (#3376)', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page, { role: 300 }); // Admin — the role that CAN edit
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => r.fulfill(json(projectDetail())));
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/surfaces`);
+    await expect(
+      page.getByRole('heading', { name: 'Surface visibility', exact: true }),
+    ).toBeVisible();
+
+    // The three surfaces that HAVE a reader keep their radiogroup …
+    await expect(page.getByRole('radiogroup', { name: /Show the Reports surface/i })).toBeVisible();
+    await expect(
+      page.getByRole('radiogroup', { name: /Show the Baselines surface/i }),
+    ).toBeVisible();
+
+    // … and the one that does not has no editable control at all. Asserting on
+    // the radiogroup's absence rather than on a `disabled` attribute is
+    // deliberate: the whole point is that no control is offered, and a
+    // `toBeDisabled` check would pass on a dimmed switch that still announces
+    // itself to a screen reader.
+    await expect(
+      page.getByRole('radiogroup', { name: /Show the Time tracking surface/i }),
+    ).toHaveCount(0);
+    await expect(page.getByRole('switch', { name: /Show the Time tracking surface/i })).toHaveCount(
+      0,
+    );
+
+    // The note that replaces it is bound to the group, so it is reachable rather
+    // than merely nearby.
+    const group = page.getByRole('group', { name: /^Show the Time tracking surface:/ });
+    await expect(group).toHaveAttribute('aria-label', /Not enforced\.$/);
+    await expect(group.getByText(/no surface reads this setting/i)).toBeVisible();
+
+    // Nothing to save: with the only inert row untouched the save bar never
+    // appears, which is the user-visible half of "this control does nothing".
+    await expect(page.getByRole('button', { name: /Save changes/i })).toHaveCount(0);
+  });
 });

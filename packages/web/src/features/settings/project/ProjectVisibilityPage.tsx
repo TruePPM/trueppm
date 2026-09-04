@@ -16,6 +16,25 @@ import { ROLE_ADMIN } from '@/lib/roles';
  * provenance label. Copy explains what turning the surface OFF does — and that the
  * data stays computed and URL-reachable (ADR-0041 hide-only), so an ADMIN reads the
  * toggle as "hide the chrome", never "delete the capability".
+ *
+ * Three of the four have a reader; **Time tracking has none** (#3376), which is
+ * why it alone carries `notEnforced`. The inventory, so the next reader can check
+ * it rather than trust it:
+ *
+ * - `reporting`   → `methodologyTabs.surfaceHiddenViews` (the reports tab)
+ * - `baselines`   → `schedule/sections/BaselineSection`
+ * - `monte_carlo` → `ScheduleView` forecast bar + `ProjectOverviewPage`
+ * - `time_tracking` → **nothing**, on web or mobile
+ *
+ * ADR-0193 §5 deferred the time-tracking gate "until a web time-entry surface
+ * ships". Those surfaces then shipped (#926/#1258) and every one of them is
+ * **user-scoped and cross-project** — the top-bar `TimerChip` and `QuickLogTime`,
+ * `/me/timesheet`, the My Work `LogTimePopover`. A per-project boolean has nothing
+ * to gate. Wiring it needs a per-task delivery flag on the My Work payload, which
+ * is a feature nobody has filed — not a wiring fix. Until one exists the control
+ * stays inert rather than editable, because a save that is accepted and changes
+ * nothing is the failure this product exists to remove. Delete `notEnforced` from
+ * the entry, not the entry itself, the day a surface reads the flag.
  */
 const SURFACES = [
   {
@@ -32,11 +51,13 @@ const SURFACES = [
     field: 'show_time_tracking',
     key: 'time_tracking',
     label: 'Time tracking',
-    hint: 'Show time-entry surfaces for this project. Turning it off hides the time-logging chrome (currently mobile); existing time entries are kept and the API is untouched.',
+    hint: 'Stored, but nothing reads it — every time-logging surface in TruePPM is personal and spans all your projects, so there is no per-project time surface for this to hide.',
     ariaLabel: 'Show the Time tracking surface',
     helpBody:
-      'The time-entry surfaces for this project. Turning it off hides the time-logging chrome (currently mobile); existing time entries are kept and the API is untouched.',
-    docHref: 'features/timesheet',
+      'Time logging in TruePPM is personal and cross-project: the top-bar timer, Quick log, My Work and your timesheet each cover every project you are on, and none of them is per-project chrome that a project setting could hide. So this toggle saves a value that nothing reads. It is shown inert rather than removed because the column, the API field and the methodology default are all still live — only the consequence is missing.',
+    notEnforced:
+      'Not enforced — no surface reads this setting. Time logging is personal and spans every project you are on, so turning this off would hide nothing. Nothing tracks per-project time chrome yet.',
+    docHref: 'administration/project-settings/#surfaces',
   },
   {
     field: 'show_baselines',
@@ -155,6 +176,11 @@ export function ProjectVisibilityPage() {
               offLabel="Hidden"
               ariaLabel={s.ariaLabel}
               canEdit={canEdit}
+              // `in` rather than `s.notEnforced`: SURFACES is `as const`, so the
+              // entries are a union and only the Time tracking member declares
+              // the key. Narrowing here keeps the array literal honest — an
+              // entry without the key genuinely has a reader.
+              notEnforced={'notEnforced' in s ? s.notEnforced : undefined}
             />
           </FieldRow>
         ))}

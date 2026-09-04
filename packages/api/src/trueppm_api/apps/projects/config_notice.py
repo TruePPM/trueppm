@@ -10,7 +10,9 @@ Three properties, and the second is the one most likely to be eroded later:
 1. **It fires on the consequence, not the write.** A rename, a color, a WIP limit,
    an added lane, a reorder — none of these notify. Only a change that moves or
    hides work does. A notice on every save is noise, and noise gets muted, which
-   costs the signal this exists to carry.
+   costs the signal this exists to carry. This is why the leaf-surface arm speaks
+   only for :data:`ENFORCED_SURFACE_KEYS`: a toggle no client reads moves nothing
+   on screen, so announcing it is the write talking, not the consequence (#3376).
 2. **The body names what the change did to the recipient's own items.** "Board
    configuration updated" is precisely the notification this module exists to
    refuse. Each recipient's row is rendered for them, with their own count, and
@@ -50,13 +52,35 @@ logger = logging.getLogger(__name__)
 
 #: Human labels for the four leaf surfaces (``surface_visibility.SURFACE_KEYS``).
 #: Kept here rather than derived from the key so the notice reads as product copy
-#: ("Monte Carlo") rather than as a column name ("monte_carlo").
+#: ("Monte Carlo") rather than as a column name ("monte_carlo"). The map stays
+#: complete even though ``time_tracking`` is currently unreachable through
+#: :data:`ENFORCED_SURFACE_KEYS` — restoring that key is then a one-line change
+#: rather than a re-derivation.
 SURFACE_LABELS: dict[str, str] = {
     "reporting": "Reporting",
     "time_tracking": "Time tracking",
     "baselines": "Baselines",
     "monte_carlo": "Monte Carlo",
 }
+
+#: The surfaces whose visibility a client actually acts on — the subset of
+#: ``SURFACE_KEYS`` this module is allowed to speak about.
+#:
+#: ``time_tracking`` is deliberately absent (#3376). Nothing on web or mobile
+#: reads ``Project.show_time_tracking``, so hiding it moves nothing on anyone's
+#: screen — yet the notice told every assigned member, every facet holder and
+#: every Scheduler+ seat that "Dana hid Time tracking in this project." That is
+#: property 1 of this module inverted: it fired on the *write* rather than on the
+#: consequence, and a notice about a change with no consequence is exactly the
+#: noise that gets the signal muted.
+#:
+#: Filtering here rather than in the copy is deliberate — it is the single choke
+#: point. :func:`capture_project_surface` builds both snapshots, so restricting it
+#: suppresses the clause AND stops a time-tracking-only flip from being a
+#: :class:`SurfaceChange` at all (which would otherwise emit a notice whose only
+#: remaining sentence is "Nothing you own moved."). Add the key back the day a
+#: surface reads the flag; see ``Project.show_time_tracking``.
+ENFORCED_SURFACE_KEYS: frozenset[str] = frozenset({"reporting", "baselines", "monte_carlo"})
 
 #: Projects whose surface notices are resolved, rendered and written together.
 #:
@@ -723,16 +747,26 @@ class ProjectSurfaceSnapshot(NamedTuple):
     """
 
     methodology: str
+    #: Effective visibility keyed by surface, restricted to
+    #: :data:`ENFORCED_SURFACE_KEYS` — NOT every key in ``SURFACE_KEYS``.
     visibility: dict[str, bool]
 
 
 def capture_project_surface(project: Project, *, workspace: Any = None) -> ProjectSurfaceSnapshot:
-    """Snapshot ``project``'s preset and effective leaf-surface visibility."""
+    """Snapshot ``project``'s preset and its *enforced* leaf-surface visibility.
+
+    Narrowed to :data:`ENFORCED_SURFACE_KEYS`, so the snapshot carries only the
+    surfaces a client actually renders against. A surface nothing reads cannot
+    make the before/after differ, and therefore cannot produce a notice — which
+    is the whole guarantee, applied once here rather than restated in the diff
+    and again in the copy.
+    """
     from .surface_visibility import resolve_effective_visibility
 
+    resolved = resolve_effective_visibility(project, workspace=workspace)
     return ProjectSurfaceSnapshot(
         methodology=str(project.methodology or ""),
-        visibility=resolve_effective_visibility(project, workspace=workspace),
+        visibility={k: v for k, v in resolved.items() if k in ENFORCED_SURFACE_KEYS},
     )
 
 

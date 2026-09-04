@@ -394,7 +394,11 @@ export function WorkspaceGeneralPage() {
             <FieldHelp
               label="Default timezone"
               body="The time zone the workspace uses for due dates and Gantt rendering. A project can set its own; this applies wherever a project doesn't override it. It affects how dates display only — it never shifts a scheduled date to another day."
-              docHref="features/timezone-and-date-format/#timezone"
+              /* Was features/timezone-and-date-format/#timezone — the PERSONAL
+                 preference page, which is a different setting with a different
+                 owner. An admin following it from a workspace control lands on
+                 documentation for their own profile (#3376). */
+              docHref="administration/workspace-settings/#fields"
             />
           }
         >
@@ -490,7 +494,11 @@ export function WorkspaceGeneralPage() {
               /* Zero consumers: nothing seeds Project.default_view from this value, and
                  projects/seed/importer.py hardcodes "SCHEDULE". The control persists and
                  changes nothing (#3234). */
-              body="The view a member is intended to land on the first time they open a project. TruePPM does not read it yet — every project opens on its own default view, which is the Schedule. This field saves and reloads, but where you land does not change."
+              /* The replaced sentence corrected one false claim by asserting a
+                 second: nothing opens a project on its own `default_view` either
+                 — the redirect follows the viewer's role-context lens (ADR-0162,
+                 #3376). */
+              body="The view a member is intended to land on the first time they open a project. TruePPM does not read it: opening a project takes you to the view your own role context prefers, and no project setting is consulted either. This field saves and reloads, but where you land does not change."
               docHref="administration/workspace-settings/#settings-that-are-stored-but-not-yet-read"
             />
           }
