@@ -2765,3 +2765,81 @@ describe('ScheduleView — F8/Shift+F8 unresolved-owner-token navigation (#2727,
     expect(capturedBuildMode!.focus.state.rowId).toBeNull();
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// #3356 — the Schedule's own action toast had an unconditional auto-dismiss.
+// The global `ToastHost` has paused on hover/focus since #2203, and the two
+// diverged; these pin the Schedule side of `usePausableAutoDismiss`. Real timers
+// with a tiny dwell, not fake ones: this file drives a canvas view with a lot of
+// other timing in it, and the assertion here is about the toast surviving wall
+// clock, which a short real dwell states directly.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ScheduleView — action toast auto-dismiss is pausable (#3356)', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  function showToast(durationMs = 60) {
+    act(() => {
+      useScheduleStore.getState().setScheduleActionToast({
+        message: 'Deleted “Foundation”',
+        durationMs,
+        action: { label: 'Undo', onClick: vi.fn() },
+      });
+    });
+  }
+
+  it('dismisses on its own when nothing touches it', async () => {
+    // The control for the two below: without it, a toast that never dismisses at
+    // all would satisfy both pause assertions vacuously.
+    renderSchedule();
+    showToast();
+    expect(screen.getByTestId('schedule-action-toast')).toBeInTheDocument();
+    await act(async () => {
+      await wait(250);
+    });
+    expect(screen.queryByTestId('schedule-action-toast')).not.toBeInTheDocument();
+    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+  });
+
+  it('suspends the dwell while the pointer is over it (WCAG 2.2.1)', async () => {
+    renderSchedule();
+    showToast();
+    const toast = screen.getByTestId('schedule-action-toast');
+    fireEvent.mouseEnter(toast);
+    await act(async () => {
+      await wait(250);
+    });
+    expect(screen.getByTestId('schedule-action-toast')).toBeInTheDocument();
+  });
+
+  it('never removes the toast while it contains focus, so Undo stays reachable', async () => {
+    // The defect in user terms: an Admin tabs toward the cascade's Undo and the
+    // toast unmounts under the focused control at the dwell, dropping focus to
+    // `<body>` (web rules 356(d) and 368; WCAG 2.4.3 Focus Order).
+    renderSchedule();
+    showToast();
+    const toast = screen.getByTestId('schedule-action-toast');
+    const undo = within(toast).getByRole('button', { name: 'Undo' });
+    act(() => {
+      undo.focus();
+      fireEvent.focus(undo);
+    });
+    await act(async () => {
+      await wait(250);
+    });
+    expect(screen.getByTestId('schedule-action-toast')).toBeInTheDocument();
+    expect(document.activeElement).toBe(undo);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('gives the Undo button the 44px touch floor (web rule 5)', () => {
+    // jsdom has no layout, so this asserts the utility that produces the floor
+    // rather than a measured box; the measured box is `e2e/schedule-build-mode`.
+    renderSchedule();
+    showToast();
+    const undo = within(screen.getByTestId('schedule-action-toast')).getByRole('button', {
+      name: 'Undo',
+    });
+    expect(undo.className).toContain('min-h-[44px]');
+    expect(undo.className).toContain('min-w-[44px]');
+  });
+});

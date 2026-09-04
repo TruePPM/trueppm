@@ -1387,6 +1387,51 @@ describe('GridView — toast dwell (#2078)', () => {
     expect(screen.queryByText(/^1 task deleted\.$/)).not.toBeInTheDocument();
   });
 
+  it('never times out the undoable toast while it holds focus (rule 377, WCAG 2.2.1)', async () => {
+    // The bulk-delete Undo is the only route back, so a keyboard user traversing
+    // toward it must not have it removed out from under the focus ring (#3356).
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+    await renderGrid();
+    const box = await screen.findByLabelText('Select Design');
+    vi.useFakeTimers();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
+    const undo = screen.getByRole('button', { name: /^undo$/i });
+    fireEvent.focus(undo);
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
+    // Leaving resumes it — without this the assertion above would also pass against
+    // a toast whose timer was simply broken.
+    fireEvent.blur(undo);
+    act(() => {
+      vi.advanceTimersByTime(8_000);
+    });
+    expect(screen.queryByText(/^1 task deleted\.$/)).not.toBeInTheDocument();
+  });
+
+  it('suspends the dwell while the pointer rests on the toast', async () => {
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+    await renderGrid();
+    const box = await screen.findByLabelText('Select Design');
+    vi.useFakeTimers();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
+    const toast = screen.getByText(/^1 task deleted\.$/).closest('[role="status"]') as HTMLElement;
+    fireEvent.mouseEnter(toast);
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText(/^1 task deleted\.$/)).toBeInTheDocument();
+  });
+
   it('dismisses the plain failure toast after the shorter dwell', async () => {
     bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onError?: () => void }) => {
       opts?.onError?.();

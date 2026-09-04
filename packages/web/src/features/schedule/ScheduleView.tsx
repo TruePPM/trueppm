@@ -35,6 +35,7 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
@@ -290,19 +291,31 @@ export function ScheduleEmptyState({ onAddTask }: { onAddTask?: () => void }) {
 // affordance (#477) and any future mutation that needs a follow-up button.
 // Auto-dismisses on the toast's `durationMs` (default 6000); explicit
 // dismissal on Esc and on Undo click.
+//
+// The dwell is PAUSABLE (#3356). This surface is not the global `ToastHost` — the
+// Schedule keeps its own renderer because its toast is the one backed by a session
+// trail (see the `trailBacked` discussion in `components/Toast/toastStore.ts`) — but
+// the WCAG 2.2.1 pause and web rule 356(d)'s "an element with focus inside it is
+// never auto-removed" are a single shared implementation, `usePausableAutoDismiss`,
+// not a copy. Two surfaces that have already diverged once on an accessibility
+// guarantee will diverge again.
 // ---------------------------------------------------------------------------
 
 function ScheduleActionToastRenderer() {
   const toast = useScheduleStore((s) => s.scheduleActionToast);
   const setToast = useScheduleStore((s) => s.setScheduleActionToast);
 
-  // Auto-dismiss timer — restarts whenever the toast identity changes.
-  useEffect(() => {
-    if (!toast) return;
-    const duration = toast.durationMs ?? 6000;
-    const handle = window.setTimeout(() => setToast(null), duration);
-    return () => window.clearTimeout(handle);
-  }, [toast, setToast]);
+  // Auto-dismiss timer — restarts whenever the toast identity changes, and stops
+  // entirely while the toast is hovered or contains focus. Without the pause, an
+  // Admin tabbing toward the cascade's Undo loses the button out from under the
+  // focus ring when the dwell elapses — 8s for the classification cascade, 6s for
+  // everything else — and focus falls to `<body>` (rule 368, WCAG 2.4.3).
+  const { pauseHandlers } = usePausableAutoDismiss({
+    active: toast !== null,
+    durationMs: toast?.durationMs ?? 6000,
+    restartKey: toast,
+    onDismiss: () => setToast(null),
+  });
 
   // Dismiss on Escape (consistent with other transient surfaces).
   useEffect(() => {
@@ -325,13 +338,17 @@ function ScheduleActionToastRenderer() {
       data-testid="schedule-action-toast"
       role="status"
       aria-live="polite"
+      {...pauseHandlers}
       className="fixed bottom-14 left-1/2 -translate-x-1/2 z-[60] min-w-[280px] max-w-[420px] px-4 py-2 rounded-card border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary flex items-center gap-3"
     >
       <span className="flex-1">{toast.message}</span>
       {toast.action && (
         <button
           type="button"
-          className="text-brand-primary font-medium hover:underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+          // `min-h-[44px]`/`min-w-[44px]`: rule 5's touch floor. The label is as
+          // short as "Undo", so height alone does not reach 44×44 the way it does
+          // on `ToastHost`'s wider padded pill button.
+          className="min-h-[44px] min-w-[44px] px-2 text-brand-primary font-medium hover:underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
           onClick={() => {
             toast.action!.onClick();
             // The handler is responsible for replacing or clearing the toast;
