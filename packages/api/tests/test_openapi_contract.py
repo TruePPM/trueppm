@@ -15,6 +15,7 @@ names) keeps the test robust across drf-spectacular versions.
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 
@@ -332,21 +333,26 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("post", "/api/v1/cascade-classification-operations/{id}/undo/"),
         ("post", "/api/v1/dependencies/{id}/accept/"),
         ("post", "/api/v1/dependencies/{id}/reject/"),
-        ("post", "/api/v1/me/api-tokens/"),
         ("post", "/api/v1/me/connections/{source}/sync/"),
         ("post", "/api/v1/me/timesheets/{week_start}/submit"),
         ("post", "/api/v1/paste-many-operations/{id}/undo/"),
-        ("post", "/api/v1/programs/{program_pk}/api-tokens/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/indent/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/outdent/"),
-        ("post", "/api/v1/projects/{project_pk}/api-tokens/"),
         ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
         ("post", "/api/v1/template-applications/{id}/undo/"),
         ("post", "/api/v1/workspace/email-settings/send-test/"),
-        # The seven that predate #3319 and were already hand-declared. #3286's
+        # The six that predate #3319 and were already hand-declared. #3286's
         # `setdefault` leaves them alone; they are listed so this set is the whole
         # truth about bodyless writes carrying a 400, not just the new ones.
-        ("post", "/api/v1/integrations/projects/{project_pk}/git-webhook/"),
+        #
+        # Four entries LEFT this set in #3364 — the three api-token creates and the
+        # git-webhook receiver. Nothing about their 400s changed; they stopped being
+        # *bodyless*. All four were in the class #3364 fixed (a handler reading
+        # `request.data` under an operation publishing no `requestBody`), so once
+        # each declared its real request serializer the membership predicate above —
+        # bodyless AND declares a 400 — stopped matching them. Their hand-written
+        # `state_refusal_400` declarations are still in the views and still win over
+        # #3286's `setdefault`; they are simply no longer *this* set's business.
         ("post", "/api/v1/programs/{id}/pin/"),
         ("delete", "/api/v1/programs/{id}/pin/"),
         ("post", "/api/v1/projects/{id}/pin/"),
@@ -400,8 +406,6 @@ def test_every_state_refusal_400_uses_one_of_the_three_real_wire_shapes(schema: 
         # Answers {"sent": false, "error": "..."} on both its 400 and its 502 so a
         # client renders one banner for either.
         ("post", "/api/v1/workspace/email-settings/send-test/"),
-        # Signature/payload rejection on the webhook ingest surface (pre-#3319).
-        ("post", "/api/v1/integrations/projects/{project_pk}/git-webhook/"),
     }
     offenders = []
     for method, path in sorted(_STATE_REFUSAL_OPERATIONS - bespoke):
@@ -882,3 +886,394 @@ def test_pin_endpoints_document_the_limit_rejection(schema: dict) -> None:
         ref = op["responses"]["400"]["content"]["application/json"]["schema"].get("$ref", "")
         props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
         assert {"detail", "code"} <= set(props), f"{path} 400 must carry detail + code (#2455)."
+
+
+# ---------------------------------------------------------------------------
+# #3364 — the sweep: no write operation may hide the body it requires
+#
+# This section is the only one in the file that reads the **generated** schema
+# rather than the committed `docs/api/openapi.json`, and the departure is
+# deliberate. The predicate needs the route table and the handler source, which
+# the committed artifact does not carry; and generating means the gate fires the
+# moment the code drifts rather than one regenerate later. `api:schema-drift`
+# already binds the committed file to what the code generates, so checking the
+# generated document loses nothing and catches the defect earlier.
+#
+# Why a sweep and not another point fix. This class has been fixed at its
+# instances five times (#2840, #3286, #3324, #3281, #3319) and recurred each time, for
+# the reason `regression-check` calls the most dangerous case: a guard existed
+# and was structurally incapable of matching the defect. #3286's injection keys
+# off `requestBody` *present*; this defect lives exactly where that predicate is
+# silent, so its green was evidence about the injection mechanism and not about
+# the contract. #3319's own sweep then matched the *decorator*
+# `@extend_schema(request=None)` and reported "exactly 2, the complete set" —
+# while 7 more operations reached the same published state by a different route
+# (an all-read-only `serializer_class`, or a plain `APIView` with no
+# `serializer_class` at all, with `create`/`put`/`patch` reaching for a separate
+# write serializer themselves). No `request=None` anywhere, so a decorator-shaped
+# search could not see them.
+#
+# The lesson encoded below: **the predicate is on the generated operation, not on
+# how the operation got that way.** There are at least four ways to publish "no
+# request body" — `request=None`, an all-read-only `serializer_class`, a plain
+# `APIView` with none at all, and a `request=` handed a bare schema dict it cannot
+# parse — and enumerating them is how the previous sweeps went blind.
+#
+# The gate got this wrong itself, twice, before it shipped, which is the strongest
+# evidence for the rule and the reason both corrections are pinned by tests rather
+# than described here. It first accepted a malformed `requestBody` because it asked
+# `"requestBody" in operation` (see `declares_a_usable_request_body`), and it first
+# read only the handler's own frame, missing the two `WorkspaceEmailSettingsView`
+# writes whose body read is one hop down in `_update` (see `_handler_source`). Each
+# time the sweep reported zero offenders over a tree that contained the defect.
+# ---------------------------------------------------------------------------
+
+#: Substrings that mean "this handler reads the client's request body".
+#:
+#: `object_body(` is the house helper (`trueppm_api.core.request_body`) and
+#: `request.data` is DRF's raw accessor; `self.request.data` is the viewset form.
+#: Deliberately a small literal set rather than an AST walk — a handler that
+#: reaches the body through some fourth spelling is a handler this gate cannot
+#: see, and widening the markers is the fix, not narrowing the assertion.
+_BODY_READ_MARKERS: tuple[str, ...] = (
+    "request.data",
+    "self.request.data",
+    "object_body(",
+)
+
+_WRITE_METHODS: tuple[str, ...] = ("post", "put", "patch", "delete")
+
+#: Operations that read the request body but genuinely must publish no
+#: `requestBody`, each with the reason. Same shape as the `# safe-constraint:`
+#: escape on the migration gate, and the same honest accounting of what it buys:
+#: an opt-out is a rubber stamp and cannot stop a wrong answer. What it removes is
+#: the silence — before this gate, adding an eighth operation to this class
+#: produced no signal anywhere in the pipeline.
+#:
+#: It is **empty**, and that is a finding rather than a placeholder: all 7
+#: operations in the class at #3364 turned out to accept a perfectly ordinary
+#: client-supplied body, including the Git webhook receiver, whose payload is the
+#: provider's own event object and is now declared as such. If you are about to
+#: add an entry, the bar is that the handler reads a body **no client supplies** —
+#: not that declaring the shape is inconvenient.
+_BODY_DECLARATION_EXEMPT: dict[tuple[str, str], str] = {}
+
+
+def operation_hides_a_body_its_handler_reads(operation: dict, handler_source: str | None) -> bool:
+    """The whole predicate, isolated so the negative control can drive it.
+
+    Pure and side-effect free on purpose: the test below it plants each shape by
+    hand and asserts this fires or does not. A predicate that only ever runs over
+    the real tree is a predicate nobody has watched fail — which is precisely the
+    standing that let #3286's green be read as evidence it was not.
+
+    Args:
+        operation: One generated OpenAPI operation object.
+        handler_source: `inspect.getsource` of the method serving it, or None when
+            it could not be resolved.
+
+    Returns:
+        True when the operation publishes no *usable* request body while its handler
+        reads one. A handler whose source could not be read returns False — an
+        unresolvable handler is reported separately rather than guessed at here.
+    """
+    if declares_a_usable_request_body(operation):
+        return False
+    if handler_source is None:
+        return False
+    return any(marker in handler_source for marker in _BODY_READ_MARKERS)
+
+
+def declares_a_usable_request_body(operation: dict) -> bool:
+    """A `requestBody` a client can actually send through, not merely a key.
+
+    `"requestBody" in operation` is NOT this predicate, and the difference is the
+    whole lesson of #3364 restated one level down. `@extend_schema(request=...)`
+    accepts a serializer, an `OpenApiTypes`, an `OpenApiRequest`, or a
+    `{media_type: schema}` mapping — but **not** a bare OpenAPI schema dict, which
+    `responses=` does accept. Hand it one and drf-spectacular reads that dict's own
+    top-level keys as media types: `{"type": ..., "additionalProperties": ...,
+    "description": ...}` became three content entries named after schema keywords,
+    each holding the "Unspecified request body" placeholder, and the authored schema
+    was thrown away. No error, no warning.
+
+    That shape passed the first draft of this gate. A generated client is no better
+    off than with no `requestBody` at all — it is a differently-shaped absence, not a
+    presence — so requiring a real media range is the only way the sweep measures the
+    thing it claims to. Every media type contains a `/`; no OpenAPI schema keyword
+    does, which is exactly what makes the malformed shape detectable.
+    """
+    body = operation.get("requestBody")
+    if not isinstance(body, dict):
+        return False
+    content = body.get("content")
+    if not isinstance(content, dict) or not content:
+        return False
+    return any("/" in media_type for media_type in content)
+
+
+@functools.lru_cache(maxsize=1)
+def _write_operation_index() -> list[tuple[str, str, dict, object]]:
+    """`(path, METHOD, operation, view)` for every generated write operation.
+
+    Cached: building this walks the whole route table twice (`get_schema` for the
+    operations, `parse` for the views behind them) at ~0.8s a call, and both tests
+    below want the same answer. The schema cannot change inside a session, so one
+    build is the whole truth — the same reasoning as the module-scoped `schema`
+    fixture at the top of this file.
+    """
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    generator = SchemaGenerator()
+    generator.parse(None, public=True)
+    views = {
+        (path, method.upper()): view
+        for path, _regex, method, view in generator._get_paths_and_endpoints()
+    }
+    return [
+        (path, method.upper(), operation, views.get((path, method.upper())))
+        for path, operations in schema.get("paths", {}).items()
+        for method, operation in operations.items()
+        if method.lower() in _WRITE_METHODS
+    ]
+
+
+def _handler_source(view: object, method: str) -> str | None:
+    """Source of the method serving `method`, plus any `self._helper()` it delegates to.
+
+    `view.action` is set by drf-spectacular for viewsets and is the only thing
+    that distinguishes `create` from a custom `@action` sharing the verb; a plain
+    `APIView` has no `action`, and there the verb *is* the method name.
+
+    **The one-level hop is not a refinement — without it the sweep does not cover
+    its own class.** `WorkspaceEmailSettingsView.put` is
+    `return self._update(request, partial=False)`; the `request.data` read is in
+    `_update`, so a handler-local search sees a body-free one-liner and reports the
+    operation clean. Two such operations were live in the tree when this gate was
+    written and the first draft, reading one frame, reported zero offenders over
+    both. #2840 is the same shape from the other direction: its roster `@action`s
+    are thin wrappers around `self._mutate_membership(...)`, so deleting their
+    `request=` annotations would re-open that defect with this gate still green.
+
+    One level, matching `_handler_and_helpers_source` in
+    `test_openapi_response_conformance.py`. Two has no caller in this codebase, so
+    the extra reach would be untested code — and the failure mode of stopping too
+    early is a false *pass*, which is why this comment exists rather than a
+    tempting `# good enough`.
+    """
+    import inspect
+    import re
+
+    action = getattr(view, "action", None) or method.lower()
+    handler = getattr(type(view), action, None)
+    if handler is None:
+        return None
+    try:
+        sources = [inspect.getsource(handler)]
+    except (OSError, TypeError):  # pragma: no cover - handler without source
+        return None
+    for helper_name in sorted(set(re.findall(r"self\.(_\w+)\(", sources[0]))):
+        helper = getattr(type(view), helper_name, None)
+        if helper is None:
+            continue
+        try:
+            sources.append(inspect.getsource(helper))
+        except (OSError, TypeError):  # pragma: no cover - builtin / C helper
+            continue
+    return "\n".join(sources)
+
+
+def test_no_write_operation_hides_the_request_body_it_requires() -> None:
+    """The sweep (#3364).
+
+    An operation with no `requestBody` tells every generated client, every MCP
+    tool definition and every reader of `docs/api/openapi.json` that the endpoint
+    accepts nothing. When the handler then reads `request.data` and requires a
+    field, the client has no parameter to send it through — `POST /me/api-tokens/`
+    requires `name` and published no way to provide it.
+
+    The fix at each site is `@extend_schema(request=<the write serializer the
+    handler actually constructs>)` — read off the handler, not off the viewset's
+    `serializer_class`, which in every #3364 case was a different (all-read-only)
+    shape.
+    """
+    offenders = []
+    unresolved = []
+    for path, method, operation, view in _write_operation_index():
+        key = (method.lower(), path)
+        if key in _BODY_DECLARATION_EXEMPT:
+            continue
+        if view is None:
+            unresolved.append(f"{method} {path}")
+            continue
+        source = _handler_source(view, method)
+        if "requestBody" not in operation and source is None:
+            unresolved.append(f"{method} {path} ({type(view).__name__})")
+            continue
+        if operation_hides_a_body_its_handler_reads(operation, source):
+            action = getattr(view, "action", None) or method.lower()
+            offenders.append(f"{method} {path}  [{type(view).__name__}.{action}]")
+
+    # Reported, not skipped. Every bodyless write in the tree resolves today, so a
+    # new unresolvable one means this gate has gone partially blind — which is the
+    # failure mode the whole section exists to refuse, and a silent `continue` is
+    # how the previous three sweeps acquired it.
+    assert not unresolved, (
+        "these write operations could not be traced back to a handler, so the "
+        f"#3364 sweep cannot see them: {sorted(unresolved)}"
+    )
+    assert not offenders, (
+        f"{len(offenders)} write operation(s) publish no `requestBody` while the "
+        "handler reads the client's body — a generated client cannot send the "
+        "fields these require (#3364). Declare the real write serializer with "
+        "`@extend_schema(request=...)`, or add an entry to "
+        "_BODY_DECLARATION_EXEMPT with the reason:\n  " + "\n  ".join(sorted(offenders))
+    )
+
+
+def test_the_body_declaration_rule_fires_on_the_shape_it_guards() -> None:
+    """The gate must bite — a guard that cannot fail guards nothing.
+
+    Reproduces each of the three routes to "no `requestBody`" that #3364 found in
+    the tree, and pins the shapes that must keep passing so the rule cannot be
+    widened into a no-op by a later simplification. Without this, a refactor that
+    broke `_handler_source` would leave the sweep green over a tree it was no
+    longer reading.
+    """
+    reads_body = "serializer = GitAutomationUpdateSerializer(data=request.data)"
+    declared = {"requestBody": {"content": {"application/json": {"schema": {}}}}}
+    bodyless: dict = {}
+    # What `request=<bare schema dict>` actually generates. Included here because it
+    # is the shape that passed the first draft of this gate — see
+    # `declares_a_usable_request_body`.
+    malformed = {
+        "requestBody": {
+            "content": {
+                "type": {"schema": {"description": "Unspecified request body"}},
+                "additionalProperties": {"schema": {}},
+                "description": {"schema": {}},
+            }
+        }
+    }
+
+    # Fires: the three real routes into the class, plus the malformed declaration.
+    assert operation_hides_a_body_its_handler_reads(bodyless, reads_body), (
+        "a plain APIView reading request.data must be caught"
+    )
+    assert operation_hides_a_body_its_handler_reads(
+        bodyless, "write_serializer = MyApiTokenCreateSerializer(data=request.data)"
+    ), "a viewset create() reaching past an all-read-only serializer_class must be caught"
+    assert operation_hides_a_body_its_handler_reads(
+        bodyless, 'body = object_body(request)\nkey = body.get("x")'
+    ), "the house object_body() helper must be caught"
+    assert operation_hides_a_body_its_handler_reads(malformed, reads_body), (
+        "a requestBody whose content keys are schema keywords rather than media "
+        "types carries no shape a client can use — it must not read as declared"
+    )
+    assert operation_hides_a_body_its_handler_reads({"requestBody": {}}, reads_body), (
+        "a requestBody with no content at all must not read as declared"
+    )
+    # The delegating shape, as `_handler_source` assembles it: a one-line handler
+    # whose body read lives in the helper appended after it. Pinned because the
+    # first draft read only the first frame and reported both
+    # WorkspaceEmailSettingsView writes clean.
+    assert operation_hides_a_body_its_handler_reads(
+        bodyless,
+        "def put(self, request):\n    return self._update(request, partial=False)\n"
+        "\ndef _update(self, request, *, partial):\n"
+        "    s = WorkspaceEmailSettingsSerializer(obj, data=request.data, partial=partial)",
+    ), "a handler that delegates its body read to a helper must be caught"
+
+    # Silent: a declared body is the fixed state, and a handler that never reads
+    # the body is the majority of bodyless writes (an undo, a pin, a submit).
+    assert not operation_hides_a_body_its_handler_reads(declared, reads_body), (
+        "declaring the body is the fix — it must stop the rule firing"
+    )
+    assert not operation_hides_a_body_its_handler_reads(
+        bodyless, "obj = self.get_object()\nobj.undo()\nreturn Response(status=204)"
+    ), "a genuinely bodyless write must not be flagged"
+    assert not operation_hides_a_body_its_handler_reads(bodyless, None), (
+        "an unresolvable handler is reported by the sweep, not guessed at here"
+    )
+
+
+def test_no_request_body_declares_a_content_key_that_is_not_a_media_type() -> None:
+    """Document-wide ratchet on the malformed-declaration shape (#3364).
+
+    Scoped wider than the sweep above on purpose. That one only inspects operations
+    whose handler reads the body, so a malformed `request=` on any other operation
+    would still sail past it. This asserts the property directly, over every
+    operation in the document, and needs no handler to do it: a `content` key
+    without a `/` is not a media range, so drf-spectacular was handed something it
+    read as one and silently discarded the real schema.
+    """
+    offenders = []
+    for path, method, operation, _view in _write_operation_index():
+        content = operation.get("requestBody", {}).get("content", {})
+        bogus = sorted(key for key in content if "/" not in key)
+        if bogus:
+            offenders.append(f"{method} {path}: content keys {bogus} are not media types")
+    assert not offenders, (
+        "these operations declare a request body drf-spectacular could not parse — "
+        "`request=` needs a serializer, an OpenApiTypes, an OpenApiRequest, or a "
+        "{media_type: schema} mapping, NOT a bare schema dict (#3364):\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_every_body_declaration_exemption_still_describes_a_real_operation() -> None:
+    """Pin the opt-out in the other direction too (#3364).
+
+    A stale exemption is worse than none: it reads as a reviewed decision about an
+    operation that may have been renamed, fixed or deleted, and it silently
+    subtracts that operation from the sweep for good. Same two-way discipline as
+    `_STATE_REFUSAL_OPERATIONS` above — the list is the thing to change, and
+    changing it is the moment somebody re-reads the handler.
+    """
+    live = {(method.lower(), path) for path, method, _operation, _view in _write_operation_index()}
+    stale = sorted(key for key in _BODY_DECLARATION_EXEMPT if key not in live)
+    assert not stale, (
+        "these _BODY_DECLARATION_EXEMPT entries name no live write operation — "
+        f"the operation moved or went away, so drop them (#3364): {stale}"
+    )
+
+
+#: The four operations that left `_STATE_REFUSAL_OPERATIONS` in #3364, and the
+#: hand-written 400 each still declares.
+#:
+#: They left that set because they stopped being *bodyless*, not because their 400
+#: changed — but `test_every_state_refusal_400_uses_one_of_the_three_real_wire_shapes`
+#: iterates that set, so leaving it silently dropped the wire-shape assertion from
+#: all four. Re-pinned here rather than left to be noticed later: a 400 declared in a
+#: shape the API never returns makes a generated client throw while parsing the
+#: error, before it can read the message, and that is exactly as true of an
+#: operation with a request body as of one without.
+_BODIED_HAND_DECLARED_400S: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("post", "/api/v1/me/api-tokens/"),
+        ("post", "/api/v1/programs/{program_pk}/api-tokens/"),
+        ("post", "/api/v1/projects/{project_pk}/api-tokens/"),
+    }
+)
+
+
+@pytest.mark.parametrize(("method", "path"), sorted(_BODIED_HAND_DECLARED_400S))
+def test_token_create_400s_keep_a_real_wire_shape(schema: dict, method: str, path: str) -> None:
+    """Each token-create 400 must stay a field-keyed object (#3319, #3364).
+
+    All three answer with DRF's field-keyed body — `MyApiTokenCreateSerializer` /
+    `ProjectApiTokenCreateSerializer` rejecting a field — and `/me/api-tokens/`
+    additionally answers a flat `{"detail"}` when the active-token cap is reached.
+    The field-keyed declaration admits both, because `additionalProperties` accepts
+    the `detail` key too; a declaration narrowed to `detail` alone would mis-type
+    the majority case.
+    """
+    op = schema["paths"][path][method]
+    assert "requestBody" in op, (
+        f"{method.upper()} {path} must keep the requestBody #3364 declared — "
+        "losing it puts this operation back in the class the sweep exists to catch."
+    )
+    body = op["responses"]["400"]["content"]["application/json"]["schema"]
+    assert body.get("type") == "object" and "additionalProperties" in body, (
+        f"{method.upper()} {path} declares a 400 in a shape the API never returns (#3319): {body}"
+    )
