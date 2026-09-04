@@ -89,6 +89,11 @@ opening a project makes the Schedule read *every* page of its task list, and eac
 those requests spends about 80% of its database time on a pagination count that
 recomputes every annotation over every row.
 
+Raising that ceiling is tracked, sequenced work rather than a standing limitation: four
+changes are scheduled for 0.5 (#3383). We are not publishing a target number, and the
+honest reason is that the sharp part of the curve — the jump between 1,000 and 2,000
+tasks — is not yet explained by any of them (#3385).
+
 The full per-dimension measurement — tasks per project, dependency edges, concurrent
 users and WebSocket connections, Monte Carlo iterations at the task ceiling, the
 hardware it was measured on, and an explicit list of what was **not** tested — is

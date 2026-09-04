@@ -179,8 +179,9 @@ was *not* tested. A beta that invites people to put a real program on their own 
 owes them a number rather than silence — including the number that is currently
 unflattering. In 0.4 a project stays comfortable in the Schedule view to roughly
 **1,000 tasks**, bounded by what the Schedule pays to load a whole project. Raising that
-ceiling is scheduled work, not a known-unknown: it is tracked on #2814 and #2815, both in
-the **0.5** milestone.
+ceiling is scheduled work: four changes — #2815, #2814, #3381 and #3382 — are sequenced
+on #3383 in the **0.5** milestone. No target number is published with them, because the
+steepest part of the curve is not yet explained by any of them (#3385).
 
 - **Accessibility remediation** (#1685 #2202 are the axe-gate infrastructure issues; the
   remediation itself ran across the release) — focus traps across roughly seventy dialogs,

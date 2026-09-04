@@ -91,6 +91,65 @@ That is **~80% of the request's database time**, it is constant across pages, an
 
 **What this means for the ceiling.** Nothing that sets it has changed since the numbers above were taken. [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) closed in 0.4, but its fix capped the Schedule's page-fetch **burst** at four concurrent requests — it reduces browser connection-pool saturation, not total work, and the harness measures a serial fetch, so the figure in the table is unaffected by it. The Schedule still reads every page. **Plan against 1,000 tasks per project in 0.4.**
 
+### How this ceiling is raised in 0.5
+
+The ceiling is not a fixed property of TruePPM. Two costs drive it, both of them
+**quadratic in task count** by construction, and both tracked work.
+
+A whole-project load is `ceil(N / 200)` page requests, and each request pays:
+
+| Cost | Per request | Across the whole fetch |
+|---|---|---|
+| a pagination `COUNT` over every row in the project | O(N) | **O(N²)** |
+| an `OFFSET` that cannot skip work under the `GROUP BY` | O(offset) | **O(N²)** |
+
+:::caution[The measured curve is not quadratic, and the gap matters]
+Those are the *analytical* costs. The measured numbers do not match them, in both
+directions, and it would be misleading to present the mechanism as the explanation:
+
+| Step | Tasks | Measured | Implied exponent |
+|---|---|---|---|
+| 100 → 250 | 2.5× | 2.3× | **k ≈ 0.9** |
+| 250 → 500 | 2× | 1.9× | **k ≈ 0.9** |
+| 500 → 1,000 | 2× | 1.9× | **k ≈ 1.0** |
+| 1,000 → 2,000 | 2× | **32.4×** | **k ≈ 5.0** |
+
+Up to 1,000 tasks the curve is **effectively linear** — per-request fixed cost dominates,
+and the quadratic terms are not yet what you are paying for. Then the last step is 32×,
+where a quadratic predicts 4× (7.4 s, against 60 s measured).
+
+**So the cliff is not explained by the two costs above.** Something further happens
+between 1,000 and 2,000 tasks — a query-plan flip, a working set outgrowing cache, or a
+limit the harness did not isolate — and there is no measured point in between to locate
+it. That gap is the reason this page still recommends 1,000 rather than a number derived
+from the curve, and it is tracked separately from the two fixes below, on
+[#3385](https://gitlab.com/trueppm/trueppm/-/issues/3385).
+:::
+
+Four changes are sequenced for **0.5**, tracked together on
+[#3383](https://gitlab.com/trueppm/trueppm/-/issues/3383):
+
+| | What ships in 0.5 | Effect on the curve |
+|---|---|---|
+| [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) | Count on the unannotated queryset, so pagination stops recomputing every annotation over every row | Removes one quadratic term outright |
+| [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814) | Aggregate annotations become subqueries, removing the `GROUP BY` | Collapses the constant on the other term — and is what makes an ordering index worth adding, which today it is not |
+| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Keyset pagination on the task read | Removes the `OFFSET` term entirely — this is the step that makes the fetch **linear** |
+| [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) | A slim bootstrap projection, so the Schedule stops fetching 99 fields per task to draw a bar | Cuts the constant, and removes the reason to walk pages at all for the first paint |
+
+**No new number is promised here, deliberately**, and the caution above is most of the
+reason. Each change has a measured *mechanism* but not a measured *outcome*; the cliff
+that sets the current ceiling is not explained by any of them; and
+[#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) means the nightly budgets are
+unset, so there is currently no instrument that could confirm an improvement. Quoting a
+0.5 target on that basis would be a forecast at a precision we have not earned. When the
+work is measured, the rows above will carry numbers instead of mechanisms.
+
+One thing that is **not** on this list, and is deliberately not: loading only the visible
+part of the schedule. The outline numbers each task by its position among the siblings
+actually loaded, so a partial task set renders *wrong* rather than merely incomplete.
+Fetching less is a correctness hazard in a way that fetching more cheaply is not, which is
+why every change above makes the fetch cheaper instead.
+
 ### What was explicitly *not* measured
 
 These are **untested**, not unbounded. Do not read silence as a guarantee.
