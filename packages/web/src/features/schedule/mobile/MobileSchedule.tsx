@@ -9,6 +9,7 @@ import { toast } from '@/components/Toast';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
+import { ScheduleSeedingState } from '../ScheduleSeedingState';
 import { Button } from '@/components/Button';
 import {
   CalendarIcon,
@@ -56,6 +57,12 @@ export interface MobileScheduleProps {
    *  view's nav entry (methodologyTabs.ts), but the route stays reachable by
    *  direct URL on purpose. Drives the explanatory empty state below. */
   effectiveMethodology: Methodology;
+  /**
+   * A template apply is still writing this project's rows (#3312). Replaces the
+   * "No items yet" card, which on a project that was just seeded from a template
+   * reads as "the apply failed" rather than "it hasn't finished".
+   */
+  seeding?: boolean;
 }
 
 /**
@@ -77,6 +84,7 @@ export function MobileSchedule({
   error,
   onAddTask,
   effectiveMethodology,
+  seeding = false,
 }: MobileScheduleProps) {
   const queryClient = useQueryClient();
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
@@ -162,6 +170,11 @@ export function MobileSchedule({
         primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
       />
     );
+  } else if (tasks.length === 0 && seeding) {
+    // A template apply is still writing (#3312). After the AGILE branch, which
+    // says this view does not apply at all, and after `error`, which is a real
+    // failure rather than a wait.
+    body = <ScheduleSeedingState />;
   } else if (tasks.length === 0) {
     body = (
       <EmptyState
