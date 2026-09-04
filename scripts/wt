@@ -546,9 +546,17 @@ db_available() {
 }
 
 # psql -tAc against the maintenance DB. Swallows errors by design (see above).
+#
+# Stdin is closed deliberately, and it is the whole point of this function's
+# shape. `docker exec -i` ATTACHES stdin and hands it to psql; every caller here
+# passes its SQL as an argument to -tAc, so psql has no use for it. But
+# `cmd_prune_dbs` calls this from inside a `while read` loop, so an attached
+# psql ate the loop's remaining input and the sweep stopped after ONE database
+# while still reporting success (#3417). Dropping -i is the fix; </dev/null is
+# the belt-and-braces half, so re-adding -i cannot silently reintroduce it.
 db_query() {
-  docker exec -i "$WT_DB_CONTAINER" \
-    psql -U "$WT_DB_USER" -d "$WT_DB_MAINT" -tAc "$1" 2>/dev/null || true
+  docker exec "$WT_DB_CONTAINER" \
+    psql -U "$WT_DB_USER" -d "$WT_DB_MAINT" -tAc "$1" </dev/null 2>/dev/null || true
 }
 
 # Every database wt could own. Anchored regex rather than LIKE: the names are
@@ -1254,6 +1262,20 @@ EOF
 
   say ""
   ok "Dropped: $dropped. Kept (in use or not wt-owned): $kept."
+
+  # Reconcile the arithmetic against the list we set out to process. Every
+  # orphan must end up in exactly one bucket, so a total that does not add up
+  # means the loop exited early — which is precisely how #3417 hid: psql ate the
+  # loop's stdin, one database was dropped, and "Dropped: 1. Kept: 0." over 82
+  # orphans read as success. The counts were individually honest and the sum was
+  # the only thing that knew. Warn rather than die: the drops that did happen are
+  # real and the caller should keep them, but silence is not an option.
+  local processed=$((dropped + kept))
+  if (( processed != orphan_count )); then
+    warn "swept $processed of $orphan_count orphan(s) — the sweep exited early."
+    warn "  Re-run 'scripts/wt prune-dbs' to continue, and please report this (#3417)."
+    return 1
+  fi
 }
 
 # Check out an issue without creating a worktree — for "I picked it up but

@@ -58,6 +58,22 @@ cat > "$STUB_BIN/docker" <<'STUBEOF'
 #!/usr/bin/env bash
 { echo "ARGV: $*"; } >> "$DB_STUB_LOG"
 
+# Faithfulness matters more than convenience here. Real `docker exec -i`
+# ATTACHES STDIN and hands it to the container process, so a caller that runs
+# it inside a `while read` loop has its remaining input eaten (#3417). A stub
+# that quietly ignores stdin diverges from the real command on exactly the
+# behavior that broke, and Case 5 passed for a year against a prune-dbs that
+# dropped one database per run. Drain it whenever -i is present.
+# Guarded on `! -t 0`: drain a PIPE or heredoc (the case that reproduces #3417),
+# never a terminal. Real `docker exec -i` attaches either way, but a stub that
+# blocks on a tty makes this suite unrunnable by hand for no extra fidelity —
+# the hazard only exists where a caller's stdin carries data it still needs.
+if [[ ! -t 0 ]]; then
+  for _a in "$@"; do
+    if [[ "$_a" == "-i" ]]; then cat >/dev/null 2>&1 || true; break; fi
+  done
+fi
+
 if [[ "$1" == "ps" ]]; then
   # db_available: print the container name only when the stack is "up".
   [[ "${DB_STUB_UP:-1}" == "1" ]] && echo "${DB_STUB_CONTAINER:-trueppm-db-1}"
@@ -249,11 +265,16 @@ echo "Case 5: prune-dbs drops only orphaned databases"
 D5="$TMP/case5"; mk_repo "$D5"
 B5="$TMP/case5-wts"
 mk_wt "$D5" "$B5" "feat/9501-live" "9501-live" "test_trueppm_wt_9501_live"
+# THREE droppable orphans, not one. With a single droppable row "drops every
+# orphan" and "stops after the first drop" are indistinguishable, which is the
+# other half of why #3417 survived this case. 9502/9504/9505 must ALL go.
 catalog \
   "test_trueppm_wt_9501_live" \
   "test_trueppm_wt_9501_live_gw0" \
   "test_trueppm_wt_9502_dead" \
   "test_trueppm_wt_9503_busy" \
+  "test_trueppm_wt_9504_dead" \
+  "test_trueppm_wt_9505_dead" \
   "test_trueppm" \
   "trueppm"
 printf 'test_trueppm_wt_9503_busy 1\n' > "$DB_STUB_CONNS"
@@ -263,6 +284,8 @@ rc5=0
 ( cd "$D5" && TRUEPPM_WT_BASE="$B5" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes >/dev/null 2>&1 ) || rc5=$?
 check "prune-dbs is a real subcommand"  "$([[ "$rc5" -eq 0 ]]; echo $?)"
 check "orphan dropped"                  "$(! in_catalog test_trueppm_wt_9502_dead; echo $?)"
+check "SECOND orphan dropped"           "$(! in_catalog test_trueppm_wt_9504_dead; echo $?)"
+check "THIRD orphan dropped"            "$(! in_catalog test_trueppm_wt_9505_dead; echo $?)"
 check "live worktree's DB spared"       "$(in_catalog test_trueppm_wt_9501_live; echo $?)"
 check "live worktree's worker spared"   "$(in_catalog test_trueppm_wt_9501_live_gw0; echo $?)"
 check "in-use orphan spared"            "$(in_catalog test_trueppm_wt_9503_busy; echo $?)"
@@ -283,6 +306,18 @@ check "doctor reports orphans"                  "$(grep -q 'orphan_test_dbs' "$W
 check "prune-dbs is dispatched"                 "$(grep -qE 'prune-dbs\).*cmd_prune_dbs' "$WT"; echo $?)"
 check "drop is prefix-guarded"                  "$(grep -q 'is_wt_test_db "\$name" ||' "$WT"; echo $?)"
 check "drop checks pg_stat_activity"            "$(grep -q 'pg_stat_activity' "$WT"; echo $?)"
+# #3417: db_query runs inside a `while read` loop. It must not attach stdin, or
+# psql drains the loop's remaining input and the sweep silently stops after one
+# row. Both halves are asserted: no -i, and an explicit redirect from /dev/null.
+#
+# Matched against COMMENT-STRIPPED source. The fix's own comment necessarily
+# contains the string "docker exec -i" to explain what it is avoiding, and a
+# naive grep over the whole file fails on the very diff that fixes the bug —
+# the same reason enterprise-boundary-check reads import syntax and not prose.
+WT_CODE="$(grep -vE '^[[:space:]]*#' "$WT")"
+check "db_query does not attach stdin (-i)"     "$(! printf '%s\n' "$WT_CODE" | grep -q 'docker exec -i'; echo $?)"
+check "db_query redirects stdin from /dev/null" "$(printf '%s\n' "$WT_CODE" | grep -q 'psql .*</dev/null'; echo $?)"
+check "prune-dbs reconciles its own totals"     "$(printf '%s\n' "$WT_CODE" | grep -q 'processed != orphan_count'; echo $?)"
 # The prefix guard must require something AFTER the prefix, or the shared
 # `test_trueppm_wt` name itself would be droppable.
 check "prefix guard requires a suffix"          "$(grep -q '"\${WT_TEST_DB_PREFIX}"?\*' "$WT"; echo $?)"
