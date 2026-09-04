@@ -873,11 +873,11 @@ export function ProjectGeneralPage() {
 
           <FieldRow
             label="Timezone"
-            hint="Used for due dates, Gantt rendering, and sprint cutovers."
+            hint="Anchors this project's notification quiet hours. Leave on Workspace default to inherit."
             help={fieldHelp({
               label: 'Timezone',
-              body: "The timezone due dates, Gantt rendering, and sprint cutovers are interpreted in. It's display-only — changing it never shifts a task's stored calendar dates. Leave it on Workspace default to follow the workspace setting.",
-              docHref: 'features/timezone-and-date-format/#timezone',
+              body: "The timezone this project's notification quiet-hours windows are interpreted in, so a 20:00–07:00 window means 20:00–07:00 here. It is not a display timezone — the times you see are always shown in your own personal timezone, and changing this never shifts a task's stored calendar dates. Leave it on Workspace default to follow the workspace setting.",
+              docHref: 'features/settings/project-notifications/#which-timezone-the-window-is-read-in',
             })}
           >
             <div className="relative inline-block w-[280px]">

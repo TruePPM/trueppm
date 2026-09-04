@@ -59873,6 +59873,7 @@
                     "timezone": {
                         "type": "string",
                         "minLength": 1,
+                        "description": "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — unlike the per-user profile timezone this one is resolved server-side. It is the quiet-hours fallback for a project that sets no timezone of its own, not a display timezone. A non-IANA value is rejected with a 400.",
                         "maxLength": 64
                     },
                     "fiscal_year_start_month": {
@@ -72692,6 +72693,7 @@
                     },
                     "timezone": {
                         "type": "string",
+                        "description": "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — unlike the per-user profile timezone this one is resolved server-side. It is the quiet-hours fallback for a project that sets no timezone of its own, not a display timezone. A non-IANA value is rejected with a 400.",
                         "maxLength": 64
                     },
                     "fiscal_year_start_month": {

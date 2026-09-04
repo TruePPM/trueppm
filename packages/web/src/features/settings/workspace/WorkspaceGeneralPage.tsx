@@ -389,12 +389,12 @@ export function WorkspaceGeneralPage() {
 
         <FieldRow
           label="Default timezone"
-          hint="Used for due dates and Gantt rendering when a project doesn't override."
+          hint="Anchors quiet hours for any project that sets no timezone of its own."
           help={
             <FieldHelp
               label="Default timezone"
-              body="The time zone the workspace uses for due dates and Gantt rendering. A project can set its own; this applies wherever a project doesn't override it. It affects how dates display only — it never shifts a scheduled date to another day."
-              docHref="features/timezone-and-date-format/#timezone"
+              body="The fallback timezone for a project that sets none of its own. Its one effect today is anchoring the notification quiet-hours window of any project that sets none, so a 20:00–07:00 window means 20:00–07:00 here. A project that sets its own timezone is unaffected. It is not a display timezone — the times you see are always shown in your own personal timezone, and this never shifts a scheduled date to another day."
+              docHref="administration/workspace-settings/#default-timezone"
             />
           }
         >

@@ -17,7 +17,7 @@ import datetime
 import logging
 import re
 from typing import TYPE_CHECKING, Any, NamedTuple
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -191,20 +191,123 @@ _QUIET_HOURS_EXEMPT_CHANNELS = frozenset({ProjectNotificationChannel.IN_APP.valu
 _DND_EXEMPT_CHANNELS = frozenset({NotificationChannel.IN_APP.value})
 
 
-def _project_timezone(project: Any) -> ZoneInfo:
-    """Resolve the tz that a project's quiet-hours window is interpreted in.
+def _workspace_timezone_name(workspace: Any = None) -> str:
+    """The singleton workspace's IANA timezone name, or ``""`` if unreadable.
 
-    The default ``auth.User`` carries no timezone, so quiet hours anchor to the
-    project's IANA timezone (``Project.timezone``, #520), falling back to the
-    workspace default (``settings.TIME_ZONE``) and finally UTC. Unparseable tz
-    data degrades to UTC rather than raising inside a dispatch path.
+    Two ways to get ``""``, both meaning "no workspace tier — move down the chain":
+    there is no singleton row (a fresh install, or one purged per ADR-0174), or the
+    table is not reachable at all (mid-migration). This sits inside a notification
+    dispatch path, so neither may take the fan-out down with it.
+
+    Pass an already-loaded ``workspace`` to skip the query entirely — the same
+    threading idiom as ``scheduling.forecast_history_settings.resolve_effective_mc_history``,
+    which keeps a batched resolve at one workspace query rather than one per row.
     """
-    name = (getattr(project, "timezone", "") or "").strip() or settings.TIME_ZONE or "UTC"
+    if workspace is not None:
+        return str(getattr(workspace, "timezone", "") or "").strip()
+    from django.db import DatabaseError, transaction
+
+    from trueppm_api.apps.workspace.models import Workspace
+
     try:
-        return ZoneInfo(name)
-    except Exception:
-        # Bad tz data must never break a dispatch path — degrade to UTC.
-        return ZoneInfo("UTC")
+        # Two deliberate choices here.
+        #
+        # A plain read, NOT ``Workspace.load()``: load() is a get_or_create, and a
+        # dispatch path must not write a row as a side effect of asking a question.
+        # No row simply means "no workspace tier" and the chain moves on.
+        #
+        # Wrapped in a savepoint: ATOMIC_REQUESTS wraps the whole request, so a
+        # DatabaseError swallowed without one would leave the outer atomic block
+        # marked for rollback and turn this clean degradation into a 500 that names
+        # some unrelated later query.
+        with transaction.atomic():
+            stored = (
+                Workspace.objects.filter(singleton_key=1).values_list("timezone", flat=True).first()
+            )
+    except DatabaseError:
+        # Narrow on purpose. The intended degradation is "the table isn't reachable"
+        # (fresh install, mid-migration). A bare ``except Exception`` would also
+        # swallow a genuine bug in this resolve and report it as "no workspace
+        # timezone set", which is indistinguishable from a correct empty answer.
+        logger.warning("Workspace timezone unreadable — falling back", exc_info=True)
+        return ""
+    return str(stored or "").strip()
+
+
+# Which tier of the quiet-hours timezone chain supplied the resolved zone. Returned
+# alongside the zone by :func:`resolve_quiet_hours_timezone` and surfaced read-only on
+# the per-project notification-preference endpoint, so "why was my 20:00 email held
+# back?" has a server-side answer instead of requiring the client to re-implement a
+# four-tier chain across three models (#3377).
+QUIET_HOURS_TZ_SOURCE_PROJECT = "project"
+QUIET_HOURS_TZ_SOURCE_WORKSPACE = "workspace"
+QUIET_HOURS_TZ_SOURCE_SERVER = "server"
+QUIET_HOURS_TZ_SOURCE_FALLBACK = "fallback"
+
+
+def resolve_quiet_hours_timezone(project: Any, *, workspace: Any = None) -> tuple[ZoneInfo, str]:
+    """Resolve the tz a project's quiet-hours window is interpreted in, and its tier.
+
+    Quiet hours are a *project* policy, not a per-viewer preference, so the window
+    anchors to the project's IANA timezone (``Project.timezone``, #520), falling back
+    to the workspace default (``Workspace.timezone``, #3377), then to the server's
+    ``settings.TIME_ZONE``, then to UTC.
+
+    Unparseable tz data at any tier **walks to the next tier** rather than jumping
+    straight to UTC (the pre-#3377 behavior): a workspace whose admin saved a bad zone
+    should still get the server default, not silently lose an hour boundary. Nothing
+    here raises — this sits inside a dispatch path, and a bad string must not take a
+    fan-out down.
+
+    This function is the **only** consumer of ``Workspace.timezone`` — see the comment
+    on that field. It is deliberately not a *display* timezone: an instant rendered to
+    a person is re-clocked from that person's own ``profiles.Profile.timezone``
+    (ADR-0410). Quiet hours cannot use that value because the window is one stored
+    range per project preference row, not a per-viewer rendering.
+
+    The workspace tier is read lazily — a project that sets its own usable timezone
+    never touches the workspace table. Pass ``workspace`` from a fan-out that has
+    already loaded the singleton so the resolve stays at one query per fan-out rather
+    than one per recipient.
+
+    Args:
+        project: The project whose quiet-hours window is being interpreted. May be
+            ``None`` (a deleted project mid-fan-out) — the chain simply starts lower.
+        workspace: Optional pre-loaded ``Workspace`` singleton.
+
+    Returns:
+        ``(zone, source)`` where ``source`` is one of ``QUIET_HOURS_TZ_SOURCE_*``.
+    """
+    project_name = (getattr(project, "timezone", "") or "").strip()
+    if project_name:
+        try:
+            return ZoneInfo(project_name), QUIET_HOURS_TZ_SOURCE_PROJECT
+        except (ZoneInfoNotFoundError, ValueError):
+            # Log every skipped tier: relocating someone's quiet-hours window to a
+            # different wall clock with no signal anywhere is the failure mode that
+            # is impossible to debug from the outside. Project.timezone predates any
+            # validator, so stored rows can still be unparseable.
+            logger.warning("Unparseable Project.timezone %r — trying the workspace", project_name)
+    workspace_name = _workspace_timezone_name(workspace)
+    if workspace_name:
+        try:
+            return ZoneInfo(workspace_name), QUIET_HOURS_TZ_SOURCE_WORKSPACE
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning(
+                "Unparseable Workspace.timezone %r — trying the server default", workspace_name
+            )
+    server_name = (settings.TIME_ZONE or "").strip()
+    if server_name:
+        try:
+            return ZoneInfo(server_name), QUIET_HOURS_TZ_SOURCE_SERVER
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning("Unparseable settings.TIME_ZONE %r — falling back to UTC", server_name)
+    return ZoneInfo("UTC"), QUIET_HOURS_TZ_SOURCE_FALLBACK
+
+
+def _project_timezone(project: Any, *, workspace: Any = None) -> ZoneInfo:
+    """The zone half of :func:`resolve_quiet_hours_timezone` — see it for the chain."""
+    return resolve_quiet_hours_timezone(project, workspace=workspace)[0]
 
 
 def _in_quiet_window(now_local: datetime.time, start: datetime.time, end: datetime.time) -> bool:
@@ -273,6 +376,7 @@ def should_deliver(
     channel: str,
     *,
     now: datetime.datetime | None = None,
+    workspace: Any = None,
 ) -> bool:
     """Whether a project-scoped notification should be delivered to ``user``.
 
@@ -285,13 +389,20 @@ def should_deliver(
 
     Call before sending at any project-scoped dispatch site. For a fan-out to
     many recipients, batch-load rows and reuse :func:`_preference_allows` rather
-    than calling this once per recipient.
+    than calling this once per recipient. If you must loop this instead, pass
+    ``workspace`` — otherwise every iteration re-reads the workspace singleton on
+    top of the per-recipient ``get_or_create``, turning one query per recipient
+    into two (#3377).
     """
     if now is None:
         now = timezone.now()
     pref, _ = ProjectNotificationPreference.objects.get_or_create(project=project, user=user)
     return _preference_allows(
-        pref, event_type=event_type, channel=channel, now=now, tz=_project_timezone(project)
+        pref,
+        event_type=event_type,
+        channel=channel,
+        now=now,
+        tz=_project_timezone(project, workspace=workspace),
     ) and _dnd_allows(user, event_type, channel)
 
 

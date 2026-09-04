@@ -1151,6 +1151,39 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             )
         return value
 
+    def validate_timezone(self, value: str) -> str:
+        """Reject a non-IANA zone; ``""`` is the explicit "inherit" sentinel.
+
+        This is *tier 1* of the quiet-hours chain
+        (``notifications.services.resolve_quiet_hours_timezone``), so it outranks the
+        workspace default. #3377 added the same validator to
+        ``WorkspaceSettingsSerializer`` because that tier had become load-bearing — the
+        argument applies here more strongly. ``TaskRecurrenceRuleSerializer``,
+        ``UserProfileSerializer`` and the digest-timezone validator already had theirs;
+        ``CalendarSerializer`` is the one write path still without one, tracked in
+        #3398 (it is not in this chain, and touching it reaches the MS Project importer
+        and the seed fixtures).
+
+        Without it a project admin saving ``"Pacific Time"`` gets a 200 and their
+        quiet-hours window silently resolves to the workspace or server zone instead,
+        defeating a setting they believe they made, with no signal at either end —
+        the resolver cannot raise inside a dispatch path, so the write is the only
+        place anyone can be told.
+
+        Same form as the siblings: ``ZoneInfo(value)`` in a try/except, not
+        ``available_timezones()`` membership.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        stripped = (value or "").strip()
+        if not stripped:
+            return ""
+        try:
+            ZoneInfo(stripped)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return stripped
+
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.
 

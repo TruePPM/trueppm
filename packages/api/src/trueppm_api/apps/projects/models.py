@@ -1312,8 +1312,14 @@ class Project(VersionedModel):
         choices=Visibility.choices,
         default=Visibility.WORKSPACE,
     )
-    # IANA timezone identifier used for due dates, Gantt rendering, and sprint
-    # cutovers (issue #520). Empty string defers to the workspace default.
+    # IANA timezone identifier for this project (issue #520). Empty string defers
+    # to ``Workspace.timezone``, then to ``settings.TIME_ZONE`` (#3377).
+    # Its single reader is ``notifications.services._project_timezone``, which
+    # interprets a project's notification quiet-hours window in it. It does NOT
+    # drive due dates, Gantt rendering, or sprint cutovers — those are calendar-
+    # and date-based, and instants shown to a person are re-clocked from that
+    # person's ``profiles.Profile.timezone`` (ADR-0410). This comment previously
+    # claimed all three; none was ever wired.
     # Stored as free text — full IANA validation is a future change.
     timezone = models.CharField(max_length=64, blank=True, default="")
     # Default landing view when the project is opened without a specific view
