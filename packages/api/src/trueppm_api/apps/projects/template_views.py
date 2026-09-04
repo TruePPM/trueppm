@@ -13,7 +13,7 @@ from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Case, Count, IntegerField, Q, QuerySet, Value, When
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -45,6 +45,7 @@ from trueppm_api.apps.projects.template_services import (
 )
 from trueppm_api.apps.workspace.models import AuditEventType
 from trueppm_api.apps.workspace.services import record_audit_event
+from trueppm_api.core.openapi import state_refusal_400
 from trueppm_api.core.request_body import object_body
 
 # Shared user-facing response details.
@@ -84,6 +85,67 @@ def _publish_inputs(data: Any) -> tuple[Any, str, Any]:
     if not project_id or not name:
         raise ValidationError({"detail": "Both `project` and `name` are required."})
     return project_id, name, raw_description
+
+
+# ---------------------------------------------------------------------------
+# Request declarations for the two hand-parsed bodies (#3319)
+# ---------------------------------------------------------------------------
+#
+# Both handlers read their body themselves — ``object_body(request)`` plus
+# ``_publish_inputs`` — rather than through a serializer, and both were previously
+# declared ``request=None``. That is worse than a missing error branch: the
+# published contract said the endpoint accepts nothing, so a generated client had
+# no way to send the field the endpoint *requires*, and ``apply`` answered
+# ``{"project": "This field is required."}`` naming a field the schema had never
+# mentioned.
+#
+# These serializers are **declaration-only** — nothing calls ``is_valid()`` on
+# them, and the handlers' own checks stay the source of truth for what is
+# accepted. They exist so the schema states the shape those checks enforce. Keep
+# them in step with ``_publish_inputs`` / ``apply``: a field added to one and not
+# the other puts the contract back out of sync, which is the defect this fixes.
+# Declaring a body also brings both operations under #3286's automatic 400
+# injection, so the refusal each already emits is now typed for a client.
+_PublishRequestSerializer = inline_serializer(
+    name="ProjectTemplatePublish",
+    fields={
+        "project": serializers.UUIDField(
+            help_text="Project whose shape is frozen into the template. Required."
+        ),
+        "name": serializers.CharField(
+            help_text=(
+                "Template name. Required, whitespace-stripped, and truncated to 200 "
+                "characters rather than rejected when longer."
+            )
+        ),
+        "description": serializers.CharField(
+            required=False,
+            allow_blank=True,
+            allow_null=True,
+            help_text="Truncated to 2000 characters rather than rejected when longer.",
+        ),
+        "source_kind": serializers.ChoiceField(
+            choices=TemplateSource.choices,
+            required=False,
+            help_text="Provenance chip. Defaults to `workspace`.",
+        ),
+        "new_version": serializers.BooleanField(
+            required=False,
+            help_text=(
+                "Publish as the next version of an existing same-named template "
+                "instead of receiving a 409. Read permissively: the strings "
+                '`"true"` and `"1"` are also accepted, anything else is false.'
+            ),
+        ),
+    },
+)
+
+_ApplyRequestSerializer = inline_serializer(
+    name="ProjectTemplateApply",
+    fields={
+        "project": serializers.UUIDField(help_text="Project to seed from this template. Required."),
+    },
+)
 
 
 def _flag(value: Any) -> bool:
@@ -344,8 +406,18 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
             )
 
     @extend_schema(
-        request=None,
-        responses={201: ProjectTemplateSerializer},
+        request=_PublishRequestSerializer,
+        responses={
+            201: ProjectTemplateSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "A template with this name already exists in the pool the caller "
+                    "can see. Carries ``code: name_taken`` plus ``template``, "
+                    "``version`` and ``next_version`` — resend with "
+                    "``new_version: true`` to publish the next version of it."
+                )
+            ),
+        },
         description="Publish a project's shape as a reusable template.",
     )
     @action(detail=False, methods=["post"], url_path="publish")
@@ -515,7 +587,7 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         return Response(summary, status=status.HTTP_200_OK)
 
     @extend_schema(
-        request=None,
+        request=_ApplyRequestSerializer,
         responses={202: OpenApiResponse(description='{"queued": true, "application": "<uuid>"}')},
         description="Apply this template to a project. Returns 202; seeding runs async.",
     )
@@ -587,7 +659,14 @@ class TemplateApplicationViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: TemplateApplicationSerializer},
+        responses={
+            200: TemplateApplicationSerializer,
+            400: state_refusal_400(
+                "The application is not in a state that can be undone — it never "
+                "reached SUCCESS, or it has already been undone. Verified against "
+                "the status guard in ``undo`` (#3319)."
+            ),
+        },
         description="Undo this application — removes the rows it wrote that nobody has edited.",
     )
     @action(detail=True, methods=["post"], url_path="undo")

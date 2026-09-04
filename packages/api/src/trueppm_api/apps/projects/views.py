@@ -248,7 +248,7 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
 )
-from trueppm_api.core.openapi import suppress_list_pagination
+from trueppm_api.core.openapi import state_refusal_400, suppress_list_pagination
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 from trueppm_api.core.request_body import object_body
 
@@ -1190,6 +1190,17 @@ class DirectoryPagination(pagination.PageNumberPagination):
                 ),
             ),
         ],
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "``?force=true`` was sent for a project that is not archived. The "
+                "two-step archive-then-force-delete sequence is deliberate, so the "
+                "unarchived state is refused rather than silently soft-deleted. "
+                "Unreachable without ``force`` — a plain DELETE always soft-deletes. "
+                "Verified against the ``is_archived`` guard in ``perform_destroy`` "
+                "(#3319)."
+            ),
+        },
     ),
 )
 class ProjectViewSet(
@@ -7469,7 +7480,16 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     @extend_schema(
         summary="Accept a pending cross-project dependency",
         request=None,
-        responses={200: DependencySerializer},
+        responses={
+            200: DependencySerializer,
+            400: state_refusal_400(
+                "The dependency is not pending acceptance — it has already been "
+                "accepted or rejected. The body is a JSON **array** of messages, "
+                "not an object: ``_resolve_pending`` raises ``ValidationError`` on "
+                "a bare string and DRF wraps a string detail in a list (#3319).",
+                shape="messages",
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path="accept")
     def accept(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -7485,7 +7505,16 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     @extend_schema(
         summary="Reject a pending cross-project dependency",
         request=None,
-        responses={200: DependencySerializer},
+        responses={
+            200: DependencySerializer,
+            400: state_refusal_400(
+                "The dependency is not pending acceptance — it has already been "
+                "accepted or rejected. The body is a JSON **array** of messages, "
+                "not an object: ``_resolve_pending`` raises ``ValidationError`` on "
+                "a bare string and DRF wraps a string detail in a list (#3319).",
+                shape="messages",
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path="reject")
     def reject(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -7859,7 +7888,20 @@ class CrossProjectSlipConflictViewSet(
             )
         return qs
 
-    @extend_schema(request=None, responses=CrossProjectSlipConflictSerializer)
+    @extend_schema(
+        request=None,
+        responses={
+            200: CrossProjectSlipConflictSerializer,
+            400: state_refusal_400(
+                "The conflict is no longer open — it already carries a resolution. "
+                "The body is a JSON **array** of messages, not an object: the guard "
+                "raises ``ValidationError`` on a bare string and DRF wraps a string "
+                "detail in a list. Verified against the resolution guard in "
+                "``acknowledge`` (#3319).",
+                shape="messages",
+            ),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="acknowledge")
     def acknowledge(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Acknowledge a cross-project slip conflict (ADR-0120 D4).
@@ -8258,7 +8300,18 @@ def _require_wbs_restructure_permission(request: Request, task: Task) -> None:
     post=extend_schema(
         summary="Indent a task under its previous sibling",
         request=None,
-        responses={200: TaskRestructureResponseSerializer},
+        responses={
+            200: TaskRestructureResponseSerializer,
+            400: state_refusal_400(
+                "The move is not available from this task's current position: it is "
+                "already first among its siblings (nothing to indent under), it "
+                "carries no ``wbs_path``, or the sibling that would become its "
+                "parent is a milestone — a milestone is a single point in time and "
+                "cannot acquire children. Verified against the three guards in "
+                "``post`` (#3319).",
+                codes=("child_of_milestone",),
+            ),
+        },
     )
 )
 class TaskIndentView(IdempotencyMixin, APIView):
@@ -8397,7 +8450,16 @@ class TaskIndentView(IdempotencyMixin, APIView):
     post=extend_schema(
         summary="Outdent a task to its parent's level",
         request=None,
-        responses={200: TaskRestructureResponseSerializer},
+        responses={
+            200: TaskRestructureResponseSerializer,
+            400: state_refusal_400(
+                "The move is not available from this task's current position: it is "
+                "already at root level (nowhere to promote to), it carries no "
+                "``wbs_path``, or it is not found among its own siblings — the "
+                "``wbs_path`` corruption case #3319's sibling guard catches. "
+                "Verified against the three guards in ``post``."
+            ),
+        },
     )
 )
 class TaskOutdentView(IdempotencyMixin, APIView):
@@ -13137,6 +13199,19 @@ class PhaseReorderView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    destroy=extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "The phase still has descendant tasks. Cascading the delete would "
+                "silently soft-delete them, so the phase must be emptied first. "
+                "Verified against the descendant-count guard in ``perform_destroy`` "
+                "(#3319)."
+            ),
+        }
+    )
+)
 class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for project phases (root-level WBS tasks).
 
@@ -13425,6 +13500,17 @@ class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Proj
                 description="Filter by sprint state (PLANNED, ACTIVE, CLOSED, CANCELED).",
             ),
         ],
+    ),
+    destroy=extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "The sprint is ACTIVE or CLOSED. Only a PLANNED or CANCELLED sprint "
+                "can be deleted — a sprint that has run is history and is cancelled "
+                "rather than removed. Verified against the state guard in "
+                "``perform_destroy`` (#3319)."
+            ),
+        }
     ),
 )
 class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
@@ -17551,6 +17637,24 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         self.check_object_permissions(self.request, getattr(obj, self._scope_field))
         return obj
 
+    @extend_schema(
+        responses={
+            201: ProjectApiTokenSerializer,
+            400: state_refusal_400(
+                "``ProjectApiTokenCreateSerializer`` rejected the body — ``name`` is "
+                "required, ``status_map`` must be an object of strings, and "
+                "``mcp:read`` is refused outright on a project or program token "
+                "(the MCP read surface accepts only personal tokens, so one minted "
+                "here could read nothing). The body is DRF's field-keyed object. "
+                "Declared by "
+                "hand because the operation publishes no ``requestBody`` for "
+                "#3286's injection to key off: the viewset's ``serializer_class`` "
+                "is the all-read-only read serializer, and ``create`` reaches for "
+                "the write serializer itself (#3319).",
+                shape="fields",
+            ),
+        }
+    )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a new token and return the raw value once.
 
@@ -17770,6 +17874,21 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             .order_by("-created_at")
         )
 
+    @extend_schema(
+        responses={
+            201: MyApiTokenSerializer,
+            400: state_refusal_400(
+                "Either the active-token cap is already reached — a refusal on the "
+                "caller's own state, carrying a flat ``detail`` — or "
+                "``MyApiTokenCreateSerializer`` rejected the body, which answers "
+                "with DRF's field-keyed object. Both shapes fit the declaration "
+                "below. Declared by hand for the same reason as the project token "
+                "viewset: the operation publishes no ``requestBody`` for #3286's "
+                "injection to key off (#3319).",
+                shape="fields",
+            ),
+        }
+    )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a personal token and return the raw value once.
 
@@ -18062,6 +18181,19 @@ class AttachmentSigningNotSupported(APIException):
     default_code = "signed_url_backend_unsupported"
 
 
+@extend_schema_view(
+    destroy=extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "The caller is neither the uploader nor a project Admin+. Emitted as a "
+                "400 rather than a 403 because the check lives in ``perform_destroy`` "
+                "and raises ``ValidationError``; the declaration follows what reaches "
+                "the wire, not what the status arguably should be (#3319)."
+            ),
+        }
+    )
+)
 class TaskAttachmentViewSet(
     ProjectScopedViewSet,
     mixins.ListModelMixin,
@@ -18305,6 +18437,18 @@ class TaskAttachmentViewSet(
         return Response(data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    destroy=extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "The caller is neither the comment author nor a project Admin+. Emitted "
+                "as a 400 rather than a 403 because the check lives in "
+                "``perform_destroy`` and raises ``ValidationError`` (#3319)."
+            ),
+        }
+    )
+)
 class TaskCommentViewSet(
     ProjectScopedViewSet,
     mixins.ListModelMixin,
@@ -18632,6 +18776,18 @@ class TaskCommentViewSet(
         )
 
 
+@extend_schema_view(
+    destroy=extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "The reaction belongs to another user. Emitted as a 400 rather than a "
+                "403 because the check lives in ``perform_destroy`` and raises "
+                "``ValidationError`` (#3319)."
+            ),
+        }
+    )
+)
 class CommentReactionViewSet(
     ProjectScopedViewSet,
     mixins.CreateModelMixin,
@@ -18738,6 +18894,18 @@ class CommentReactionViewSet(
         )
 
 
+@extend_schema_view(
+    destroy=extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "The caller is neither the note author nor a project Admin+. Emitted as "
+                "a 400 rather than a 403 because the check lives in ``perform_destroy`` "
+                "and raises ``ValidationError`` (#3319)."
+            ),
+        }
+    )
+)
 class TaskNoteViewSet(
     ProjectScopedViewSet,
     mixins.ListModelMixin,

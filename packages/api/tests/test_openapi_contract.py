@@ -283,6 +283,195 @@ def test_the_declared_400_admits_the_shapes_the_api_actually_returns(schema: dic
     assert body["additionalProperties"] == {"$ref": f"#/components/schemas/{_ERROR_DETAIL}"}
 
 
+# ---------------------------------------------------------------------------
+# #3319 — the residue of #3286: bodies declared as absent, and refusals on state
+# ---------------------------------------------------------------------------
+
+#: Every bodyless write operation that declares a 400, and what makes it refuse.
+#:
+#: This list is the fix, not a description of it. #3286's rule is mechanical —
+#: `requestBody` present ⇔ DRF can raise ValidationError — and there is no
+#: equivalent signal for "this action refuses on the state of the thing it acts
+#: on": a `HTTP_400_BAD_REQUEST` grep is a heuristic over control flow that both
+#: misses refusals raised two calls down and fires on dead branches. So each entry
+#: here was read out of the handler by hand and is pinned in both directions:
+#: dropping a declaration fails, and adding one without reviewing this list fails
+#: too. The second direction is the one that matters — advertising a refusal an
+#: endpoint cannot produce grows an unreachable branch in every generated client,
+#: which is the same defect as omitting one, pointing the other way.
+_STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("delete", "/api/v1/me/connections/{source}/"),
+        ("delete", "/api/v1/me/credentials/{provider}/"),
+        ("delete", "/api/v1/me/timesheets/{week_start}/submit"),
+        ("delete", "/api/v1/programs/{program_pk}/members/{id}/"),
+        ("delete", "/api/v1/projects/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/members/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/phases/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/"),
+        (
+            "delete",
+            "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{id}/",
+        ),
+        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/"),
+        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/"),
+        ("delete", "/api/v1/sprints/{id}/"),
+        ("delete", "/api/v1/workspace/"),
+        ("delete", "/api/v1/workspace/members/{user_id}/"),
+        ("post", "/api/v1/cascade-classification-operations/{id}/undo/"),
+        ("post", "/api/v1/dependencies/{id}/accept/"),
+        ("post", "/api/v1/dependencies/{id}/reject/"),
+        ("post", "/api/v1/me/api-tokens/"),
+        ("post", "/api/v1/me/connections/{source}/sync/"),
+        ("post", "/api/v1/me/timesheets/{week_start}/submit"),
+        ("post", "/api/v1/paste-many-operations/{id}/undo/"),
+        ("post", "/api/v1/programs/{program_pk}/api-tokens/"),
+        ("post", "/api/v1/projects/{id}/tasks/{task_id}/indent/"),
+        ("post", "/api/v1/projects/{id}/tasks/{task_id}/outdent/"),
+        ("post", "/api/v1/projects/{project_pk}/api-tokens/"),
+        ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
+        ("post", "/api/v1/template-applications/{id}/undo/"),
+        ("post", "/api/v1/workspace/email-settings/send-test/"),
+        # The seven that predate #3319 and were already hand-declared. #3286's
+        # `setdefault` leaves them alone; they are listed so this set is the whole
+        # truth about bodyless writes carrying a 400, not just the new ones.
+        ("post", "/api/v1/integrations/projects/{project_pk}/git-webhook/"),
+        ("post", "/api/v1/programs/{id}/pin/"),
+        ("delete", "/api/v1/programs/{id}/pin/"),
+        ("post", "/api/v1/projects/{id}/pin/"),
+        ("delete", "/api/v1/projects/{id}/pin/"),
+        ("post", "/api/v1/projects/{project_pk}/import/csv/{id}/undo/"),
+        ("post", "/api/v1/resources/{id}/restore/"),
+    }
+)
+
+
+def test_bodyless_writes_declaring_a_400_are_exactly_the_reviewed_set(schema: dict) -> None:
+    """Pin the hand-declared set in both directions (#3319).
+
+    A missing entry means a state refusal a generated client has no typed branch
+    for. An *extra* one means somebody blanket-declared a 400 on a write that
+    cannot produce one, which is the failure mode #3286 deliberately avoided and
+    the reason this could not be mechanized. Either way the list above is the
+    thing to change, and changing it is the moment the handler gets re-read.
+    """
+    declared = {
+        (method, path)
+        for path, ops in schema["paths"].items()
+        for method, op in ops.items()
+        if method in ("post", "put", "patch", "delete")
+        and "requestBody" not in op
+        and "400" in op.get("responses", {})
+    }
+    missing = sorted(_STATE_REFUSAL_OPERATIONS - declared)
+    unreviewed = sorted(declared - _STATE_REFUSAL_OPERATIONS)
+    assert not missing, f"bodyless writes that lost their declared 400 (#3319): {missing}"
+    assert not unreviewed, (
+        "a bodyless write declares a 400 that nobody reviewed against the handler "
+        f"(#3319) — read the handler, then add it to _STATE_REFUSAL_OPERATIONS: {unreviewed}"
+    )
+
+
+def test_every_state_refusal_400_uses_one_of_the_three_real_wire_shapes(schema: dict) -> None:
+    """The declared body must be a shape the API actually puts on the wire (#3319).
+
+    Three exist and they are not interchangeable. A flat ``{"detail"}`` object, a
+    field-keyed object, and — the one that is easy to declare wrongly — a
+    top-level **array**, which is what DRF emits for
+    ``ValidationError("a bare string")``: it wraps a string detail in a list, so
+    there is no enclosing object and no key to read the message under.
+
+    Two operations are exempt because they answer with their own documented
+    envelope rather than a refusal shape; both are asserted by name below rather
+    than waved through by a wildcard.
+    """
+    bespoke = {
+        # Answers {"sent": false, "error": "..."} on both its 400 and its 502 so a
+        # client renders one banner for either.
+        ("post", "/api/v1/workspace/email-settings/send-test/"),
+        # Signature/payload rejection on the webhook ingest surface (pre-#3319).
+        ("post", "/api/v1/integrations/projects/{project_pk}/git-webhook/"),
+    }
+    offenders = []
+    for method, path in sorted(_STATE_REFUSAL_OPERATIONS - bespoke):
+        response = schema["paths"][path][method]["responses"]["400"]
+        content = response.get("content")
+        if content is None:
+            # A description-only declaration types nothing for a client, but it is
+            # how the pre-#3319 pin/undo/restore sites were written; not a
+            # regression to introduce, so it is tolerated only where it already is.
+            continue
+        body = content["application/json"]["schema"]
+        # The pre-#3319 pin sites point at a named component; resolve it so the
+        # shape check reads the same thing a client generator would.
+        if "$ref" in body:
+            body = schema["components"]["schemas"][body["$ref"].rsplit("/", 1)[-1]]
+        is_messages = body.get("type") == "array" and body.get("items") == {"type": "string"}
+        is_detail = body.get("type") == "object" and "detail" in body.get("properties", {})
+        is_fields = body.get("type") == "object" and "additionalProperties" in body
+        if not (is_messages or is_detail or is_fields):
+            offenders.append(f"{method.upper()} {path}: {body}")
+    assert not offenders, f"400 declared in a shape the API never returns (#3319): {offenders}"
+
+
+def test_the_bare_array_refusal_shape_is_declared_where_drf_emits_it(schema: dict) -> None:
+    """``ValidationError("string")`` puts a JSON **array** on the wire (#3319).
+
+    Three view-level guards raise on a bare string, and DRF's exception handler
+    passes a list detail through verbatim. A client typed against an object throws
+    while parsing, before it can read the message — so this is the shape most worth
+    pinning, and the one a copy-pasted ``{"detail"}`` declaration would get wrong.
+    """
+    array_sites = [
+        ("post", "/api/v1/dependencies/{id}/accept/"),
+        ("post", "/api/v1/dependencies/{id}/reject/"),
+        ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
+    ]
+    for method, path in array_sites:
+        body = schema["paths"][path][method]["responses"]["400"]["content"]["application/json"][
+            "schema"
+        ]
+        assert body == {"type": "array", "items": {"type": "string"}}, (
+            f"{method.upper()} {path} returns a bare array of messages; declaring an "
+            "object there would make a generated client throw on parse (#3319)."
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "required_field"),
+    [
+        ("/api/v1/project-templates/publish/", "project"),
+        ("/api/v1/project-templates/{id}/apply/", "project"),
+    ],
+)
+def test_template_write_endpoints_declare_the_body_they_require(
+    schema: dict, path: str, required_field: str
+) -> None:
+    """Both were ``request=None`` while requiring a body (#3319, Part A).
+
+    Worse than a missing error branch: the contract said the endpoint accepts
+    nothing, so a generated client could not send the required field *at all*, and
+    ``apply`` answered ``{"project": "This field is required."}`` naming a field
+    the schema had never mentioned. Declaring the body also brings both operations
+    under #3286's automatic 400 injection, which is asserted here too — the 400
+    arriving is what proves the declaration is wired to the mechanism rather than
+    hand-written beside it.
+    """
+    op = schema["paths"][path]["post"]
+    assert "requestBody" in op, f"POST {path} requires a body and must declare one (#3319)."
+    ref = op["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+    assert required_field in component["properties"], (
+        f"POST {path} reads {required_field!r} off the body; the declared schema must name it."
+    )
+    assert required_field in component.get("required", []), (
+        f"POST {path} refuses without {required_field!r}, so the schema must mark it required."
+    )
+    assert "400" in op["responses"], (
+        f"POST {path} must inherit #3286's 400 once it declares a body (#3319)."
+    )
+
+
 def test_validation_error_detail_component_is_recursive(schema: dict) -> None:
     """The component must recurse, or it only describes the depth someone listed (#3324).
 
