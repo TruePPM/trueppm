@@ -24,7 +24,7 @@ vi.mock('../hooks/useStoryDetail', () => ({
     isPending: false,
     isError: patchError !== null,
     error: patchError,
-    // Models TanStack's `reset`: it CLEARS the error (web-rule 374).
+    // Models TanStack's `reset`: it CLEARS the error (web-rule 376).
     reset: () => {
       patchError = null;
     },
@@ -225,7 +225,7 @@ describe('StoryDetailDrawer (#1043)', () => {
 describe('StoryDetailDrawer — save refusal (#3332)', () => {
   it("shows the server's own reason and no retry advice on a 403", async () => {
     const user = userEvent.setup();
-    // Dirty FIRST, then the refusal lands — an edit retires it (web-rule 374).
+    // Dirty FIRST, then the refusal lands — an edit retires it (web-rule 376).
     const story = makeStory();
     const { rerender } = renderDrawer(story);
     await user.type(screen.getByLabelText('Story title'), '!');

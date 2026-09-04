@@ -454,7 +454,7 @@ export function BulkEditSheet({
               As its own `role="alert"` it is announced when the server answers —
               which, before #3332, nothing on this sheet ever was.
             */}
-            <RefusalAlert refusal={error} testId="bulk-edit-error" />
+            <RefusalAlert refusal={error} testId="bulk-edit-error" persistent />
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
                 Cancel

@@ -97,6 +97,7 @@ export function StoryDetailDrawer({
     () => describeWriteRefusal(patchStory.error, "Couldn't save the story."),
     [patchStory.error],
   );
+  const { reset: resetSaveMutation } = patchStory;
   const setDor = useSetDor(projectId);
   // Effective estimation scale drives the points picker (ADR-0510, #2027). Falls
   // back to Fibonacci — the prior de-facto scale — on a stale/absent project cache.
@@ -118,16 +119,18 @@ export function StoryDetailDrawer({
     commit,
   } = useDirtyDraft<ScalarDraft>(toDraft(story));
 
-  // Retire the refusal on the edit that could have fixed it (web-rule 374).
+  // Retire the refusal on the edit that could have fixed it (web-rule 376).
   // A refusal describes the payload that WAS submitted; the moment the draft
   // changes it is unowned, and a specific sentence left up after the user
   // corrected the field is the product stating something false.
   const setField = useCallback<typeof setDraftField>(
     (key, value) => {
-      if (saveRefusal) patchStory.reset();
+      if (saveRefusal) resetSaveMutation();
       setDraftField(key, value);
     },
-    [saveRefusal, patchStory, setDraftField],
+    // `patchStory` itself is a FRESH object every render, so depending on it would
+    // rebuild this callback on every keystroke; `reset` is stable.
+    [saveRefusal, resetSaveMutation, setDraftField],
   );
 
   // Dismiss-guard: Esc / ✕ / mobile backdrop open the styled, focus-trapped

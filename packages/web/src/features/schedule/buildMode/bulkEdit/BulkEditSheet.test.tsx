@@ -657,8 +657,13 @@ describe('BulkEditSheet — refusal presentation (#3332, web-rule 372)', () => {
     expect(screen.getByTestId('bulk-edit-apply')).toHaveTextContent('Applying…');
   });
 
-  it('renders no alert at all when there is no refusal', () => {
+  it('mounts the refusal live region before it has anything to say (rule 335)', () => {
+    // Matches the `bulk-owner-refusal` region 400 lines up in this same file: a
+    // live region inserted together with its content is announced
+    // inconsistently, and for an AT user this announcement IS the refusal.
     renderSheet();
-    expect(screen.queryByTestId('bulk-edit-error')).toBeNull();
+    const region = screen.getByTestId('bulk-edit-error');
+    expect(region).toHaveAttribute('role', 'alert');
+    expect(region).toBeEmptyDOMElement();
   });
 });

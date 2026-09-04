@@ -12,6 +12,21 @@ export interface RefusalAlertProps {
    * drift this component exists to end (`ux-review`, #3332).
    */
   className?: string;
+  /**
+   * Mount the live region **before** it has anything to say (web-rule 335).
+   *
+   * A region inserted together with its own content is announced inconsistently
+   * across AT. Pass this wherever the host **outlives** the refusal — a sheet or
+   * popover that is already open when the write is refused — which is the case
+   * `BulkEditSheet`'s own `bulk-owner-refusal` region already handles this way.
+   *
+   * Deliberately NOT the default: `DialogFooter` and `UnsavedChangesDialog` are
+   * themselves mounted at the moment the refusal appears (`{dirty && <Footer/>}`,
+   * and the guard fires on the swap), so a persistent region inside them is
+   * inserted with its content anyway and the flag would only promise a guarantee
+   * it cannot keep. `empty:hidden` keeps the layout cost at zero either way.
+   */
+  persistent?: boolean;
 }
 
 /**
@@ -27,8 +42,13 @@ export interface RefusalAlertProps {
  * what to do about it. Running them together buries the remedy at the end of a
  * sentence the reader is already stuck on.
  */
-export function RefusalAlert({ refusal, testId, className = '' }: RefusalAlertProps) {
-  if (!refusal) return null;
+export function RefusalAlert({
+  refusal,
+  testId,
+  className = '',
+  persistent = false,
+}: RefusalAlertProps) {
+  if (!refusal && !persistent) return null;
   return (
     <div
       role="alert"
@@ -36,10 +56,11 @@ export function RefusalAlert({ refusal, testId, className = '' }: RefusalAlertPr
       // `break-words`: DRF sentences routinely embed a UUID, a path or a URL
       // ('pk "550e8400-…" does not exist.'), and an unbroken token will not wrap
       // inside the ~324px content box of the mobile bottom sheet.
-      className={`text-xs leading-snug break-words text-semantic-critical ${className}`.trim()}
+      // `empty:hidden` so a persistent-but-silent region costs no layout.
+      className={`text-xs leading-snug break-words text-semantic-critical empty:hidden ${className}`.trim()}
     >
-      <div>{refusal.message}</div>
-      {refusal.detail && <div className="mt-1">{refusal.detail}</div>}
+      {refusal && <div>{refusal.message}</div>}
+      {refusal?.detail && <div className="mt-1">{refusal.detail}</div>}
     </div>
   );
 }

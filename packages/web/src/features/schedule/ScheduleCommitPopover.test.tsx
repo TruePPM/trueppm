@@ -201,4 +201,11 @@ describe('ScheduleCommitPopover', () => {
     fireEvent.keyDown(window, { key: 'Tab' });
     expect(document.activeElement).toBe(cancel);
   });
+
+  it('mounts the refusal live region before it has anything to say (rule 335)', () => {
+    renderPopover();
+    const region = screen.getByTestId('commit-popover-error');
+    expect(region).toHaveAttribute('role', 'alert');
+    expect(region).toBeEmptyDOMElement();
+  });
 });

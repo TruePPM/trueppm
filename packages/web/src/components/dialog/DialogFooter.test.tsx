@@ -73,7 +73,7 @@ describe('DialogFooter', () => {
     expect(alert).not.toHaveTextContent(/try again/i);
   });
 
-  it('renders no alert and no reserved height when there is no refusal', () => {
+  it('renders no alert node at all when there is no refusal', () => {
     render(<DialogFooter onSave={vi.fn()} onCancel={vi.fn()} dirty error={null} />);
     expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
   });

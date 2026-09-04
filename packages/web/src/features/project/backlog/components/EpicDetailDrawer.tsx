@@ -60,6 +60,7 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
     () => describeWriteRefusal(patchEpic.error, "Couldn't save the epic."),
     [patchEpic.error],
   );
+  const { reset: resetSaveMutation } = patchEpic;
   const closeRef = useRef<HTMLButtonElement>(null);
   // The drawer is non-modal on desktop (the backlog list stays usable beside it)
   // but a true modal bottom-sheet on mobile, where a backdrop covers the list.
@@ -78,16 +79,18 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
     commit,
   } = useDirtyDraft<Draft>(toDraft(epic));
 
-  // Retire the refusal on the edit that could have fixed it (web-rule 374).
+  // Retire the refusal on the edit that could have fixed it (web-rule 376).
   // A refusal describes the payload that WAS submitted; the moment the draft
   // changes it is unowned, and a specific sentence left up after the user
   // corrected the field is the product stating something false.
   const setField = useCallback<typeof setDraftField>(
     (key, value) => {
-      if (saveRefusal) patchEpic.reset();
+      if (saveRefusal) resetSaveMutation();
       setDraftField(key, value);
     },
-    [saveRefusal, patchEpic, setDraftField],
+    // `patchEpic` itself is a FRESH object every render, so depending on it would
+    // rebuild this callback on every keystroke; `reset` is stable.
+    [saveRefusal, resetSaveMutation, setDraftField],
   );
 
   // Dismiss-guard: Esc / ✕ / mobile backdrop route through requestClose, which

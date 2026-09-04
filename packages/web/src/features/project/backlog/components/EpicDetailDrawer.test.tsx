@@ -17,7 +17,7 @@ const h = vi.hoisted(() => {
     >();
   // `reset` models TanStack's: it CLEARS the error. A bare spy would let a
   // call-count assertion pass while the stale sentence is still on screen
-  // (web-rule 374).
+  // (web-rule 376).
   const state = {
     mutate,
     isPending: false,
@@ -166,7 +166,7 @@ describe('EpicDetailDrawer (#1346)', () => {
 
   it("surfaces the SERVER's refusal, and no retry advice on a 403 (#3332)", () => {
     // Dirty FIRST, then the refusal lands. An edit RETIRES the refusal
-    // (web-rule 374), so a spec that seeds the error before typing retires its
+    // (web-rule 376), so a spec that seeds the error before typing retires its
     // own fixture and reads as a rendering failure.
     const epic = makeEpic();
     const { rerender } = renderDrawer(epic);

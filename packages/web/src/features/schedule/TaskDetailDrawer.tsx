@@ -273,7 +273,7 @@ export function TaskDetailDrawer({
     commitField,
   } = useDirtyDraft<ScalarDraft>(task ? toDraft(task) : EMPTY_DRAFT);
 
-  // Retire the refusal on the edit that could have fixed it (web-rule 374).
+  // Retire the refusal on the edit that could have fixed it (web-rule 376).
   // A refusal is a statement about the payload that WAS submitted, so the moment
   // the draft changes it is unowned — "Enter a valid date." still on screen after
   // the user entered a valid date is the product stating something false, and
@@ -376,7 +376,7 @@ export function TaskDetailDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propId]);
 
-  // Retire the refusal when the drawer changes SUBJECT (web-rule 374, #3332).
+  // Retire the refusal when the drawer changes SUBJECT (web-rule 376, #3332).
   //
   // `useUpdateTask()` is instantiated once and this component is rendered with no
   // `key` (it holds `renderedTask` in state precisely so a dirty swap can lag the

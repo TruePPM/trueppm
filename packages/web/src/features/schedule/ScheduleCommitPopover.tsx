@@ -231,7 +231,7 @@ export function ScheduleCommitPopover({
         </div>
       )}
 
-      <RefusalAlert refusal={error} testId="commit-popover-error" className="mt-2" />
+      <RefusalAlert refusal={error} testId="commit-popover-error" className="mt-2" persistent />
 
       <div className="mt-3 flex justify-end gap-2">
         <button

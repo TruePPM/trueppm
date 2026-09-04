@@ -38,7 +38,7 @@ let mockIsError = false;
 // the slot and never the wiring (#3332).
 let mockSaveError: unknown = null;
 // `reset` is the mutation's own, NOT `useDirtyDraft`'s — the drawer calls it to
-// retire a refusal when the subject changes or the draft is edited (web-rule 374).
+// retire a refusal when the subject changes or the draft is edited (web-rule 376).
 // Clearing the module-level `mockSaveError` is what makes the mock model TanStack's
 // actual behavior: without it the spy records the call and the error never goes away,
 // which would pass a call-count assertion while the defect is still on screen.
@@ -654,7 +654,7 @@ describe('TaskDetailDrawer save bar branches', () => {
     const { rerenderTask } = renderDrawerHarness(task);
 
     // Dirty FIRST, then the refusal lands — the real order, and the only one that
-    // survives web-rule 374's "an edit retires the refusal" guard.
+    // survives web-rule 376's "an edit retires the refusal" guard.
     await user.type(desktop().getByLabelText('Task name'), ' oops');
     mockIsError = true;
     mockSaveError = axiosRefusal(400, { name: ['This field may not be blank.'] });
@@ -1674,14 +1674,14 @@ describe('TaskDetailDrawer open / cache edges', () => {
 });
 
 /**
- * A refusal is a statement about the payload that was submitted (web-rule 374).
+ * A refusal is a statement about the payload that was submitted (web-rule 376).
  *
  * These three all passed silently before #3332 and all became defects the moment
  * the sentence got specific: `"Couldn't save — try again"` going stale is noise,
  * `"You do not have permission to edit this task."` on a row the user never
  * submitted is the product stating something false.
  */
-describe('TaskDetailDrawer — retiring a stale refusal (#3332, web-rule 374)', () => {
+describe('TaskDetailDrawer — retiring a stale refusal (#3332, web-rule 376)', () => {
   it('does NOT carry task A’s refusal onto task B after a discard-and-open swap', async () => {
     const user = userEvent.setup({ delay: null });
     const task = makeTask({ id: 't1', name: 'Foundation' });
