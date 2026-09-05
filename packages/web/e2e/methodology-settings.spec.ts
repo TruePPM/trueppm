@@ -261,6 +261,18 @@ test.describe('Project methodology', () => {
     await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
       r.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
     );
+    // #3294 — the page reads three more count-only lists (the product backlog,
+    // every task, and the dependency edges), because WATERFALL also hides
+    // `product-backlog` and AGILE hides `schedule` + `calendar`. Same 404
+    // catch-all hazard as the sprints route above: unmocked reads as "cannot
+    // rule it out" and would arm the dialog in every flip test here. Default to
+    // an empty project; tests that need counts re-route after this call.
+    await page.route('**/api/v1/tasks/**', (r) =>
+      r.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
+    );
+    await page.route('**/api/v1/dependencies/**', (r) =>
+      r.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
+    );
   }
 
   test('golden path — an Admin overrides the method under SUGGEST', async ({ page }) => {
@@ -624,5 +636,169 @@ test.describe('Project methodology', () => {
 
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
+  });
+  // #3294 — the flip warning counted sprints only. WATERFALL hides
+  // `product-backlog` just as hard, and AGILE hides `schedule` AND `calendar`
+  // with no warning at all. All four hidden views now reach the trigger.
+  test('a Waterfall flip with a groomed backlog and zero sprints warns, and names the backlog', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    // Zero sprints — the trigger that shipped with #2619 finds nothing here and
+    // saves in silence, which is the whole defect.
+    // 180 groomed stories, every one of them in the backlog.
+    await page.route('**/api/v1/tasks/**', (r) =>
+      r.fulfill(json({ count: 180, next: null, previous: null, results: [] })),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => r.fulfill(json(projectDetail())));
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await block.getByRole('radio', { name: /Waterfall/i }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    const dialog = page.getByRole('alertdialog', { name: 'Switch to Waterfall?', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('180 items in the product backlog')).toBeVisible();
+    // No sprints exist, so no sprint clause is invented.
+    await expect(dialog.getByText('sprints already committed')).toHaveCount(0);
+    // Both hidden views are named, from the methodology matrix.
+    await expect(dialog.getByText('hides the Sprints and Backlog views')).toBeVisible();
+
+    // Cancel leaves the flip unsaved and the form dirty — the save bar stays armed.
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole('button', { name: /Save changes/i })).toBeVisible();
+    await expect(block.getByRole('radio', { name: /Waterfall/i })).toBeChecked();
+  });
+
+  test('a Waterfall flip with both sprints and a backlog names both counts', async ({ page }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
+      r.fulfill(
+        json({
+          count: 3,
+          next: null,
+          previous: null,
+          results: [{ id: 'sp-1', name: 'Sprint 1', state: 'ACTIVE' }],
+        }),
+      ),
+    );
+    await page.route('**/api/v1/tasks/**', async (r) => {
+      const backlog = r.request().url().includes('status=BACKLOG');
+      await r.fulfill(json({ count: backlog ? 42 : 90, next: null, previous: null, results: [] }));
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => r.fulfill(json(projectDetail())));
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await block.getByRole('radio', { name: /Waterfall/i }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    const dialog = page.getByRole('alertdialog', { name: 'Switch to Waterfall?', exact: true });
+    await expect(
+      dialog.getByText('has 3 sprints already committed and 42 items in the product backlog'),
+    ).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(dialog).toBeHidden();
+  });
+
+  test('a flip to Agile warns and names Schedule and Calendar', async ({ page }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    const waterfallProject = projectDetail({
+      methodology: 'WATERFALL',
+      effective_methodology: 'WATERFALL',
+    });
+    await page.route('**/api/v1/tasks/**', async (r) => {
+      const backlog = r.request().url().includes('status=BACKLOG');
+      await r.fulfill(json({ count: backlog ? 0 : 64, next: null, previous: null, results: [] }));
+    });
+    await page.route('**/api/v1/dependencies/**', (r) =>
+      r.fulfill(json({ count: 17, next: null, previous: null, results: [] })),
+    );
+    let patchBody: Record<string, unknown> | null = null;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
+        await r.fulfill(
+          json(projectDetail({ methodology: 'AGILE', effective_methodology: 'AGILE' })),
+        );
+        return;
+      }
+      await r.fulfill(json(waterfallProject));
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await block.getByRole('radio', { name: /Agile/i }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    const dialog = page.getByRole('alertdialog', { name: 'Switch to Agile?', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('has 64 tasks on the schedule and 17 dependency links')).toBeVisible();
+    await expect(dialog.getByText('Agile hides the Schedule and Calendar views')).toBeVisible();
+    expect(patchBody).toBeNull();
+
+    await dialog.getByRole('button', { name: 'Switch to Agile', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => patchBody).not.toBeNull();
+    expect(patchBody).toMatchObject({ methodology: 'AGILE' });
+  });
+
+  test('a flip between Agile and Hybrid stays silent, however much the project holds', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    // Everything both other flips warn about, present at once — Hybrid hides
+    // none of it, so the consent gate must stay out of the way.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
+      r.fulfill(
+        json({
+          count: 9,
+          next: null,
+          previous: null,
+          results: [{ id: 'sp-1', name: 'Sprint 1', state: 'ACTIVE' }],
+        }),
+      ),
+    );
+    await page.route('**/api/v1/tasks/**', (r) =>
+      r.fulfill(json({ count: 400, next: null, previous: null, results: [] })),
+    );
+    await page.route('**/api/v1/dependencies/**', (r) =>
+      r.fulfill(json({ count: 90, next: null, previous: null, results: [] })),
+    );
+    let patchBody: Record<string, unknown> | null = null;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
+        await r.fulfill(
+          json(projectDetail({ methodology: 'HYBRID', effective_methodology: 'HYBRID' })),
+        );
+        return;
+      }
+      await r.fulfill(json(projectDetail()));
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const block = page.locator('[data-settings-anchor="methodology"]');
+    await block.getByRole('radio', { name: /Hybrid/i }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => patchBody).not.toBeNull();
+    expect(patchBody).toMatchObject({ methodology: 'HYBRID' });
+    await expect(page.getByRole('alertdialog')).toBeHidden();
   });
 });

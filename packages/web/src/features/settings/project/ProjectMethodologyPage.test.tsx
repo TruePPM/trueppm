@@ -12,6 +12,7 @@ const useUpdateProject = vi.fn();
 const useCurrentUserRole = vi.fn();
 const useWorkspaceSettings = vi.fn();
 const useSprints = vi.fn();
+const useMethodologyFlipImpact = vi.fn();
 const mutateAsync = vi.fn();
 
 vi.mock('@/hooks/useProjectId', () => ({
@@ -40,6 +41,18 @@ vi.mock('@/hooks/useSprints', () => ({
       isLoading: boolean;
       error: unknown;
       refetch: () => void;
+    },
+}));
+// The other three counts a flip can hide (#3294). Default: all zero and settled,
+// so every test that predates it keeps the WATERFALL-with-sprints behaviour it
+// was written for and no Agile flip warns.
+vi.mock('./useMethodologyFlipImpact', () => ({
+  useMethodologyFlipImpact: (id: string | undefined, enabled: boolean) =>
+    useMethodologyFlipImpact(id, enabled) as {
+      backlogCount: number | null;
+      taskCount: number | null;
+      dependencyCount: number | null;
+      isLoading: boolean;
     },
 }));
 
@@ -74,6 +87,7 @@ function renderPage() {
 describe('ProjectMethodologyPage', () => {
   beforeEach(() => {
     mutateAsync.mockReset();
+    useMethodologyFlipImpact.mockReset();
     mutateAsync.mockResolvedValue(undefined);
     useProjectId.mockReturnValue('p-1');
     useUpdateProject.mockReturnValue({ mutateAsync });
@@ -87,6 +101,12 @@ describe('ProjectMethodologyPage', () => {
       isLoading: false,
       error: null,
       refetch: vi.fn(),
+    });
+    useMethodologyFlipImpact.mockReturnValue({
+      backlogCount: 0,
+      taskCount: 0,
+      dependencyCount: 0,
+      isLoading: false,
     });
     useSettingsSaveStore.getState().reset();
   });
@@ -503,6 +523,254 @@ describe('ProjectMethodologyPage', () => {
 
       const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
       expect(within(dialog).getByText(/has 37 sprints already committed/)).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    });
+  });
+
+  // ── #3294: the trigger considered one of the four hidden views ───────────
+  // WATERFALL hides `sprints` AND `product-backlog`; AGILE hides `schedule` AND
+  // `calendar` (methodologyTabs.ts). #2619 wired only the first of those four,
+  // so a groomed-but-sprintless project flipped to Waterfall in silence and a
+  // flip to Agile warned about nothing at all.
+  describe('every view the flip hides', () => {
+    it('warns on a Waterfall flip with a groomed backlog and zero sprints', async () => {
+      const user = userEvent.setup();
+      // Zero sprints — the #2619 trigger finds nothing here and saves silently.
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: 180,
+        taskCount: 0,
+        dependencyCount: 0,
+        isLoading: false,
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+      let savePromise!: Promise<void>;
+      act(() => {
+        savePromise = useSettingsSaveStore.getState().triggerSave();
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      expect(within(dialog).getByText(/180 items in the product backlog/)).toBeInTheDocument();
+      // No sprints exist, so the dialog must not invent a sprint clause.
+      expect(within(dialog).queryByText(/sprints already committed/)).toBeNull();
+      expect(mutateAsync).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      await act(async () => {
+        await savePromise;
+      });
+      // Cancel leaves the flip unsaved and the form dirty, on this branch too.
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    });
+
+    it('names both counts on a Waterfall flip with sprints and a backlog', async () => {
+      const user = userEvent.setup();
+      useSprints.mockReturnValue({
+        sprints: [{ id: 's1' }],
+        totalCount: 3,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: 42,
+        taskCount: 0,
+        dependencyCount: 0,
+        isLoading: false,
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+      act(() => {
+        void useSettingsSaveStore.getState().triggerSave();
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      expect(
+        within(dialog).getByText(
+          /has 3 sprints already committed and 42 items in the product backlog/,
+        ),
+      ).toBeInTheDocument();
+      // And it names both views it is about to take away, from the one matrix.
+      expect(within(dialog).getByText(/hides the Sprints and Backlog views/)).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    });
+
+    it('warns on an Agile flip and names Schedule and Calendar', async () => {
+      const user = userEvent.setup();
+      useProject.mockReturnValue({
+        data: makeProject({ methodology: 'WATERFALL', effective_methodology: 'WATERFALL' }),
+      });
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: 0,
+        taskCount: 64,
+        dependencyCount: 17,
+        isLoading: false,
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Agile/i }));
+      let savePromise!: Promise<void>;
+      act(() => {
+        savePromise = useSettingsSaveStore.getState().triggerSave();
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Agile?' });
+      expect(
+        within(dialog).getByText(/has 64 tasks on the schedule and 17 dependency links/),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(/Agile hides the Schedule and Calendar views/),
+      ).toBeInTheDocument();
+      expect(mutateAsync).not.toHaveBeenCalled();
+
+      // Cancel leaves the form dirty and unsaved on the new branch too.
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      await act(async () => {
+        await savePromise;
+      });
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    });
+
+    it('warns on a Hybrid → Agile flip — a Hybrid project plans on the Gantt', async () => {
+      const user = userEvent.setup();
+      useProject.mockReturnValue({
+        data: makeProject({ methodology: 'HYBRID', effective_methodology: 'HYBRID' }),
+      });
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: 0,
+        taskCount: 8,
+        dependencyCount: 0,
+        isLoading: false,
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Agile/i }));
+      act(() => {
+        void useSettingsSaveStore.getState().triggerSave();
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Agile?' });
+      // No dependencies exist, so only the task clause appears.
+      expect(within(dialog).getByText(/has 8 tasks on the schedule\./)).toBeInTheDocument();
+      expect(within(dialog).queryByText(/dependency links/)).toBeNull();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    });
+
+    it('still does not warn on Agile → Hybrid — Hybrid hides nothing', async () => {
+      const user = userEvent.setup();
+      useSprints.mockReturnValue({
+        sprints: [{ id: 's1' }],
+        totalCount: 9,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: 120,
+        taskCount: 400,
+        dependencyCount: 90,
+        isLoading: false,
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Hybrid/i }));
+      await act(async () => {
+        await useSettingsSaveStore.getState().triggerSave();
+      });
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'HYBRID' });
+    });
+
+    it('does not warn on a Waterfall flip when there is nothing to hide', async () => {
+      const user = userEvent.setup();
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: 0,
+        taskCount: 500,
+        dependencyCount: 300,
+        isLoading: false,
+      });
+      renderPage();
+
+      // Tasks and dependencies are what AGILE hides, not WATERFALL — they must
+      // not leak into the other direction's trigger.
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+      await act(async () => {
+        await useSettingsSaveStore.getState().triggerSave();
+      });
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'WATERFALL' });
+    });
+
+    it('does not read the counts until a methodology change is pending', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      // The consolidated settings page mounts every section at once, so an
+      // unconditional read fires three counts on every project settings route.
+      expect(useMethodologyFlipImpact).toHaveBeenCalled();
+      expect(
+        useMethodologyFlipImpact.mock.calls.every(([, enabled]) => enabled === false),
+      ).toBe(true);
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+      expect(useMethodologyFlipImpact).toHaveBeenLastCalledWith('p-1', true);
+
+      // And it goes idle again when the pending flip is reverted.
+      await user.click(screen.getByRole('radio', { name: /Agile/i }));
+      expect(useMethodologyFlipImpact).toHaveBeenLastCalledWith('p-1', false);
+    });
+
+    it('cannot save while the flip-impact counts are still loading', async () => {
+      const user = userEvent.setup();
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: 0,
+        taskCount: 0,
+        dependencyCount: 0,
+        isLoading: true,
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+
+      // Same #3313 hazard, one query wider: an unsettled count reads as 0 inside
+      // handleSave, so a save landing in this window skips the gate on timing.
+      expect(useSettingsSaveStore.getState().dirty).toBe(false);
+      await act(async () => {
+        await useSettingsSaveStore.getState().triggerSave();
+      });
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(mutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('warns when the backlog read failed, rather than reading 0 as none', async () => {
+      const user = userEvent.setup();
+      useMethodologyFlipImpact.mockReturnValue({
+        backlogCount: null,
+        taskCount: 0,
+        dependencyCount: 0,
+        isLoading: false,
+      });
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+      act(() => {
+        void useSettingsSaveStore.getState().triggerSave();
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      expect(
+        within(dialog).getByText(/may have items in the product backlog/),
+      ).toBeInTheDocument();
+      expect(mutateAsync).not.toHaveBeenCalled();
 
       await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     });
