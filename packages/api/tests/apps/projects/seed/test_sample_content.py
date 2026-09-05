@@ -516,3 +516,33 @@ def test_agile_only_sample_groups_stories_under_epics() -> None:
     assert all(s.get("story_points") for s in stories), "aurora: a story has no points"
     unparented = [s["wbs_path"] for s in stories if s.get("parent_epic") not in epics]
     assert not unparented, f"aurora: stories not rolled up to an epic: {unparented}"
+
+
+def _active_sprint_owners(doc: dict) -> dict[str, set[str]]:
+    """account slug -> project slugs where it owns non-complete work in the ACTIVE sprint
+    *and* holds membership (the two conditions ``/me/active-sprints/`` joins on)."""
+    accounts = {a["slug"] for a in doc.get("accounts", [])}
+    owners: dict[str, set[str]] = {}
+    for project in doc["projects"]:
+        actives = {s["slug"] for s in project.get("sprints", []) if s["state"] == "ACTIVE"}
+        # A project that authors no `members` derives membership from the
+        # account roles, so every account is a member of it.
+        members = {m["account"] for m in project["members"]} if project.get("members") else accounts
+        for task in project.get("tasks", []):
+            if task.get("sprint") not in actives or task.get("status") == "COMPLETE":
+                continue
+            who = task.get("assignee")
+            if who in members:
+                owners.setdefault(who, set()).add(project["slug"])
+    return owners
+
+
+def test_atlas_seeds_a_persona_into_two_simultaneously_active_sprints() -> None:
+    # The `My Teams` toggle on the Sprints view only renders for someone who owns
+    # unfinished work in 2+ ACTIVE sprints at once. Persona accounts are namespaced
+    # per sample, so no single login can span two samples — one sample has to seed
+    # it on its own, and the PMO directors guide walks it as `atlas-jordan` (#3393).
+    owners = _active_sprint_owners(_load("atlas-platform-launch"))
+    spanning = {who: slugs for who, slugs in owners.items() if len(slugs) >= 2}
+    assert spanning, "atlas: no persona owns unfinished work in two active sprints"
+    assert spanning.get("jordan") == {"platform-core", "gtm-readiness"}, spanning

@@ -54,19 +54,19 @@ Run these steps in order — they start from a machine with nothing running.
 
    **Atlas is the bundled data set that contains an actual program** — three related projects under one lead, which is what steps 4 and 5 are about. The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as the PMO director.** Open `http://localhost:5173` and sign in as **`atlas-priya`** — Priya Nair, Engineering Lead, seeded with the **Admin** role, which is what makes step 6 reachable.
+2. **Sign in as the person who spans two teams.** Open `http://localhost:5173` and sign in as **`atlas-jordan`** — Jordan Blake, Product Owner, who holds unfinished stories in both of Atlas's active sprints: Platform Core's **Sprint 5** and GTM Readiness's **Enablement 2**.
 
-3. **Open the multi-team sprints lens.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`), then flip the **`[ This project | My Teams ]`** toggle in the breadcrumb row to **My Teams**. It aggregates the active sprints across projects into one view — day-of-sprint, remaining points, capacity, trend, and forecast, sorted most-behind first. This is program-level visibility without opening each project.
+3. **Open the multi-team sprints lens.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`), then flip the **`[ This project | My Teams (2) ]`** toggle in the breadcrumb row to **My Teams**. It aggregates the active sprints across projects into one view — day-of-sprint, remaining points, capacity, trend, and forecast, sorted most-behind first — without opening each project.
 
-   :::caution[No bundled sample can show this toggle yet]
-   It only appears for someone holding unfinished work in two or more *simultaneously active* sprints — otherwise there is nothing to aggregate and the control stays hidden. No persona in any bundled sample currently meets that bar: Atlas has two active sprints (Platform Core and GTM Readiness) but their assignees do not overlap, and persona accounts are namespaced per sample (`atlas-…`, `aurora-…`), so loading a second sample cannot give one account work in both. Tracked in [#3393](https://gitlab.com/trueppm/trueppm/-/issues/3393). To see the lens today, assign yourself a task in each project's active sprint first.
+   :::note[The lens is per person, not per program]
+   The toggle appears only for someone who owns unfinished work in two or more *simultaneously active* sprints — it aggregates *your* sprints, so it is a delivery lead's view rather than a PMO rollup. That is why this step signs in as Jordan and not as the PMO director; the program-level picture is steps 4 and 5. Signed in as anyone else, the control stays hidden until you assign yourself a task in each project's active sprint.
    :::
 
 4. **Open the program view.** Sign in as **`atlas-alex`** (the Atlas program lead) and use the top-bar location switcher to select the **Atlas Platform Launch** *program* rather than a project inside it. Open its **Overview** (`/programs/:id/overview`) — the rollup across its three projects, the cross-project picture a program manager works from.
 
 5. **Follow the cross-project critical path.** Click **Schedule** in the same rail (`/programs/:id/schedule`). Platform Core gates Migration, which gates the public-launch milestone — one critical path running straight through three project boundaries.
 
-6. **Open the audit log** at **Settings → Audit log**, back on the `atlas-priya` account. Confirm that operational changes are recorded with who and when. This step needs Admin or Owner — it is why the walkthrough uses `atlas-priya` rather than `atlas-sam`.
+6. **Open the audit log** at **Settings → Audit log**, signed in as **`atlas-priya`** — Priya Nair, Engineering Lead, seeded with the **Admin** role. Confirm that operational changes are recorded with who and when. This step needs Admin or Owner — it is why the walkthrough uses `atlas-priya` rather than `atlas-sam`.
 
 Then judge it against your real bar. Your top criteria — a one-glance portfolio dashboard across 40 projects, enforced org-wide SSO with directory sync, and a tamper-evident audit trail — are **enterprise**, and intentionally not in this repo. The honest question for the community edition is narrower: *does a single program run cleanly on the open core, so adoption can start before the portfolio layer is bought?*
 
