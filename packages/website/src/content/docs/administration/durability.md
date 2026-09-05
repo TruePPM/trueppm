@@ -16,7 +16,11 @@ all, and the API exposes no `/api/v1/readyz`. Specifically, these ship in 0.4:
 - the **nginx web tier** (`web.*`) and its replica count;
 - **`podDisruptionBudget.*`** and **`autoscaling.*`**;
 - the **backup CronJob** (`backup.*`) named in rung 5 of the ladder;
-- **Valkey Sentinel** (`valkey.sentinel.*`) named in rung 6.
+- **Valkey Sentinel** (`valkey.sentinel.*`) named in rung 6;
+- the **`migrate_locked`** init container described under [Singletons and
+  one-per-pod work](#singletons-and-one-per-pod-work). On 0.3 every API pod runs
+  plain `migrate --noinput` with no coordination, so the concurrent-migration
+  race that paragraph says is gone is still real at `replicaCount >= 2`.
 
 What is true on 0.3 as well: PostgreSQL is the only authoritative store, the
 bundled Valkey runs with AOF on a PVC, Beat is a pinned singleton, the outbox
@@ -364,19 +368,44 @@ the same outbox row, two retention purges, two heartbeats. Redundant beat with
 leader election is an advanced-HA Enterprise feature (`enterprise#20`). The detection layer
 you do get is on [Beat Liveness](/administration/beat-liveness/).
 
-**The `migrate` init container runs once per API pod, and they are not
-coordinated.** Every API pod runs `python manage.py migrate --noinput` before its
-main container starts. At `replicaCount: 1` that is simply how migrations get
-applied. At `replicaCount >= 2`, several pods run `migrate` concurrently against
-one database — Django takes no cross-process migration lock, so PostgreSQL's own
-DDL locking is what serializes them, and a pod that loses the race can exit
-non-zero and restart until the winner finishes. Expect init-container restarts
-during the first rollout at two or more replicas.
+**The `migrate` init container runs once per API pod, serialized behind a
+PostgreSQL advisory lock.** Every API pod runs `python manage.py migrate_locked`
+before its main container starts — there is no `pre-upgrade` hook Job. At
+`replicaCount: 1` that is simply how migrations get applied. At
+`replicaCount >= 2` every pod still runs it, but only one holds the lock at a
+time: the others poll `pg_try_advisory_lock` once a second, and by the time one of
+them acquires it the winner has finished, so its own `migrate` is a no-op. Django
+takes no cross-process migration lock of its own; this is what supplies one.
+**Expect no init-container restarts** from migrations during a rollout at two or
+more replicas, and a killed init container cannot wedge the next rollout —
+PostgreSQL releases an advisory lock when the holder's connection dies. The
+mechanics are in
+[Concurrent migrations at `replicaCount >= 2`](/getting-started/upgrade/#concurrent-migrations-at-replicacount--2).
 
-For an upgrade carrying a long-running or destructive migration, do not rely on
-that: scale the API to one replica for the rollout, or apply the migration out of
-band first. The same one-per-pod shape applies to the `bootstrap` init container
-that mints the admin password — see [Admin password
+What the lock does *not* buy you is bounded by two numbers:
+
+- **How long the waiters wait.** `migrate_locked` gives up after `--lock-timeout`
+  seconds — **600** by default, and the chart passes no flag, so there is no
+  `values.yaml` key for it. A migration that holds the lock longer than ten minutes
+  makes every waiting pod's init container exit non-zero and restart; each restart
+  re-enters the wait, so the rollout completes once the winner finishes, but it is
+  noisy and it looks like a crash loop. For an upgrade you expect to run that
+  long, either raise the timeout by editing the init container's `command` in a
+  post-render step, or scale the API to one replica for that rollout so nothing is
+  waiting.
+- **How long the migration itself holds the tables.** The advisory lock
+  serializes *pods*; it does nothing about the DDL locks a migration takes
+  against the previous version's pods, which are still serving while the new ones
+  migrate. A destructive or long-running `ALTER TABLE` still blocks writes for its
+  duration on every replica. The zero-downtime migration contract — `NOT VALID`
+  constraints, batched backfills — is planned for 1.0
+  ([#785](https://gitlab.com/trueppm/trueppm/-/issues/785)); until then, take the
+  pre-upgrade backup and read [Migration reversibility](/getting-started/upgrade/#migration-reversibility--read-this-first)
+  before an upgrade whose changelog names a schema change, and put a long one in a
+  maintenance window.
+
+The same one-per-pod shape applies to the `bootstrap` init container that mints
+the admin password, and it has **no** lock — see [Admin password
 setup](/administration/admin-password/#kubernetes--helm) for why that matters at
 two or more replicas.
 
