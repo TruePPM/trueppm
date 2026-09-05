@@ -23,7 +23,7 @@ that best exercises it:
 | **Conformity** | API response shape matches OpenAPI schema, UI matches design spec | Contract tests (schemathesis), snapshot |
 | **Reliability** | Idempotency (same input → same output), no flakiness, determinism | Property-based, repeated-run |
 | **Resilience** | Error paths, timeouts, partial failures, offline mode, retry exhaustion | Unit (error branches) + integration (chaos) |
-| **Satisfaction** | Critical user flows complete successfully end-to-end | E2E (Playwright, Detox) |
+| **Satisfaction** | Critical user flows complete successfully end-to-end | E2E (Playwright; web only — see Mobile below) |
 | **Uniformity** | Consistent behavior across similar endpoints/components | Integration, visual regression |
 | **Efficiency** | No N+1 queries, page size limits enforced, Gantt renders within budget | Benchmark, query count assertions |
 | **Sustainability** | No deprecated imports, no circular deps, coverage doesn't regress | Static analysis + coverage gate |
@@ -32,12 +32,29 @@ When a test plan is missing coverage for a dimension, call it out explicitly.
 
 ## Testing Pyramid
 - **Unit tests** (70%): Pure functions, model methods, serializer validation, React components.
-  Fast, isolated, no DB/network. Pytest for Python, vitest for web, jest for mobile.
+  Fast, isolated, no DB/network. Pytest for Python, vitest for web. **Mobile has no
+  unit runner installed** — see Mobile below.
 - **Integration tests** (20%): API endpoints with real PostgreSQL + Redis via Docker.
   Test auth, RBAC, serialization, side effects (Celery tasks, WS events).
   Pytest-django with `@pytest.mark.django_db`.
-- **E2E tests** (10%): Critical user flows through real UI. Playwright for web, Detox for mobile.
+- **E2E tests** (10%): Critical user flows through real UI. Playwright for web.
   Login → create project → add tasks → view Gantt → export. Kept minimal — break = investigate.
+  **Not mobile** — see Mobile below.
+
+## Mobile — there is no runnable test suite today
+
+`packages/mobile` is a scaffold: a navigation shell over placeholder screens,
+with typed boundaries where the offline store, sync client, auth, and API client
+will go. **Do not plan mobile tests against a harness that does not exist.**
+
+- No test runner is installed. `jest`, `detox`, and `@nozbe/watermelondb` are
+  all absent from `packages/mobile/package.json`.
+- CI runs `mobile:lint` and `mobile:type-check` only, both scoped to `src/`.
+- Detox was *scaffolded* and never installed; the config and its six flow files
+  were deleted in #3367 because they could not run. **#1599 restores a runnable
+  Detox gate together with the native `android/` / `ios/` projects it needs.**
+- Until #1599, a mobile test plan's honest output is "blocked on #1599", not a
+  suite. ADR-0026 §Detox E2E remains the target shape once the harness exists.
 
 ## Scheduler Engine Tests (Special Category)
 The scheduling engine requires mathematical correctness tests:
@@ -60,7 +77,7 @@ The scheduling engine requires mathematical correctness tests:
 ## Fixture Strategy
 - Django: factory_boy factories for all models (ProjectFactory, TaskFactory, etc.)
 - Web: MSW (Mock Service Worker) for API mocking in component tests
-- Mobile: WatermelonDB in-memory database for sync tests
+- Mobile: none yet — WatermelonDB lands with #41, the runner with #1599
 - Scheduler: JSON fixtures for known-answer CPM/MC test cases stored in tests/fixtures/
 
 ## Coverage Requirements
@@ -68,4 +85,4 @@ The scheduling engine requires mathematical correctness tests:
 - Scheduler engine: ≥95% (this is the core IP)
 - API endpoints: ≥85%
 - React components: ≥70% (UI tests have diminishing returns)
-- Mobile: ≥60% (Detox E2E covers critical paths)
+- Mobile: no coverage gate — there is no runnable suite to measure (#1599)

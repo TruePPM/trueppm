@@ -116,8 +116,8 @@ Each card shows:
 
 - **Task name** and **task reference** — `ENG-2026-8`, using the **Project code** from
   Settings → General as the prefix. Without a code it reads `T-8`. The reference is
-  formatted server-side, so the web app, the mobile app, a PDF export, and an MCP client
-  all show the same string.
+  formatted server-side, so the web app, a PDF export, and an MCP client all show the
+  same string.
 - **Assignee avatars** (up to three, with +N overflow)
 - **Readiness chip** — `idea` / `estimated` / `ready` / `baselined`, shown only when the
   board holds more than one readiness value (see [Readiness states](#readiness-states))

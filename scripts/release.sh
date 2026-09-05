@@ -575,6 +575,15 @@ bump_manifest packages/web/package.json \
   "s/\"version\": \"${CURRENT_ESCAPED}\"/\"version\": \"${NEW_VERSION}\"/" \
   "\"version\": \"${NEW_VERSION}\""
 
+# packages/mobile is DELIBERATELY ABSENT from this list and must stay absent
+# until the native Android app ships (#1599 / roadmap 0.6). It is a scaffold with
+# no native projects, no test suite, and nothing to publish, so a release version
+# on it is a claim the package cannot back. It carried "0.4.0-beta.1" from
+# 2026-07-18 to 2026-09-04 — not from here, but from a hand-run manifest bump
+# (913ec927d) that swept it in beside api/web — and every reader of
+# packages/mobile/package.json took it for a beta artifact (#3367). It sits at
+# 0.0.0. Do not add it back "for consistency"; see packages/mobile/README.md.
+
 # The Rust/WASM engine carries the SAME semver string as api/web (#2602). It is
 # one semantic artifact held in CI conformance with the Python engine, so the
 # version has to name which semantics you get — a reader must be able to tell

@@ -10,7 +10,7 @@
  * runtime client configuration so screens can be written against a stable shape.
  */
 
-/** Resolved API base URL for the current build. Overridden per EAS profile. */
+/** Resolved API base URL for the current build. Overridden per build profile. */
 export interface ApiConfig {
   /** Base URL of the TruePPM API, e.g. https://api.example.com */
   baseUrl: string;

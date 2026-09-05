@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
 import { useToastStore } from './toastStore';
 import type { ToastItem } from './toastStore';
+import { usePausableAutoDismiss } from './usePausableAutoDismiss';
 import { CheckIcon } from '@/components/Icons';
 
 /**
@@ -49,14 +49,26 @@ export function ToastHost() {
 function ToastPill({ toast }: { toast: ToastItem }) {
   const dismiss = useToastStore((s) => s.dismiss);
   const setFocusWithin = useToastStore((s) => s.setFocusWithin);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // WCAG 2.2.1: pause the auto-dismiss while the pill is hovered or contains
   // focus, so a keyboard/SR user can actually reach an Undo action before it
-  // disappears. Hover and focus are tracked separately — releasing one while
-  // the other still holds must not resume the countdown.
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const paused = hovered || focused;
+  // disappears. The timer, the hover/focus split, and the "never auto-remove a
+  // surface that contains focus" guarantee all live in `usePausableAutoDismiss`
+  // — shared with the Schedule's own action toast, which had diverged from this
+  // one and shipped without any of it (#3356).
+  //
+  // Leaving restarts the full duration (a fresh, honest window) rather than
+  // resuming a stale remainder. `revision` is in the restart key so an absorbed
+  // duplicate restarts the clock without remounting the pill — see
+  // `ToastItem.revision`.
+  const { pauseHandlers } = usePausableAutoDismiss({
+    active: true,
+    durationMs: toast.durationMs,
+    restartKey: `${toast.id}:${toast.revision}`,
+    onDismiss: () => dismiss(toast.id),
+    // The store needs focus too, not just the local pause: D8 makes focus decide
+    // displacement, and displacement is a store rule.
+    onFocusWithinChange: (within) => setFocusWithin(toast.id, within),
+  });
 
   // No hover-state seeding on mount, deliberately. A pill that REPLACES another
   // mounts under a cursor that never moved, which looks like it should lose the
@@ -69,37 +81,12 @@ function ToastPill({ toast }: { toast: ToastItem }) {
   // would be inert code with a comment claiming a guard it does not provide. The
   // behavior this paragraph is about is pinned in `e2e/toast-host.spec.ts`.
 
-  useEffect(() => {
-    if (paused) return;
-    // Leaving restarts the full duration (a fresh, honest window) rather than
-    // resuming a stale remainder. `revision` is in the dependency list so an
-    // absorbed duplicate restarts the clock without remounting the pill — see
-    // `ToastItem.revision`.
-    timerRef.current = setTimeout(() => dismiss(toast.id), toast.durationMs);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [toast.id, toast.durationMs, toast.revision, dismiss, paused]);
-
   const dismissNow = () => dismiss(toast.id);
   return (
     <div
       data-testid="toast-pill"
       data-toast-slot={toast.slot}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => {
-        setFocused(true);
-        // The store needs this too, not just the local pause: D8 makes focus decide
-        // displacement, and displacement is a store rule.
-        setFocusWithin(toast.id, true);
-      }}
-      onBlur={(e) => {
-        // Ignore focus moving between children of the same pill.
-        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-        setFocused(false);
-        setFocusWithin(toast.id, false);
-      }}
+      {...pauseHandlers}
       className={[
         'pointer-events-auto flex items-center gap-2.5 rounded-[11px] bg-neutral-text-primary py-3 text-[13.5px] font-medium text-neutral-text-inverse shadow-pop motion-safe:animate-toast-rise',
         // Action toasts trim the right padding to seat the button; plain toasts
