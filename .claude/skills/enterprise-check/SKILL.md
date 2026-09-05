@@ -118,6 +118,15 @@ OSS feature list (non-exhaustive):
 - REST + WebSocket API
 - MS Project import/export
 - Helm chart, Docker Compose dev environment
+- **Basic high availability (single-cluster)** — redundant API/worker tiers (HPA,
+  PDB, topology spread), operator-managed in-cluster HA PostgreSQL with streaming
+  replication and automatic failover, replicated Valkey with Sentinel, logical
+  backup, and WAL archiving to a bucket through the datastore operator. Ruled OSS
+  2026-09-04 (epic #3408): the chart may *stand up* redundant datastores, not just
+  *talk to* them, or a self-hoster with no managed database cannot make the system
+  of record survive a pod loss. WAL archiving is a knob on an Apache 2.0 operator;
+  disabling it would be the SSO-tax pattern. Cross-region / multi-cluster / SLA
+  evidence is the Enterprise layer below.
 - Basic reporting (project health, task list, critical path)
 - Burn charts: burn down, burn up, combined burn (single-project/sprint scope)
 - Risk register: risk model, CRUD, risk matrix (probability × impact), risk-to-task linkage, status lifecycle
@@ -166,7 +175,15 @@ Enterprise feature list (non-exhaustive):
 - Scenario modeling
 - Portfolio-level Monte Carlo
 - Multi-tenancy
-- HA deployment configuration
+- **Advanced HA and disaster recovery** — cross-region or multi-cluster
+  replication, geo failover and DR runbooks, active-active with leader-elected
+  singletons (redundant Beat), SLA-grade failover targets with evidence, managed
+  backup automation with scheduled restore verification and retention evidence,
+  multi-tenant HA (`trueppm-enterprise#20`). Corrected 2026-09-04: this line
+  previously read "HA deployment configuration", which OSS 0.4 had already crossed
+  (HPA, PDB, probes, Sentinel path, rolling upgrades, advisory-locked migrations).
+  The split: survive a pod or node loss inside one cluster → OSS; survive the loss
+  of the cluster or the region, or prove it to an auditor → Enterprise.
 - Portfolio risk rollup (aggregated risk across projects)
 - Cross-project risk propagation
 - Risk-triggered approval workflows

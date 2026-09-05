@@ -1319,20 +1319,14 @@ class Project(VersionedModel):
         choices=Visibility.choices,
         default=Visibility.WORKSPACE,
     )
-    # IANA timezone identifier (issue #520). It has exactly ONE reader:
-    # ``notifications.services._project_timezone``, which anchors the quiet-hours
-    # window so "no pings 22:00–07:00" means the project's clock (#3376).
-    #
-    # It does NOT drive due dates, Gantt rendering or sprint cutovers, and the
-    # earlier comment saying it did was wrong in a way worth naming: a task's
-    # start/finish are **calendar dates**, so they are timezone-independent by
-    # construction and no zone can move them. Instants that DO need a zone
-    # (timestamps, "2 hours ago") are rendered in the viewer's own frame from
-    # ``Profile.timezone`` (ADR-0410), not from this column.
-    #
-    # The real fallback chain is ``Project.timezone`` -> ``settings.TIME_ZONE``
-    # (hardcoded "UTC") -> "UTC". ``Workspace.timezone`` is NOT in it despite the
-    # UI's "Workspace default" option label — wiring that is #3377.
+    # IANA timezone identifier for this project (issue #520). Empty string defers
+    # to ``Workspace.timezone``, then to ``settings.TIME_ZONE`` (#3377).
+    # Its single reader is ``notifications.services._project_timezone``, which
+    # interprets a project's notification quiet-hours window in it. It does NOT
+    # drive due dates, Gantt rendering, or sprint cutovers — those are calendar-
+    # and date-based, and instants shown to a person are re-clocked from that
+    # person's ``profiles.Profile.timezone`` (ADR-0410). This comment previously
+    # claimed all three; none was ever wired.
     # Stored as free text — full IANA validation is a future change.
     timezone = models.CharField(max_length=64, blank=True, default="")
     # Stated landing-view preference (issue #520). Read by nothing navigational —

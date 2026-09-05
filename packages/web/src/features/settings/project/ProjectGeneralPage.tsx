@@ -880,11 +880,11 @@ export function ProjectGeneralPage() {
               real fallback is settings.TIME_ZONE, hardcoded UTC — #3377. */}
           <FieldRow
             label="Timezone"
-            hint="Anchors this project's quiet hours. It does not change how dates are shown to you."
+            hint="Anchors this project's notification quiet hours. Leave on Workspace default to inherit."
             help={fieldHelp({
               label: 'Timezone',
-              body: "This project's clock for one thing: the quiet-hours window that holds back its notifications overnight. It does not affect what you see — task dates are calendar dates, so no timezone moves them, and timestamps are shown in your own timezone from your profile. Leaving it on Workspace default falls back to the server's timezone, which is UTC.",
-              docHref: 'administration/project-settings/#general',
+              body: "The timezone this project's notification quiet-hours windows are interpreted in, so a 20:00–07:00 window means 20:00–07:00 here. It is not a display timezone — the times you see are always shown in your own personal timezone, and changing this never shifts a task's stored calendar dates. Leave it on Workspace default to follow the workspace setting.",
+              docHref: 'features/settings/project-notifications/#which-timezone-the-window-is-read-in',
             })}
           >
             <div className="relative inline-block w-[280px]">

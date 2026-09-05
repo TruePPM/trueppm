@@ -60555,6 +60555,7 @@
                     "timezone": {
                         "type": "string",
                         "minLength": 1,
+                        "description": "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — unlike the per-user profile timezone this one is resolved server-side. It is the quiet-hours fallback for a project that sets no timezone of its own, not a display timezone. A non-IANA value is rejected with a 400.",
                         "maxLength": 64
                     },
                     "fiscal_year_start_month": {
@@ -63373,7 +63374,7 @@
                         "additionalProperties": {
                             "type": "boolean"
                         },
-                        "description": "The requesting user's own team facets on this project (#1095).\n\nReturns ``{\"is_scrum_master\": bool, \"is_product_owner\": bool}`` — the\ncaller's two-axis RBAC facets (ADR-0078) resolved against the project's\ndefault team. The web uses this to render-gate Product-Owner / Scrum-Master\ncontrols (e.g. the backlog auto-rank + reorder affordances) without a\nseparate round-trip. Both False for an anonymous caller or a non-member.\n\nDetail-only (never on the list serializer) to keep the project list cheap —\none membership lookup per project would be an N+1 on a list response.",
+                        "description": "The requesting user's own team facets on this project (#1095).\n\nReturns ``{\"is_scrum_master\": bool, \"is_product_owner\": bool}`` — the\ncaller's two-axis RBAC facets (ADR-0078) resolved against the project's\ndefault team. The web uses this to render-gate Product-Owner / Scrum-Master\ncontrols (e.g. the backlog auto-rank + reorder affordances) without a\nseparate round-trip. Both False for an anonymous caller, a non-member, or a\nmember whose project access was revoked (#3386) — the render-gate therefore\nmatches what the write gates will actually allow, which is the ADR-0133\n\"one rule, called twice\" property applied to the facet axis.\n\nDetail-only (never on the list serializer) to keep the project list cheap —\none membership lookup per project would be an N+1 on a list response.",
                         "readOnly": true
                     }
                 },
@@ -73499,6 +73500,7 @@
                     },
                     "timezone": {
                         "type": "string",
+                        "description": "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — unlike the per-user profile timezone this one is resolved server-side. It is the quiet-hours fallback for a project that sets no timezone of its own, not a display timezone. A non-IANA value is rejected with a 400.",
                         "maxLength": 64
                     },
                     "fiscal_year_start_month": {

@@ -92,8 +92,8 @@ scopes may deviate from the workspace default.
   be a TruePPM Enterprise capability**; in the OSS community edition, Enforce behaves like
   Suggest — it does not lock.
 
-The **effective** methodology will be resolved on the server, so the web app, the mobile app,
-and the API all read the same value. The view-tab matrix above is driven by the *effective*
+The **effective** methodology will be resolved on the server, so every client reads the
+same value. The view-tab matrix above is driven by the *effective*
 methodology, so a workspace-level lock immediately reshapes which tabs appear across every
 project under it.
 
@@ -112,7 +112,7 @@ As of **0.3**, you can label the iteration container —
 an individual **Project**. Each scope can also choose to **inherit** its parent's term, so a
 relabel in one place flows down to everything below it. The most specific override wins
 (project, then program, then the workspace default), and the **effective** label is resolved
-on the server so the web app, the mobile app, and the API all show the same word.
+on the server so every client shows the same word.
 
 The chosen label will flow through every iteration surface: the tab, the sprint workspace,
 the board, planning, guardrails, the burndown, and the milestone-bridge dialog. It is
