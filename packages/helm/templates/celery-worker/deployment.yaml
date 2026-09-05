@@ -89,13 +89,20 @@ spec:
             {{- with (include "trueppm.mediaVolumeMount" .) }}
             {{- . | nindent 12 }}
             {{- end }}
-          {{- if .Values.probes.worker.enabled }}
+          {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "liveness") }}
           # `inspect ping` against this pod's own worker node — a wedged event loop
           # stops answering the control-plane ping even while the process lingers.
+          #
+          # Liveness and readiness resolve their timings SEPARATELY (#3230). They
+          # were one rendered body until then, which forced identical numbers onto
+          # two probes with opposite costs: a readiness failure is free backpressure,
+          # a liveness failure kills the container and burns the 300s worker grace.
           livenessProbe:
-            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME") | nindent 12 }}
+            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "liveness" "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME") | nindent 12 }}
+          {{- end }}
+          {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "readiness") }}
           readinessProbe:
-            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME") | nindent 12 }}
+            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "readiness" "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME") | nindent 12 }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources.worker | nindent 12 }}

@@ -45,7 +45,8 @@ export type RootTabParamList = {
   Settings: NavigatorScreenParams<SettingsStackParamList>;
 };
 
-/** Stable test IDs shared between the tab bar and the Detox smoke flow. */
+/** Stable tab-bar test IDs. Kept as a single exported map so the tab bar and a
+ *  future e2e harness (#1599) cannot drift apart. */
 export const TAB_TEST_IDS: Record<keyof RootTabParamList, string> = {
   Tasks: 'tab-tasks',
   Time: 'tab-time',

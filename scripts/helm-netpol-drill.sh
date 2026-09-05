@@ -55,8 +55,13 @@ APISERVER_HOST="${APISERVER_HOST:-docker}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
 # DRILL-SPECIFIC celery probe settings (#3218) — chart defaults are unchanged
 # and stay the production posture. Same values and same reason as the block in
-# scripts/helm-install-drill.sh, which carries the full evidence; keep the two
-# in sync. Short version: an exec probe runs INSIDE the container it measures,
+# scripts/helm-install-drill.sh, which carries the full evidence. The two are
+# held identical by scripts/tests/helm-celery-probe-overrides.test.sh (#3230),
+# which extracts BOTH arrays and compares them; that replaced a prose "keep the
+# two in sync" note that had no mechanism. It also checks every key here is one
+# values.schema.json still accepts, because the chart root is closed and a
+# renamed probe key makes `helm install` refuse rather than degrade. Short
+# version: an exec probe runs INSIDE the container it measures,
 # so each `celery inspect ping` forks a full Django import into the worker's own
 # 1-CPU cgroup and starves the MainProcess that has to answer it. On a loaded
 # node it never succeeds — job 16193488334 saw x13 readiness failures with zero

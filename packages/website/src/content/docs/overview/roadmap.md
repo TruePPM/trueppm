@@ -63,13 +63,13 @@ A broad consolidation release — the settings/administration platform, program 
 
 ### 0.3 — the agile team (alpha: Jun 28, 2026)
 
-**For the Scrum Master and the self-managing developer.** Close a sprint and the master schedule reforecasts itself; merge a PR and the card moves and the dates shift — an agile board as good as the one you have now, with a CPM schedule quietly underneath.
+**For the Scrum Master and the self-managing developer.** Close a sprint and the bound milestone's forecast is rewritten from the team's real velocity; merge a PR and the card moves and the dates shift — an agile board as good as the one you have now, with a CPM schedule quietly underneath.
 
 Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `trueppm-scheduler` published to PyPI at **0.3.0a1**. Everything below is in `main` and tagged. The release line stays alpha through 0.3, and 0.4 is planned as the first beta — arriving directly as `0.4.0-beta.1`, with no alpha step in between (see [how the 0.4 line is numbered](#how-the-04-line-is-numbered)).
 
 - **First-class sprint model** — a real sprint *container* (goal, capacity, start/end, burndown) with **state-aware planning and closed views** (sprint-goal + advancing-milestone bridge banner, capacity preflight, carryover preview, sprint outcome cards, retro snapshot), not a board with date columns; auto-computed velocity with a forecast *range*; WIP-overload signal
 - **Sprint sovereignty** — mid-sprint scope changes require a deliberate, audited decision; velocity stays a team metric and is never auto-exposed as a management gauge; retro action items flow into the next sprint's backlog
-- **The bridge demo** — promote a sprint commitment to a schedule milestone, and sprint velocity reforecasts the CPM finish with no copy-paste between tools
+- **The bridge demo** — promote a sprint commitment to a schedule milestone, and sprint velocity forecasts that milestone's finish as a P50/P80 band around its CPM date, with no copy-paste between tools
 - **Agile depth** — task-type taxonomy, epic/initiative hierarchy, dual backlog, Product Owner role, acceptance criteria, sprint planning / forecast / grooming views
 - **Hybrid foundation** — governance-class / delivery-mode model, parent rollup engine, agile-aware Monte Carlo, Kanban delivery mode
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
@@ -239,6 +239,7 @@ steepest part of the curve is not yet explained by any of them (#3385).
 - **Workshop facilitation core** (#1396 #1397) — a shared timer and dot voting on the Live Retro Board, riding the existing realtime channel with no new trust surface; the full collaborative-canvas shell (Excalidraw, guest links) follows at 0.7 (#1281)
 - **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
 - **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
+- **Fully cloud native — basic HA in the OSS core** (#3408) — operator-managed in-cluster HA PostgreSQL with automatic failover and WAL archiving (#3403), replicated Valkey with Sentinel and a CI failover drill (#3404), one application Secret contract with an ExternalSecret template and rollout-on-rotation (#3405), zero-downtime rotation of every application key (#3406), and multi-arch images (#3407). External managed datastores stay fully supported; cross-region and DR remain Enterprise
 - **System Health operator UI** (#691) — dead-letter requeue/drop write actions over the durable-execution backbone (outbox dispatch, Beat heartbeat, retention purge), building on the read-only overview dashboard and dead-letter inspector that shipped at 0.2; rich outbox metrics and subscriber breakdown follow at 1.0
 
 ### 0.6 — open & portable (no date — next after 0.5)
@@ -384,6 +385,6 @@ These features live in a separate proprietary repository and overlay the OSS cor
 - Jira / GitLab / ServiceNow connectors (git integration hub — 0.2)
 - AI scheduling and scenario modeling
 - Portfolio Monte Carlo
-- Multi-tenancy and HA deployment
+- Multi-tenancy, and advanced HA / disaster recovery — cross-region replication, geo failover, active-active with leader-elected singletons, SLA-grade failover evidence, managed backup verification (basic single-cluster HA — in-cluster HA PostgreSQL and Valkey — lands in the OSS core at 0.5, #3408)
 - Methodology Marketplace and Automated Cohesion Inference (both undated — see **Direction** above)
 - **AI governance overlay** — the organizational counterpart to the OSS AI layer, registering against its extension points: immutable agent audit trail, approval workflows for agent writes, custom agent roles and capability policy, cross-program AI decision-memory and forecast calibration, portfolio AI scenario modeling, org-wide AI model-governance and data-egress policy, compliance evidence export for AI-assisted decisions, and bidirectional Integration-Hub AI-reconciliation

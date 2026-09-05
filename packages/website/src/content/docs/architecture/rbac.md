@@ -205,6 +205,37 @@ covers why that split exists from the persona side; the architectural point is
 that `can_user_edit_task` and the backlog/scope-manager predicates are exactly
 where role and facet are combined into one write decision.
 
+The facet is a *widening* of project access, never a substitute for it, and that
+takes an explicit check rather than following from the data model. A signal
+mirrors each `ProjectMembership` onto the project's default team, but the mirror
+is create-only — there is no delete-side counterpart, deliberately, so that
+re-inviting someone restores their facets instead of making offboarding destroy
+them. The consequence is that revoking project access leaves a residual
+`TeamMembership` behind with its flags intact, and every facet gate consults the
+facet on precisely the branch where the role lookup returned `None`. So the
+resolvers in `apps/teams/services.py` apply the liveness floor themselves:
+
+```python
+def user_facets(user, project_id, *, live_project_members_only=True):
+    ...
+```
+
+The single-user resolvers (`user_facets`, `has_team_facet`) require a live,
+non-soft-deleted `ProjectMembership` on the same project, as a correlated
+subquery inside the existing query rather than a second round trip. The floor
+defaults to on; the opt-out exists only for callers that have already read live
+membership and intersect it themselves. Putting it in the resolver rather than
+in each gate is the point — a future gate, management command, or MCP write path
+inherits the rule instead of having to remember it.
+
+The set-shaped resolver `facet_holder_user_ids` answers the same question for a
+whole project at once, to build notification cohorts rather than to decide
+writes. The two are meant to agree — a cohort that silently includes someone an
+authorization gate would refuse is how a project's task and sprint names reach
+a person who can no longer open it. If you are adding a facet cohort, check
+which guarantee the resolver you are calling actually gives, and intersect live
+`ProjectMembership` in the cohort itself if you need one it does not.
+
 ## WebSocket-connection enforcement
 
 A REST permission class runs once, on a request. A WebSocket connection is

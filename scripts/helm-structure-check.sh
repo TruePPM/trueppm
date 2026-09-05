@@ -1217,6 +1217,141 @@ case "$pdb_names" in
   *) fail "no PodDisruptionBudget for the web tier — the only tier a browser loads is the unprotected one (#3188)" ;;
 esac
 
+# N+5. Celery liveness/readiness probes must be tunable APART, and the shipped
+#      defaults must stay derived from the worker's termination grace (#3230).
+#
+#      Until #3230 `trueppm.celeryProbe` emitted one body that the worker
+#      Deployment included twice, so liveness and readiness were forced to the
+#      same numbers despite opposite costs: readiness is free (a celery worker
+#      sits behind no Service, so it paces rolling updates and nothing else),
+#      while liveness KILLS the container and burns
+#      lifecycle.worker.terminationGracePeriodSeconds — 300s per kill.
+#
+#      This section is also the answer to the second half of #3230, which asked
+#      for a runtime gate on the shipped defaults OR a re-derivation of them.
+#      A runtime gate is not available: both drills disable the worker probes
+#      because an exec probe forks a full Django import into the container it is
+#      measuring, and on kind-in-dind that never succeeds at any timing (#3218,
+#      job 16193488334 — 13 readiness failures, zero successes, against a worker
+#      that had logged `ready.` 16s in). Readiness has no failure budget to
+#      widen, so no value fixes it. The defaults were re-derived instead, and
+#      this is what holds the derivation: it reads the numbers out of the render
+#      and binds them to the grace they were derived FROM, so moving either one
+#      alone reds the lint stage.
+cp_worker="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --show-only templates/celery-worker/deployment.yaml)"
+cp_get() { # cp_get <manifest> <probe> <field>
+  echo "$1" | yq ".spec.template.spec.containers[0].${2}Probe.${3}"
+}
+
+cp_live_i="$(cp_get "$cp_worker" liveness initialDelaySeconds)"
+cp_live_p="$(cp_get "$cp_worker" liveness periodSeconds)"
+cp_live_f="$(cp_get "$cp_worker" liveness failureThreshold)"
+cp_ready_i="$(cp_get "$cp_worker" readiness initialDelaySeconds)"
+cp_ready_p="$(cp_get "$cp_worker" readiness periodSeconds)"
+cp_grace="$(echo "$cp_worker" | yq '.spec.template.spec.terminationGracePeriodSeconds')"
+
+for v in "$cp_live_i" "$cp_live_p" "$cp_live_f" "$cp_ready_i" "$cp_ready_p" "$cp_grace"; do
+  case "$v" in
+    ''|null|*[!0-9]*) fail "celery worker probes did not render a full set of integer timings (#3230): liveness=${cp_live_i}/${cp_live_p}/${cp_live_f} readiness=${cp_ready_i}/${cp_ready_p} grace=${cp_grace}" ;;
+  esac
+done
+
+# N+5.a — the split must be LIVE, not merely declared. If every field matched,
+#         the two probes are back to one shared spec and the values keys are
+#         decoration.
+[ "$cp_live_i" != "$cp_ready_i" ] || [ "$cp_live_f" != "$(cp_get "$cp_worker" readiness failureThreshold)" ] \
+  || fail "celery worker liveness and readiness rendered identical timings — the #3230 split is not reaching the render"
+
+# N+5.b — the derivation. A liveness kill costs up to terminationGracePeriodSeconds
+#         of unavailability for that pod, so the steady-state detection budget that
+#         orders the kill must be at least that expensive. Before #3230 it was
+#         3 x 60 = 180s against a 300s grace: one kill cost more downtime than the
+#         detection that decided on it.
+cp_detect=$((cp_live_f * cp_live_p))
+[ "$cp_detect" -ge "$cp_grace" ] \
+  || fail "celery worker liveness detection is ${cp_detect}s (failureThreshold ${cp_live_f} x period ${cp_live_p}) against a ${cp_grace}s termination grace — a kill costs more unavailability than the detection that ordered it (#3230)"
+
+# N+5.c — readiness is the cheap probe and must reach a first success EARLIER than
+#         liveness could ever kill. #3218 had to raise the shared initialDelay to
+#         protect liveness, which pushed every green drill's first readiness out
+#         with it; that trade is the whole reason the split exists.
+[ "$cp_ready_i" -lt "$cp_live_i" ] \
+  || fail "celery worker readiness initialDelaySeconds (${cp_ready_i}) is not earlier than liveness (${cp_live_i}) — the split is not being used to let readiness answer sooner (#3230)"
+
+# N+5.d — but readiness must not get CHEAPER by probing more often. An exec probe
+#         runs inside the container it measures, so each one forks a Django import
+#         into the worker's own CPU budget and competes with the MainProcess that
+#         has to answer the ping. Shortening the period makes that worse, not
+#         better (#3218). Two forks a minute across both probes is the pre-#3230
+#         load and the ceiling.
+[ "$cp_ready_p" -ge 60 ] && [ "$cp_live_p" -ge 60 ] \
+  || fail "celery probe periods (liveness ${cp_live_p}s / readiness ${cp_ready_p}s) drop below 60s — an exec probe forks a Django import into the cgroup it is measuring, so a shorter period starves the process that must answer it (#3218, #3230)"
+
+# N+5.e — kubelet's own timeout must SCALE with the celery ping budget. It was
+#         hardcoded at --timeout +5, and that fixed 5s has to absorb the sh fork,
+#         Python start, and Django/Celery import; raise the ping budget because the
+#         node is slow and the import headroom stays 5s on the same slow node. When
+#         kubelet fires first there is no celery stderr, so it presents as a bare
+#         `Liveness probe failed:` with an empty body.
+cp_kubelet() { # cp_kubelet <celery --timeout>
+  helm template trueppm "$CHART" --set image.tag=latest \
+    --set "probes.worker.timeoutSeconds=$1" \
+    --show-only templates/celery-worker/deployment.yaml \
+    | yq '.spec.template.spec.containers[0].livenessProbe.timeoutSeconds'
+}
+cp_kt10="$(cp_kubelet 10)"
+cp_kt20="$(cp_kubelet 20)"
+[ "$cp_kt10" = "15" ] \
+  || fail "kubelet probe timeout at the default celery --timeout 10 is $cp_kt10, expected 15 — the derivation must not change the shipped value (#3230)"
+[ "$cp_kt20" -gt 25 ] \
+  || fail "kubelet probe timeout at celery --timeout 20 is $cp_kt20 — still the old fixed +5, so the import headroom does not scale with the ping budget (#3230)"
+
+# N+5.f — BACKWARD COMPATIBILITY. The four flat keys predate the split and meant
+#         "both probes". A values file carrying only them must still render two
+#         identical probes with exactly those numbers — if the per-probe layer won
+#         instead, the chart's own re-derived defaults would silently override an
+#         operator's existing value, which is the one break this change must not
+#         cause.
+cp_flat="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set probes.worker.initialDelaySeconds=45 \
+  --set probes.worker.periodSeconds=90 \
+  --set probes.worker.failureThreshold=7 \
+  --show-only templates/celery-worker/deployment.yaml)"
+for f in initialDelaySeconds:45 periodSeconds:90 failureThreshold:7; do
+  cp_want="${f#*:}"; cp_field="${f%%:*}"
+  for cp_kind in liveness readiness; do
+    cp_got="$(cp_get "$cp_flat" "$cp_kind" "$cp_field")"
+    [ "$cp_got" = "$cp_want" ] \
+      || fail "a flat probes.worker.${cp_field}=${cp_want} rendered ${cp_kind}Probe.${cp_field}=${cp_got} — the pre-#3230 shared-override meaning of the flat keys is broken, so existing operator values files change behavior on upgrade (#3230)"
+  done
+done
+
+# N+5.g — the master switch still removes BOTH probes. Both runtime drills pass
+#         `--set probes.worker.enabled=false`; if the per-probe `enabled` shadowed
+#         it, helm:install and helm:netpol would regain the probe that #3218
+#         proved cannot succeed on kind-in-dind, and both would go bimodal again.
+cp_off="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set probes.worker.enabled=false \
+  --show-only templates/celery-worker/deployment.yaml)"
+[ "$(cp_get "$cp_off" liveness initialDelaySeconds)" = "null" ] \
+  && [ "$(cp_get "$cp_off" readiness initialDelaySeconds)" = "null" ] \
+  || fail "probes.worker.enabled=false still rendered a celery probe — the drills' override no longer removes them (#3218, #3230)"
+
+# N+5.h — beat renders a livenessProbe ONLY. It is a pinned singleton behind no
+#         Service, so a readiness probe would gate nothing while still forking a
+#         Django import into the chart's tightest cgroup. The schema has no
+#         `probes.beat.readiness` for the same reason: a knob nothing reads is
+#         worse than a missing one.
+cp_beat="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --show-only templates/celery-beat/deployment.yaml)"
+[ "$(cp_get "$cp_beat" liveness periodSeconds)" != "null" ] \
+  || fail "celery beat renders no livenessProbe (#1904)"
+[ "$(cp_get "$cp_beat" readiness periodSeconds)" = "null" ] \
+  || fail "celery beat rendered a readinessProbe — beat sits behind no Service, so it gates nothing and only costs a Django import in a 250m cgroup (#3230)"
+helm template trueppm "$CHART" --set image.tag=latest --set probes.beat.readiness.periodSeconds=10 >/dev/null 2>&1 \
+  && fail "values.schema.json accepts probes.beat.readiness — beat renders no readiness probe, so the key would be a control that writes and is never read (#3230)"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1238,3 +1373,4 @@ echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api 
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"
 echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"
+echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace) and readiness ${cp_ready_i}/${cp_ready_p} are tuned apart; kubelet timeout scales with the ping budget; flat keys still drive both probes; beat is liveness-only"

@@ -319,6 +319,57 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
     expect(restoreCalls).toEqual(['bm1']);
     await expect(page.getByTestId('schedule-action-toast')).toContainText('Restored');
   });
+
+  test('the dwell pauses for a keyboard user on the Undo, and the button meets 44px (#3356)', async ({
+    page,
+  }) => {
+    // Real wall clock against the 6s default dwell, twice over plus the resume —
+    // there is no way to assert "did NOT auto-dismiss" faster than the dwell.
+    test.setTimeout(90_000);
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await page.getByText('Foundation').click({ button: 'right' });
+    await page
+      .getByRole('menu', { name: 'Row actions' })
+      .getByRole('menuitem', { name: /Delete/ })
+      .click();
+    await expect(page.getByRole('row').filter({ hasText: 'Foundation' })).toHaveCount(0);
+
+    const toast = page.getByTestId('schedule-action-toast');
+    const undo = toast.getByRole('button', { name: 'Undo', exact: true });
+    await expect(undo).toBeVisible();
+
+    // Web rule 5's touch floor, MEASURED — jsdom has no layout, so the vitest side
+    // can only assert the utility class that is supposed to produce this box.
+    const box = await undo.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+
+    // Park the pointer in the corner FIRST. Hover pauses the dwell too, and a test
+    // that left the cursor over the toast would pass with the focus pause deleted.
+    await page.mouse.move(2, 2);
+
+    // `.focus()` rather than a Tab count: the number of stops between the grid and
+    // the toast is not a stable premise, and the focusin this dispatches is the one
+    // Tab produces. What is under test is what happens AFTER focus is inside.
+    await undo.focus();
+    await expect(undo).toBeFocused();
+
+    // Well past the 6s dwell: the toast is still there, and focus has not been
+    // dropped to `<body>` by an unmount underneath it (web rules 356(d)/368,
+    // WCAG 2.2.1 Pause Stop Hide, 2.4.3 Focus Order).
+    await page.waitForTimeout(9_000);
+    await expect(toast).toBeVisible();
+    await expect(undo).toBeFocused();
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('BODY');
+
+    // Negative control: leaving restarts the dwell and it DOES dismiss. Without
+    // this, a toast that had simply stopped auto-dismissing would pass above.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(toast).toBeHidden({ timeout: 20_000 });
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
