@@ -866,3 +866,97 @@ def test_replaying_an_idempotency_key_returns_the_stored_response(
     # The stored response is served verbatim — not recomputed into an all-`unchanged`
     # report, which is what a re-run would have produced.
     assert second.data["delivery_mode"]["applied"] == first.data["delivery_mode"]["applied"]
+
+
+# ---------------------------------------------------------------------------
+# The receipts describe what the cascade did (#3306)
+# ---------------------------------------------------------------------------
+
+
+def test_report_counts_rows_written_not_axis_rows(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """``rows_written`` is the number of rows saved — a unit the caller can verify.
+
+    The per-axis ``applied`` tallies cannot be summed into one: each increments once
+    per row *per axis*, so a both-axes cascade over the same rows double-counts them,
+    and the governance branch writes two model columns per increment. The client's
+    receipt needs the row count and cannot derive it, because a milestone withheld on
+    one axis but written on the other is one row in two different per-axis totals.
+    """
+    r = _patch(
+        owner_client,
+        project,
+        subtree=str(phase.pk),
+        governance_class=GovernanceClass.GATED,
+        delivery_mode=DeliveryMode.SCRUM,
+    )
+    assert r.status_code == 200, r.data
+
+    # Phase, Design and Build take delivery_mode; Phase and Design also take
+    # governance (Build keeps its override); the two gates take neither axis.
+    assert r.data["governance"]["applied"] == 2
+    assert r.data["delivery_mode"]["applied"] == 3
+    # Three rows were saved — not the 5 the two `applied` tallies sum to, and not
+    # the 7 model columns those writes actually touched (governance writes two).
+    assert r.data["rows_written"] == 3
+
+
+def test_rows_written_is_zero_on_a_no_op_cascade(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """A repeat cascade writes nothing, and the receipt says so in the same unit."""
+    body = {"subtree": str(phase.pk), "delivery_mode": DeliveryMode.SCRUM}
+    with _no_side_effects():
+        owner_client.patch(url(project), body, format="json")
+        second = owner_client.patch(url(project), body, format="json")
+    assert second.status_code == 200, second.data
+    assert second.data["rows_written"] == 0
+    assert second.data["matched"] == 5
+
+
+def test_an_inherit_bit_only_cascade_is_visible_in_the_task_activity_feed(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """The one classification write that used to leave no record anywhere (#3306).
+
+    The root already carries the requested ``governance_class`` *and*
+    ``parent_governance_inherited=True``. Declaring that class on the root sets the
+    bit to False — the row is written, ``server_version`` bumps, ``rows_written``
+    counts it, the undo ledger records it, ``tasks_bulk_mutated`` broadcasts — and
+    the Activity tab used to show nothing, because the bit is display-excluded and
+    an update record with an empty visible diff is dropped.
+
+    End to end on purpose: write → history row → the rendered activity item, which
+    is the surface the acceptance criterion names.
+    """
+    phase.governance_class = GovernanceClass.GATED
+    phase.parent_governance_inherited = True
+    phase.save()
+
+    r = _patch(
+        owner_client,
+        project,
+        subtree=str(phase.pk),
+        cascade=False,
+        governance_class=GovernanceClass.GATED,
+    )
+    assert r.status_code == 200, r.data
+    # The write happened: nothing about this is a no-op the receipt could skip.
+    assert r.data["governance"]["applied"] == 1
+    assert r.data["rows_written"] == 1
+    phase.refresh_from_db()
+    assert phase.parent_governance_inherited is False
+
+    history = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{phase.pk}/history/")
+    assert history.status_code == 200, history.data
+    rows = [
+        d
+        for record in history.data["results"]
+        if record["history_type"] == "~"
+        for d in record["diff"]
+        if d["field"] == "parent_governance_inherited"
+    ]
+    assert rows, "the cascade left no entry on the task's Activity tab"
+    assert rows[0]["old"] == "True"
+    assert rows[0]["new"] == "False"

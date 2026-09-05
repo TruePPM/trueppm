@@ -153,7 +153,6 @@ describe('ProgramRollupPage (settings)', () => {
       'aria-checked',
       'false',
     );
-    expect(screen.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
   });
 
   it('non-admin sees read-only KPI values + policy (no disabled controls) and a Read-only pill', () => {

@@ -1,0 +1,7 @@
+Removed twelve unreferenced web modules and three unreachable Zustand store actions. Each had zero importers outside its own test file, verified against `packages/web/src`, `packages/web/e2e`, `packages/mobile`, `docs/` and `packages/website`. No user-visible behavior changes — none of these modules was reachable from any route, component or hook.
+
+Modules removed: `features/schedule/TaskDrawerHeader.tsx`, `features/shell/ShellNavScroller.tsx` (superseded by `StatusClusterScroller`), `features/schedule/MonteCarloLabel.tsx` (its host `MonteCarloRow` was replaced by `ScheduleForecastBar`), `features/settings/components/StubPageBanner.tsx` (no settings page has been a stub since #1649), `hooks/useTaskSkillRequirements.ts`, `features/board/BoardColumn.tsx` (self-declared dead — `BoardView` renders `BoardCell` inline), `hooks/useProgramIntegrationsSummary.ts`, `hooks/useProjectIntegrationsSummary.ts`, `components/Breadcrumb.tsx`, `features/shell/PlaceholderView.tsx`, `hooks/useTaskRun.ts` (the `taskRunStore` it read is live and kept).
+
+Store actions removed: `shellStore.projectScope` / `setProjectScope` (with its `ProjectScope` type), `schedulerStore.clearCpmError` (the `cpmError` state it cleared is live and kept), `scheduleStore.setZoomLevel` (the `zoomLevel` state is live and kept — `setPxPerDay` derives it).
+
+The pre-deletion tree is tagged `pre-web-dead-modules-2026-09-05` if any of these needs to come back.

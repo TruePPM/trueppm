@@ -201,6 +201,27 @@ describe('ActivityTimeline', () => {
     expect(screen.getByRole('radio', { name: 'All · 1' })).toBeInTheDocument();
   });
 
+  it('renders an inherit-bit-only cascade legibly (#3306)', () => {
+    // The server promotes `parent_governance_inherited` into the diff exactly when
+    // it is a record's only change — the cascade that declares a governance class a
+    // subtree already holds, and so only breaks the root's inheritance. Rendered
+    // raw it would read "parent_governance_inherited  True → False", which is the
+    // same unreadable receipt in a different place.
+    const inheritBitOnly = field(
+      [{ field: 'parent_governance_inherited', old: 'True', new: 'False' }],
+      { id: 9, actor: { id: 'u-frank', display_name: 'Frank' }, timestamp: '2026-05-06T10:00:00Z' },
+    );
+    historySpy.mockReturnValue(makeHistory([inheritBitOnly]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/changed governance source/i)).toBeInTheDocument();
+    expect(screen.getByText('Inherited from parent')).toBeInTheDocument();
+    expect(screen.getByText('Set on this task')).toBeInTheDocument();
+    expect(screen.queryByText(/parent_governance_inherited/)).not.toBeInTheDocument();
+    // …and it sits under the same chip as a governance_class change, so filtering
+    // does not hide it again.
+    expect(screen.getByRole('radio', { name: /^Description$/ })).toBeInTheDocument();
+  });
+
   it('renders the task-creation event', () => {
     historySpy.mockReturnValue(makeHistory([createdRecord]));
     renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);

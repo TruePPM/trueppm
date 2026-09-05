@@ -233,9 +233,6 @@ test.describe('Program Settings → Cadence & ceremonies', () => {
     await expect(page.getByText(/Weekly · Monday 10:00/)).toBeVisible();
     await expect(page.getByText(/Bi-weekly · Wednesday 11:00/)).toBeVisible();
 
-    // Stub banner must not render once wired.
-    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
-
     // Open modal and submit.
     await page.getByRole('button', { name: /\+ Add ceremony/ }).click();
     const addCeremony = page.getByRole('dialog', { name: /Add ceremony/ });
