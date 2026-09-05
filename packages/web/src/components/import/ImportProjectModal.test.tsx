@@ -182,6 +182,25 @@ describe('ImportProjectModal — scoped to an existing program', () => {
     pickFile(xmlFile());
     expect(screen.getByText(/Will be added to the/)).toHaveTextContent('Apollo');
   });
+
+  it('names the methodology the imported project will start with when the program has resolved (#3432)', () => {
+    setup({ programId: 'prog-1', programName: 'Apollo', programMethodology: 'WATERFALL' });
+    pickFile(xmlFile());
+    const hint = screen.getByText(/Will be added to the/);
+    expect(hint).toHaveTextContent(
+      'Will be added to the Apollo program and start with its Waterfall methodology.',
+    );
+  });
+
+  it('falls back to the plain "added to" sentence while the methodology is unknown', () => {
+    // The program query may not have resolved yet; the affordance must not claim a
+    // methodology it does not know rather than render "undefined".
+    setup({ programId: 'prog-1', programName: 'Apollo' });
+    pickFile(xmlFile());
+    const hint = screen.getByText(/Will be added to the/);
+    expect(hint).toHaveTextContent('Will be added to the Apollo program.');
+    expect(hint).not.toHaveTextContent(/methodology/);
+  });
 });
 
 describe('ImportProjectModal — MS Project happy path', () => {

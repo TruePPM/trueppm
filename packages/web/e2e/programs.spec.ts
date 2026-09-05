@@ -31,6 +31,7 @@ const FIXTURE_PROGRAM = {
   name: 'Phase 2 Modernization',
   description: 'Q3 platform rebuild',
   methodology: 'HYBRID',
+  effective_methodology: 'HYBRID',
   created_by: ME_ID,
   created_at: '2026-05-18T00:00:00Z',
   updated_at: '2026-05-18T00:00:00Z',
@@ -450,7 +451,11 @@ test.describe('Programs — shell nav', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Import a project' });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/Will be added to the/i)).toContainText(FIXTURE_PROGRAM.name);
+    const hint = dialog.getByText(/Will be added to the/i);
+    await expect(hint).toContainText(FIXTURE_PROGRAM.name);
+    // The server seeds the imported project with the program's methodology (#3432);
+    // the dialog says so at the point of import rather than in a settings hint.
+    await expect(hint).toContainText('start with its Hybrid methodology');
 
     await dialog.locator('input[type="file"]').setInputFiles({
       name: 'plan.xml',

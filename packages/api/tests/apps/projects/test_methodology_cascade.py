@@ -36,6 +36,7 @@ from trueppm_api.apps.projects.methodology import (
     register_methodology_enforcement_provider,
     resolve_effective_methodology,
     resolve_inherited_methodology,
+    resolve_new_project_methodology,
 )
 from trueppm_api.apps.projects.models import Calendar, Methodology, Program, Project
 from trueppm_api.apps.workspace.models import TermOverridePolicy, Workspace
@@ -387,3 +388,44 @@ def test_program_methodology_override_403_under_inherit() -> None:
     assert resp.status_code == 403
     prog.refresh_from_db()
     assert prog.methodology == Methodology.WATERFALL
+
+
+# ---------------------------------------------------------------------------
+# New-project seed — what a project starts with when nobody chose (#3432)
+# ---------------------------------------------------------------------------
+#
+# The resolver above is computed-on-read; a project's stored ``methodology`` is
+# NOT-NULL with a HYBRID default. So a create path that does not seed the stored
+# value lands HYBRID no matter what its program or workspace says. This helper is
+# the server-side twin of the web Start sheet's derived line and must agree with it.
+
+
+@pytest.mark.django_db
+def test_new_project_seed_prefers_program_effective_methodology() -> None:
+    """Program present (SUGGEST): the program's own value, not the workspace's."""
+    ws = Workspace.load()
+    ws.methodology = Methodology.AGILE
+    ws.save()
+    prog = Program.objects.create(name="Prog", methodology=Methodology.WATERFALL)
+    assert resolve_new_project_methodology(prog) == Methodology.WATERFALL
+
+
+@pytest.mark.django_db
+def test_new_project_seed_without_program_is_workspace_default() -> None:
+    """Standalone: the workspace default — never the bare model default."""
+    ws = Workspace.load()
+    ws.methodology = Methodology.WATERFALL
+    ws.save()
+    assert resolve_new_project_methodology(None) == Methodology.WATERFALL
+
+
+@pytest.mark.django_db
+def test_new_project_seed_honors_inherit_lock() -> None:
+    """INHERIT: the workspace default wins over the program, matching what the
+    effective resolver will report for the new project."""
+    ws = Workspace.load()
+    ws.methodology = Methodology.WATERFALL
+    ws.methodology_override_policy = TermOverridePolicy.INHERIT
+    ws.save()
+    prog = Program.objects.create(name="Prog", methodology=Methodology.AGILE)
+    assert resolve_new_project_methodology(prog, workspace=ws) == Methodology.WATERFALL
