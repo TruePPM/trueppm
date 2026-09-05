@@ -106,14 +106,16 @@ today, and we are not going to pretend otherwise.
 ## Mobile — no released app yet
 
 - **Today:** the web UI is responsive, but there is nothing installable and no
-  offline-capable shell you can add to a home screen. A React Native app already
-  exists in the repository — five working screens (Projects, Schedule, Tasks, Time,
-  Settings), offline sync, and authentication — and is under active CI, but it is an
-  internal build with no store distribution and no public release. "No app yet"
-  describes what you can install, not what has been written.
+  offline-capable shell you can add to a home screen. A React Native **scaffold**
+  exists in the repository: a five-tab navigation shell with placeholder screens,
+  plus typed module boundaries for the offline store, the sync client, and
+  authentication that are not yet implemented. There are no native Android or iOS
+  projects, so it cannot be built or installed — not by us either. CI runs lint and
+  type-check on it; there is no test suite. Treat it as the foundation the 0.6 app
+  is being built on, not as an unreleased app.
 - **0.5:** an installable PWA with an offline shell — add to home screen, time entry
   and board reads without a signal.
-- **0.6:** the in-progress React Native app above reaches GA on Android — Android
+- **0.6:** the scaffold above becomes a shipping app on Android — Android
   phones first, tablets second — as the first mobile release anyone outside the
   project can install.
 - **1.0:** iPhone and iPad parity.
@@ -224,10 +226,18 @@ on the roadmap.
   **Cluster mode is not supported** — TruePPM uses four logical databases and a
   clustered endpoint exposes only one. See
   [Valkey HA](/administration/valkey-ha/).
-- **Postgres HA is not part of the chart.** Large-scale production hardening — HA
-  Postgres and a dedicated highly-available Valkey deployment — remains on the
-  pre-1.0 roadmap; today you bring your own HA database, the same as you would with
-  most self-hosted software.
+- **Postgres HA is not part of the chart today.** You bring your own HA database,
+  the same as you would with most self-hosted software. An operator-managed
+  in-cluster HA PostgreSQL mode with automatic failover and WAL archiving
+  ([#3403](https://gitlab.com/trueppm/trueppm/-/issues/3403)) and a replicated
+  in-cluster Valkey ([#3404](https://gitlab.com/trueppm/trueppm/-/issues/3404))
+  are planned for 0.5, under the
+  [cloud-native epic](https://gitlab.com/trueppm/trueppm/-/issues/3408).
+- **Where the OSS line sits.** Basic, single-cluster HA — surviving a pod or node
+  loss — is in the OSS core so self-hosters are not penalized for running their
+  own datastores. Advanced HA and disaster recovery — cross-region replication,
+  geo failover, active-active with leader-elected singletons, SLA-grade failover
+  evidence — is Enterprise.
 
 **If "no single point of failure" out of the box is a requirement, TruePPM is not
 there yet** — every tier can be made HA, but you assemble it yourself. See
@@ -240,7 +250,8 @@ Not a gap so much as a boundary, but evaluators should know where it falls. The
 following are enterprise-edition features and are **not** coming to the OSS core:
 portfolio dashboards and health scores across many programs, demand intake, custom
 roles, approval workflow chains, immutable audit trail, multi-tenancy, SAML/SCIM/LDAP
-identity governance, and cross-program resource leveling.
+identity governance, cross-region HA and disaster recovery, and cross-program
+resource leveling.
 
 What *is* in the OSS core: everything one project manager, program manager, or team
 needs to run their own program — including

@@ -416,8 +416,8 @@ portfolio-visibility features. Three specialist evaluators and one actor class f
 When a feature touches none of these surfaces, omit the specialist with a one-line note.
 **Feature resonance:** all three specialist personas are **OSS** — self-service
 integration building, single-org self-hosting, and library adoption are the on-ramp;
-only org-wide connector hubs (ADR-0097), multi-tenancy, and HA deployment cross into
-Enterprise.
+only org-wide connector hubs (ADR-0097), multi-tenancy, and cross-region HA / disaster
+recovery cross into Enterprise (single-cluster HA is OSS — CLAUDE.md HA carve-out).
 
 ---
 

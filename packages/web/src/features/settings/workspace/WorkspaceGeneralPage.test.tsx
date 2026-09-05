@@ -333,13 +333,18 @@ describe('WorkspaceGeneralPage — contextual help', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('says the default timezone is stored but unread (#3376)', () => {
+  it('says the default timezone anchors quiet hours for projects with none of their own (#3377)', () => {
     renderPage();
-    // Workspace.timezone has no reader anywhere: a project with no timezone of
-    // its own falls back to settings.TIME_ZONE (UTC), never to this column, and
-    // nothing displays from it. Pair the new sentence with the absence of the
-    // old one — appending a correction beside an over-claim is not a fix.
-    expect(screen.getByText(/Saved here, but nothing reads it/i)).toBeInTheDocument();
+    // Workspace.timezone is now the quiet-hours fallback for a project that sets
+    // no timezone of its own (#3377) — the #3376 "stored but unread" claim no
+    // longer holds. Pair the new sentence with the absence of both stale claims —
+    // appending a correction beside an over-claim is not a fix.
+    expect(
+      screen.getByText(/Anchors quiet hours for any project that sets no timezone of its own/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Saved here, but nothing reads it/i),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/Used for due dates and Gantt rendering/i),
     ).not.toBeInTheDocument();

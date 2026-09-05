@@ -17,6 +17,7 @@ function agileProjectClient(): QueryClient {
     server_version: 1,
     is_pinned: false,
     can_author: true,
+    can_undo_batch_operations: true,
     name: 'Test Project',
     description: '',
     start_date: '2026-01-01',

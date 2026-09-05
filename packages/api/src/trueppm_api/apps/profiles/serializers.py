@@ -72,11 +72,15 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
 
     def validate_timezone(self, value: str) -> str:
         # Accept the "auto" sentinel (resolved client-side to the browser zone);
-        # otherwise require a real IANA zone. Reuse the codebase precedent
-        # (TaskRecurrenceRule.validate_timezone / Calendar / Project / Workspace):
+        # otherwise require a real IANA zone. Reuse the codebase precedent:
         # ZoneInfo(value) in a try/except, NOT available_timezones() membership —
         # it accepts exactly the OS-tzdata strings the client's Intl…timeZone emits
         # and rejects an unknown zone with a DRF-standard 400 field error.
+        #
+        # Peers carrying the same validator: TaskRecurrenceRule, Project, Workspace.
+        # This list used to name Calendar as well, which never had one and still does
+        # not (#3398) — and Project/Workspace only gained theirs in #3377, so it was
+        # describing an intent rather than the tree.
         if value == "auto":
             return value
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError

@@ -70,13 +70,19 @@ spec:
             {{- with (include "trueppm.mediaVolumeMount" .) }}
             {{- . | nindent 12 }}
             {{- end }}
-          {{- if .Values.probes.beat.enabled }}
+          {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.beat "kind" "liveness") }}
           # Beat runs no worker control plane of its own, so the ping targets the
           # fleet: it asserts the beat pod can reach the broker and that at least
           # one worker answers. A generous failureThreshold keeps a brief worker
           # outage from restarting beat.
+          #
+          # Beat renders a livenessProbe ONLY, and `probes.beat` therefore carries no
+          # `readiness` block (#3230): beat is a pinned singleton behind no Service,
+          # so a readiness probe would gate nothing while still forking a Django
+          # import into the chart's tightest cgroup (250m CPU / 256Mi). A knob that
+          # nothing reads is worse than a missing one.
           livenessProbe:
-            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.beat "app" "trueppm_api.celery" "destination" "") | nindent 12 }}
+            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.beat "kind" "liveness" "app" "trueppm_api.celery" "destination" "") | nindent 12 }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources.beat | nindent 12 }}

@@ -19,6 +19,7 @@ import {
   type RetroBoardColumnKey,
 } from '@/hooks/useRetroBoard';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { PriorRetroSection } from './PriorRetroSection';
 import { RetroSummaryCard } from './RetroSummaryCard';
@@ -144,11 +145,17 @@ export function RetroBoardSurface({
   const inflightEditsRef = useRef<Map<string, string>>(new Map()); // itemId -> local text
   const [toast, setToast] = useState<ReconcileToast | null>(null);
 
-  useEffect(() => {
-    if (toast === null) return;
-    const t = setTimeout(() => setToast(null), 8000);
-    return () => clearTimeout(t);
-  }, [toast]);
+  // The dwell pauses on hover and on focus-within (web rule 378): this toast holds
+  // the ONLY route back to the local edit a peer's write replaced, so counting it
+  // down while a keyboard user is still traversing toward Undo removes the control
+  // out from under them (WCAG 2.2.1, 2.4.3). Same hook as `ToastHost` and the
+  // Schedule's action toast — one implementation, not three (#3356).
+  const { pauseHandlers: reconcileToastPause } = usePausableAutoDismiss({
+    active: toast !== null,
+    durationMs: 8000,
+    restartKey: toast,
+    onDismiss: () => setToast(null),
+  });
 
   // --- Sticky handlers ---
   // Shared create path for both the initial add and the retry-after-failure: fires
@@ -310,6 +317,7 @@ export function RetroBoardSurface({
       {toast && (
         <div
           role="status"
+          {...reconcileToastPause}
           className="flex items-center justify-between gap-3 rounded border border-semantic-warning/40
             bg-semantic-warning-bg px-3 py-2 text-xs text-neutral-text-primary"
         >

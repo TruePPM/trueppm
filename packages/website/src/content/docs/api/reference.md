@@ -1121,6 +1121,26 @@ Archiving makes a plan read-only; that is a property of the plan, not of the
 caller, so no role clears it, and `can_undo` does not report it. Reading a ledger
 row on an archived project still works — unarchive the project to undo.
 
+##### Knowing before you apply
+
+`can_undo` rides the apply response, so it arrives *after* the irreversible act. To
+tell a caller **before** they commit a cascade that they will not be able to reverse
+it, read `can_undo_batch_operations` on the **project** resource
+(`GET /api/v1/projects/{id}/`, and on project list rows). It is the same predicate as
+`can_undo`, on a payload you already hold.
+
+| Read | When | To |
+|---|---|---|
+| `Project.can_undo_batch_operations` | Before the write | Disclose that the act will not be reversible by this caller |
+| `can_undo` on the apply response | After the write | Decide whether to offer an Undo control |
+
+Same caveats as `can_undo`: it is a **role** answer only, so it does not report the
+archived-project refusal, and it does not tell you whether any *particular* operation
+is still reversible — that is `operation_id`. Its scope is the batch-operation ledgers
+(cascade classification and paste-many). It does **not** answer for structural
+operations, whose undo rule is *actor-or-Admin* rather than a role floor: the person
+who applied one may reverse their own even below Admin.
+
 ### Task attachments
 
 Each attachment is **either** an uploaded file **or** an external URL — never both.
@@ -1270,7 +1290,7 @@ settings rather than surfacing prose.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/sprints/{id}/promote-to-milestone/` | Bind the sprint's commitment to a schedule milestone so sprint velocity reforecasts the CPM finish |
+| POST | `/api/v1/sprints/{id}/promote-to-milestone/` | Bind the sprint's commitment to a schedule milestone so sprint velocity forecasts a P50/P80 band around its CPM finish |
 | POST | `/api/v1/sprints/{id}/unbind-milestone/` | Remove the binding between the sprint and its milestone |
 
 See [Sprint–milestone rollup](/features/sprint-milestone-rollup/) for the UI
@@ -1430,6 +1450,12 @@ delete operations require the Scheduler role or higher on the project.
 |--------|------|------|-------------|
 | GET | `/api/v1/workspace/` | Any active member | Retrieve workspace config. |
 | PATCH | `/api/v1/workspace/` | Workspace Admin+ | Update workspace config (partial). |
+
+`timezone` is an IANA identifier (there is no `auto` sentinel — unlike the per-user
+profile timezone, this one is resolved server-side). From 0.4 a non-IANA value is
+rejected with a `400` instead of stored, and the field is the quiet-hours fallback for
+a project that sets no timezone of its own — not a display timezone. See
+[Default timezone](/administration/workspace-settings/#default-timezone).
 
 The workspace config includes `public_sharing` and `allow_guests` (the inheritance
 defaults for all programs and projects) and `public_sharing_override_policy`
@@ -1826,6 +1852,38 @@ The first `GET` lazily backfills the default matrix for a user who has none.
 | GET | `/api/v1/me/notification-preferences/` | Your full matrix (paginated) |
 | PATCH | `/api/v1/me/notification-preferences/{id}/` | Toggle one row — only `enabled` is writable |
 | POST | `/api/v1/me/notification-preferences/apply-preset/` | Apply a preset across the whole matrix |
+
+Project-scoped routing is a separate, per-(project, user) document:
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/projects/{id}/notification-preferences/` | Any project member | Your routing for this project. Lazily created on first read. |
+| PATCH | `/api/v1/projects/{id}/notification-preferences/` | Any project member | Partial update; the matrix is merged, not replaced. |
+
+Each member reads and writes only their own row — there is no admin surface for
+editing another member's routing, and the row is resolved from the authenticated
+user rather than from a path segment.
+
+Alongside the stored window (`quiet_hours_enabled`, `quiet_hours_from`,
+`quiet_hours_until`), the response carries the zone that window is actually read in.
+Both fields are read-only; `PATCH`ing them is ignored.
+
+| Field | Type | Description |
+|---|---|---|
+| `quiet_hours_timezone` | string (IANA) | The zone `quiet_hours_from` / `quiet_hours_until` are interpreted in, e.g. `"Asia/Tokyo"`. |
+| `quiet_hours_timezone_source` | enum | Which tier of the chain supplied it: `project`, `workspace`, `server`, or `fallback`. |
+
+The chain is the project's own `timezone`, then the workspace `timezone`, then the
+server's `TIME_ZONE`, then UTC; an unparseable value at any tier falls through to the
+next. In normal operation only `project` and `workspace` occur — `server` means no
+workspace row exists yet, and `fallback` means no tier was usable at all. These two
+fields ship in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
+
+:::caution
+The OpenAPI schema does not yet describe this endpoint's response body — it declares
+`200: No response body` for both methods. The field list above is the contract until
+that annotation lands ([#3396](https://gitlab.com/trueppm/trueppm/-/issues/3396)).
+:::
 
 `apply-preset` takes a preset name, not a preference row:
 

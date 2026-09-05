@@ -8,6 +8,21 @@ machinery (date-cliff → token/$ budget-cliff). Numbered 0190 because 0185–01
 claimed by in-flight worktrees (0185 time-tracking/mobile, 0186 MCP, 0187 SSO,
 0188 schedule-PDF) and an untracked 0189 (multi-tenancy).
 
+> **Implementation status (2026-09-04 ADR audit, #3379):** the *decision* stands, but
+> **none of Phase 1 is built on `main`**. Verified against
+> `packages/api/src/trueppm_api/apps/resources/models.py`: `ProjectResource` carries only
+> `project`, `resource`, `role_title`, `units_override` and `notes` — there is no
+> `engaged_from`, no `engaged_to`, no `availability_percent` and no `ramp_state`, and its
+> only index is `proj_res_proj_del_idx` on `(project, is_deleted)`, not the
+> `projres_engaged_to_idx` this ADR specifies. No `engagement_window_exceeded` warning
+> code exists anywhere in the tree, and `contractor_count` in `apps/projects/views.py`
+> still counts the ADR-0042 `job_role` / `role_title` string match rather than "has an
+> `engaged_to` set". The one field that does exist —
+> `WorkspaceMembership.availability_percent` in `apps/workspace/models.py` — is the
+> pre-existing #542 workspace baseline this ADR builds *on*: it is stored, validated
+> `0..100` and echoed by the members API, and it is still read by nothing in the
+> utilization overlay. Treat all five Decision items as open implementation work.
+
 ## Context
 
 **P3M layer:** Programs and Projects / Operations → **OSS** (confirmed by `enterprise-check`,

@@ -269,8 +269,66 @@ large request buffering). Tune per the [sizing profiles](/administration/sizing/
 | `probes.api.livenessPath` | `/api/v1/health/` | Shallow liveness so a transient dependency blip can't restart-loop the pod. |
 | `probes.api.readiness*/liveness*Seconds` | 10/10, 30/30 | Initial-delay and period tuning. |
 | `probes.api.hostHeader` | _(empty → ingress host, else `<release>-trueppm-api`)_ | `Host` header kubelet sends on both api probes. kubelet dials by pod IP, so without this Django validates `<podIP>:8000` against `ALLOWED_HOSTS` in `get_host()` — before any view, and out of reach of `SECURE_REDIRECT_EXEMPT` — and answers 400 DisallowedHost. The pod never turns Ready, the Service gets no endpoints, and the Ingress serves 503, with nothing in the failure naming `ALLOWED_HOSTS`. Empty resolves to the first ingress host when `ingress.enabled: true`, and otherwise to the api Service's own DNS name `<release>-trueppm-api` — the name the `helm test` probe already curls, so a no-Ingress install needs no value here either. Whatever it resolves to must be in `ALLOWED_HOSTS`. See [Host names you must include](/administration/configuration/#host-names-you-must-include). |
-| `probes.worker.*` | ping every 60s, `failureThreshold: 3` | `celery inspect ping` exec probe — catches a wedged event loop a process-alive check would miss. |
-| `probes.beat.*` | ping every 60s, `failureThreshold: 5` | Beat ping targets broker reachability; generous threshold avoids restarts on a brief worker blip. |
+| `probes.worker.enabled` / `probes.beat.enabled` | `true` | Master switch for that component's `celery inspect ping` exec probes — catches a wedged event loop a process-alive check would miss. |
+| `probes.worker.liveness.*` | initial delay `60`, ping every `60`s, `failureThreshold: 5` | Pings the pod's **own** worker node. This is the probe that kills the container, so it is the forgiving one — see below. |
+| `probes.worker.readiness.*` | initial delay `15`, ping every `60`s, `failureThreshold: 3` | The same ping, but a failure only removes the pod from a Service it is not in. Tuned to reach a first success early rather than to detect trouble fast. |
+| `probes.beat.liveness.*` | initial delay `30`, ping every `60`s, `failureThreshold: 5` | Beat's ping targets broker reachability (the fleet, not its own node); the generous threshold avoids restarts on a brief worker blip. Beat renders a liveness probe only, so there is no `probes.beat.readiness`. |
+| `probes.worker.*` / `probes.beat.*` flat keys | _(empty)_ | Shared override applied to **both** probes — see [Tuning celery liveness and readiness apart](#tuning-celery-liveness-and-readiness-apart). |
+
+### Tuning celery liveness and readiness apart
+
+The Celery worker's two probes run the same `celery inspect ping` command and have
+opposite consequences:
+
+- a **readiness** failure is free. A Celery worker sits behind no Service — both the
+  API and web Services select on `app.kubernetes.io/component` — so readiness paces
+  rolling updates and gates nothing else. The pod drops out and comes back.
+- a **liveness** failure **kills the container**, and the worker's
+  `lifecycle.worker.terminationGracePeriodSeconds` is `300`. Celery shuts down warm
+  (it stops prefetching and finishes what it holds), so a kill can cost up to five
+  minutes of unavailability for that pod.
+
+So the two get different timings. Liveness is slow to conclude anything: its
+steady-state detection budget is `failureThreshold x periodSeconds` = `5 x 60` =
+300s, derived to match the grace it spends, and its initial delay is `60` because a
+cold worker also has to fork a Django import to answer its first probe. Readiness is
+the opposite: initial delay `15`, so a rollout is not left idling on a worker that
+is already up.
+
+Both periods stay at `60`s deliberately. An exec probe runs *inside* the container
+it measures, so every probe forks a full Django and Celery import into the worker's
+own CPU budget and competes with the process that has to answer the ping. Probing
+more often makes a contended worker worse, not better.
+
+Set the per-probe keys — `probes.worker.liveness.initialDelaySeconds`,
+`probes.worker.readiness.periodSeconds`, and so on — to change one probe without the
+other. Each also takes its own `enabled`, empty by default and inheriting
+`probes.worker.enabled`, so you can drop the free probe and keep the destructive one
+(or the reverse) without turning both off.
+
+:::note[The flat keys still mean "both probes"]
+`probes.worker.initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`,
+`failureThreshold` and `kubeletTimeoutSeconds` sit directly on the component, ship
+empty, and are a **shared override**: set one and it applies to both probes *and
+takes precedence over* the per-probe block. That is what those keys meant before the
+split, so a values file that only uses them renders exactly the manifests it always
+did. To tune the two apart, use the per-probe key and leave the flat one unset.
+:::
+
+#### `timeoutSeconds` is Celery's budget, not kubelet's
+
+`timeoutSeconds` (default `10`) is the value passed to `celery inspect ping
+--timeout`. kubelet's own probe timeout is **derived** from it as
+`max(timeoutSeconds + 5, 1.5 x timeoutSeconds)` — 15s at the default — because it
+has to cover the ping budget *plus* the `sh` fork, the Python start, and the
+Django/Celery app import that every exec probe pays.
+
+That headroom has to scale with the ping budget. If kubelet's timeout fires first
+there is no Celery stderr to read, so the failure surfaces as a bare
+`Liveness probe failed:` with an empty body and nothing naming the cause. Raising
+`timeoutSeconds` because a node is slow therefore widens the import headroom too.
+Override the derivation with `kubeletTimeoutSeconds` (flat or per-probe) if it is
+wrong for your nodes.
 
 ## GitOps: `helm template` mints a new password every sync
 

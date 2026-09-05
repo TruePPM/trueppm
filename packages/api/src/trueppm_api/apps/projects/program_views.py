@@ -2205,6 +2205,27 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # rather than raising. Bound positionally to request.user (ADR-0627 §D5),
         # so it can only ever answer "did I pin this".
         qs = annotate_is_pinned(qs, request.user, field="project")
+        # …and `_my_role` for the same reason, one class of bug later (#3357).
+        # `ProjectSerializer` derives THREE caller-scoped fields from this annotation —
+        # `my_role`, `my_role_label` and `can_author` — plus, as of #3357,
+        # `can_undo_batch_operations`. Every one of them reads the attribute
+        # defensively and then falls back to a request-scoped lookup, and this action
+        # serializes without `context`, so the fallback finds no request and fails
+        # closed. The result was not "degraded": it was a confident `null` role and a
+        # uniform `can_author: false` on every row for every caller including an
+        # Owner, on a route whose `@extend_schema` publishes `ProjectSerializer` as its
+        # response. A Subquery, so this stays one scalar per row rather than the
+        # per-row membership query the fallback path would have cost.
+        if request.user is not None and request.user.is_authenticated:
+            from trueppm_api.apps.access.models import ProjectMembership
+
+            qs = qs.annotate(
+                _my_role=Subquery(
+                    ProjectMembership.objects.filter(
+                        project=OuterRef("pk"), user=request.user, is_deleted=False
+                    ).values("role")[:1]
+                )
+            )
         return Response(ProjectSerializer(qs, many=True).data)
 
     @extend_schema(

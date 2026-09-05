@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
@@ -404,6 +404,69 @@ describe('RetroBoardSurface — sticky edit / LWW reconcile', () => {
     expect(mocks.updateItem.mutate).toHaveBeenLastCalledWith({ id: 'item-1', text: 'edited text' });
     // Toast dismisses after Undo.
     expect(screen.queryByText(/your version was replaced/i)).not.toBeInTheDocument();
+  });
+
+  it('never times out the reconcile toast while it holds focus (rule 378, WCAG 2.2.1)', async () => {
+    // Undo here is the only route back to the local text a peer's write replaced,
+    // so the 8s dwell must stop while a keyboard user is on the button (#3356).
+    mocks.updateItem.mutate.mockImplementation(
+      (
+        _vars: unknown,
+        opts?: { onSettled?: (d: { text: string; author_username: string }) => void },
+      ) => {
+        opts?.onSettled?.({ text: 'peer version', author_username: 'Dana' });
+      },
+    );
+    mocks.useRetroBoard.mockReturnValue({ data: boardData(['item-1']) });
+    renderWithProviders(<RetroBoardSurface sprintId="sp-1" isClosed={false} />);
+    await userEvent.click(screen.getByRole('button', { name: 'edit-sticky' }));
+
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.focus(undo);
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(screen.getByText(/your version was replaced/i)).toBeInTheDocument();
+      // Leaving resumes the dwell — the control that keeps the assertion above from
+      // passing against a toast whose timer is simply broken.
+      fireEvent.blur(undo);
+      act(() => {
+        vi.advanceTimersByTime(8_000);
+      });
+      expect(screen.queryByText(/your version was replaced/i)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('suspends the reconcile dwell while the pointer rests on the toast', async () => {
+    mocks.updateItem.mutate.mockImplementation(
+      (
+        _vars: unknown,
+        opts?: { onSettled?: (d: { text: string; author_username: string }) => void },
+      ) => {
+        opts?.onSettled?.({ text: 'peer version', author_username: 'Dana' });
+      },
+    );
+    mocks.useRetroBoard.mockReturnValue({ data: boardData(['item-1']) });
+    renderWithProviders(<RetroBoardSurface sprintId="sp-1" isClosed={false} />);
+    await userEvent.click(screen.getByRole('button', { name: 'edit-sticky' }));
+
+    const toast = screen
+      .getByText(/your version was replaced/i)
+      .closest('[role="status"]') as HTMLElement;
+    vi.useFakeTimers();
+    try {
+      fireEvent.mouseEnter(toast);
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(screen.getByText(/your version was replaced/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does NOT show the reconcile toast when the server echoes our own text back', async () => {
