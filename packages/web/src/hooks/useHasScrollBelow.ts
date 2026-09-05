@@ -36,7 +36,7 @@ export function useHasScrollBelow(el: HTMLElement | null): boolean {
       ro = new ResizeObserver(measure);
       ro.observe(el);
       // Observe the children too — content-height changes (a taller lane, an
-      // expanded panel) don't resize the container itself (rule 174 pattern).
+      // expanded panel) don't resize the container itself (rule 290 pattern).
       for (const child of Array.from(el.children)) ro.observe(child);
     }
     return () => {

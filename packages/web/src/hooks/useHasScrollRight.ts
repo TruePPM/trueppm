@@ -37,7 +37,7 @@ export function useHasScrollRight(el: HTMLElement | null): boolean {
       ro = new ResizeObserver(measure);
       ro.observe(el);
       // Observe the children too — content-width changes (a column expanded from
-      // a stub, a zoom change) don't resize the container itself (rule 174 pattern).
+      // a stub, a zoom change) don't resize the container itself (rule 290 pattern).
       for (const child of Array.from(el.children)) ro.observe(child);
     }
     return () => {

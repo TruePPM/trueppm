@@ -148,9 +148,9 @@ test.describe('Configurable iteration terminology', () => {
     await setup(page);
     await page.goto(BASE_URL);
 
-    // Breadcrumb + tab use the plural form. Scope to the in-view breadcrumb —
-    // the unified shell bar (ADR-0134) also renders a "Breadcrumb" nav (when the
-    // rail is hidden) outside #main-content.
+    // Breadcrumb + tab use the plural form. Scope to the in-view breadcrumb;
+    // the shell bar's own wayfinding is `LocationSwitcher`, labelled "Location",
+    // so this stays unambiguous if chrome ever adds one (#3369).
     await expect(
       page.locator('#main-content').getByRole('navigation', { name: /Breadcrumb/i }),
     ).toContainText('Iterations');

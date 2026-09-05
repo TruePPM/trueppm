@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { ZOOM_CONFIGS, clampPxPerDay, deriveTier } from '@/features/schedule/engine';
+import { ZOOM_CONFIGS, MIN_PX_PER_DAY } from '@/features/schedule/engine';
 import { useScheduleStore } from './scheduleStore';
 
 describe('useScheduleStore', () => {
@@ -39,11 +39,13 @@ describe('useScheduleStore', () => {
     expect(zoomLevel).toBe('month');
   });
 
-  it('setPxPerDay clamps an out-of-range scale and still derives a valid tier', () => {
+  it('setPxPerDay clamps a below-range scale to the floor and derives the coarsest tier', () => {
     useScheduleStore.getState().setPxPerDay(-1000);
     const { pxPerDay, zoomLevel } = useScheduleStore.getState();
-    expect(pxPerDay).toBe(clampPxPerDay(-1000));
-    expect(zoomLevel).toBe(deriveTier(pxPerDay));
+    // Concrete expectations, not clampPxPerDay/deriveTier re-applied — asserting
+    // against the same helpers the store calls would pass even if both regressed.
+    expect(pxPerDay).toBe(MIN_PX_PER_DAY);
+    expect(zoomLevel).toBe('year');
   });
 
   it('setSelectedTaskId selects a task', () => {
