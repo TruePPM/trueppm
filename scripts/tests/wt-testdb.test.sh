@@ -297,6 +297,51 @@ catalog "test_trueppm_wt_9502_dead" "trueppm"
 ( cd "$D5" && TRUEPPM_WT_BASE="$B5" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs </dev/null >/dev/null 2>&1 ) || true
 check "declined prompt drops nothing"   "$(in_catalog test_trueppm_wt_9502_dead; echo $?)"
 
+# --- Case 7: the LAST catalogued DB being owned must not abort the caller ---
+# #3418: orphan_test_dbs ended its loop body with `(( owned == 1 )) && printf`.
+# On an OWNED database that test is false, the && list yields 1, and as the last
+# command in the loop body it becomes the while's status, then the function's.
+# Both callers do `orphans="$(orphan_test_dbs)"` under `set -e`, so the script
+# died with no output at all.
+#
+# ORDERING IS THE TRIGGER, which is why a case that merely contains an owned
+# database does not reproduce it: db_list_wt sorts, so the bug only fires when
+# an owned name sorts LAST. `_9601_live` is deliberately after `_9600_dead`.
+# That also makes the failure data-dependent in production — it appears only
+# once every orphan has been cleaned up, i.e. exactly when things are tidy.
+echo "Case 7: an owned database sorting last does not abort doctor/prune-dbs"
+D7="$TMP/case7"; mk_repo "$D7"
+B7="$TMP/case7-wts"
+mk_wt "$D7" "$B7" "feat/9601-live" "9601-live" "test_trueppm_wt_9601_live"
+: > "$DB_STUB_CONNS"
+
+# 7a — every database is owned: nothing to drop, and it must still exit 0.
+catalog "test_trueppm_wt_9601_live" "trueppm"
+rc7a=0
+( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes </dev/null >/dev/null 2>&1 ) || rc7a=$?
+check "prune-dbs exits 0 when all DBs are owned"   "$([[ "$rc7a" -eq 0 ]]; echo $?)"
+check "owned DB survives that run"                 "$(in_catalog test_trueppm_wt_9601_live; echo $?)"
+
+rc7b=0
+( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" doctor </dev/null >"$TMP/doc7.out" 2>"$TMP/doc7.err" ) || rc7b=$?
+check "doctor exits 0 when all DBs are owned"      "$([[ "$rc7b" -eq 0 ]]; echo $?)"
+# Match the DATABASE line specifically. A bare /orphaned/ also matches the
+# reservations block's "no orphaned reservations", which doctor prints BEFORE
+# the abort — so the loose pattern passed against the unfixed function and
+# asserted nothing.
+check "doctor reaches its DB section"              "$(grep -qE 'orphaned test database|no orphaned test_trueppm_wt' "$TMP/doc7.out" "$TMP/doc7.err"; echo $?)"
+check "doctor reaches its final WIP line"          "$(grep -q 'WIP:' "$TMP/doc7.out" "$TMP/doc7.err"; echo $?)"
+
+# 7b — an orphan present, but an OWNED name sorts last. The orphan must still be
+# dropped: the abort used to happen on the final iteration, after the earlier
+# ones had run, so a bare "did it drop anything" check would pass regardless.
+catalog "test_trueppm_wt_9600_dead" "test_trueppm_wt_9601_live" "trueppm"
+rc7c=0
+( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes </dev/null >/dev/null 2>&1 ) || rc7c=$?
+check "prune-dbs exits 0 with an owned DB sorting last" "$([[ "$rc7c" -eq 0 ]]; echo $?)"
+check "the orphan before it was still dropped"          "$(! in_catalog test_trueppm_wt_9600_dead; echo $?)"
+check "the trailing owned DB survives"                  "$(in_catalog test_trueppm_wt_9601_live; echo $?)"
+
 # --- Case 6: wiring + bash 3.2 portability ---------------------------------
 echo "Case 6: wiring + bash 3.2 portability"
 check "remove reads the DB name before removal" "$(grep -q 'rm_test_db="\$(worktree_test_db "\$path")"' "$WT"; echo $?)"
@@ -318,6 +363,10 @@ WT_CODE="$(grep -vE '^[[:space:]]*#' "$WT")"
 check "db_query does not attach stdin (-i)"     "$(! printf '%s\n' "$WT_CODE" | grep -q 'docker exec -i'; echo $?)"
 check "db_query redirects stdin from /dev/null" "$(printf '%s\n' "$WT_CODE" | grep -q 'psql .*</dev/null'; echo $?)"
 check "prune-dbs reconciles its own totals"     "$(printf '%s\n' "$WT_CODE" | grep -q 'processed != orphan_count'; echo $?)"
+# #3418: the emitter must be an `if`, not an `&&` list whose false condition
+# becomes the loop's — and therefore the function's — exit status under set -e.
+check "orphan emitter is an if, not an && list" "$(! printf '%s\n' "$WT_CODE" | grep -qE '\(\( *owned == 1 *\)\) *&&'; echo $?)"
+check "orphan_test_dbs ends with an explicit return 0" "$(printf '%s\n' "$WT_CODE" | awk '/^orphan_test_dbs\(\)/,/^}/' | grep -q 'return 0'; echo $?)"
 # The prefix guard must require something AFTER the prefix, or the shared
 # `test_trueppm_wt` name itself would be droppable.
 check "prefix guard requires a suffix"          "$(grep -q '"\${WT_TEST_DB_PREFIX}"?\*' "$WT"; echo $?)"
