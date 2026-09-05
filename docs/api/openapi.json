@@ -3321,7 +3321,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/CascadeClassificationOperation"
+                                    "$ref": "#/components/schemas/CascadeClassificationOperationUndo"
                                 }
                             }
                         },
@@ -8456,7 +8456,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PasteManyOperation"
+                                    "$ref": "#/components/schemas/PasteManyOperationUndo"
                                 }
                             }
                         },
@@ -20935,7 +20935,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectNotificationPreferenceDocument"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -21005,7 +21012,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectNotificationPreferenceDocument"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -43303,7 +43317,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/StructuralOperation"
+                                    "$ref": "#/components/schemas/StructuralOperationUndo"
                                 }
                             }
                         },
@@ -47497,7 +47511,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TemplateApplication"
+                                    "$ref": "#/components/schemas/TemplateApplicationUndo"
                                 }
                             }
                         },
@@ -52811,6 +52825,91 @@
                     "status",
                     "subtree_id",
                     "task_snapshots",
+                    "undone_at"
+                ]
+            },
+            "CascadeClassificationOperationUndo": {
+                "type": "object",
+                "description": "The ledger row **plus** the ``undo`` summary the action returns (#3416).\n\nSame defect and same fix as :class:`PasteManyOperationUndoSerializer`; the counts\ndiffer because a cascade undo writes prior values back rather than deleting rows.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "subtree_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "task_snapshots": {
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the undo did to the rows this cascade reclassified.",
+                        "properties": {
+                            "reverted": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows restored to their pre-cascade classification."
+                            },
+                            "kept": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows left as the cascade set them because someone has edited them since."
+                            }
+                        },
+                        "required": [
+                            "reverted",
+                            "kept"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "subtree_id",
+                    "task_snapshots",
+                    "undo",
                     "undone_at"
                 ]
             },
@@ -58406,6 +58505,85 @@
                     "undone_at"
                 ]
             },
+            "PasteManyOperationUndo": {
+                "type": "object",
+                "description": "The ledger row **plus** the ``undo`` summary the action returns (#3416).\n\nThe handler builds its body as ``data = serializer.data`` then ``data[\"undo\"] =\nsummary``, so declaring the bare ``PasteManyOperationSerializer`` as the ``200``\nwould publish a document with no ``undo`` field — the one value the endpoint\nexists to report, missing from every generated SDK. See\n:func:`undo_summary_schema` for why that is worse than declaring nothing.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "created_task_versions": {
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the undo did to the rows this paste created.",
+                        "properties": {
+                            "deleted": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows removed — created by the paste and untouched since."
+                            },
+                            "kept": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows left in place because someone has edited them since the paste."
+                            }
+                        },
+                        "required": [
+                            "deleted",
+                            "kept"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "created_task_versions",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "undo",
+                    "undone_at"
+                ]
+            },
             "PatchedAcceptanceCriterionRequest": {
                 "type": "object",
                 "description": "Read/write serializer for a story's acceptance criteria (ADR-0105 §2).\n\nThe review trail (``met_by``/``met_at``) is read-only and exposed as the criterion's\nstatus with attribution; it is never aggregated to a PMO surface and never rendered as\na per-person column (the VoC privacy guard). ``met`` is set by ticking the criterion;\nthe service layer stamps ``met_by``/``met_at`` when that happens.",
@@ -63651,6 +63829,271 @@
                     "user"
                 ]
             },
+            "ProjectNotificationPreferenceDocument": {
+                "type": "object",
+                "description": "What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).\n\nThe stored row's fields **plus** ``event_delivery``, which the view adds on both\nmethods and which is not a model field. Declaring the plain serializer as the\n``200`` would have been the obvious fix and a worse one: the schema would be\nself-consistent, ``api:schema-drift`` would pass, and a generated SDK would\nsilently drop the one key a client needs to label the rows nothing dispatches.\nA declared lie is more dangerous than a declared absence.\n\nSubclasses rather than restating the field list, so a field added to the parent\nreaches the published response without a second edit. Only ``event_delivery`` is\nnamed here, because only ``event_delivery`` is the difference.",
+                "properties": {
+                    "matrix": {
+                        "type": "object",
+                        "description": "Per-event, per-channel routing grid. Keys are event types; each value is an object of channel to boolean. A PATCH may send a partial grid — the supplied cells are merged onto the stored ones, so a single toggle need not repost the whole matrix. Any key outside these two enumerations, or any non-boolean leaf, is rejected with a 400.",
+                        "properties": {
+                            "budget_alert": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "comment_mention": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "milestone_reached": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "risk_created": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_end": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_start": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "status_change": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_assigned": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_overdue": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "schema_version": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Matrix shape version; upgraded on read via the migration registry (ADR-0086)."
+                    },
+                    "paused": {
+                        "type": "boolean"
+                    },
+                    "quiet_hours_enabled": {
+                        "type": "boolean"
+                    },
+                    "quiet_hours_from": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "quiet_hours_until": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "quiet_hours_timezone": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "quiet_hours_timezone_source": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/QuietHoursTimezoneSourceEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "event_delivery": {
+                        "type": "object",
+                        "description": "Which matrix rows are wired to a delivery path. `true` means toggling that event's channels changes what gets delivered; `false` means the row is rendered and stored but nothing dispatches it yet, so a client should label it rather than imply a delivery that never happens. Reported as a server fact so every client does not hard-code the same list and drift from it.",
+                        "properties": {
+                            "budget_alert": {
+                                "type": "boolean"
+                            },
+                            "comment_mention": {
+                                "type": "boolean"
+                            },
+                            "milestone_reached": {
+                                "type": "boolean"
+                            },
+                            "risk_created": {
+                                "type": "boolean"
+                            },
+                            "sprint_end": {
+                                "type": "boolean"
+                            },
+                            "sprint_start": {
+                                "type": "boolean"
+                            },
+                            "status_change": {
+                                "type": "boolean"
+                            },
+                            "task_assigned": {
+                                "type": "boolean"
+                            },
+                            "task_overdue": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "budget_alert",
+                            "comment_mention",
+                            "milestone_reached",
+                            "risk_created",
+                            "sprint_end",
+                            "sprint_start",
+                            "status_change",
+                            "task_assigned",
+                            "task_overdue"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "event_delivery",
+                    "matrix",
+                    "quiet_hours_timezone",
+                    "quiet_hours_timezone_source",
+                    "schema_version",
+                    "updated_at"
+                ]
+            },
             "ProjectPinResponse": {
                 "type": "object",
                 "properties": {
@@ -64342,6 +64785,16 @@
                 ],
                 "type": "string",
                 "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run"
+            },
+            "QuietHoursTimezoneSourceEnum": {
+                "enum": [
+                    "project",
+                    "workspace",
+                    "server",
+                    "fallback"
+                ],
+                "type": "string",
+                "description": "* `project` - project\n* `workspace` - workspace\n* `server` - server\n* `fallback` - fallback"
             },
             "RaiseCeilingRequest": {
                 "type": "object",
@@ -67606,6 +68059,137 @@
                 ],
                 "type": "string",
                 "description": "* `indent` - Indent\n* `outdent` - Outdent\n* `reparent` - Reparent\n* `reorder` - Reorder\n* `group` - Group\n* `ungroup` - Ungroup"
+            },
+            "StructuralOperationUndo": {
+                "type": "object",
+                "description": "The ledger row **plus** the ``undo`` summary the action returns (#3416).\n\n``undo`` handler builds its body as ``data = self.get_serializer(operation).data``\nthen ``data[\"undo\"] = summary``, so the bare ``StructuralOperationSerializer``\npublished as the ``200`` left a typed client with no field for the five counts\nthat say what the reversal actually did. Five, not two: a structural undo restores\nshape, un-mints containers, revives tombstoned rows and re-adds dependency edges,\nand it reports each separately because a caller acts on them differently — a\nnon-zero ``dependencies_skipped`` in particular means the graph came back\n*incomplete* and the user has edges to re-draw by hand.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undone_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructuralOperationKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "undoable": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_undoable": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "undo_blocked_reason": {
+                        "description": "Why this operation cannot be undone, from a closed set (#3037). The empty string means it can. `shape_changed` is evaluated only on the detail read — it is racy by construction, and the 409 on the write is authoritative either way.\n\n* `` - Undoable\n* `already_undone` - Already undone\n* `too_large` - Region too large to reverse\n* `not_top_of_stack` - Not top of stack\n* `shape_changed` - Outline changed since\n* `forbidden` - Forbidden",
+                        "readOnly": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/StructuralUndoBlockedReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the reversal restored, by kind. All-or-nothing: a refusal is a 409 with no summary at all, so every count here describes a completed undo.",
+                        "properties": {
+                            "restored": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows whose parent/order the undo put back."
+                            },
+                            "created_removed": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Containers the forward act minted and the undo un-minted."
+                            },
+                            "deleted_restored": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows the forward act soft-deleted and the undo revived."
+                            },
+                            "dependencies_restored": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Dependency edges the undo re-created."
+                            },
+                            "dependencies_skipped": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Edges NOT re-created because the other end no longer exists — a non-zero value means the restored graph is incomplete."
+                            }
+                        },
+                        "required": [
+                            "restored",
+                            "created_removed",
+                            "deleted_restored",
+                            "dependencies_restored",
+                            "dependencies_skipped"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "id",
+                    "is_undoable",
+                    "kind",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "undo",
+                    "undo_blocked_reason",
+                    "undoable",
+                    "undone_at",
+                    "undone_by"
+                ]
             },
             "StructuralUndoBlockedReasonEnum": {
                 "enum": [
@@ -71950,6 +72534,110 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `undone` - Undone"
+            },
+            "TemplateApplicationUndo": {
+                "type": "object",
+                "description": "The adoption record **plus** the ``undo`` summary the action returns (#3416).\n\nThe handler builds its body as ``data = self.get_serializer(application).data``\nthen ``data[\"undo\"] = summary``, so the bare ``TemplateApplicationSerializer``\npublished as the ``200`` gave a typed client no field for the deleted/kept split\n— and that split is the whole point of the call here, because undo deliberately\n*keeps* rows a person has since edited (ADR-0786 §4). A client that cannot read\n``kept`` cannot tell a full reversal from a partial one.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "template": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "template_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "template_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TemplateApplicationStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the undo did to the rows this application wrote.",
+                        "properties": {
+                            "deleted": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows removed — written by the application and untouched since."
+                            },
+                            "kept": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows left in place because someone has edited them since. A non-zero value means the project still carries part of the template."
+                            }
+                        },
+                        "required": [
+                            "deleted",
+                            "kept"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "completed_at",
+                    "created_at",
+                    "error_detail",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "template",
+                    "template_name",
+                    "template_version",
+                    "undo",
+                    "undone_at"
+                ]
             },
             "TemplateDivergence": {
                 "type": "object",
