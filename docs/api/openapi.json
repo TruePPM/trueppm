@@ -54554,7 +54554,7 @@
             },
             "FieldDiff": {
                 "type": "object",
-                "description": "A single field change within a history record.",
+                "description": "A single field change within a history record.\n\n``field`` is the model **field name** (``assignee``, ``sprint``), never the\ndatabase column (``assignee_id``) — the same key the per-task history endpoint\nemits, so one client label map serves every history surface.",
                 "properties": {
                     "field": {
                         "type": "string"

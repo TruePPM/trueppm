@@ -548,3 +548,178 @@ class TestEmptyState:
         body = owner_client.get(_url(project), {"object_type": "sprint"}).json()
         assert body["results"] == []
         assert body["next_cursor"] is None
+
+
+# ---------------------------------------------------------------------------
+# One diff policy for every surface (#3435)
+# ---------------------------------------------------------------------------
+
+
+def _updated_task_fields(client: APIClient, project: Project) -> list[set[str]]:
+    """Field-name sets of every ``updated`` task row, newest first.
+
+    Reads the unfiltered stream and selects client-side on purpose: a
+    ``change_type=updated`` query fetches only ``~`` rows, so each object's first
+    row in the batch has no predecessor and renders as a creation-style full-field
+    diff — a separate, pre-existing seed defect (#3454: the changelog has no
+    #1889-style cap+1 seed), not what these tests pin.
+    """
+    resp = client.get(_url(project), {"object_type": "task"})
+    assert resp.status_code == 200
+    return [
+        {c["field"] for c in r["changes"]}
+        for r in resp.json()["results"]
+        if r["change_type"] == "updated"
+    ]
+
+
+@pytest.mark.django_db
+class TestSharedDiffPolicy:
+    """The changelog and the task drawer decide what to show with ONE policy.
+
+    Until #3435 this endpoint had its own exclusion list and keyed rows by column
+    (``assignee_id``), so the project Activity page rendered raw identifiers for
+    every change the drawer rendered as prose — and a privacy fix verified on one
+    surface said nothing about the other. These tests pin the second surface.
+    """
+
+    def test_blocked_reason_never_reaches_the_changelog(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """The privacy gate holds on the cross-object stream, not just the drawer.
+
+        ``blocked_reason`` is read-gated to the assignee and @-mentioned users
+        (ADR-0124); this endpoint is Viewer+ for every member. The owner here is
+        neither, and the sibling ``name`` change proves the record itself survived —
+        only the field is withheld. Non-vacuous: remove ``blocked_reason`` from
+        ``HISTORY_DIFF_PRIVACY_GATED`` and the field (and the reason text) appear.
+        """
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.blocked_reason = "Waiting on the vendor — internal note"
+        task.name = "Renamed too"
+        task.save()
+
+        rows = _updated_task_fields(owner_client, project)
+        assert rows, "the record with the sibling change must be present"
+        assert all("blocked_reason" not in fields for fields in rows)
+        assert any("name" in fields for fields in rows)
+        body = owner_client.get(_url(project)).content.decode()
+        assert "vendor" not in body
+
+    def test_a_blocked_reason_only_change_is_dropped_not_promoted(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """Promotion is an escape hatch out of the NOISE exclusions only (#3306).
+
+        A reason-only edit is exactly the shape that triggers promotion; it must
+        produce no ``updated`` row at all rather than a rescued private one.
+        """
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.blocked_reason = "Waiting on the vendor — internal note"
+        task.save()
+
+        assert _updated_task_fields(owner_client, project) == []
+        assert "vendor" not in owner_client.get(_url(project)).content.decode()
+
+    def test_inherit_bit_only_change_is_surfaced_like_the_drawer(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """#3306 rescued this write on the drawer; the shared rule rescues it here.
+
+        A cascade that only broke a root's inheritance wrote a row, bumped
+        ``server_version`` and broadcast — and left no record on the project
+        Activity page because the bit was excluded and the empty row dropped.
+        """
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.governance_class = "gated"
+        task.parent_governance_inherited = True
+        task.save()
+        task.parent_governance_inherited = False
+        task.save()
+
+        rows = _updated_task_fields(owner_client, project)
+        assert rows[0] == {"parent_governance_inherited"}
+
+    def test_inherit_bit_stays_hidden_beside_a_governance_change(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.governance_class = "agile"
+        task.parent_governance_inherited = True
+        task.save()
+        task.governance_class = "gated"
+        task.parent_governance_inherited = False
+        task.save()
+
+        assert _updated_task_fields(owner_client, project)[0] == {"governance_class"}
+
+    def test_relation_changes_are_keyed_by_field_name_not_column(
+        self,
+        owner_client: APIClient,
+        owner: Any,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """``assignee``, never ``assignee_id`` — the key the client label map reads.
+
+        The drawer already emitted field names; this pipeline emitted columns, so
+        no label map could have matched a relation here even if one had existed.
+        """
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.assignee = owner
+        task.save()
+
+        rows = _updated_task_fields(owner_client, project)
+        assert rows[0] == {"assignee"}
+        resp = owner_client.get(_url(project), {"object_type": "task"})
+        updated = next(r for r in resp.json()["results"] if r["change_type"] == "updated")
+        assert updated["changes"][0]["new"] == owner.pk, (
+            "the value is still the id — labels are the client's"
+        )
+
+    def test_noise_only_update_leaves_no_row(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """A sprint-backlog reorder must not flood the project Activity page (#1885).
+
+        ``sprint_rank`` was hidden on the drawer and shown here; one policy hides it
+        on both.
+        """
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.sprint_rank = 7
+        task.save()
+
+        assert _updated_task_fields(owner_client, project) == []
+
+    def test_soft_delete_keeps_its_record_on_the_cross_object_stream(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+    ) -> None:
+        """The one deliberate per-surface difference in the policy.
+
+        A soft delete is a ``~`` row whose only tracked change is ``is_deleted``.
+        The drawer hides that flag (a deleted task has no drawer); on the project
+        Activity page the row is the ONLY record the delete happened, so it stays.
+        """
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.soft_delete()
+
+        rows = _updated_task_fields(owner_client, project)
+        assert rows[0] == {"is_deleted"}

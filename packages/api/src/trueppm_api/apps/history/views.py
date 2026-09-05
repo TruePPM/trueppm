@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from datetime import timedelta
 from typing import Any
@@ -29,6 +30,11 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import IsProjectMember
 from trueppm_api.apps.history import changelog
+from trueppm_api.apps.history.diff_policy import (
+    HISTORY_DIFF_NOISE,
+    is_compared,
+    visible_changes,
+)
 from trueppm_api.apps.history.serializers import (
     ChangelogResponseSerializer,
     HistoryRecordSerializer,
@@ -39,34 +45,9 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
-# Fields excluded from all diffs — CPM outputs, sync internals, and
-# django-simple-history's own bookkeeping columns.
-_DIFF_EXCLUDED = frozenset(
-    [
-        "early_start",
-        "early_finish",
-        "late_start",
-        "late_finish",
-        "total_float",
-        "free_float",
-        "is_critical",
-        "server_version",
-        "deleted_version",
-        "history_id",
-        "history_date",
-        "history_change_reason",
-        "history_user",
-        "history_type",
-        # ADR-0124 reason-privacy (#1135): blocked_reason is contributor voice,
-        # readable only by the assignee + @-mentioned via the gated TaskSerializer.
-        # HistoricalTask carries it, so the team-readable history diff feed MUST
-        # exclude it — otherwise any project member reads the reason (and every
-        # past reason) through the History tab, bypassing the serializer gate. The
-        # structured signal (blocker_type / blocked_since / blocked_by / blocking_task)
-        # is team-shareable and may remain in the diff.
-        "blocked_reason",
-    ]
-)
+# Which fields a diff compares, hides, and promotes is decided ONCE, in
+# ``history.diff_policy`` — shared with the task drawer's pipeline in
+# ``apps/projects/views.py`` (#3435). Do not add a local exclusion set here.
 
 VALID_WINDOWS = {"1d": 1, "7d": 7, "30d": 30, "90d": 90}
 
@@ -95,14 +76,43 @@ def _build_prev_map(records: list[Any]) -> dict[int, Any | None]:
     return prev_map
 
 
+@functools.cache
+def _compared_fields(model: Any, *, object_scoped: bool) -> tuple[Any, ...]:
+    """The historical model's fields this pipeline compares (``diff_policy``).
+
+    Keyed by model class, not record: every record in a batch shares one model (a
+    per-object list is one model; the changelog diffs one model per source; the
+    summary aggregates three single-model batches of up to ``_MAX_HISTORY_ROWS``),
+    so re-filtering ~60 fields through the policy per row was pure repeat work.
+    The set of historical models is small and static for the process lifetime.
+    """
+    return tuple(f for f in model._meta.fields if is_compared(f.name, object_scoped=object_scoped))
+
+
 def _compute_diffs(
-    records: list[Any], all_records: list[Any] | None = None
+    records: list[Any],
+    all_records: list[Any] | None = None,
+    *,
+    object_scoped: bool = True,
 ) -> dict[int, list[dict[str, Any]]]:
     """Return history_id → field-diff list for a batch of HistoricalRecords.
 
-    Compares each record against its predecessor. Records with no tracked-field
-    changes map to an empty list; the view omits those from the response so
-    CPM-only mutations (or future excluded-field updates) don't produce noise.
+    Compares each record against its predecessor. Records with no visible change
+    map to an empty list; the view omits those from the response so CPM-only
+    mutations (or future excluded-field updates) don't produce noise. A change in
+    ``HISTORY_DIFF_PROMOTED_WHEN_ALONE`` is kept only when it is the record's sole
+    change (#3306) — the same rule the task drawer applies.
+
+    Each row is keyed by the model **field name** (``assignee``), not the column
+    (``assignee_id``): the client's one label map is keyed on names, and the drawer
+    pipeline already emits them, so emitting columns here is what left the project
+    Activity page rendering raw identifiers (#3435). Values are read through
+    ``attname`` so a relation yields its id rather than a lazy fetch per row.
+
+    ``object_scoped`` says whether the caller renders ONE object's own history
+    (``True``: the per-object list views, where the object's tombstone flag is not a
+    field change worth a row) or a cross-object stream (``False``: the project
+    changelog, where that flag is the only record a soft delete left).
 
     Pass all_records (the full unpaginated list for the same object) so that
     the first record on a page can find its predecessor even when it sits on
@@ -112,24 +122,29 @@ def _compute_diffs(
     result: dict[int, list[dict[str, Any]]] = {}
     for record in records:
         prev = prev_map.get(record.history_id)
+        model: Any = type(record)
+        fields = _compared_fields(model, object_scoped=object_scoped)
         if prev is None:
-            # Creation — list non-null fields as old=None → new=value.
+            # Creation — list non-null fields as old=None → new=value. Promotion is
+            # a rule about updates, so promotable noise is dropped here outright.
             changes: list[dict[str, Any]] = [
-                {"field": f.attname, "old": None, "new": getattr(record, f.attname)}
-                for f in record._meta.fields
-                if f.attname not in _DIFF_EXCLUDED and getattr(record, f.attname) is not None
+                {"field": f.name, "old": None, "new": getattr(record, f.attname)}
+                for f in fields
+                if f.name not in HISTORY_DIFF_NOISE and getattr(record, f.attname) is not None
             ]
         else:
-            changes = [
-                {
-                    "field": f.attname,
-                    "old": getattr(prev, f.attname),
-                    "new": getattr(record, f.attname),
-                }
-                for f in record._meta.fields
-                if f.attname not in _DIFF_EXCLUDED
-                and getattr(record, f.attname) != getattr(prev, f.attname)
-            ]
+            changes = visible_changes(
+                (
+                    {
+                        "field": f.name,
+                        "old": getattr(prev, f.attname),
+                        "new": getattr(record, f.attname),
+                    }
+                    for f in fields
+                    if getattr(record, f.attname) != getattr(prev, f.attname)
+                ),
+                lambda change: str(change["field"]),
+            )
         result[record.history_id] = changes
     return result
 
@@ -139,6 +154,9 @@ def _count_field_changes(records: list[Any]) -> dict[str, int]:
 
     Records may span multiple original objects (e.g. all tasks in a project).
     Groups by original PK and pairs by history_date to avoid prev_record queries.
+    Keyed by field name like the diffs, and counts exactly the fields a routine
+    diff row would show — promotable noise is not tallied, because a count is not a
+    record of a single write and has nothing to rescue.
     """
     prev_map = _build_prev_map(records)
     counts: dict[str, int] = {}
@@ -146,11 +164,12 @@ def _count_field_changes(records: list[Any]) -> dict[str, int]:
         prev = prev_map.get(record.history_id)
         if prev is None:
             continue
-        for f in record._meta.fields:
-            if f.attname in _DIFF_EXCLUDED:
+        model: Any = type(record)
+        for f in _compared_fields(model, object_scoped=False):
+            if f.name in HISTORY_DIFF_NOISE:
                 continue
             if getattr(record, f.attname) != getattr(prev, f.attname):
-                counts[f.attname] = counts.get(f.attname, 0) + 1
+                counts[f.name] = counts.get(f.name, 0) + 1
     return counts
 
 
@@ -493,7 +512,7 @@ class ProjectChangelogView(APIView):
 
         entries, next_cursor = changelog.build_project_changelog(
             project,
-            diff_fn=_compute_diffs,
+            diff_fn=functools.partial(_compute_diffs, object_scoped=False),
             cursor=cursor,
             since=since,
             object_types=object_types,

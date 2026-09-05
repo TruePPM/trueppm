@@ -89,6 +89,12 @@ from trueppm_api.apps.access.permissions import (
     role_can_undo_batch_operation,
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
+from trueppm_api.apps.history.diff_policy import (
+    HISTORY_DIFF_NOISE,
+    HISTORY_DIFF_PROMOTED_WHEN_ALONE,
+    is_compared,
+    visible_changes,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
@@ -11853,124 +11859,65 @@ class ProjectMyTasksView(APIView):
 # Task detail drawer — history and baseline endpoints (ADR-0032)
 # ---------------------------------------------------------------------------
 
-# Fields excluded from the user-facing history diff (ADR-0096 Part 1).
-#
-# CPM outputs and sync internals are already absent from the historical model
-# (``_HISTORY_EXCLUDED_TASK``). This set drops the few remaining low-signal
-# bookkeeping columns from the *display* diff; everything else that is tracked is
-# surfaced (allow-by-exclusion). The previous 11-field opt-in allow-list left every
-# edit to a tracked-but-unlisted field — a WBS reorder (``wbs_path``, the highest-
-# frequency case), reassignment, sprint move, story-point or priority change —
-# rendering a bare "Updated" pill with no diff rows. Allow-by-exclusion fixes that
-# and surfaces newly-tracked fields automatically rather than silently dropping them.
-_HISTORY_DIFF_DISPLAY_EXCLUDED = frozenset(
-    {
-        # blocked_reason is contributor-private (the "Morgan surveillance boundary"):
-        # the task serializer read-gates it to the assignee + @-mentioned users via
-        # can_read_blocker_reason(). The history endpoint is Viewer+ for every member,
-        # so surfacing the reason's old/new text here would bypass that gate — exclude
-        # it. The structured blocker_type signal (visible to all members) is kept.
-        "blocked_reason",
-        "is_deleted",  # deletion is conveyed by history_type, not a diff row
-        "short_id",  # immutable, system-assigned identifier
-        "status_changed_at",  # derived bookkeeping timestamp
-        "blocked_since",  # derived bookkeeping timestamp
-        "sprint_pending",  # transient ADR-0102 scope-injection flag
-        # sprint-backlog reorder bookkeeping: drag-reorder rewrites the team's
-        # within-sprint sequence on every affected sibling, so surfacing it would
-        # flood the timeline with integer noise — mirrors the other rank/bookkeeping
-        # exclusions (#1885). Deliberate ordering signals (priority_rank) stay visible.
-        "sprint_rank",
-        # Promoted back into the diff when it is a record's ONLY change — see
-        # ``_HISTORY_DIFF_PROMOTED_WHEN_ALONE`` below.
-        "parent_governance_inherited",  # internal inheritance bookkeeping
-        "recurrence_occurrence_date",  # system-set during recurrence expansion
-        "recurrence_rule",  # FK to the rule object; recurrence shown via is_recurring
-    }
-)
-
-# Excluded fields that are surfaced anyway when they are the ONLY thing a record
-# changed (#3306).
-#
-# ``parent_governance_inherited`` is genuinely bookkeeping alongside a governance
-# change: every ordinary governance write moves the two together, so surfacing both
-# would double the diff rows on the highest-frequency case and turn the summary verb
-# from "changed governance" into "updated 2 fields". That call stands.
-#
-# But the bit can also move *alone*, and then the exclusion plus the empty-diff drop
-# below erase the write entirely. The concrete case is a classification cascade onto a
-# root already at the requested ``governance_class`` with ``parent_governance_inherited
-# =True``: declaring the class on the root sets the bit to False, which writes the row,
-# bumps ``server_version``, records an undo-ledger row and broadcasts
-# ``tasks_bulk_mutated`` — and left the task's Activity tab showing nothing at all. It
-# was the one classification write with no record on any surface.
-#
-# Narrowing the drop rule instead (rendering every empty-diff ``~`` record) was
-# rejected: that is the bare "Updated" pill issue 874 removed, and it would resurrect
-# it for every ``sprint_rank`` reorder and every transient ``sprint_pending`` flip.
-# Promotion keeps the exclusion's intent — no noise beside a change the user can
-# already read — while guaranteeing that no write is invisible.
-_HISTORY_DIFF_PROMOTED_WHEN_ALONE = frozenset({"parent_governance_inherited"})
-
-# The members of ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` that are excluded for an RBAC
-# reason rather than a noise one, and are therefore never promotable.
-#
-# That set is mixed-purpose, and the promotion above is a general escape hatch out of
-# it. ``blocked_reason`` is read-gated to the assignee and @-mentioned users by
-# ``can_read_blocker_reason()`` while this endpoint is Viewer+ for every project
-# member, so surfacing it here bypasses that gate — and it is deliberately *not* in
-# ``_HISTORY_EXCLUDED_TASK`` (the historical model tracks it), which makes the display
-# exclusion the only thing keeping it out. A promotion path that filtered on tracking
-# alone would inherit the noise exclusions and silently shed the privacy one, so the
-# two are named apart rather than left to the next editor to notice.
-_HISTORY_DIFF_PRIVACY_GATED = frozenset({"blocked_reason"})
+# Which fields the drawer's history diff compares, hides, and promotes is decided
+# ONCE, in ``history.diff_policy`` — shared with the project Activity page's pipeline
+# in ``apps/history/views.py`` (#3435). Until then this module carried its own
+# ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` / ``_HISTORY_DIFF_PRIVACY_GATED`` /
+# ``_HISTORY_DIFF_PROMOTED_WHEN_ALONE``, the history app carried a different
+# ``_DIFF_EXCLUDED``, and a fix verified on one surface read as done while the other
+# still disagreed. Do not reintroduce a local exclusion set here; extend the policy.
 
 
 @functools.lru_cache(maxsize=1)
 def _history_diff_fields() -> tuple[Any, ...]:
     """Concrete ``Task`` fields surfaced in the history diff (allow-by-exclusion).
 
-    Every tracked, non-PK field except the project link and the low-signal
-    bookkeeping columns in ``_HISTORY_DIFF_DISPLAY_EXCLUDED``. CPM/sync fields are
-    already absent from the historical model (``_HISTORY_EXCLUDED_TASK``). Cached:
-    the model field set is static for the process lifetime.
+    Every tracked, non-PK field except the project link and whatever the shared
+    ``diff_policy`` hides on an object-scoped surface. CPM/sync fields are already
+    absent from the historical model (``_HISTORY_EXCLUDED_TASK``). The previous
+    11-field opt-in allow-list left every edit to a tracked-but-unlisted field — a
+    WBS reorder (``wbs_path``, the highest-frequency case), reassignment, sprint
+    move, story-point or priority change — rendering a bare "Updated" pill with no
+    diff rows (#874); allow-by-exclusion surfaces newly-tracked fields automatically.
+    Cached: the model field set is static for the process lifetime.
     """
     return tuple(
         field
         for field in Task._meta.concrete_fields
         if not field.primary_key
         and field.name != "project"
-        and field.name not in _HISTORY_DIFF_DISPLAY_EXCLUDED
+        and field.name not in HISTORY_DIFF_PROMOTED_WHEN_ALONE
         and field.name not in _HISTORY_EXCLUDED_TASK
+        and is_compared(field.name, object_scoped=True)
     )
 
 
 @functools.lru_cache(maxsize=1)
 def _history_promoted_diff_fields() -> tuple[Any, ...]:
-    """Concrete ``Task`` fields in :data:`_HISTORY_DIFF_PROMOTED_WHEN_ALONE`.
+    """Concrete ``Task`` fields in ``HISTORY_DIFF_PROMOTED_WHEN_ALONE``.
 
     Diffed alongside the routine fields, but rendered only when the record has no
-    routine change to show. Three filters, each closing a different way the promotion
-    could go wrong, and none of them derivable from the others:
+    routine change to show. Two filters, each closing a different way the promotion
+    could go wrong, and neither derivable from the other:
 
     - not in ``_HISTORY_EXCLUDED_TASK`` — the historical model does not carry the
       field at all, so promoting it would diff an attribute that is never set;
-    - not in :data:`_HISTORY_DIFF_PRIVACY_GATED` — the exclusion is an access-control
-      decision, and promotion is an escape hatch out of the *display* exclusions only;
-    - **in** ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` — a field that is not excluded is
-      already in the routine tuple, and promoting it too would diff it twice per
-      record pair and render two identical rows. Disjointness of the two tuples is
-      what keeps the render split coherent, so it is asserted here rather than left
-      as a property the one current entry happens to have.
+    - ``is_compared`` — the policy compares a noise field only when it is promotable
+      and never compares a privacy-gated one, so a name that is not noise (already
+      in the routine tuple, would render twice) or that is access-controlled
+      (promotion is an escape hatch out of the *display* exclusions only) drops out.
+    Disjointness of the two tuples is what keeps the render split coherent, so it
+    is asserted by construction rather than left as a property the one current entry
+    happens to have.
     """
     return tuple(
         field
         for field in Task._meta.concrete_fields
-        if field.name in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
+        if field.name in HISTORY_DIFF_PROMOTED_WHEN_ALONE
         and not field.primary_key
         and field.name not in _HISTORY_EXCLUDED_TASK
-        and field.name not in _HISTORY_DIFF_PRIVACY_GATED
-        and field.name in _HISTORY_DIFF_DISPLAY_EXCLUDED
+        and field.name in HISTORY_DIFF_NOISE
+        and is_compared(field.name, object_scoped=True)
     )
 
 
@@ -12719,24 +12666,17 @@ def _render_history_items(
     Change (``~``) records whose entire diff was display-excluded are dropped;
     creation (``+``) and deletion (``-``) records are always kept.
 
-    A change in :data:`_HISTORY_DIFF_PROMOTED_WHEN_ALONE` is rendered only when the
-    record has no routine change to show (#3306) — it rescues an otherwise invisible
-    write without adding a row beside a change the user can already read.
+    A change in ``HISTORY_DIFF_PROMOTED_WHEN_ALONE`` is rendered only when the
+    record has no routine change to show (#3306) — the shared ``visible_changes``
+    rule, so the project Activity page rescues the same write the drawer does.
     """
     result: list[dict[str, Any]] = []
     merged: list[tuple[Any, dict[str, Any]]] = []
     for record, changes in zip(records, raw_changes, strict=True):
         diff = [
             _render_diff_row(field, old_val, new_val, fk_labels)
-            for field, old_val, new_val in changes
-            if field.name not in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
+            for field, old_val, new_val in visible_changes(changes, lambda c: str(c[0].name))
         ]
-        if not diff:
-            diff = [
-                _render_diff_row(field, old_val, new_val, fk_labels)
-                for field, old_val, new_val in changes
-                if field.name in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
-            ]
 
         if record.history_type == "~" and not diff:
             continue

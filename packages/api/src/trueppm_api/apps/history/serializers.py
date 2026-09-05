@@ -19,7 +19,12 @@ class HistoryUserSerializer(serializers.Serializer[Any]):
 
 
 class FieldDiffSerializer(serializers.Serializer[Any]):
-    """A single field change within a history record."""
+    """A single field change within a history record.
+
+    ``field`` is the model **field name** (``assignee``, ``sprint``), never the
+    database column (``assignee_id``) — the same key the per-task history endpoint
+    emits, so one client label map serves every history surface.
+    """
 
     field = serializers.CharField()
     old = serializers.JSONField(allow_null=True)
