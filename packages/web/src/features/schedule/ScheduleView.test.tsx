@@ -79,7 +79,9 @@ vi.mock('@/hooks/useProjectTemplates', async (orig) => ({
     data: applicationId
       ? {
           id: applicationId,
+          template: 'tpl-1',
           template_name: 'Delivery skeleton',
+          error_detail: 'Template structure is no longer valid.',
           status: mockApplicationStatus,
           result_summary: { tasks_created: 0, milestones_created: 0, dependencies_created: 0 },
           undone_at: null,
@@ -2926,8 +2928,10 @@ describe('resolveScheduleSeeding (#3312)', () => {
   });
 
   it('is false on every terminal status', () => {
-    // `failed` is deliberately not seeding (#3348): that project really is empty,
-    // and a live first row is the right affordance for it.
+    // `failed` is still not seeding, and that stayed right when it finally got a
+    // surface (#3348): the apply rolls back in one transaction, so the project
+    // really is empty and a live first row is the correct affordance. The failure
+    // is stated by `SeedFailureBanner` ABOVE the canvas, not by this predicate.
     for (const status of ['success', 'failed', 'undone']) {
       expect(resolveScheduleSeeding({ ...base, status })).toBe(false);
     }
@@ -3038,6 +3042,20 @@ describe('ScheduleView — the seeding effects (#3312)', () => {
     mockApplicationStatus = 'running';
     renderSchedule(SEED_URL);
     expect(screen.getByTestId('mobile-schedule')).toHaveAttribute('data-seeding', 'true');
+  });
+
+  it('states a failed apply on the mobile surface too', () => {
+    // The banner mounts above `ScheduleMainArea`'s `isMobile` early return, so it
+    // annotates MobileSchedule's "No items yet" card — which that component's own
+    // comment says reads as "the apply failed" and, until #3348, could not confirm.
+    // No Playwright project covers the mobile arm, so this is the only layer that
+    // pins it.
+    mockMobile = true;
+    mockTasks = [];
+    mockApplicationStatus = 'failed';
+    renderSchedule(SEED_URL);
+    expect(screen.getByTestId('seed-failure-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-schedule')).toHaveAttribute('data-seeding', 'false');
   });
 
   it('leaves the mobile surface unseeded with no application in flight', () => {
