@@ -22,6 +22,7 @@ a label change, not a matrix change.
 |---|---|---|---|
 | Dashboard | ✅ | ✅ | ✅ |
 | Board | ✅ | ✅ | ✅ |
+| Backlog | ❌ | ✅ | ✅ |
 | Sprints | ❌ | ✅ | ✅ |
 | Schedule | ✅ | ❌ | ✅ |
 | Grid | ✅ | ✅ | ✅ |
@@ -31,7 +32,7 @@ a label change, not a matrix change.
 | Reports | ✅ | ✅ | ✅ |
 | Settings | ✅ | ✅ | ✅ |
 
-Waterfall hides only the Sprints tab; Agile hides only Schedule and Calendar; Hybrid hides nothing. The **Grid** tab replaced the earlier separate WBS and Table tabs (ADR-0053) and is visible in all three methodologies — its Outline mode covers the WBS use case for Waterfall and Hybrid, while Flat mode is the Agile default. Independently of methodology, the **Team** tab is additionally role-gated: it only shows for users with the Resource Manager role or above.
+Waterfall hides Backlog and Sprints; Agile hides Schedule and Calendar; Hybrid hides nothing. The **Grid** tab replaced the earlier separate WBS and Table tabs (ADR-0053) and is visible in all three methodologies — its Outline mode covers the WBS use case for Waterfall and Hybrid, while Flat mode is the Agile default. Independently of methodology, the **Team** tab is additionally role-gated: it only shows for users with the Resource Manager role or above.
 
 The default for new projects is **Hybrid** — every tab visible. Existing projects (created before ADR-0041 landed) all default to Hybrid; no behavior change.
 
@@ -45,7 +46,14 @@ The explanatory empty state and the flip-warning below ship in **TruePPM 0.4**, 
 
 Landing on a hidden view by direct URL never blocks the route, but it also never pretends the view is the project's normal workflow. `/sprints` and `/backlog` on a Waterfall project (and `/schedule` and `/calendar` on an Agile one) show a distinct empty state that names the mismatch, points the primary action at the view the project's methodology actually uses, and demotes "use this anyway" to a secondary action that opens **Settings → Methodology** — so enabling the hidden surface is a deliberate configuration change, never an incidental click.
 
-Flipping a project's methodology never touches existing data. If a project already has sprints and its methodology changes to Waterfall, the Sprints view keeps rendering them — with a banner explaining that they sit outside the project's current workflow — rather than showing the empty state as if they never existed. The Settings → Methodology picker also warns before a save that would hide existing sprints, naming how many, so the choice is made with the consequence in view.
+Flipping a project's methodology never touches existing data. If a project already has sprints and its methodology changes to Waterfall, the Sprints view keeps rendering them — with a banner explaining that they sit outside the project's current workflow — rather than showing the empty state as if they never existed.
+
+The Settings → Methodology picker will also warn before any save that hides work the project already has, naming the counts so the choice is made with the consequence in view. It covers **both** directions that hide something, and every view each one takes away:
+
+- **Switching to Waterfall** hides Backlog and Sprints. The warning names how many sprints are already committed and how many items sit in the product backlog — either one on its own is enough to raise it, so a groomed backlog on a project that has never run a sprint is not waved through.
+- **Switching to Agile** hides Schedule and Calendar. The warning names how many tasks are on the schedule and how many dependency links the project holds, since the dependency network and the critical path are drawn nowhere else.
+
+Switching to Hybrid never warns: Hybrid hides nothing. Neither does a flip whose destination hides only surfaces this project has not used. Cancelling leaves the picker as you set it, with the change unsaved.
 
 :::note[Ships in 0.4]
 The config-change notice below lands in the **0.4 beta**. In `v0.3.0-alpha.3` a preset switch reaches only whoever has the project open at that moment.
