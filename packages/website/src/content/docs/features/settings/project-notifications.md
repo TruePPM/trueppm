@@ -93,11 +93,48 @@ Quiet hours hold back **transient** interruptions during a daily window — emai
 
 In-app notifications are deliberately **exempt** from quiet hours. The in-app inbox row *is* the notification: suppressing it would lose the event outright rather than defer a ping. So during quiet hours the durable in-app record is always written, and only the transient channels are silenced. This mirrors how Slack and GitHub do-not-disturb behave — the record persists, only the interruption is held back.
 
-The window is read in the project's own **Time zone** — set on
-[Project Settings → General](/administration/project-settings/#general), and the only
-thing that setting affects. When it is left blank the window falls back to the server's
-time zone, which is UTC; the *workspace* time zone is **not** part of that chain. A
-zero-width window (from equals until) means "no quiet hours".
+A zero-width window (from equals until) means "no quiet hours".
+
+### Which timezone the window is read in
+
+:::note[Ships in 0.4]
+The **workspace** tier below ships in **TruePPM 0.4**, along with the
+`quiet_hours_timezone` and `quiet_hours_timezone_source` response fields. In
+`v0.3.0-alpha.3` (the latest release) a project that sets no timezone of its own
+falls straight through to the server's `TIME_ZONE`, and the workspace **Default
+timezone** setting has no effect on quiet hours.
+:::
+
+The window resolves top-down and stops at the first usable value:
+
+1. the project's own **Timezone** (Project → Settings → General), when it sets one;
+2. the workspace [**Default timezone**](/administration/workspace-settings/#default-timezone);
+3. the server's Django `TIME_ZONE`;
+4. UTC.
+
+An unparseable value at any tier falls through to the next one rather than
+resetting the window to UTC.
+
+You do not have to work the chain out yourself. `GET
+/api/v1/projects/<id>/notification-preferences/` returns the resolved answer
+alongside the window:
+
+| Field | Meaning |
+|---|---|
+| `quiet_hours_timezone` | The IANA zone `quiet_hours_from` / `quiet_hours_until` are actually read in, e.g. `"Asia/Tokyo"`. |
+| `quiet_hours_timezone_source` | Which tier decided it: `project`, `workspace`, `server`, or `fallback`. |
+
+In normal operation you will only ever see `project` or `workspace`. The workspace
+row is created on first access with a timezone already set, and the API rejects a
+blank one, so tiers 3 and 4 are **degradation signals**: `server` means no workspace
+row exists yet (a brand-new install), and `fallback` means every tier was
+unusable — the server timezone included. Seeing either on an established install is
+worth investigating.
+
+Both are read-only — `PATCH`ing them is ignored. They exist because the winning
+tier is not derivable from the stored values: a project and a workspace set to the
+same zone are indistinguishable from outside, and re-implementing the chain
+client-side means keeping four tiers across three models in sync.
 
 ### Wrapping past midnight
 

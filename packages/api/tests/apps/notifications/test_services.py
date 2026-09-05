@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -20,11 +21,16 @@ from trueppm_api.apps.notifications.models import (
     ProjectNotificationPreference,
 )
 from trueppm_api.apps.notifications.services import (
+    QUIET_HOURS_TZ_SOURCE_FALLBACK,
+    QUIET_HOURS_TZ_SOURCE_PROJECT,
+    QUIET_HOURS_TZ_SOURCE_SERVER,
+    QUIET_HOURS_TZ_SOURCE_WORKSPACE,
     ParsedMention,
     create_mention_notifications,
     get_or_create_default_preferences,
     parse_mentions,
     resolve_parsed_mentions,
+    resolve_quiet_hours_timezone,
     should_deliver,
 )
 from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskComment
@@ -793,3 +799,297 @@ class TestShouldDeliver:
         # 17:00 UTC == 12:00 New York → outside the window.
         noon_ny = datetime(2026, 1, 2, 17, 0, tzinfo=UTC)
         assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=noon_ny) is True
+
+
+# ---------------------------------------------------------------------------
+# resolve_quiet_hours_timezone — project → workspace → server → UTC chain (#3377)
+# ---------------------------------------------------------------------------
+
+
+def _set_workspace_tz(name: str) -> None:
+    """Force the singleton's timezone, creating the row if it does not exist yet."""
+    from trueppm_api.apps.workspace.models import Workspace
+
+    ws = Workspace.load()
+    ws.timezone = name
+    ws.save(update_fields=["timezone"])
+
+
+@pytest.mark.django_db
+class TestResolveQuietHoursTimezone:
+    """The chain: Project.timezone → Workspace.timezone → settings.TIME_ZONE → UTC.
+
+    Every assertion here uses a NON-UTC zone as its negative control. The workspace
+    default is ``"UTC"``, byte-identical to ``settings.TIME_ZONE``, so a test that
+    sets the workspace to UTC and asserts UTC passes just as green against the
+    unwired code — it proves nothing.
+    """
+
+    def test_project_timezone_wins_over_workspace(self, project: Project) -> None:
+        _set_workspace_tz("Asia/Tokyo")
+        project.timezone = "America/New_York"
+        project.save(update_fields=["timezone"])
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "America/New_York"
+        assert source == QUIET_HOURS_TZ_SOURCE_PROJECT
+
+    def test_blank_project_falls_back_to_workspace(self, project: Project) -> None:
+        _set_workspace_tz("Asia/Tokyo")
+        assert project.timezone == ""
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "Asia/Tokyo"
+        assert source == QUIET_HOURS_TZ_SOURCE_WORKSPACE
+
+    def test_blank_project_and_workspace_falls_back_to_settings(
+        self, project: Project, settings: Any
+    ) -> None:
+        settings.TIME_ZONE = "Europe/Berlin"
+        _set_workspace_tz("")
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "Europe/Berlin"
+        assert source == QUIET_HOURS_TZ_SOURCE_SERVER
+
+    @pytest.mark.parametrize("server_tz", ["", "Pacific Time"])
+    def test_nothing_usable_anywhere_lands_on_utc(
+        self, project: Project, settings: Any, server_tz: str
+    ) -> None:
+        """Both ways the server tier can fail: absent, and present-but-unparseable.
+
+        ``""`` is falsy and never enters the ``try``, so it alone leaves the server
+        tier's own except-branch unexecuted — the only route into it is a non-empty
+        value that ``ZoneInfo`` rejects.
+        """
+        settings.TIME_ZONE = server_tz
+        _set_workspace_tz("")
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "UTC"
+        assert source == QUIET_HOURS_TZ_SOURCE_FALLBACK
+
+    def test_unreadable_workspace_degrades_instead_of_raising(
+        self, project: Project, settings: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A workspace table that cannot be read must not take the fan-out down.
+
+        Fresh install or mid-migration: the dispatch path degrades to the server
+        default rather than propagating the error. ``ProgrammingError`` is what
+        Postgres actually raises for a missing relation, so that is what is injected —
+        the handler is narrowed to ``DatabaseError`` on purpose and a ``RuntimeError``
+        here would test a path the code deliberately no longer swallows.
+        """
+        from django.db import ProgrammingError
+
+        from trueppm_api.apps.workspace.models import Workspace
+
+        settings.TIME_ZONE = "Europe/Berlin"
+
+        def _boom(*args: object, **kwargs: object) -> object:
+            raise ProgrammingError('relation "workspace_workspace" does not exist')
+
+        monkeypatch.setattr(Workspace.objects, "filter", _boom)
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "Europe/Berlin"
+        assert source == QUIET_HOURS_TZ_SOURCE_SERVER
+
+    def test_missing_workspace_row_is_not_created_by_the_resolve(
+        self, project: Project, settings: Any
+    ) -> None:
+        """The resolve reads; it must never write a singleton as a side effect.
+
+        ``Workspace.load()`` is a get_or_create, so using it here would have a
+        notification dispatch INSERT a row merely for asking what timezone it is.
+        """
+        from trueppm_api.apps.workspace.models import Workspace
+
+        settings.TIME_ZONE = "Europe/Berlin"
+        Workspace.objects.all().delete()
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "Europe/Berlin"
+        assert source == QUIET_HOURS_TZ_SOURCE_SERVER
+        assert Workspace.objects.count() == 0
+
+    def test_unparseable_workspace_walks_to_the_server_tier(
+        self, project: Project, settings: Any
+    ) -> None:
+        """Bad data at one tier walks to the next, it does not jump to UTC."""
+        settings.TIME_ZONE = "Europe/Berlin"
+        _set_workspace_tz("Pacific Time")
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "Europe/Berlin"
+        assert source == QUIET_HOURS_TZ_SOURCE_SERVER
+
+    def test_unparseable_project_walks_to_the_workspace_tier(self, project: Project) -> None:
+        _set_workspace_tz("Asia/Tokyo")
+        project.timezone = "Eastern Standard Time"
+        project.save(update_fields=["timezone"])
+        zone, source = resolve_quiet_hours_timezone(project)
+        assert zone.key == "Asia/Tokyo"
+        assert source == QUIET_HOURS_TZ_SOURCE_WORKSPACE
+
+    def test_missing_project_starts_the_chain_lower(self, project: Project) -> None:
+        """A project deleted mid-fan-out resolves rather than raising."""
+        _set_workspace_tz("Asia/Tokyo")
+        zone, source = resolve_quiet_hours_timezone(None)
+        assert zone.key == "Asia/Tokyo"
+        assert source == QUIET_HOURS_TZ_SOURCE_WORKSPACE
+
+    def test_preloaded_workspace_is_used_without_a_query(self, project: Project) -> None:
+        """The threading escape hatch: a caller-supplied singleton skips the load."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from trueppm_api.apps.workspace.models import Workspace
+
+        _set_workspace_tz("Asia/Tokyo")
+        preloaded = Workspace.load()
+        with CaptureQueriesContext(connection) as ctx:
+            zone, source = resolve_quiet_hours_timezone(project, workspace=preloaded)
+        assert zone.key == "Asia/Tokyo"
+        assert source == QUIET_HOURS_TZ_SOURCE_WORKSPACE
+        assert [q for q in ctx.captured_queries if "workspace_workspace" in q["sql"]] == []
+
+
+@pytest.mark.django_db
+class TestQuietHoursHonorWorkspaceTimezone:
+    """End-to-end: the delivery gate itself moves when the workspace tz moves."""
+
+    _EVENT = ProjectNotificationEventType.COMMENT_MENTION.value
+    _EMAIL = ProjectNotificationChannel.EMAIL.value
+
+    def test_window_is_interpreted_in_the_workspace_timezone(
+        self, project: Project, alice: object
+    ) -> None:
+        _set_workspace_tz("America/New_York")
+        assert project.timezone == ""  # nothing overrides — the workspace tier decides
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            quiet_hours_enabled=True,
+            quiet_hours_from=time(22, 0),
+            quiet_hours_until=time(7, 0),
+        )
+        # Both instants are chosen to DISAGREE between UTC and New York — the obvious
+        # picks (04:00 and 17:00 UTC) land the same side of a 22:00–07:00 window in
+        # both zones, so they pass against the unwired code and prove nothing.
+        # 10:00 UTC == 05:00 New York → inside the window there, outside it in UTC.
+        ten_am_utc = datetime(2026, 1, 2, 10, 0, tzinfo=UTC)
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=ten_am_utc) is False
+        # 02:00 UTC == 21:00 prior-day New York → outside it there, inside it in UTC.
+        two_am_utc = datetime(2026, 1, 2, 2, 0, tzinfo=UTC)
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=two_am_utc) is True
+
+    def test_changing_the_workspace_timezone_moves_the_window(
+        self, project: Project, alice: object
+    ) -> None:
+        """One instant, two workspace zones, opposite verdicts.
+
+        This is the negative control the issue asks for: it holds everything else
+        fixed and flips only ``Workspace.timezone``, so it cannot pass against the
+        unwired code no matter which zone happens to equal ``settings.TIME_ZONE``.
+        02:00 UTC is inside a 22:00–07:00 window read as UTC and outside the same
+        window read as New York (21:00 the previous evening).
+        """
+        _set_workspace_tz("UTC")
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            quiet_hours_enabled=True,
+            quiet_hours_from=time(22, 0),
+            quiet_hours_until=time(7, 0),
+        )
+        two_am_utc = datetime(2026, 1, 2, 2, 0, tzinfo=UTC)
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=two_am_utc) is False
+        _set_workspace_tz("America/New_York")
+        # Same instant, 21:00 New York → now outside the window and delivered.
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=two_am_utc) is True
+
+
+@pytest.mark.django_db
+class TestShouldDeliverThreadsTheWorkspace:
+    """The ``workspace=`` kwarg on ``should_deliver`` must be wired, not decorative."""
+
+    _EVENT = ProjectNotificationEventType.COMMENT_MENTION.value
+    _EMAIL = ProjectNotificationChannel.EMAIL.value
+
+    def test_passed_workspace_wins_over_the_stored_singleton(
+        self, project: Project, alice: object
+    ) -> None:
+        """A caller-supplied singleton decides the window, and no workspace row is read.
+
+        The stored row says UTC and the passed one says New York, so the verdict
+        differs by tier: at 02:00 UTC the window is closed under UTC and open under
+        New York. Asserting the verdict follows the *passed* value is what proves the
+        parameter reaches ``_preference_allows`` rather than being accepted and dropped.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from trueppm_api.apps.workspace.models import Workspace
+
+        _set_workspace_tz("UTC")
+        passed = Workspace(timezone="America/New_York")
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            quiet_hours_enabled=True,
+            quiet_hours_from=time(22, 0),
+            quiet_hours_until=time(7, 0),
+        )
+        two_am_utc = datetime(2026, 1, 2, 2, 0, tzinfo=UTC)
+        # Stored tier (UTC) → 02:00 is inside the window → suppressed.
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=two_am_utc) is False
+        with CaptureQueriesContext(connection) as ctx:
+            allowed = should_deliver(
+                alice, project, self._EVENT, self._EMAIL, now=two_am_utc, workspace=passed
+            )
+        # Passed tier (New York) → 21:00 the previous evening → outside → delivered.
+        assert allowed is True
+        assert [q for q in ctx.captured_queries if "workspace_workspace" in q["sql"]] == []
+
+
+@pytest.mark.django_db
+class TestFanOutReadsTheWorkspaceOnce:
+    """The workspace tier must be resolved per fan-out, never per recipient (#3377).
+
+    Run at two DIFFERENT recipient counts on purpose: a query-count guard sampled at
+    one input cannot tell O(1) from O(n).
+    """
+
+    def _mention_fanout_workspace_queries(
+        self, project: Project, author: object, usernames: list[str], task: Task
+    ) -> int:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        comment = TaskComment.objects.create(
+            task=task, author=author, body=" ".join(f"@{u}" for u in usernames)
+        )
+        resolved = resolve_parsed_mentions(
+            [ParsedMention("user", u) for u in usernames], project.pk, actor_role=Role.ADMIN
+        )
+        with CaptureQueriesContext(connection) as ctx:
+            create_mention_notifications(
+                task_comment=comment,
+                mentioner=author,
+                parsed_result=resolved,
+                project_id=project.pk,
+                now=NOON_UTC,
+            )
+        return len([q for q in ctx.captured_queries if "workspace_workspace" in q["sql"]])
+
+    def test_workspace_query_count_does_not_scale_with_recipients(
+        self, project: Project, author: object, task: Task
+    ) -> None:
+        _set_workspace_tz("Asia/Tokyo")
+        ProjectMembership.objects.create(project=project, user=author, role=Role.ADMIN)
+        names = [f"recip{i}" for i in range(5)]
+        for name in names:
+            user = User.objects.create_user(username=name, password="pw")
+            ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+
+        two = self._mention_fanout_workspace_queries(project, author, names[:2], task)
+        five = self._mention_fanout_workspace_queries(project, author, names, task)
+        assert two == 1, f"expected one workspace read per fan-out, got {two}"
+        assert five == two, (
+            f"workspace reads scaled with recipient count: {two} for 2 recipients, "
+            f"{five} for 5 — the singleton is being loaded per recipient"
+        )

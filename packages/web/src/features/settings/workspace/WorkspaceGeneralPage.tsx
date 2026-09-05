@@ -391,25 +391,21 @@ export function WorkspaceGeneralPage() {
             row's timezone copy was corrected for in this change (#3376). (1) It
             was never "used for due dates and Gantt rendering": task dates are
             calendar dates, so no zone can move them, and displayed instants come
-            from the viewer's own Profile.timezone (ADR-0410). (2) There is no
-            "when a project doesn't override" cascade — a project's timezone falls
-            back to settings.TIME_ZONE (hardcoded UTC), never to this column, so
-            Workspace.timezone has zero readers anywhere in the tree. Wiring it as
-            that fallback is #3377; until then say what is true. Correcting one
+            from the viewer's own Profile.timezone (ADR-0410). (2) There was no
+            "when a project doesn't override" cascade — a project's timezone fell
+            back to settings.TIME_ZONE (hardcoded UTC), never to this column. That
+            second gap is now closed: this column is the quiet-hours fallback for
+            any project that sets no timezone of its own (#3377). Correcting one
             page and leaving its sibling asserting the opposite would have shipped
             the contradiction this change exists to remove. */}
         <FieldRow
           label="Default timezone"
-          hint="Saved here, but nothing reads it — a project's timezone falls back to the server's UTC, not to this value."
+          hint="Anchors quiet hours for any project that sets no timezone of its own."
           help={
             <FieldHelp
               label="Default timezone"
-              body="Intended as the timezone a project uses when it sets none of its own. TruePPM does not read it: a project with no timezone of its own falls back to the server's timezone, which is UTC. Nor would it change what you see — task dates are calendar dates that no timezone moves, and timestamps are shown in your own timezone from your profile. This field saves and reloads, and changes nothing."
-              /* Was features/timezone-and-date-format/#timezone — the PERSONAL
-                 preference page, which is a different setting with a different
-                 owner. An admin following it from a workspace control lands on
-                 documentation for their own profile (#3376). */
-              docHref="administration/workspace-settings/#settings-that-are-stored-but-not-yet-read"
+              body="The fallback timezone for a project that sets none of its own. Its one effect today is anchoring the notification quiet-hours window of any project that sets none, so a 20:00–07:00 window means 20:00–07:00 here. A project that sets its own timezone is unaffected. It is not a display timezone — the times you see are always shown in your own personal timezone, and this never shifts a scheduled date to another day."
+              docHref="administration/workspace-settings/#default-timezone"
             />
           }
         >
