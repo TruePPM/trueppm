@@ -1264,7 +1264,7 @@ settings rather than surfacing prose.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/sprints/{id}/promote-to-milestone/` | Bind the sprint's commitment to a schedule milestone so sprint velocity reforecasts the CPM finish |
+| POST | `/api/v1/sprints/{id}/promote-to-milestone/` | Bind the sprint's commitment to a schedule milestone so sprint velocity forecasts a P50/P80 band around its CPM finish |
 | POST | `/api/v1/sprints/{id}/unbind-milestone/` | Remove the binding between the sprint and its milestone |
 
 See [Sprint–milestone rollup](/features/sprint-milestone-rollup/) for the UI

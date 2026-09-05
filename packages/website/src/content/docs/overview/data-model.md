@@ -27,9 +27,12 @@ not a second system reporting in.
   "the board" and "the schedule" — there's one row, and two views of it.
 - **Velocity feeds the forecast directly.** When a sprint closes, the
   completed story points roll up to their parent work packages, and TruePPM
-  computes a revised CPM duration suggestion from measured velocity — the PM
-  reviews and applies it, non-destructively. Automatic reforecast on sprint
-  close shipped in 0.3.
+  computes a revised duration suggestion from measured velocity — the PM
+  reviews and applies it, non-destructively. Since 0.3, closing a sprint bound
+  to a milestone also writes that milestone a fresh P50/P80 forecast band
+  around its existing CPM date. The band is written automatically; the
+  durations behind the CPM date are not — those change only when the PM
+  accepts a suggestion.
 - **An epic is a work package too.** The epic/story hierarchy the Product
   Owner sees and the WBS the PM sees are the same tree, viewed from either
   end.
