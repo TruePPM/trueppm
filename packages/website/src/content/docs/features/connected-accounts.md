@@ -295,9 +295,10 @@ link shows its *type*, not a status.
   never read.
 - **Fetched on demand.** Like git links, there is no background polling — the
   preview is fetched when you press **Refresh** on the link, and the cached card
-  then syncs to the offline mobile client through the project sync delta, so it
-  is readable with no connection (only the thumbnail image, which lives on the
-  file host, needs the network to load).
+  rides the project sync delta, so an offline client will be able to read it
+  without a connection once one exists — only the thumbnail image, which lives on
+  the file host, ever needs the network. No client consumes the delta today; see
+  [Offline sync](/features/offline-sync/).
 - **Safe by construction.** The fetch goes through the same SSRF-guarded egress
   helper as git refresh (it refuses private/loopback/link-local/cloud-metadata
   hosts and does not follow redirects), is bounded in time and size, and is
@@ -344,7 +345,8 @@ The add/edit body accepts `url`, `custom_title`, and `labels` (`provider`,
 `thumbnail_url`, and `preview_type` are server-owned). Adding, editing, and
 removing follow task-edit permission; listing and refreshing follow task-read.
 Links inherit offline-sync parity with tasks, so add/remove/status changes — and
-the cached preview — reach the mobile client through the project sync delta.
+the cached preview — ride the project sync delta and will reach an offline client
+when one ships (see [Offline sync](/features/offline-sync/)).
 
 ## Related ADRs
 

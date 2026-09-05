@@ -77,7 +77,7 @@ This demo shows the calm offline state: writes you make with no connection are
 **queued locally**, a badge tells you how many are waiting, and they **drain
 automatically** when you reconnect — nothing is lost, nothing blocks you.
 
-Run it against any loaded sample from the installable PWA (or a browser tab):
+Run it against any loaded sample from a browser tab:
 
 1. **Start online.** Open a project **Board** and confirm the connection
    indicator shows you are connected.

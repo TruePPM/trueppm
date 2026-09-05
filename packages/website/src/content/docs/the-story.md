@@ -1,9 +1,28 @@
 ---
 title: "The story — bridging two worlds"
 description: How TruePPM bridges agile sprint cadence and waterfall schedule rigor on a single data model.
+documentedFor: "0.4"
 sidebar:
   order: 1
 ---
+
+:::note[Ships in 0.4]
+Several things on this page are **not** in `v0.3.0-alpha.3`, the latest release:
+
+- **The AI client persona and the read-only MCP server** ("Computed, not
+  guessed") — ship in **0.4**, TruePPM's first beta.
+- **The provenance graph** behind computed answers, and the **hosted read-only
+  demo** — also **0.4**.
+- **Plan-mode dry runs** for the MCP server — **0.5**.
+- **The committing write surface, the native mobile app, and the mobile exec
+  view** — **0.6**.
+- The **Enterprise portfolio dashboard** is a separate roadmap item with no
+  version commitment yet.
+
+Everything else on this page — the six human personas, the eight-step hybrid
+flow, and the translation-layer argument — describes 0.3 behavior and is
+current.
+:::
 
 Most P3M tools force a choice. Jira speaks Agile and translates poorly to a Gantt chart. MS Project speaks Waterfall and ignores the team's actual cadence. **TruePPM is built so a Scrum Master and a Program Manager look at the same data — and each sees the view they need.**
 
@@ -186,7 +205,7 @@ Tom updated one card. Maya's burndown moved. Raj's Gantt picked up a fresh forec
 
 Mid-program, Raj runs a Monte Carlo on the milestone forecast. The simulation pulls historical sprint velocity (real, not estimated) for the team-driven nodes and PERT-style three-point estimates for the deterministic ones. The result is a probability distribution on the milestone date.
 
-**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Carlos opens his exec view on his phone (roadmap: the mobile exec view ships with the native app at 0.5). He sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
+**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Carlos opens his exec view on his phone (roadmap: the mobile exec view ships with the native app at 0.6). He sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
 
 And Raj is no longer the only one who can run that question. With the read-only MCP server that lands in the 0.4 beta, an engineer can put the same what-if to an agent — *"slip the migration three days, do we still make October 15th?"* — and get the identical distribution, because the agent calls the same Monte Carlo the button does. The model phrases the answer; the engine computes it.
 

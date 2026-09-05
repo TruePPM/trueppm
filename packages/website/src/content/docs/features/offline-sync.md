@@ -1,10 +1,12 @@
 ---
 title: "Offline Sync"
-description: "WatermelonDB-compatible delta protocol with soft-delete tombstones for mobile clients."
+description: "WatermelonDB-compatible delta protocol with soft-delete tombstones. Server-side today; no client implements it yet."
 documentedFor: "0.4"
 ---
 
-TruePPM's mobile client uses [WatermelonDB](https://watermelondb.dev/) as a local SQLite database. The sync endpoint provides a two-way delta protocol compatible with WatermelonDB's `synchronize()` helper: `GET` pulls server changes since a watermark, and `POST` uploads a batch of local task mutations.
+The sync endpoint provides a two-way delta protocol compatible with [WatermelonDB](https://watermelondb.dev/)'s `synchronize()` helper: `GET` pulls server changes since a watermark, and `POST` uploads a batch of local task mutations.
+
+This page documents the **server** side, which is live. **No client implements it yet.** The `packages/mobile` React Native package is a scaffold — its `src/sync/` is a typed boundary with no implementation behind it. The client that consumes this protocol arrives with the native Android app in 0.6; the 0.5 installable PWA is the offline mobile surface before that. You can call these endpoints yourself today.
 
 ## Pull endpoint
 
