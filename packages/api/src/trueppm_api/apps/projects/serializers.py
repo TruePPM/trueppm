@@ -259,6 +259,39 @@ class CalendarSerializer(serializers.ModelSerializer[Calendar]):
         ]
         read_only_fields = ["id", "server_version"]
 
+    def validate_timezone(self, value: str) -> str:
+        """Reject a non-IANA zone; there is no blank "inherit" sentinel on a calendar.
+
+        This closes the last ``timezone`` write path without a validator (the other
+        five — ``TaskRecurrenceRule``, ``UserProfile``, digest, ``Workspace``,
+        ``Project`` — already reject at the write). Nothing downstream can raise on
+        a bad calendar zone: the CPM engine treats ``Calendar.timezone`` as
+        reserved-but-inert and the seed replayer falls back to UTC on a parse error,
+        so an unparseable value saved here is echoed back on every read as if it
+        meant something, with no signal at either end.
+
+        Blank is rejected rather than treated as "inherit": unlike ``Project``, a
+        calendar sits under nothing to inherit from — its default is ``"UTC"`` and
+        every reader would silently substitute UTC for ``""``, so accepting blank
+        would store a value that reads back as one thing and behaves as another.
+
+        Same form as the siblings: ``ZoneInfo(value)`` in a try/except, not
+        ``available_timezones()`` membership, so exactly the OS-tzdata strings a
+        client's ``Intl….timeZone`` emits are accepted. ``OSError`` is in the caught
+        set because ``ZoneInfo`` resolves the key against the filesystem and a key
+        past the platform name limit surfaces as ``ENAMETOOLONG`` rather than a
+        ``ZoneInfoNotFoundError``; the model's ``max_length`` keeps that unreachable
+        today, and the catch keeps it a 400 if that ever changes.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        stripped = (value or "").strip()
+        try:
+            ZoneInfo(stripped)
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return stripped
+
 
 class EffectiveCalendarSerializer(serializers.ModelSerializer[Calendar]):
     """Compact read-only view of a resolved effective calendar (ADR-0441, #1987).
@@ -277,6 +310,9 @@ class EffectiveCalendarSerializer(serializers.ModelSerializer[Calendar]):
     class Meta:
         model = Calendar
         fields = ["id", "name", "working_days", "hours_per_day", "timezone", "holiday_count"]
+        # Output-only by construction (no create/update call site); declared so the
+        # writable-timezone invariant test does not read this as a write path.
+        read_only_fields = fields
 
     def get_holiday_count(self, obj: Calendar) -> int:
         # Read the prefetched "exceptions" cache (callers prefetch
@@ -1233,10 +1269,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         workspace default. #3377 added the same validator to
         ``WorkspaceSettingsSerializer`` because that tier had become load-bearing — the
         argument applies here more strongly. ``TaskRecurrenceRuleSerializer``,
-        ``UserProfileSerializer`` and the digest-timezone validator already had theirs;
-        ``CalendarSerializer`` is the one write path still without one, tracked in
-        #3398 (it is not in this chain, and touching it reaches the MS Project importer
-        and the seed fixtures).
+        ``UserProfileSerializer``, the digest-timezone validator and
+        ``CalendarSerializer`` carry the same check, so every ``timezone`` CharField
+        with a serializer write path now rejects at the write.
 
         Without it a project admin saving ``"Pacific Time"`` gets a 200 and their
         quiet-hours window silently resolves to the workspace or server zone instead,
@@ -1254,7 +1289,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             return ""
         try:
             ZoneInfo(stripped)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
             raise serializers.ValidationError("Unknown IANA timezone.") from exc
         return stripped
 
@@ -6580,7 +6615,7 @@ class TaskRecurrenceRuleSerializer(serializers.ModelSerializer[TaskRecurrenceRul
 
         try:
             ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
             raise serializers.ValidationError("Unknown IANA timezone.") from exc
         return value
 

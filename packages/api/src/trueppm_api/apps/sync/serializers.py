@@ -84,6 +84,24 @@ class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
             "exceptions",
         ]
 
+    def validate_timezone(self, value: str) -> str:
+        """Reject a non-IANA zone — same form as ``CalendarSerializer``.
+
+        Sync serves this serializer in the pull direction only today
+        (``upload.WRITABLE_COLLECTIONS`` names ``tasks`` alone), so this never runs;
+        it exists so that a push path added later inherits the write-time check every
+        other ``timezone`` field carries, rather than becoming the next unvalidated
+        write path.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        stripped = (value or "").strip()
+        try:
+            ZoneInfo(stripped)
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return stripped
+
 
 class SyncProjectSerializer(serializers.ModelSerializer[Project]):
     """Sync payload for Project — minimal shape consumed by the WatermelonDB Project table.
@@ -389,6 +407,24 @@ class SyncTaskRecurrenceRuleSerializer(serializers.ModelSerializer[TaskRecurrenc
             "inherit_attachments",
             "inherit_morning_notification",
         ]
+
+    def validate_timezone(self, value: str) -> str:
+        """Reject a non-IANA zone — same form as ``CalendarSerializer``.
+
+        Sync serves this serializer in the pull direction only today
+        (``upload.WRITABLE_COLLECTIONS`` names ``tasks`` alone), so this never runs;
+        it exists so that a push path added later inherits the write-time check every
+        other ``timezone`` field carries, rather than becoming the next unvalidated
+        write path.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        stripped = (value or "").strip()
+        try:
+            ZoneInfo(stripped)
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return stripped
 
 
 class SyncRiskSerializer(serializers.ModelSerializer[Risk]):
