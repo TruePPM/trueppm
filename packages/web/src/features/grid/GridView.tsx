@@ -7,6 +7,7 @@ import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { QueryErrorState } from '@/components/QueryErrorState';
+import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useProject } from '@/hooks/useProject';
 import { useBulkDeleteTasks, useBulkRestoreTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
@@ -457,12 +458,17 @@ export function GridView() {
     onUndo?: () => void;
   } | null>(null);
 
-  useEffect(() => {
-    if (!toast) return;
-    // Give the Undo affordance a longer dwell than a plain confirmation (#2078).
-    const timer = setTimeout(() => setToast(null), toast.onUndo ? 8000 : 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  // Give the Undo affordance a longer dwell than a plain confirmation (#2078), and
+  // pause that dwell while the toast is hovered or contains focus (web rule 378) —
+  // the bulk-delete Undo is the only route back and it must not be removed out from
+  // under a keyboard user's focus ring (WCAG 2.2.1, 2.4.3). Same hook as `ToastHost`
+  // and the Schedule's action toast (#3356).
+  const { pauseHandlers: toastPauseHandlers } = usePausableAutoDismiss({
+    active: toast !== null,
+    durationMs: toast?.onUndo ? 8000 : 4000,
+    restartKey: toast,
+    onDismiss: () => setToast(null),
+  });
 
   const handleDeleteClick = useCallback(() => {
     if (selectedIds.size === 0 || !projectId) return;
@@ -814,7 +820,7 @@ export function GridView() {
         {modeAnnouncement}
       </div>
 
-      <GridToast toast={toast} />
+      <GridToast toast={toast} pauseHandlers={toastPauseHandlers} />
     </div>
   );
 }
