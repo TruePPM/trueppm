@@ -76,7 +76,8 @@ your inbox to turn a noisy type down.
 :::
 
 - **Snooze** defers the row **1 hour**, **3 hours**, or **Tomorrow** (9am in
-  the workspace timezone). A snoozed row drops out of every other view —
+  the **server's** timezone — not the workspace default, and not your personal
+  one). A snoozed row drops out of every other view —
   including the unread badge count — until its time passes, then reappears
   on its own; no background job is involved, it is a pure query-time
   comparison. The **Snoozed** tab lists what is currently deferred, and each

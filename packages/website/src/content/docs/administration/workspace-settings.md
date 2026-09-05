@@ -74,7 +74,7 @@ On the General page the ⓘ appears on these fields:
 
 | Field | Learn more → |
 |---|---|
-| Default timezone | [Timezone & date format](/features/timezone-and-date-format/#timezone) |
+| Default timezone | [Default timezone](#default-timezone) |
 | Fiscal year starts | [Fiscal year start](#fiscal-year-start) |
 | Work week | [Working calendars](/administration/working-calendars/) |
 | Default project view | This page |
@@ -103,7 +103,7 @@ The same affordance appears throughout the
 |---|---|---|---|
 | `name` | string | `"TruePPM Workspace"` | Display name shown in the nav header and email footers. |
 | `subdomain` | string | `""` | **Read-only via the API.** Reserved for a future hosted edition; self-hosted installs leave this blank. |
-| `timezone` | string (IANA) | `"UTC"` | Intended as the timezone a project falls back to when it sets none of its own. **Stored and returned, but nothing reads it** — a project with no timezone falls back to the *server's* timezone, which is UTC. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
+| `timezone` | string (IANA) | `"UTC"` | Fallback timezone for a project that sets none of its own. From 0.4 its one effect is anchoring that project's notification quiet-hours window — it is **not** a display timezone. See [Default timezone](#default-timezone). |
 | `fiscal_year_start_month` | integer (1–12) | `1` | Fiscal-year start month. Drives quarter labels across the workspace, including the [Schedule timeline](/features/schedule-toolbar/#fiscal-quarters). |
 | `fiscal_year_start_day` | integer (1–31) | `1` | Fiscal-year start day, validated against the month (year-agnostic: February caps at 28; 30-day months reject 31). **Carried for the display label only** — quarter boundaries are computed from `fiscal_year_start_month` alone, so a fiscal year set to April 6 still labels Q1 as beginning April 1. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
 | `fiscal_year_start_display` | string | `"January 1"` | **Read-only.** Human label derived from month + day, e.g. `"April 6"`. |
@@ -113,6 +113,49 @@ The same affordance appears throughout the
 | `public_sharing` | boolean | `false` | When `true`, designated read-only views may be shared via link so anyone with the link can view without signing in. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing_override_policy` | string | `"suggest"` | Whether downstream scopes may override the workspace sharing values. `"suggest"` (default) lets programs/projects override; `"enforce"` makes the workspace value a hard ceiling. **`enforce` is an Enterprise capability — in the community edition it degrades to `suggest` (no lock).** |
 | `sprint_picker_ready_only_default` <br/>*(ships in 0.4)* | boolean | `true` | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories. This is the **workspace default**; programs and projects inherit it and may override it per scope (Shape A: `null` override = inherit). Advisory only — the picker's own "Show all" toggle always reveals a not-ready story, and committing one is never blocked. There is no override policy / enforcement seam for this field. |
+
+### Default timezone
+
+:::note[Ships in 0.4]
+The behavior below ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest
+release) `timezone` saves, round-trips on reload, and is returned by the API —
+and nothing reads it. On 0.3 it belongs in the [stored but not yet
+read](#settings-that-are-stored-but-not-yet-read) list below; from 0.4 it does
+not, which is why it is absent from that table.
+:::
+
+**Default timezone** is the fallback for a project that sets no timezone of its
+own. From 0.4 it has exactly one effect: it decides what wall-clock time a
+project's [notification quiet
+hours](/features/settings/project-notifications/#quiet-hours) mean. A window of
+20:00–07:00 is 20:00–07:00 *here*.
+
+The chain resolves top-down and stops at the first usable value:
+
+1. the project's own **Timezone** (Project → Settings → General), when it sets one;
+2. this workspace default;
+3. the server's Django `TIME_ZONE`;
+4. UTC.
+
+An unparseable value at any tier falls through to the next one rather than
+resetting the window to UTC. From 0.4 the API also rejects a non-IANA `timezone`
+with a `400` instead of storing it, so a value that saves is a value that works —
+`"Asia/Tokyo"` is accepted, `"Pacific Time"` is not.
+
+Any workspace member can read this value (`GET /api/v1/workspace/` is open to
+members; only writes need Admin). But knowing the workspace default does not tell
+you which tier actually won for a given project — a project and a workspace set
+to the same zone look identical from outside. So the per-project
+notification-preferences response reports the resolved answer directly:
+`quiet_hours_timezone` (the IANA name in force) and `quiet_hours_timezone_source`
+(`project`, `workspace`, `server`, or `fallback`). In normal operation only the
+first two occur — `server` means no workspace row exists yet, and `fallback` means
+no tier was usable at all.
+
+**This is not a display timezone.** Timestamps in the app are always re-clocked
+into each viewer's own [personal
+timezone](/features/timezone-and-date-format/#timezone), and no timezone setting
+ever shifts a task's stored calendar dates.
 
 ### Settings that are stored but not yet read
 

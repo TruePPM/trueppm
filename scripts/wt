@@ -662,8 +662,19 @@ orphan_test_dbs() {
     done <<EOF
 $live
 EOF
-    (( owned == 1 )) && printf '%s\n' "$d"
+    # An `if`, deliberately, not `(( owned == 1 )) && printf ...`. On an OWNED
+    # database that test is FALSE, so the && list yields 1 — and as the last
+    # command in the loop body that becomes the while's status and then this
+    # function's. Both callers assign it in a command substitution under
+    # `set -e`, so wt died with no output whenever the last database listed
+    # happened to be owned (#3418). An `if` with a false condition yields 0.
+    if (( owned == 1 )); then printf '%s\n' "$d"; fi
   done
+  # Pin the status explicitly too: the `if` above already yields 0, but this
+  # function is consumed by `orphans="$(orphan_test_dbs)"` under `set -e`, so a
+  # future edit to the last statement must not be able to kill both callers
+  # again. Cheap, and the failure it prevents is silent.
+  return 0
 }
 
 lock_available() { command -v glab >/dev/null 2>&1; }

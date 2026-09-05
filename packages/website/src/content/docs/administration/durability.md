@@ -361,7 +361,7 @@ hardcodes `replicas: 1` — it is not a value you can override — and uses
 `strategy: Recreate` so a rollout never leaves two beats overlapping. Two beat
 processes would double-fire every entry in `CELERY_BEAT_SCHEDULE`: two drains of
 the same outbox row, two retention purges, two heartbeats. Redundant beat with
-leader election is an Enterprise HA feature (`enterprise#20`). The detection layer
+leader election is an advanced-HA Enterprise feature (`enterprise#20`). The detection layer
 you do get is on [Beat Liveness](/administration/beat-liveness/).
 
 **The `migrate` init container runs once per API pod, and they are not
@@ -386,16 +386,24 @@ Be explicit about the gaps, so nobody plans around a capability that is not ther
 
 - **No point-in-time recovery.** Backups are logical `pg_dump` artifacts on a
   schedule. There is no WAL archiving in the chart, so your RPO is the interval
-  between backups — not seconds. If you need PITR, that is a reason to run managed
-  PostgreSQL (rung 3), which gives it to you.
+  between backups — not seconds. If you need PITR today, that is a reason to run
+  managed PostgreSQL (rung 3), which gives it to you. WAL archiving to a bucket
+  lands in the OSS core with the operator-managed in-cluster PostgreSQL mode
+  planned for 0.5 ([#3403](https://gitlab.com/trueppm/trueppm/-/issues/3403)).
 - **No in-chart PostgreSQL HA.** The bundled subchart is a single StatefulSet
   replica with no streaming replication and no failover. There is no
-  `postgresql.replicaCount` that makes it highly available, and adding one is not
-  planned — the supported answer is a managed database.
+  `postgresql.replicaCount` that makes it highly available, and the bundled
+  subchart will not grow one. The planned answer is a third, operator-managed
+  mode with streaming replication and automatic failover (0.5, #3403), alongside
+  the bundled and managed-database modes; the supported answer today is a managed
+  database. The same shape is planned for Valkey
+  ([#3404](https://gitlab.com/trueppm/trueppm/-/issues/3404)).
 - **No cross-region or multi-cluster anything.** No replication, no active/active,
-  no automated failover between clusters. Continuous archiving, cross-region
-  replication, and managed backup automation are Enterprise HA features
-  (`enterprise#20`).
+  no automated failover between clusters. That layer — geo replication, DR
+  failover, leader-elected singletons, and managed backup automation with restore
+  verification — is advanced HA and stays Enterprise (`enterprise#20`). The line:
+  surviving a pod or node loss inside one cluster is OSS; surviving the loss of the
+  cluster or the region is Enterprise.
 - **No scheduling constraints in the chart.** No `affinity`, `nodeSelector`,
   `tolerations`, or `topologySpreadConstraints` values exist today; see rung 4 for
   the workaround.

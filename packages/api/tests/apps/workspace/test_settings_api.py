@@ -223,3 +223,42 @@ def test_edition_endpoint_publishes_build_identity() -> None:
     assert resp.data["edition"] in ("community", "enterprise")
     assert "version" in resp.data
     assert "build_sha" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# timezone validation (#3377) — the field became load-bearing, so it must validate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_admin_can_patch_timezone(admin: object) -> None:
+    resp = _client(admin).patch(URL, {"timezone": "Asia/Tokyo"}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["timezone"] == "Asia/Tokyo"
+    assert Workspace.load().timezone == "Asia/Tokyo"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", ["Pacific Time", "GMT+5", "Mars/Olympus", "not a zone"])
+def test_timezone_rejects_non_iana_values(admin: object, bad: str) -> None:
+    """A non-IANA string is a 400, not a silently-inert 200 (#3377).
+
+    Before the quiet-hours wiring nothing read this column, so an unparseable value
+    was harmless. It is now the second tier of the quiet-hours chain, which cannot
+    raise inside a dispatch path and therefore walks silently past bad data — the
+    only place an admin can be told is the write.
+    """
+    Workspace.load()
+    resp = _client(admin).patch(URL, {"timezone": bad}, format="json")
+    assert resp.status_code == 400
+    assert "timezone" in resp.data
+    assert Workspace.load().timezone == "UTC"
+
+
+@pytest.mark.django_db
+def test_timezone_rejects_blank(admin: object) -> None:
+    """The workspace tier is the non-null root — blank has no "inherit" above it."""
+    Workspace.load()
+    resp = _client(admin).patch(URL, {"timezone": "   "}, format="json")
+    assert resp.status_code == 400
+    assert Workspace.load().timezone == "UTC"

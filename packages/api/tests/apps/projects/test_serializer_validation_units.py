@@ -899,6 +899,28 @@ class TestRiskCrossFieldValidation:
 
 
 class TestProjectSettingsValidation:
+    # --- timezone (#3377) — tier 1 of the quiet-hours chain -------------------
+
+    @pytest.mark.parametrize("bad", ["Pacific Time", "GMT+5", "Mars/Olympus", "not a zone"])
+    def test_a_non_iana_project_timezone_is_rejected(self, bad: str) -> None:
+        """The resolver walks silently past bad tz data, so the write is the only signal."""
+        with pytest.raises(serializers.ValidationError, match="Unknown IANA timezone"):
+            ProjectSerializer().validate_timezone(bad)
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_a_blank_project_timezone_is_the_inherit_sentinel(self, blank: str) -> None:
+        """Blank must stay accepted here — this is where it DIVERGES from the workspace.
+
+        ``WorkspaceSettingsSerializer.validate_timezone`` rejects blank, because the
+        workspace is the non-null root with no tier above it. The project's blank is
+        the "inherit the workspace" sentinel. Pinned so a later "harmonize the two
+        validators" edit cannot silently delete project-level inheritance.
+        """
+        assert ProjectSerializer().validate_timezone(blank) == ""
+
+    def test_a_project_timezone_is_stripped(self) -> None:
+        assert ProjectSerializer().validate_timezone("  Asia/Tokyo  ") == "Asia/Tokyo"
+
     def test_an_empty_project_code_is_allowed(self) -> None:
         assert ProjectSerializer().validate_code("") == ""
 

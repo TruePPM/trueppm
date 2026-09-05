@@ -620,21 +620,75 @@ probes:
     #
     # https://docs.trueppm.com/administration/configuration/
     hostHeader: ""
+  # The celery probes resolve their timings per-probe since #3230. Read the four
+  # flat keys on each component as a SHARED OVERRIDE, not as the defaults: they are
+  # the pre-0.4 form, they ship null, and setting one applies it to both probes and
+  # WINS over the per-probe block below. That is deliberate — it is exactly what
+  # those keys meant before the split, so an existing values file keeps rendering
+  # what it always did. To tune liveness and readiness apart, set the per-probe key
+  # and leave the flat one null.
+  #
+  # `kubeletTimeoutSeconds` (flat or per-probe, null by default) overrides kubelet's
+  # own probe timeout, which is otherwise derived as max(timeoutSeconds + 5,
+  # 1.5 x timeoutSeconds) — it must cover the celery ping budget PLUS the `sh` fork,
+  # Python start, and Django/Celery import that every exec probe pays inside the
+  # container it measures.
   worker:
     enabled: true
-    initialDelaySeconds: 30
-    periodSeconds: 60
-    timeoutSeconds: 10
-    failureThreshold: 3
+    initialDelaySeconds: null
+    periodSeconds: null
+    timeoutSeconds: null
+    failureThreshold: null
+    kubeletTimeoutSeconds: null
+    # A liveness failure KILLS the container, and the worker's
+    # lifecycle.terminationGracePeriodSeconds is 300 — so every kill costs up to
+    # five minutes of unavailability for that pod. The detection budget is therefore
+    # derived from the cost of acting on it: failureThreshold x periodSeconds =
+    # 5 x 60 = 300s, matching the grace rather than being half of it. Before #3230
+    # it was 3 x 60 = 180s, so a kill cost more unavailability than the detection
+    # that ordered it. initialDelaySeconds is 60 because a cold worker must also
+    # fork a Django import to answer its first probe, and liveness is the probe that
+    # should be slowest to conclude anything.
+    liveness:
+      enabled: null # null = inherit probes.worker.enabled
+      initialDelaySeconds: 60
+      periodSeconds: 60
+      timeoutSeconds: 10
+      failureThreshold: 5
+      kubeletTimeoutSeconds: null
+    # Readiness is the free one: a celery worker sits behind NO Service (both the
+    # api and web Services select on app.kubernetes.io/component), so this gates
+    # nothing but rolling-update pacing. Its job is to reach a first success early,
+    # hence initialDelaySeconds 15. periodSeconds stays at 60 on purpose: an exec
+    # probe runs INSIDE the container it measures, so probing more often forks more
+    # Django imports into the worker's own CPU budget and starves the MainProcess
+    # that has to answer the ping — the #3218 mechanism. Steady-state probe load is
+    # therefore unchanged at two forks a minute across both probes.
+    readiness:
+      enabled: null # null = inherit probes.worker.enabled
+      initialDelaySeconds: 15
+      periodSeconds: 60
+      timeoutSeconds: 10
+      failureThreshold: 3
   beat:
     enabled: true
+    initialDelaySeconds: null
+    periodSeconds: null
+    timeoutSeconds: null
+    failureThreshold: null
+    kubeletTimeoutSeconds: null
     # Beat has no worker control plane, so its ping targets the fleet (broker
     # reachability). A generous failureThreshold avoids restarting beat over a
-    # brief worker blip.
-    initialDelaySeconds: 30
-    periodSeconds: 60
-    timeoutSeconds: 10
-    failureThreshold: 5
+    # brief worker blip. Unchanged by #3230: beat's grace is 30s, so a kill is
+    # cheap, and its threshold is set by fleet-ping semantics rather than by the
+    # grace. There is no `readiness` block — beat renders a livenessProbe only.
+    liveness:
+      enabled: null # null = inherit probes.beat.enabled
+      initialDelaySeconds: 30
+      periodSeconds: 60
+      timeoutSeconds: 10
+      failureThreshold: 5
+      kubeletTimeoutSeconds: null
 
 # Root Django log level threaded into the api, worker, and beat containers via
 # DJANGO_LOG_LEVEL (#1899). Empty = leave the app default. Set to DEBUG/INFO/
@@ -1138,9 +1192,11 @@ otelCollector:
 # chart REFUSES to render that combination rather than ship a backup that is not
 # one (#3185).
 #
-# This is LOGICAL backup only (pg_dump). Continuous archiving / point-in-time
-# recovery (WAL shipping), cross-region replication, and managed backup automation
-# are Enterprise HA features (trueppm-enterprise #20).
+# This is LOGICAL backup only (pg_dump). The chart has no WAL archiving today, so
+# the RPO is the CronJob interval. Point-in-time recovery arrives with the
+# operator-managed in-cluster PostgreSQL mode (#3403, 0.5), where it is a knob on
+# the datastore operator. Cross-region replication, DR failover, and managed backup
+# automation with restore verification are Enterprise (trueppm-enterprise #20).
 # https://docs.trueppm.com/administration/backup-restore/
 backup:
   enabled: false

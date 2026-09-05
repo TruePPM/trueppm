@@ -422,3 +422,148 @@ def test_a_stored_preference_still_round_trips_for_an_undispatched_event(
     assert response.status_code == 200
     assert response.json()["matrix"][event]["email"] is True
     assert response.json()["event_delivery"][event] is False
+
+
+# ---------------------------------------------------------------------------
+# quiet_hours_timezone / _source — the resolved window zone is a server fact (#3377)
+# ---------------------------------------------------------------------------
+
+
+def _set_workspace_tz(name: str) -> None:
+    from trueppm_api.apps.workspace.models import Workspace
+
+    ws = Workspace.load()
+    ws.timezone = name
+    ws.save(update_fields=["timezone"])
+
+
+@pytest.mark.django_db
+def test_get_reports_the_workspace_tier_to_a_plain_member(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """A Member sees the resolved zone and the tier that supplied it (#3377).
+
+    ``quiet_hours_from``/``_until`` are bare wall-clock times, and the winning tier
+    is not derivable from the stored values — a project and a workspace set to the
+    same zone are indistinguishable to a client. The server reports both.
+    """
+    _set_workspace_tz("Asia/Tokyo")
+    body = alice_client.get(_url(project)).json()
+    assert body["quiet_hours_timezone"] == "Asia/Tokyo"
+    assert body["quiet_hours_timezone_source"] == "workspace"
+
+
+@pytest.mark.django_db
+def test_workspace_timezone_is_member_readable_at_source(
+    alice_client: APIClient, memberships: dict
+) -> None:
+    """Tripwire: these fields re-expose nothing, *because* /workspace/ GET is open.
+
+    ``IsWorkspaceAdmin`` admits any workspace role on safe methods, so a plain Member
+    can already read ``Workspace.timezone`` at the source — which is why surfacing the
+    resolved zone on the preferences endpoint is a convenience, not a disclosure. If
+    that endpoint is ever narrowed to ``IsWorkspaceAdminStrict`` (#1724) this test
+    reds, forcing a decision about whether these two fields should follow it, instead
+    of leaving them a silent re-export.
+    """
+    _set_workspace_tz("Asia/Tokyo")
+    resp = alice_client.get("/api/v1/workspace/")
+    assert resp.status_code == 200
+    assert resp.data["timezone"] == "Asia/Tokyo"
+
+
+@pytest.mark.django_db
+def test_get_reports_the_project_tier_when_the_project_overrides(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """`project` vs `workspace` is the difference between two different admins."""
+    _set_workspace_tz("Asia/Tokyo")
+    project.timezone = "America/New_York"
+    project.save(update_fields=["timezone"])
+    body = alice_client.get(_url(project)).json()
+    assert body["quiet_hours_timezone"] == "America/New_York"
+    assert body["quiet_hours_timezone_source"] == "project"
+
+
+@pytest.mark.django_db
+def test_quiet_hours_timezone_is_read_only(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """It is resolved, not stored — a PATCH of it must be ignored, not persisted."""
+    _set_workspace_tz("Asia/Tokyo")
+    resp = alice_client.patch(
+        _url(project),
+        {"quiet_hours_timezone": "Antarctica/Troll", "quiet_hours_timezone_source": "project"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.json()["quiet_hours_timezone"] == "Asia/Tokyo"
+    assert resp.json()["quiet_hours_timezone_source"] == "workspace"
+
+
+@pytest.mark.django_db
+def test_get_does_not_create_the_workspace_row_and_matches_dispatch(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """Reading the resolved tier must not change what the resolved tier IS.
+
+    These fields exist to report what the dispatcher would do. Pre-loading the
+    singleton with ``Workspace.load()`` — a get_or_create — would make a GET create
+    the row and then answer ``"workspace"``, while the dispatch path (which reads
+    without writing) would answer ``"server"`` for the same install. The endpoint
+    would be lying about the thing it was added to report.
+    """
+    from trueppm_api.apps.workspace.models import Workspace
+
+    Workspace.objects.all().delete()
+    body = alice_client.get(_url(project)).json()
+    assert Workspace.objects.count() == 0
+    assert body["quiet_hours_timezone_source"] == "server"
+
+
+@pytest.mark.django_db
+def test_get_reads_the_project_and_workspace_once_each(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """Pin the two query-avoidance mechanisms the behavioral tests cannot see (#3377).
+
+    Delete either one and every other test on this endpoint still passes:
+
+    - the view primes ``pref.project`` because ``get_or_create`` fills the FK cache
+      only on its *create* branch, so on the common existing-row path the serializer
+      would otherwise lazy-load the project;
+    - ``_resolved_quiet_hours_tz`` memoizes per project, so the two method fields
+      resolve the chain once between them rather than twice.
+
+    The fan-out path got a query guard at two recipient counts; this is its
+    request-path counterpart.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    _set_workspace_tz("Asia/Tokyo")
+    alice_client.get(_url(project))  # materialize the preference row first
+
+    with CaptureQueriesContext(connection) as ctx:
+        body = alice_client.get(_url(project)).json()
+
+    assert body["quiet_hours_timezone"] == "Asia/Tokyo"
+    workspace_reads = [q for q in ctx.captured_queries if "workspace_workspace" in q["sql"]]
+    assert len(workspace_reads) == 1, (
+        f"expected one workspace read for two method fields, got {len(workspace_reads)} — "
+        "the per-project memo in _resolved_quiet_hours_tz is not holding"
+    )
+    # Row fetches only. The permission layer also issues an `EXISTS`-shaped
+    # `SELECT 1 AS "a" ... LIMIT 21` probe, which is not a row read and is unrelated to
+    # the FK cache — counting it would pin an unrelated baseline instead of the
+    # mechanism. A serializer lazy-load would show up here as a *second* row fetch on
+    # top of the view's own `get_object_or_404`.
+    project_row_reads = [
+        q
+        for q in ctx.captured_queries
+        if 'FROM "projects_project"' in q["sql"] and 'SELECT 1 AS "a"' not in q["sql"]
+    ]
+    assert len(project_row_reads) == 1, (
+        f"expected exactly the view's own project fetch, got {len(project_row_reads)} — "
+        "pref.project is being lazy-loaded, so the view is no longer priming the FK cache"
+    )
