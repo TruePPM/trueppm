@@ -297,6 +297,26 @@ def test_member_cannot_remove_owner(
     assert resp.status_code == 403
 
 
+@pytest.mark.django_db
+def test_owner_cannot_remove_a_peer_owner(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+) -> None:
+    """The peer-role guard is an authorization decision → 403, not 400 (#3365).
+
+    The base-role check one line above it already answers 403; a client must not
+    have to read two status classes for two refusals of the same kind.
+    """
+    peer = User.objects.create_user(username="peer_owner", password="pw")
+    peer_membership = ProjectMembership.objects.create(project=project, user=peer, role=Role.OWNER)
+    resp = owner_client.delete(_url(project, peer_membership.pk))
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "You can only remove members with a role lower than your own."}
+    peer_membership.refresh_from_db()
+    assert peer_membership.is_deleted is False
+
+
 # ---------------------------------------------------------------------------
 # role_label field (issue #11 label rename)
 # ---------------------------------------------------------------------------
