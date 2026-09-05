@@ -4,6 +4,7 @@
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
+        mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
         release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-prune-dbs wt-doctor dropdown-scroll-check
 
@@ -341,6 +342,14 @@ web-row-vocabulary-check: ## Fail if the outline's governed vocabulary is writte
 	@bash scripts/check-row-vocabulary.sh --self-test
 	@bash scripts/check-row-vocabulary.sh
 
+mobile-version-check: ## Fail if packages/mobile carries a release version it cannot back (#3367)
+	@# packages/mobile is a scaffold — no native projects, no test suite, nothing
+	@# published — so any version on it is a claim it cannot back. It read
+	@# 0.4.0-beta.1 for seven weeks after a HAND-RUN manifest bump swept it in
+	@# beside api/web; release.sh has never bumped it, so a comment there could
+	@# not have stopped it. Parse + compare, no network, <1s.
+	@bash scripts/check-mobile-version.sh
+
 playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image tag (#2797)
 	@# A version mismatch means the browsers baked into the image are at a path
 	@# the npm package never looks in, so the launch fails outright. In web:e2e
@@ -468,7 +477,7 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
