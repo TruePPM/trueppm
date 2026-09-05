@@ -290,7 +290,6 @@ test.describe('Settings save contract (#536)', () => {
     await page.goto('/settings/roles');
     const roles = page.locator('[data-settings-section="roles"]');
     await expect(roles.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
-    await expect(roles.getByTestId('stub-page-banner')).toHaveCount(0);
     await expect(roles.getByText(/read-only reference/i)).toBeVisible();
   });
 });

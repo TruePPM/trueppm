@@ -152,6 +152,15 @@ GET    /api/v1/users/{user_id}/teams/                # David + Alex's reverse vi
                                                      # one-call "what am I facilitating right now across all teams" pivot
 ```
 
+> **Amended 2026-09-05 (#3370).** `GET /api/v1/teams/{team_id}/` is removed. It was
+> the one row of this table that shipped and then found no consumer: the members
+> routes resolve the team themselves for permission purposes, and every client that
+> needs team attributes reads the project-scoped list
+> `GET /api/v1/projects/{project_id}/teams/`. Looking a team up by its id alone is no
+> longer possible. The rest of the surface above is unchanged, and remains design
+> intent rather than shipped behavior — the write routes, the activity feed and the
+> reverse `users/{user_id}/teams/` view are still #599.
+
 Sprint association via existing `PATCH /api/v1/sprints/{id}/` with `team` field. Story-team via `PATCH /api/v1/tasks/{id}/` with `team` field.
 
 ### F. Reporting contract — single-team invisibility
@@ -164,7 +173,7 @@ Sprint association via existing `PATCH /api/v1/sprints/{id}/` with `team` field.
 
 **The mirror is create-only, so liveness is read at the seam, not written on revoke** (#3334, #3386). The invariant above runs on `post_save`; there is no `post_delete` counterpart and no FK a cascade could travel over, so soft-deleting a `ProjectMembership` deliberately leaves the mirrored `TeamMembership` in place — which is what lets a re-invited member get their facets back rather than losing them to an offboarding round trip. The cost is that a residual team row keeps its `is_scrum_master` / `is_product_owner` flags after project access is gone, and the facet gates read the facet on precisely the branch where the role lookup returned `None`. Rather than add a delete-side mirror (which would destroy the facet assignment and could not distinguish a revocation from a transient reconciliation), **every facet seam in `apps/teams/services.py` is to require a live, non-soft-deleted `ProjectMembership`**, defaulted **on**, with an opt-out only for callers that have already read live membership and intersect it themselves. #3386 establishes this for the single-user gate question — `user_facets()` / `has_team_facet()`, which back the backlog and sprint-scope write gates — and #3334 does the same for the set-shaped cohort question, `facet_holder_user_ids()`. They ship as separate changes, so for a window the two seams disagree about a revoked facet holder; that disagreement is itself the #2897 shape and is a migration in progress rather than a design. A facet cohort written before both have landed should intersect live membership explicitly rather than trust either resolver's default. A facet is a *widening* of project access, never a substitute for it.
 
-`is_team_member()` / `team_member_user_ids()` are deliberately **excluded** from this rule: ADR-0104 §A.2 defines the signal-privacy voter roster as team-scoped precisely so a non-team project Admin cannot vote on a team's decision, so flooring it would narrow a roster that ADR widened on purpose and would move the ratification denominator. That is a governance amendment to ADR-0104, tracked separately as #3387.
+`is_team_member()` / `team_member_user_ids()` were **excluded** from this rule until #3387, because ADR-0104 §A.2 defines the signal-privacy voter roster as team-scoped precisely so a non-team project Admin cannot vote on a team's decision — flooring it narrows a roster that ADR widened on purpose and moves the ratification denominator, which is a governance amendment rather than a defect fix. **ADR-0104 Amendment C made that amendment (2026-09-05), so the carve-out is spent**: all four seams in `apps/teams/services.py` now carry the live-`ProjectMembership` floor, defaulted on, with the same `live_project_members_only=False` opt-out. The anti-stuffing property §A.2 was protecting is unaffected, because the intersection only ever removes voters — a non-team project Admin has no team row for it to preserve.
 
 ### G. Exec reporting commitment (Janet)
 

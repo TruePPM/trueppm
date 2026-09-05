@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
+from trueppm_api.apps.teams.permissions import IsTeamMember
 
 User = get_user_model()
 
@@ -76,6 +77,35 @@ def test_outsider_cannot_read_roster(
     assert resp.status_code == 403
 
 
+def test_team_list_query_count_does_not_scale_with_teams(
+    admin_client: APIClient,
+    project: Any,
+    default_team: Team,
+    team_members: dict[str, Any],
+    django_assert_max_num_queries: Any,
+) -> None:
+    """``member_count`` must come from the queryset annotation, not a per-row COUNT.
+
+    ``TeamSerializer.get_member_count`` falls back to ``obj.memberships.filter(...).count()``
+    when the annotation is absent, so dropping ``member_count_annotated`` from
+    ``TeamViewSet.get_queryset`` would degrade the list to one extra query per team with
+    every other assertion in this file still passing.
+
+    The annotated list costs 5 queries regardless of row count; the budget is 7 so that
+    the fallback's three extra COUNTs (one per team here) breach it while leaving room
+    for an unrelated query to be added later.
+    """
+    for n in (2, 3):
+        Team.objects.create(project=project, name=f"Team {n}", short_id=f"T0{n}")
+
+    with django_assert_max_num_queries(7):
+        resp = admin_client.get(f"/api/v1/projects/{project.pk}/teams/")
+    assert resp.status_code == 200
+    rows = resp.data["results"]
+    assert len(rows) == 3
+    assert sorted(r["member_count"] for r in rows) == [0, 0, 4]
+
+
 def test_outsider_cannot_list_project_teams(
     outsider_client: APIClient, project: Any, default_team: Team, team_members: dict[str, Any]
 ) -> None:
@@ -84,11 +114,34 @@ def test_outsider_cannot_list_project_teams(
     assert resp.status_code == 403
 
 
-def test_outsider_cannot_retrieve_team(
-    outsider_client: APIClient, default_team: Team, team_members: dict[str, Any]
+def test_is_team_member_object_gate_admits_a_member_and_refuses_an_outsider(
+    rf: Any, member: Any, outsider: Any, default_team: Team, memberships: None
 ) -> None:
-    resp = outsider_client.get(f"/api/v1/teams/{default_team.pk}/")
-    assert resp.status_code in (403, 404)
+    """``IsTeamMember.has_object_permission``, exercised directly.
+
+    No route reaches it since the team detail route was removed (#3370), but #599
+    restores detail/PATCH/DELETE onto this class. Testing the method rather than a
+    route keeps the object-level gate proven while it has no caller.
+    """
+    # A fresh request per subject: ``_membership_role`` memoizes on the request, so
+    # swapping ``.user`` on one request would serve the first subject's answer to the
+    # second — and the outsider assertion would pass vacuously.
+    member_request = rf.get("/")
+    member_request.user = member
+    assert IsTeamMember().has_object_permission(member_request, None, default_team) is True
+
+    outsider_request = rf.get("/")
+    outsider_request.user = outsider
+    assert IsTeamMember().has_object_permission(outsider_request, None, default_team) is False
+
+
+def test_is_team_member_object_gate_fails_closed_on_an_object_with_no_project(
+    rf: Any, member: Any
+) -> None:
+    """A non-project object must be refused, never default-allowed."""
+    request = rf.get("/")
+    request.user = member
+    assert IsTeamMember().has_object_permission(request, None, object()) is False
 
 
 # ---------------------------------------------------------------------------

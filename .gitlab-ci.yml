@@ -1999,6 +1999,38 @@ web:lint:
   script:
     - npm run lint
 
+web:knip:
+  # Dead-surface regrowth gate (#3375). Thirteen web modules with zero importers
+  # accumulated because nothing detected the class; deleting them is a one-time
+  # cleanup, this is what stops it happening again. Config and the reasoning
+  # behind every clause live in packages/web/knip.jsonc.
+  #
+  # Its OWN job, deliberately not folded into `npm run lint`. web:lint heads the
+  # web critical path at ~179s and web:build, web:type-check and web:test all
+  # `needs:` it, so anything appended there is a serial prefix in front of every
+  # other web job. This one has no dependants and runs beside it for free.
+  #
+  # BLOCKING, not allow_failure. The ratchet lives in knip's own per-rule
+  # severity (`rules` in knip.jsonc), not in the job: the rules that are clean
+  # today are `error` and red this job; the four with a backlog that predates
+  # the gate — files (9), exports (50), types (53), duplicates (3) — are `warn`,
+  # which still prints every finding in this log but does not reach the exit
+  # code. #3434 promotes each to `error` as it reaches zero; #3369 clears files.
+  #
+  # This is deliberately NOT `allow_failure: true`. A failing allow_failure job
+  # renders as a GREEN pipeline — the pipeline `status` field says `success`
+  # with the job red underneath — so the one reader who needed the signal is the
+  # one who never sees it. Staging by rule keeps the job's verdict honest:
+  # yellow never happens, and red means a class we said was clean is not.
+  # Do NOT wrap the invocation in `|| true` and do NOT reach for allow_failure
+  # to admit a new backlog; downgrade the specific rule in knip.jsonc, on the
+  # record, with the issue that closes it.
+  extends: [.web, .fast-job]
+  stage: lint
+  <<: *rules-web
+  script:
+    - npm run knip:strict
+
 mobile:lint:
   extends: [.mobile, .fast-job]
   stage: lint

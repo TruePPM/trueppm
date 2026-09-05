@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   SettingsPageTitle,
   SettingsSubHeading,
@@ -11,7 +11,12 @@ import { InheritableSelectField } from '../components/InheritableSelectField';
 import { ESTIMATION_SCALE_HINT, ESTIMATION_SCALE_OPTIONS } from '../estimationScale';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
-import { MethodologyFlipWarningDialog } from './MethodologyFlipWarningDialog';
+import {
+  MethodologyFlipWarningDialog,
+  type FlipImpact,
+  type MethodologyFlipTarget,
+} from './MethodologyFlipWarningDialog';
+import { useMethodologyFlipImpact } from './useMethodologyFlipImpact';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
@@ -42,8 +47,10 @@ const ESTIMATION_MODE_OPTIONS: Array<{ id: EstimationMode; label: string; hint: 
  * `methodologyOverridePolicy` decides whether this picker is editable.
  *
  *  - SUGGEST (or OSS ENFORCE with no enterprise provider) → editable. The
- *    project's own `methodology` wins; "Inherited from workspace (X)" is shown
- *    as informational context.
+ *    project's own `methodology` wins; "Inherited from the {program|workspace}
+ *    default: X" is shown as informational context. The scope noun is not
+ *    hard-coded — `inherited_methodology` resolves program → workspace, so a
+ *    project inside a program is reading its PROGRAM's value (#3293).
  *  - INHERIT (or active Enterprise ENFORCE) → read-only. The effective
  *    methodology is the workspace default; the picker is locked and explains
  *    why. The server is the source of truth — a PATCH under lock is rejected
@@ -97,6 +104,20 @@ const METHODS: Array<{
   },
 ];
 
+/**
+ * Drop the impacts there is nothing to warn about.
+ *
+ * A zero count goes; a `null` stays. A failed read is "cannot rule it out", not
+ * "none" (#3313) — dropping it would let an unrelated outage suppress the one
+ * warning this flip has.
+ */
+function keepWarnable(impacts: FlipImpact[]): FlipImpact[] {
+  return impacts.filter((i) => i.count === null || i.count > 0);
+}
+
+/** Stable empty list for "no flip pending", so `handleSave`'s identity is stable. */
+const NO_IMPACTS: FlipImpact[] = [];
+
 const METHOD_LABEL: Record<Methodology, string> = {
   AGILE: 'Agile',
   WATERFALL: 'Waterfall',
@@ -127,7 +148,6 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
     isLoading: sprintsLoading,
     error: sprintsError,
   } = useSprints(projectId);
-
   const [methodology, setMethodology] = useState<Methodology>('HYBRID');
   const [estimationMode, setEstimationMode] = useState<EstimationMode>('open');
   // Estimation-scale override (ADR-0510, #2027). null = inherit program/workspace.
@@ -138,12 +158,36 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
   const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(
     null,
   );
-  // Consent gate on a WATERFALL flip that would hide existing sprints (#2619) —
-  // resolved by MethodologyFlipWarningDialog; `handleSave` awaits it before the
-  // PATCH ever fires. `null` when no dialog is open.
-  const [flipConfirmResolver, setFlipConfirmResolver] = useState<((ok: boolean) => void) | null>(
-    null,
-  );
+  // The other three things a flip hides (#3294): the product backlog, which
+  // WATERFALL hides alongside sprints, and the task/dependency population behind
+  // Schedule + Calendar, which AGILE hides.
+  //
+  // Read only while a methodology change is actually pending, unlike the sprints
+  // query above. The consolidated settings page mounts every section at once, so
+  // an unconditional read fires three counts on every project settings route —
+  // `/settings/team` included — and `GET /tasks/?project=…` is not free on a
+  // large project. Starting them on the card click is safe because they are also
+  // readiness inputs: `apiReady` below withholds the save until they settle, so
+  // the trigger is still never evaluated against a count nobody knows yet
+  // (#3313). It also stops the estimation controls being held behind three reads
+  // that have nothing to do with them.
+  const flipImpact = useMethodologyFlipImpact(projectId, methodology !== initial);
+  // Consent gate on a flip that would hide data this project already has (#2619,
+  // widened to every hidden view by #3294) — resolved by
+  // MethodologyFlipWarningDialog; `handleSave` awaits it before the PATCH ever
+  // fires. `null` when no dialog is open.
+  //
+  // The target and its counts are SNAPSHOT here rather than re-derived on each
+  // render. The counts behind them are live queries: a window-focus refetch
+  // while the dialog is open could drop the trigger to zero, unmount the dialog
+  // mid-decision, and leave `handleSave` awaiting a promise nothing will ever
+  // resolve — a permanently stuck save bar. What the user is answering is the
+  // question they were asked.
+  const [pendingFlip, setPendingFlip] = useState<{
+    target: MethodologyFlipTarget;
+    impacts: FlipImpact[];
+    resolve: (ok: boolean) => void;
+  } | null>(null);
   // True from the instant the user confirms the flip until the PATCH settles
   // (#3298). The dialog is held mounted across that whole window — see the
   // `onConfirm` note at its call site — so its `Switching…` state is reachable.
@@ -173,18 +217,52 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
   // until the query settles, so by the time `handleSave` can run this is either
   // a real count or a real error — never a not-yet-known 0.)
   const sprintCountUnknown = sprintsError !== null;
-  // WATERFALL is the only preset that hides the DELIVER nav group (methodologyTabs.ts),
-  // so a flip only ever orphans sprints when landing on WATERFALL from something
-  // else — never between AGILE and HYBRID, which both show it.
-  const willOrphanSprints =
-    methodology === 'WATERFALL' &&
-    initial !== 'WATERFALL' &&
-    (sprintCountUnknown || sprintCount > 0);
+
+  // What each destination would hide, in the order the dialog names it (#3294).
+  //
+  // WATERFALL hides `sprints` AND `product-backlog` (methodologyTabs.ts); #2619
+  // counted only the first, so a groomed-but-sprintless project flipped in
+  // silence — the case a Product Owner most needs the gate for. AGILE is the
+  // mirror that issue never wrote: it hides `schedule` and `calendar`, so a PM's
+  // dates, dependency network and critical path leave the nav. HYBRID→AGILE
+  // counts too — a Hybrid project's outer plan IS a Gantt.
+  //
+  // Memoized because `handleSave` closes over the chosen list: a fresh array
+  // each render would give the callback a new identity on every render, and
+  // `useDirtyForm` holds it.
+  const waterfallImpacts = useMemo(
+    () =>
+      keepWarnable([
+        { kind: 'sprints', count: sprintCountUnknown ? null : sprintCount },
+        { kind: 'backlog', count: flipImpact.backlogCount },
+      ]),
+    [sprintCountUnknown, sprintCount, flipImpact.backlogCount],
+  );
+  const agileImpacts = useMemo(
+    () =>
+      keepWarnable([
+        { kind: 'tasks', count: flipImpact.taskCount },
+        { kind: 'dependencies', count: flipImpact.dependencyCount },
+      ]),
+    [flipImpact.taskCount, flipImpact.dependencyCount],
+  );
+  // HYBRID hides nothing, so a flip to it never warns; nor does any flip whose
+  // destination hides only things this project does not have.
+  const flipTarget: MethodologyFlipTarget | null =
+    methodology === 'WATERFALL' && initial !== 'WATERFALL' && waterfallImpacts.length > 0
+      ? 'WATERFALL'
+      : methodology === 'AGILE' && initial !== 'AGILE' && agileImpacts.length > 0
+        ? 'AGILE'
+        : null;
+  const flipImpacts =
+    flipTarget === 'AGILE' ? agileImpacts : flipTarget === 'WATERFALL' ? waterfallImpacts : NO_IMPACTS;
 
   const handleSave = useCallback(async () => {
-    if (willOrphanSprints) {
+    if (flipTarget !== null) {
+      const target = flipTarget;
+      const impacts = flipImpacts;
       const confirmed = await new Promise<boolean>((resolve) =>
-        setFlipConfirmResolver(() => resolve),
+        setPendingFlip({ target, impacts, resolve }),
       );
       if (!confirmed) return; // Leaves the form dirty — the save bar stays armed.
     }
@@ -203,14 +281,15 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
       // closing it in `onConfirm` (as this did before #3298) unmounted the dialog
       // before the request had even started, so a slow PATCH showed nothing.
       // No-ops when no dialog was opened.
-      setFlipConfirmResolver(null);
+      setPendingFlip(null);
       setFlipPending(false);
     }
     setInitial(methodology);
     setInitialEstimationMode(estimationMode);
     setInitialEstimationScale(estimationScale);
   }, [
-    willOrphanSprints,
+    flipTarget,
+    flipImpacts,
     updateProject,
     methodology,
     initial,
@@ -252,16 +331,18 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
     // Arm the save bar when EITHER control is editable — estimation stays editable
     // even when methodology is locked by the workspace policy.
     //
-    // The sprints read is a readiness input too (#3313). `willOrphanSprints` is
-    // evaluated inside `handleSave`, and the count is 0 until the query settles —
-    // so a save that lands in that window checks the trigger against a count
-    // nobody knows yet, finds nothing, and skips the consent dialog on timing
-    // alone. `apiReady: false` is the hard stop, not just a hidden button:
-    // `useDirtyForm` folds it into `dirty`, and `triggerSave` runs only dirty
-    // sections — so the keyboard shortcut and a stale bar are covered as well.
-    // This holds the estimation controls with it, which is the honest trade: the
-    // section registers as one unit, and the wait is one already-in-flight GET.
-    apiReady: !!project && !sprintsLoading && (canEdit || canEditEstimation),
+    // Every flip-impact read is a readiness input too (#3313, widened by #3294).
+    // `flipTarget` is evaluated inside `handleSave`, and each count reads 0 until
+    // its query settles — so a save that lands in that window checks the trigger
+    // against counts nobody knows yet, finds nothing, and skips the consent
+    // dialog on timing alone. `apiReady: false` is the hard stop, not just a
+    // hidden button: `useDirtyForm` folds it into `dirty`, and `triggerSave` runs
+    // only dirty sections — so the keyboard shortcut and a stale bar are covered
+    // as well. This holds the estimation controls with it, which is the honest
+    // trade: the section registers as one unit, and the wait is a handful of
+    // already-in-flight count-only GETs.
+    apiReady:
+      !!project && !sprintsLoading && !flipImpact.isLoading && (canEdit || canEditEstimation),
   });
 
   // Gate on BOTH the project and the workspace settings: until both resolve,
@@ -316,6 +397,17 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
 
   const effective = project.effective_methodology;
   const inherited = project.inherited_methodology;
+  // Which scope `inherited_methodology` actually resolved from (#3293).
+  // `resolve_inherited_methodology` skips this project's own value and takes its
+  // program's when it has one — and a program's methodology is NOT-NULL, so it
+  // always answers. Membership alone therefore decides the scope; comparing the
+  // values instead would misname it whenever a program happens to agree with the
+  // workspace. Under an active workspace lock the inherited value IS the
+  // workspace default, but that branch renders the locked sentence instead, so
+  // this only reads on the unlocked path. Truthiness, not `!== null`: a payload
+  // from an older cache can omit `program`, and "workspace" is the claim that is
+  // safe to make without it.
+  const inheritedScope = project.program ? 'program' : 'workspace';
 
   return (
     <div>
@@ -337,7 +429,7 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
             </p>
           ) : (
             <p className="text-[13px] text-neutral-text-secondary">
-              Inherited from the workspace default:{' '}
+              Inherited from the {inheritedScope} default:{' '}
               <span className="font-semibold text-neutral-text-primary">
                 {METHOD_LABEL[inherited]}
               </span>
@@ -360,7 +452,7 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
             </SettingsSubHeading>
             <FieldHelp
               label="Methodology"
-              body="The planning model that drives which surfaces this project shows. Waterfall gives you phases, gates, baselines, and the critical path. Agile gives you sprints, story points, and velocity. Hybrid nests sprints inside phase gates. It inherits the workspace default until you choose one here — unless the workspace requires its default, in which case this picker is read-only."
+              body="The planning model that drives which surfaces this project shows. Waterfall gives you phases, gates, baselines, and the critical path. Agile gives you sprints, story points, and velocity. Hybrid nests sprints inside phase gates. Every project carries its own methodology: it starts from the program or workspace default when the project is created, and changing that default afterward does not change this project — unless the workspace requires its default, in which case this picker is read-only."
               docHref="features/methodology-preset/#the-matrix"
             />
           </div>
@@ -544,23 +636,26 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
         </section>
       </div>
 
-      {flipConfirmResolver && (
+      {pendingFlip && (
         <MethodologyFlipWarningDialog
-          // `null` = the sprints read failed, so the total is unknown; the
-          // dialog says so rather than printing a 0 it cannot stand behind.
-          count={sprintCountUnknown ? null : sprintCount}
+          // Target and counts as they were when the question was asked — see the
+          // snapshot note on `pendingFlip`. Only the non-zero (or unknown) counts
+          // reach here; a `null` count means that read failed, so the dialog says
+          // the number is unknown rather than printing a 0 it cannot stand behind.
+          target={pendingFlip.target}
+          impacts={pendingFlip.impacts}
           itl={itl}
           pending={flipPending}
           onCancel={() => {
-            flipConfirmResolver(false);
-            setFlipConfirmResolver(null);
+            pendingFlip.resolve(false);
+            setPendingFlip(null);
           }}
           onConfirm={() => {
             // Switch the dialog to its pending state and leave it mounted;
             // `handleSave`'s finally closes it once the PATCH settles. Resolving
             // and unmounting here made `pending` unobservable by construction.
             setFlipPending(true);
-            flipConfirmResolver(true);
+            pendingFlip.resolve(true);
           }}
         />
       )}
