@@ -1128,10 +1128,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         **Scope it exactly — the plural in the name is a family, not "all undo".**
         This answers for the ledgers under ``batch_operation_views``, whose refusal
         resolves through the same predicate: the classification cascade and paste-many.
-        The CSV-import fix (``csvimport.views._require_project_admin``) and template
-        apply (``template_views``) hold their own inline copies of the identical
-        Admin+ comparison, so the answer is currently the same for them — but they are
-        copies, not callers, and only a rebind would make that a guarantee.
+        The CSV-import fix (``csvimport.views._require_project_admin``) and the
+        template-application undo (``template_views``) held their own inline copies of
+        the identical Admin+ comparison until #3353; both are now callers of
+        :func:`role_can_undo_batch_operation`, so the answer is the same for them by
+        construction rather than by coincidence. (``template_views``'s separate
+        ``_require_project_admin``, which gates *publishing and applying* a template,
+        is a different rule that merely shares today's ordinal and is not in the
+        family.)
         **Structural operations are a different rule and this field does not answer for
         them**: ``structural_operation_services`` deliberately implements
         *actor-or-Admin* (ADR-0880 §4), so an actor below Admin may reverse their own

@@ -140,7 +140,14 @@ export function useBulkEdit({
           // Nothing was sent, so nothing was denied — this synthesizes the shape
           // the server would have returned, and the server always sends the key.
           capabilities_denied: [],
+          // Nothing was sent, so no edge was applied or rejected — the shape the
+          // server would have returned, not an omission.
+          dependencies: { applied: [], rejected: [] },
           operation_id: null,
+          // Nothing was sent, so nothing was created and there is nothing to
+          // reverse. `false` states the same fact the server would (#3353); the
+          // sheet has no Undo of its own, so no affordance reads it.
+          can_undo: false,
         });
         return;
       }

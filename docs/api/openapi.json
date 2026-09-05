@@ -26718,12 +26718,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/CsvImportStatusResponse"
                                 }
                             }
                         },
-                        "description": "{\"status\", \"filename\", \"summary\", \"requested_at\", \"date_order\", \"date_order_confirmed\"}."
+                        "description": "The import's outbox row: lifecycle state, result summary, the date convention it ran under, and the caller's authority over the undo."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
@@ -53515,6 +53514,54 @@
                     "upstream_task"
                 ]
             },
+            "CsvImportStatusResponse": {
+                "type": "object",
+                "description": "The 200 body of ``GET …/import/csv/{id}/`` — declared, not prose (#3353).\n\nThis payload used to be typed ``OpenApiTypes.OBJECT`` with the key names listed\nin a sentence, which is not a contract anyone can generate an SDK against. It\nmatters most for ``can_undo``: a field whose entire purpose is to be read by a\nclient, reaching ``docs/api/openapi.json`` as an undiscoverable member of a free\nobject, is a field that does not exist for a non-browser caller (the #2942 class).\n\nResponse-only — nothing deserializes it; the view builds the dict itself.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Outbox lifecycle: `pending` → `dispatched` → `done` | `dead`."
+                    },
+                    "filename": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "description": "The importer's own result summary — counts, parked rows, row errors. **Empty (`{}`), never null**, until the job has run: `result_summary` is a `JSONField(default=dict)` with `null=False` and nothing writes `None` to it. Branch on `status`, not on this being absent."
+                    },
+                    "requested_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "date_order": {
+                        "type": "string",
+                        "description": "The slash-date convention this import actually ran under, read back so \"why does this task say 62 days\" stays answerable afterwards (#2926)."
+                    },
+                    "date_order_confirmed": {
+                        "type": "boolean",
+                        "description": "Whether a human accepted that convention rather than letting `auto` decide."
+                    },
+                    "can_undo": {
+                        "type": "boolean",
+                        "description": "May THIS caller undo the import? (#3353) Committing is the Scheduler band and `POST …/import/csv/{id}/undo/` is Admin+, so reaching this endpoint at all says nothing about the undo's gate. **Authority only** — a `true` is not a promise the undo will succeed: it additionally requires the project to be unarchived, and the import to still be in `done` state. Orthogonal to `status`, which answers whether there is anything to undo."
+                    }
+                },
+                "required": [
+                    "can_undo",
+                    "date_order",
+                    "date_order_confirmed",
+                    "filename",
+                    "id",
+                    "requested_at",
+                    "status",
+                    "summary"
+                ]
+            },
             "DateFormatEnum": {
                 "enum": [
                     "auto",
@@ -68881,10 +68928,15 @@
                         "format": "uuid",
                         "nullable": true,
                         "description": "ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates. Null when the batch created no rows — POST /paste-many-operations/{operation_id}/undo/."
+                    },
+                    "can_undo": {
+                        "type": "boolean",
+                        "description": "May THIS caller reverse this batch? (#3353) This endpoint is Member+ minus the resource band, while POST /paste-many-operations/{operation_id}/undo/ is Admin+ — so a `207` here says the caller cleared the write's gate and nothing about the undo's. Independent of `operation_id`, which answers whether there is anything to undo rather than whether you may; a client offering an Undo needs both. **Authority only** — a `true` is not a promise the undo will succeed: it additionally requires the project to be unarchived and the ledger row to still be inside the batch-operation retention window (`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS`, a deployment setting), after which the undo is a `404`. This endpoint also carries the idempotency mixin, whose request hash does not cover the caller's role — so a repeated `Idempotency-Key` replays the stored body, and a caller demoted since can be served a stale `true`. Harmless: the undo endpoint re-derives the role and still refuses. Treat this field as advisory, never as the gate."
                     }
                 },
                 "required": [
                     "applied",
+                    "can_undo",
                     "capabilities_denied",
                     "dependencies",
                     "operation_id",

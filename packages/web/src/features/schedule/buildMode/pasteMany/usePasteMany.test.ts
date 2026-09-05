@@ -49,7 +49,13 @@ function setup() {
  * `built.createdIds`, so a mismatched fixture id would silently produce an
  * empty receipt and every assertion below would test nothing.
  */
-function paste(result: ReturnType<typeof setup>['result'], operationId: string | null) {
+function paste(
+  result: ReturnType<typeof setup>['result'],
+  operationId: string | null,
+  // The server's `can_undo` for the batch (#3353). Defaults to the Admin/Owner
+  // case every test written before it was assuming; `false` drives the Member.
+  canUndo = true,
+) {
   h.bulkCreate.mutate = vi.fn(
     (
       ops: { id: string }[],
@@ -57,12 +63,14 @@ function paste(result: ReturnType<typeof setup>['result'], operationId: string |
         onSuccess?: (d: {
           applied: { op: string; id: string }[];
           operation_id: string | null;
+          can_undo: boolean;
         }) => void;
       },
     ) => {
       opts?.onSuccess?.({
         applied: ops.map((op) => ({ op: 'create', id: op.id })),
         operation_id: operationId,
+        can_undo: canUndo,
       });
     },
   );
@@ -120,5 +128,68 @@ describe('usePasteMany undo (ADR-0810, #2756)', () => {
 
     expect(h.undoOperation.mutate).not.toHaveBeenCalled();
     expect(h.bulkDelete.mutate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #3353 — the receipt's Undo is the caller's authority over
+ * `/paste-many-operations/{id}/undo/`, not a restatement of the paste having
+ * succeeded. `tasks/bulk/` is `IsProjectPlanAuthor` (Member+ minus the resource
+ * band) and the undo is Admin+, so a Member's paste commits and their Undo 403s.
+ *
+ * These pin the HOOK's decision. The strip's own render and the ⌘Z binding are
+ * separate surfaces with their own tests — a hook-level assertion cannot prove
+ * anything renders (web rule 373's "test at the receipt" note).
+ */
+describe('usePasteMany — the server decides whether an Undo is on offer (#3353)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('carries the server verdict onto the receipt so the strip can withhold the control', () => {
+    const { result } = setup();
+    paste(result, 'op-1', false);
+
+    expect(result.current.receipt).not.toBeNull();
+    expect(result.current.receipt?.canUndo).toBe(false);
+    // Orthogonal to the ledger handle, and stays so: a `false` here must not be
+    // achieved by blanking `operationId`, which already means "nothing to undo".
+    expect(result.current.receipt?.operationId).toBe('op-1');
+  });
+
+  it('keeps the verdict true for a caller the server says may undo', () => {
+    const { result } = setup();
+    paste(result, 'op-1', true);
+
+    expect(result.current.receipt?.canUndo).toBe(true);
+  });
+
+  it('refuses to call either undo route when the server said the caller may not', () => {
+    const { result } = setup();
+    paste(result, 'op-1', false);
+
+    act(() => result.current.undo());
+
+    // Neither the ledger undo (which would 403) nor the raw client-side delete
+    // fallback — the latter is a different act, and reaching for it here would
+    // discard rows the ledger undo deliberately keeps.
+    expect(h.undoOperation.mutate).not.toHaveBeenCalled();
+    expect(h.bulkDelete.mutate).not.toHaveBeenCalled();
+    // …and the receipt stays up. Silently clearing it would read as a successful
+    // undo of a paste that is still in the outline.
+    expect(result.current.receipt).not.toBeNull();
+  });
+
+  it('still allows "Map columns…" — that delete is the caller\'s own, not an undo', () => {
+    // The remap path deletes rows the caller just created under the plan-authoring
+    // rights they used to create them. Gating it on `canUndo` would take a working
+    // capability away from every Member.
+    const { result } = setup();
+    paste(result, 'op-1', false);
+    const createdIds = result.current.receipt?.createdIds;
+
+    act(() => result.current.applyColumnMapping(result.current.receipt?.columns ?? []));
+
+    expect(h.bulkDelete.mutate).toHaveBeenCalledWith(createdIds, expect.anything());
   });
 });

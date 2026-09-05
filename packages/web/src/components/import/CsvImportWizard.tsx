@@ -27,6 +27,7 @@ import {
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { claimUndoShortcut, isTypingInInput } from '@/hooks/useGlobalShortcut';
 import { useUndoImportFixOperation, describeUndo } from '@/hooks/useBatchOperations';
+import { shouldDiscloseUndoFloor } from '@/lib/roles';
 import { toast } from '@/components/Toast';
 import { ImportDropzone } from './ImportDropzone';
 import { CheckIcon, WarningIcon } from '@/components/Icons';
@@ -465,15 +466,52 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
   // reading the decision (#2926).
   const dateOrderUnconfirmed = step === 'map' && Boolean(preview?.date_order_ambiguous);
 
-  // A clean import has nothing to read: tasks landed, nothing was parked, and
-  // the parser made no decision worth reporting.
+  // Is there anything to undo? Purely the import's own state — terminal, not
+  // failed, not already undone, and it actually wrote something.
+  const hasUndoableImport =
+    terminal &&
+    statusQuery.data?.status !== 'dead' &&
+    !undone &&
+    tasksCreated + parkedCount > 0;
+  // …and may THIS caller undo it? Committing an import is `IsProjectScheduler` (200)
+  // while `POST …/import/csv/{id}/undo/` is Admin+ (300), so a Scheduler reaches this
+  // step having cleared only the first floor (#3353). Both terms are required;
+  // neither implies the other, and folding them into one boolean would make a
+  // `false` mean either.
+  //
+  // The next two lines read the SAME server field at OPPOSITE polarities, which is
+  // why it is held tri-state (rule 379). Raising the control is an affordance, so it
+  // needs an affirmative `=== true`; the note is a disclosure, so it needs an
+  // affirmative `=== false` and stays silent on an unresolved verdict rather than
+  // telling a Project Manager they lack a right they hold.
+  const canUndoImport = hasUndoableImport && statusQuery.data?.can_undo === true;
+  // Rule 373(d): the wizard is a standing surface, not an auto-dismissing toast, so
+  // it can carry the disclosure the classification toast could not. Gated on
+  // `hasUndoableImport` so it stays off the paths where nothing was ever on offer —
+  // a failed import already says nothing was changed, and adding "…and you couldn't
+  // undo it anyway" there is noise (rule 302's silence clause).
+  //
+  // Derived HERE rather than inside `ResultStep` because `cleanSuccess` below has to
+  // see it (rule 386).
+  const discloseUndoFloor = hasUndoableImport && shouldDiscloseUndoFloor(statusQuery.data?.can_undo);
+
+  // A clean import has nothing to read: tasks landed, nothing was parked, the parser
+  // made no decision worth reporting, and no capability had to be disclosed.
+  //
+  // Rule 386: this is a hand-enumerated whitelist of the step's readable blocks, and
+  // it decides where focus seats. `discloseUndoFloor` is in it because it renders a
+  // paragraph OUTSIDE the `aria-live` outcome sentence — leaving it out would throw
+  // focus to "View schedule" past the one paragraph its reader needs, and it would
+  // not be announced either. Any future conditional block on this step joins the
+  // list, or moves inside the live region.
   const cleanSuccess =
     terminal &&
     statusQuery.data?.status === 'done' &&
     tasksCreated > 0 &&
     rowErrors.length === 0 &&
     parkedCount === 0 &&
-    resultNotices.length === 0;
+    resultNotices.length === 0 &&
+    !discloseUndoFloor;
 
   /**
    * Seat focus once the import reaches a terminal state.
@@ -576,6 +614,8 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
             notices={resultNotices}
             undone={undone}
             undoPending={undoMut.isPending}
+            canUndo={canUndoImport}
+            discloseUndoFloor={discloseUndoFloor}
             onUndo={handleUndo}
           />
         )}
@@ -984,9 +1024,7 @@ function ConfirmStep({
         {parkedCount > 0 && (
           <>
             <dt className="text-neutral-text-secondary">Parked for review</dt>
-            <dd className="font-medium text-semantic-at-risk">
-              {parkedCount.toLocaleString()}
-            </dd>
+            <dd className="font-medium text-semantic-at-risk">{parkedCount.toLocaleString()}</dd>
           </>
         )}
       </dl>
@@ -1082,6 +1120,23 @@ function outcomeSentence(
   );
 }
 
+/**
+ * What the result step says in place of an Undo the caller's role cannot use
+ * (#3353, web rule 373(d)).
+ *
+ * Shaped after `ClassificationPopover`'s note, per rule 379's copy clause: it names
+ * what happens to THIS reader, and puts the role in the RECOVERY clause phrased as
+ * rights. "Needs the Project Manager role" would be wrong copy for an Owner, who
+ * holds the right under a different label, and for an Enterprise band role, which
+ * holds it under an arbitrary one. It also names the route the reader can take
+ * alone — the rows are ordinary tasks, and deleting them is within the Scheduler
+ * rights that ran the import. Exported so the spec asserts the shipped copy rather
+ * than a paraphrase of it.
+ */
+export const UNDO_NEEDS_ADMIN_NOTE =
+  'You cannot undo this import in one step — someone with Project Manager rights ' +
+  'can. The rows it created are ordinary tasks, so you can delete them yourself.';
+
 /** Step 4 — what actually happened, once the import reaches a terminal state. */
 function ResultStep({
   terminal,
@@ -1094,6 +1149,8 @@ function ResultStep({
   notices,
   undone,
   undoPending,
+  canUndo,
+  discloseUndoFloor,
   onUndo,
 }: {
   terminal: boolean;
@@ -1107,6 +1164,13 @@ function ResultStep({
   /** ADR-0810 (#2756): the operator already undid this import. */
   undone: boolean;
   undoPending: boolean;
+  /**
+   * May this caller undo, AND is there anything to undo? Derived in the parent
+   * (#3353) because `cleanSuccess` has to see its sibling below (rule 386).
+   */
+  canUndo: boolean;
+  /** Say the reversal needs rights this caller lacks, in place of the control. */
+  discloseUndoFloor: boolean;
   onUndo: () => void;
 }) {
   let outcome: string;
@@ -1115,15 +1179,18 @@ function ResultStep({
   else if (failed) outcome = errorText ?? 'The import failed. Nothing was changed.';
   else outcome = outcomeSentence(tasksCreated, parkedCount, reviewBranch, notices.length);
 
-  const canUndo = terminal && !failed && !undone && tasksCreated + parkedCount > 0;
-
   // The button has advertised "(⌘Z)" since #2756 and nothing ever listened for
   // it (#2892). A label naming a shortcut that does not exist is worse than no
   // label: the user tries it, an import they wanted gone stays, and they have no
   // reason to look for the button. Bound only while the undo is actually
-  // available — `canUndo` already encodes terminal / not-failed /
-  // not-already-undone / something-was-created — so on every other step ⌘Z stays
-  // the browser's own.
+  // available — `canUndo` encodes terminal / not-failed / not-already-undone /
+  // something-was-created, and since #3353 an affirmative server verdict on the
+  // caller's authority as well — so on every other step ⌘Z stays the browser's own.
+  //
+  // That authority term also decides who holds the claim. `claimUndoShortcut()`
+  // takes ⌘Z away from `SeedBanner`, which gates its own undo correctly; a
+  // Scheduler who claimed it here and then 403'd would have broken a working
+  // shortcut on a sibling surface to fail at one of its own (#3353).
   //
   // Three things here are load-bearing, none of them optional:
   //
@@ -1196,6 +1263,9 @@ function ResultStep({
         >
           {undoPending ? 'Undoing…' : `Undo import (${formatChord('mod+z')})`}
         </button>
+      )}
+      {discloseUndoFloor && (
+        <p className="text-sm text-neutral-text-secondary">{UNDO_NEEDS_ADMIN_NOTE}</p>
       )}
     </div>
   );

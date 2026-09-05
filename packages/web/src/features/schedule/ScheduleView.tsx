@@ -4094,15 +4094,31 @@ export function ScheduleView() {
       // otherwise this falls through to the browser's ordinary undo so a
       // build-mode session with no pending paste never loses that behavior.
       if (pasteMany.receipt) {
-        out['mod+z'] = (e) => {
-          // Yield to a nearer claimant (#2892): the CSV import wizard renders as a
-          // sibling of the receipt strip and binds ⌘Z to its own destructive undo.
-          // Registration order and `preventDefault()` cannot arbitrate between two
-          // listeners on different targets — the claim registry can.
-          if (isUndoShortcutClaimed()) return;
-          e.preventDefault();
-          pasteMany.undo();
-        };
+        // #3353: bound only when the server says this caller may reverse the batch.
+        // `tasks/bulk/` is Member+ and `/paste-many-operations/{id}/undo/` is Admin+,
+        // so binding it unconditionally taught a Member a chord that 403s — and the
+        // strip advertises the chord in its own label, which is why omitting the
+        // button without unbinding the key would still be a lie (rule 373(e)).
+        //
+        // `=== true`, not truthiness: raising a binding is an AFFORDANCE, so an
+        // unresolved verdict defaults to withheld (rule 379).
+        //
+        // The false branch leaves `mod+z` UNBOUND rather than falling through to the
+        // structural undo below. A receipt on screen is still the user's most recent
+        // act; quietly reversing an earlier indent instead would be a different
+        // destructive act under the same keystroke, which is the exact confusion the
+        // claim registry exists to prevent (#2892).
+        if (pasteMany.receipt.canUndo === true) {
+          out['mod+z'] = (e) => {
+            // Yield to a nearer claimant (#2892): the CSV import wizard renders as a
+            // sibling of the receipt strip and binds ⌘Z to its own destructive undo.
+            // Registration order and `preventDefault()` cannot arbitrate between two
+            // listeners on different targets — the claim registry can.
+            if (isUndoShortcutClaimed()) return;
+            e.preventDefault();
+            pasteMany.undo();
+          };
+        }
       } else {
         // Otherwise ⌘Z reverses the most recent structural act (ADR-0880, #2974).
         //
@@ -5043,6 +5059,10 @@ function ScheduleOverlayLayer({
           <PasteReceiptStrip
             summary={pasteMany.receipt.summary}
             isUndoing={pasteMany.isUndoing}
+            // The server's verdict on THIS batch (#3353), off the 207 that raised
+            // the strip — never a `useCurrentUserRole` read, which can be
+            // unsettled or stale at the moment the decision is made.
+            canUndo={pasteMany.receipt.canUndo}
             onUndo={pasteMany.undo}
             onKeep={pasteMany.keep}
             onMapColumns={pasteMany.openMapColumns}

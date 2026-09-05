@@ -217,6 +217,9 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
           capabilities_denied: [],
           dependencies: { applied: [], rejected: [] },
           operation_id: 'op-e2e-1',
+          // On the real 207 since #3353 — a mock that omits it hands the next
+          // reader `undefined` where the server sends a boolean.
+          can_undo: true,
         }),
       });
     });

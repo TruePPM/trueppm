@@ -438,14 +438,20 @@ describe('BulkEditSheet — Escape reverts one field, then closes (S22)', () => 
 // ---------------------------------------------------------------------------
 
 function bulkResult(over: Partial<TaskBulkResponse> = {}): TaskBulkResponse {
+  // No trailing `as TaskBulkResponse` on purpose (#3353). The cast was what let this
+  // factory model a response the server cannot produce — it went on silently missing
+  // `can_undo` and `dependencies` with `tsc` green, which is the whole failure mode
+  // the return-type annotation exists to catch.
   return {
     applied: [],
     rejected: [],
     skipped: [],
     capabilities_denied: [],
+    dependencies: { applied: [], rejected: [] },
     operation_id: null,
+    can_undo: true,
     ...over,
-  } as TaskBulkResponse;
+  };
 }
 
 /** Sum the four terms a field's result line renders, straight out of the DOM. */

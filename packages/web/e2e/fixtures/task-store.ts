@@ -47,13 +47,15 @@ export interface TaskStoreOptions {
    */
   applyPatch?: (body: Record<string, unknown>, current: TaskRow) => TaskRow;
   /**
-   * The `can_undo` the classification cascade's 200 reports (#3304). Defaults to
-   * `true` — the Admin/Owner case every existing spec was written against.
+   * The `can_undo` the classification cascade's 200 **and** the `tasks/bulk/` 207
+   * report (#3304, #3353). Defaults to `true` — the Admin/Owner case every existing
+   * spec was written against.
    *
    * Set `false` to drive the Member case: applying is `IsProjectPlanAuthor` but
-   * `/cascade-classification-operations/{id}/undo/` is Admin+, so the server tells
-   * the client not to offer an Undo it would refuse. This is an option rather than
-   * a derived value because the store has no role of its own to derive it from.
+   * `/cascade-classification-operations/{id}/undo/` and
+   * `/paste-many-operations/{id}/undo/` are both Admin+, so the server tells the
+   * client not to offer an Undo it would refuse. This is an option rather than a
+   * derived value because the store has no role of its own to derive it from.
    */
   canUndoBatchOperations?: boolean;
 }
@@ -347,7 +349,18 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
       json(
         // `capabilities_denied` is always present on the real 207 (#3037) — a mock
         // that omits it hands the next reader `undefined` where the server sends `[]`.
-        { applied, rejected, skipped: [], capabilities_denied: [], operation_id: operationId },
+        {
+          applied,
+          rejected,
+          skipped: [],
+          capabilities_denied: [],
+          operation_id: operationId,
+          // #3353: the caller's authority over `/paste-many-operations/{id}/undo/`,
+          // which sits above this endpoint's own floor. Shares the option with the
+          // classification cascade below — one store, one simulated caller, so a
+          // spec that says "this caller cannot undo" means it on every surface.
+          can_undo: opts.canUndoBatchOperations ?? true,
+        },
         207,
       ),
     );

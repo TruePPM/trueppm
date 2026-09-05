@@ -26,6 +26,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     _membership_role,
     assert_project_not_archived,
+    role_can_undo_batch_operation,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
@@ -723,8 +724,24 @@ class TemplateApplicationViewSet(
         asked to reverse something and deserves to know it did not happen.
         """
         application = self.get_object()
+        # Defers to `role_can_undo_batch_operation` rather than testing the ordinal
+        # here: this is the same "may you reverse a recorded batch write" rule the
+        # paste-many, cascade and CSV-import undos enforce, and three apply endpoints
+        # now report it to the client as `can_undo`. An inline copy here is a second
+        # implementation of a rule that is itself under revision (#3355) — #3353.
+        #
+        # `_require_project_admin` above is deliberately NOT folded in: it gates
+        # PUBLISHING and APPLYING a template, a different rule that happens to share
+        # today's ordinal (ADR-0773). Merging them would make one edit move two floors.
+        #
+        # Be explicit about what this call DOES couple, so #3355 has to confront it:
+        # template apply/undo is the one SYMMETRIC member of the family (Admin+ both
+        # ways), so lowering the shared batch-undo floor would loosen undo here without
+        # touching apply — a Member could reverse an application they could not apply.
+        # Today's behavior is unchanged; the blast radius is not. Whoever resolves
+        # #3355 must decide whether this endpoint follows or gets its own predicate.
         role = _membership_role(request, cast("Any", application.project_id))
-        if role is None or role < Role.ADMIN:
+        if not role_can_undo_batch_operation(role):
             raise PermissionDenied("You need at least Project Manager role to undo a template.")
         if application.status != TemplateApplicationStatus.SUCCESS:
             raise ValidationError(

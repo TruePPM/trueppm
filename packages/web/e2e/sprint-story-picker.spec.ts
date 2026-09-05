@@ -407,6 +407,8 @@ async function routeBulk(
               skipped: [],
               capabilities_denied: [],
               operation_id: null,
+              // On the real 207 since #3353; the picker reads neither field.
+              can_undo: true,
             },
       ),
     });
@@ -470,6 +472,7 @@ test.describe('Sprint story picker (#2670, #2914)', () => {
         skipped: [],
         capabilities_denied: [],
         operation_id: null,
+        can_undo: true,
       }),
     ]);
 

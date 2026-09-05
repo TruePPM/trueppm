@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProvidersAndRouter } from '@/test/utils';
 import { isUndoShortcutClaimed } from '@/hooks/useGlobalShortcut';
-import { CsvImportWizard } from './CsvImportWizard';
+import { CsvImportWizard, UNDO_NEEDS_ADMIN_NOTE } from './CsvImportWizard';
 import type { CsvPreview } from '@/hooks/useCsvImport';
 
 // Controllable mutation/query state so the step machine can be driven without a
@@ -130,6 +130,15 @@ async function advanceToResult(
   container: HTMLElement,
   summary: Record<string, unknown>,
   status: 'done' | 'dead' = 'done',
+  // The server's `can_undo` on the status payload (#3353). Defaults to the
+  // Admin/Owner case every test written before it was assuming; `false` drives the
+  // Scheduler who may import and may not undo, and `'unresolved'` the in-flight poll
+  // (rule 379).
+  //
+  // `'unresolved'` rather than `undefined`: a default parameter is applied to an
+  // EXPLICIT `undefined` argument too, so passing `undefined` here would silently
+  // become `true` and the rule-379 test would assert the opposite of what it reads.
+  canUndo: boolean | 'unresolved' = true,
 ) {
   // Seed both mocks before the first render that reads them: the hook mock
   // spreads `h.commit` per render, so a mutate reassigned after the last
@@ -140,6 +149,7 @@ async function advanceToResult(
     filename: 'plan.csv',
     summary,
     requested_at: '2026-07-27T00:00:00Z',
+    can_undo: canUndo === 'unresolved' ? undefined : canUndo,
   };
   h.commit.mutate = vi.fn(
     (_vars, opts?: { onSuccess?: (d: { import_request_id: string }) => void }) => {
@@ -297,6 +307,7 @@ describe('CsvImportWizard (#746)', () => {
         row_errors: [{ row: 4, message: 'Duration is not a number' }],
       },
       requested_at: '2026-07-27T00:00:00Z',
+      can_undo: true,
     };
     renderWithProvidersAndRouter(<CsvImportWizard projectId="p1" onClose={vi.fn()} />);
 
@@ -849,6 +860,141 @@ describe('CsvImportWizard (#746)', () => {
       // A second press must not fire a second undo against an already-undone import.
       fireEvent.keyDown(document, { key: 'z', metaKey: true });
       expect(h.undo.mutate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * #3353 — committing an import is `IsProjectScheduler` (200) and
+   * `POST …/import/csv/{id}/undo/` is Admin+ (300), so a Scheduler runs an import
+   * successfully and is refused the Undo the wizard used to offer regardless.
+   *
+   * Asserted at the RESULT STEP, not at the endpoint: the endpoint already
+   * refused correctly, so a test on the 403 passes on the broken build.
+   */
+  describe('undo authority — the server decides whether an Undo is on offer (#3353)', () => {
+    const SUMMARY = { tasks_created: 12, row_errors: [], warnings: [] };
+
+    it('OMITS the Undo control for a caller the server says may not undo', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', false);
+
+      // Omit, not disable (rule 302, ux-review §6.1). `queryByRole` without
+      // `hidden` would still miss a disabled button, so assert on the absence of
+      // any control matching the label, in either state.
+      expect(screen.queryByRole('button', { name: /Undo import/ })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /Undo import/, hidden: true }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('keeps it for a caller the server says may', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', true);
+
+      expect(screen.getByRole('button', { name: /^Undo import/ })).toBeInTheDocument();
+    });
+
+    it('does NOT take the ⌘Z claim away from SeedBanner when it cannot honor it', async () => {
+      // The claim registry gives the innermost surface precedence, so claiming
+      // here silences SeedBanner's own (correctly gated) undo. Claiming a chord
+      // this wizard would then 403 on breaks a working shortcut to fail at one of
+      // its own — strictly worse than not claiming at all (#2892, #3353).
+      const user = userEvent.setup();
+      expect(isUndoShortcutClaimed()).toBe(false);
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', false);
+
+      expect(isUndoShortcutClaimed()).toBe(false);
+    });
+
+    it('ignores ⌘Z rather than firing an undo that would 403', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', false);
+
+      fireEvent.keyDown(document, { key: 'z', metaKey: true });
+      expect(h.undo.mutate).not.toHaveBeenCalled();
+    });
+
+    it('says why the control is missing, on a surface that can carry the clause', async () => {
+      // Rule 373(d): the wizard is a standing surface, not an auto-dismissing
+      // toast, so the disclosure belongs here rather than being withheld.
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', false);
+
+      expect(screen.getByText(UNDO_NEEDS_ADMIN_NOTE)).toBeInTheDocument();
+    });
+
+    it('is SILENT and OFFERS NOTHING while the first status poll is in flight', async () => {
+      // Rule 379(c): `undefined` is the input where the two polarities diverge, so
+      // it is pinned against both at once. The Undo control is an affordance and
+      // stays withheld; the note is a disclosure and stays silent — telling a
+      // Project Manager they lack a right they hold is the harm the tri-state
+      // exists to prevent, and they are the only reader who would ever see it.
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', 'unresolved');
+
+      expect(screen.queryByRole('button', { name: /Undo import/ })).not.toBeInTheDocument();
+      expect(screen.queryByText(UNDO_NEEDS_ADMIN_NOTE)).not.toBeInTheDocument();
+    });
+
+    it('seats focus on Close, not View schedule, when the floor is disclosed', async () => {
+      // Rule 386: `cleanSuccess` is a hand-enumerated whitelist of the step's
+      // readable blocks, and it decides focus seating. The disclosure paragraph
+      // renders OUTSIDE the aria-live outcome sentence, so leaving it out of that
+      // list would throw focus past the one paragraph its reader needs — and it
+      // would not be announced either. This is a clean success in every other
+      // respect: no notices, no parked rows, no row errors.
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', false);
+
+      expect(screen.getByText(UNDO_NEEDS_ADMIN_NOTE)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+    });
+
+    it('still seats focus on View schedule for a clean success that CAN undo', async () => {
+      // The negative control for the assertion above — same import, same absence of
+      // notices/parked rows/errors, differing only in the server's verdict. Without
+      // it, a `cleanSuccess` that had become permanently false would still pass.
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, SUMMARY, 'done', true);
+
+      expect(screen.getByRole('button', { name: 'View schedule' })).toHaveFocus();
+    });
+
+    it('stays silent about the floor on a FAILED import — nothing was on offer', async () => {
+      // Rule 356: a notice about a control that never existed is noise. The
+      // failure sentence already says nothing was changed.
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { error: 'Bad file' }, 'dead', false);
+
+      expect(screen.queryByText(UNDO_NEEDS_ADMIN_NOTE)).not.toBeInTheDocument();
     });
   });
 

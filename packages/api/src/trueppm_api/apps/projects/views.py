@@ -86,6 +86,7 @@ from trueppm_api.apps.access.permissions import (
     TokenHasScope,
     can_user_edit_task,
     can_user_undo_batch_operation,
+    role_can_undo_batch_operation,
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -725,6 +726,24 @@ class TaskBulkResponseSerializer(serializers.Serializer[Any]):
             "ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates. Null when "
             "the batch created no rows — POST /paste-many-operations/{operation_id}/undo/."
         ),
+    )
+    can_undo = serializers.BooleanField(
+        help_text=(
+            "May THIS caller reverse this batch? (#3353) This endpoint is Member+ minus "
+            "the resource band, while POST /paste-many-operations/{operation_id}/undo/ is "
+            "Admin+ — so a `207` here says the caller cleared the write's gate and nothing "
+            "about the undo's. Independent of `operation_id`, which answers whether there "
+            "is anything to undo rather than whether you may; a client offering an Undo "
+            "needs both. **Authority only** — a `true` is not a promise the undo will "
+            "succeed: it additionally requires the project to be unarchived and the "
+            "ledger row to still be inside the batch-operation retention window "
+            "(`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS`, a deployment setting), after "
+            "which the undo is a `404`. This endpoint also carries the idempotency "
+            "mixin, whose request hash does not cover the caller's role — so a repeated "
+            "`Idempotency-Key` replays the stored body, and a caller demoted since can "
+            "be served a stale `true`. Harmless: the undo endpoint re-derives the role "
+            "and still refuses. Treat this field as advisory, never as the gate."
+        )
     )
 
 
@@ -9274,6 +9293,29 @@ class TaskBulkView(IdempotencyMixin, APIView):
                 "capabilities_denied": (
                     [CAPABILITY_DEPENDENCIES] if edge_rows and caller_role < Role.SCHEDULER else []
                 ),
+                # #3353: same asymmetry #3304 fixed on the classification cascade.
+                # This endpoint is `IsProjectPlanAuthor` (Member+ minus the resource
+                # band) and `/paste-many-operations/{id}/undo/` is Admin+, so a
+                # Member pastes 38 rows successfully and is refused the Undo the
+                # receipt strip offered — a strip that persists until they act on it,
+                # with `⌘Z` bound and advertised in its own label.
+                #
+                # Computed by the predicate the undo endpoint itself enforces
+                # (ADR-0133's "one rule, called twice"), not a client-side ordinal:
+                # the floor is under revision at #3355, so a client copy is a second
+                # implementation of a rule the server has said it may change.
+                #
+                # Pure authority, deliberately independent of `operation_id`: that
+                # field answers "is there anything to undo", this one answers "may
+                # you". One boolean for both would make a `false` mean either.
+                #
+                # The predicate directly rather than the `can_user_undo_batch_operation`
+                # request wrapper, because `caller_role` is already resolved above —
+                # the same reason `batch_operation_views._require_admin` calls it
+                # directly. The wrapper would re-resolve membership for no new answer.
+                # `caller_role`'s `-1` no-membership default fails closed identically,
+                # and cannot collide with a real role: VIEWER is 1, never 0 (#2489).
+                "can_undo": role_can_undo_batch_operation(caller_role),
                 # ADR-0810 (#2756): null when the batch created no rows, so the
                 # client has nothing to key an Undo affordance off — never a
                 # placeholder id that would 404 on POST .../undo/.
