@@ -41,6 +41,12 @@ const FIELD_LABEL: Record<string, string> = {
   estimate_status: 'Estimate status',
   priority_rank: 'Priority',
   governance_class: 'Governance',
+  // #3306. The server surfaces this bit only when it is a record's ONLY change — a
+  // cascade onto a subtree already at the requested governance class, which breaks
+  // the root's inheritance and moves nothing else. "Governance source" rather than
+  // the column name: what changed is where the task's governance comes from, not a
+  // boolean the planner has ever seen named.
+  parent_governance_inherited: 'Governance source',
   delivery_mode: 'Delivery mode',
   business_value: 'Business value',
   time_criticality: 'Time criticality',

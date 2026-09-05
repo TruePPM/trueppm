@@ -82,10 +82,11 @@ Customize views is **per-user and cosmetic** — it changes only your own naviga
 ## Methodology inheritance
 
 As of **0.3**, you can
-set the planning model — **Waterfall**, **Agile**, or **Hybrid** — at three scopes that
-**inherit** from one another: set the default once for the whole workspace under
-**Settings → Workspace → Methodology**, and programs and projects will inherit it, each
-able to override its own scope.
+set the planning model — **Waterfall**, **Agile**, or **Hybrid** — at three scopes:
+set the default once for the whole workspace under **Settings → Workspace → Methodology**,
+and it seeds the programs and projects created after it, each of which can then set its
+own. Read [Seeding is not cascading](#seeding-is-not-cascading) before you count on a
+change at one scope reaching the scopes below it.
 
 The key difference from the [iteration label](#iteration-terminology) is that a methodology
 is non-null at *every* scope — there is no blank "inherit" option to choose. Inheritance is
@@ -99,6 +100,20 @@ scopes may deviate from the workspace default.
 - **Enforce** — the workspace default is mandatory and cannot be overridden. **Enforce will
   be a TruePPM Enterprise capability**; in the OSS community edition, Enforce behaves like
   Suggest — it does not lock.
+
+### Seeding is not cascading
+
+Because every scope always holds a concrete methodology, under **Suggest** a project's own
+value always wins. Setting a **program's** methodology therefore does **not** change the
+projects already in it: it seeds the projects created in that program afterward (a project
+started from a [template](/features/project-templates/) starts with the template's method
+instead), and existing projects keep whatever they have. The same is true one scope up —
+changing the workspace default does not re-shape the programs and projects beneath it.
+
+To change projects that already exist, use the bulk matrix under **Program settings →
+Projects**, or each project's own **Methodology** setting. A workspace **Inherit** lock is
+the one case where a parent's value does reach every scope, because it overrides each
+scope's own value at resolution time rather than copying anything.
 
 The **effective** methodology will be resolved on the server, so every client reads the
 same value. The view-tab matrix above is driven by the *effective*
