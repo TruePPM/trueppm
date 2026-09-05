@@ -17,7 +17,8 @@ trueppm-suite/
 │   ├── wasm-scheduler/  # Rust + petgraph CPM engine, compiled to WASM (wasm-pack)
 │   ├── api/             # Django 5.2 REST + Channels backend
 │   ├── web/             # React 19 + TypeScript + Vite frontend
-│   ├── mobile/          # React Native + Expo offline-first mobile app
+│   ├── mobile/          # React Native app scaffold — nav shell + typed boundaries;
+│   │                    #   offline layer is #41, no native projects yet (see its README)
 │   ├── mcp/             # trueppm-mcp — read-only MCP server (Apache 2.0)
 │   ├── helm/            # Helm 3 chart for Kubernetes deployment
 │   └── website/         # Docusaurus documentation site

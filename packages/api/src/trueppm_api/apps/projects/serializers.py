@@ -1151,6 +1151,39 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             )
         return value
 
+    def validate_timezone(self, value: str) -> str:
+        """Reject a non-IANA zone; ``""`` is the explicit "inherit" sentinel.
+
+        This is *tier 1* of the quiet-hours chain
+        (``notifications.services.resolve_quiet_hours_timezone``), so it outranks the
+        workspace default. #3377 added the same validator to
+        ``WorkspaceSettingsSerializer`` because that tier had become load-bearing — the
+        argument applies here more strongly. ``TaskRecurrenceRuleSerializer``,
+        ``UserProfileSerializer`` and the digest-timezone validator already had theirs;
+        ``CalendarSerializer`` is the one write path still without one, tracked in
+        #3398 (it is not in this chain, and touching it reaches the MS Project importer
+        and the seed fixtures).
+
+        Without it a project admin saving ``"Pacific Time"`` gets a 200 and their
+        quiet-hours window silently resolves to the workspace or server zone instead,
+        defeating a setting they believe they made, with no signal at either end —
+        the resolver cannot raise inside a dispatch path, so the write is the only
+        place anyone can be told.
+
+        Same form as the siblings: ``ZoneInfo(value)`` in a try/except, not
+        ``available_timezones()`` membership.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        stripped = (value or "").strip()
+        if not stripped:
+            return ""
+        try:
+            ZoneInfo(stripped)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return stripped
+
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.
 
@@ -3609,7 +3642,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if user is None or not getattr(user, "is_authenticated", False) or project is None:
             return None
         return (
-            ProjectMembership.objects.filter(project=project, user=user)
+            # `is_deleted=False` is load-bearing, not defensive tidying (#3386). The
+            # `(project, user)` unique constraint is unconditional, so revocation —
+            # a soft delete — leaves the row in place with its role ordinal intact,
+            # and without this filter a revoked Admin keeps passing every role gate
+            # that reads this method. `_membership_role` in apps.access.permissions
+            # answers the same question and has always filtered it; the two must not
+            # disagree about who is a member.
+            ProjectMembership.objects.filter(project=project, user=user, is_deleted=False)
             .values_list("role", flat=True)
             .first()
         )
@@ -4585,6 +4625,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         (de)classification, or a prioritization scoring input) is actually being
         written, so it never interferes with quick-add (type=STORY) or ordinary
         story grooming.
+
+        Both arms refuse a revoked project member (#3386), and each needed its own
+        fix. The facet arm runs whenever the role arm refused, so it is load-bearing
+        that ``has_team_facet`` floors on a live ``ProjectMembership``: the ADR-0078
+        §F mirror is create-only, so revoking project access leaves the mirrored
+        ``TeamMembership`` behind with its PO flag intact. The role arm needed
+        ``_get_caller_role`` to filter ``is_deleted`` — otherwise a revoked *Admin*
+        satisfied ``can_manage_backlog`` outright and the facet floor was never
+        reached, leaving this gate open on the axis nobody was looking at.
         """
         from rest_framework.exceptions import PermissionDenied
 
@@ -8059,7 +8108,13 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             project_id = getattr(view, "kwargs", {}).get("project_pk") if view else None
         if project_id is None:
             return None
-        return ProjectMembership.objects.filter(project_id=project_id, user=user).first()
+        # `is_deleted=False` for the same reason as `_get_caller_role` (#3386): the
+        # caller treats a returned row as proof of Scheduler+ access, and revocation
+        # is a soft delete against an unconditional (project, user) unique constraint,
+        # so without this a revoked Scheduler keeps passing the gate.
+        return ProjectMembership.objects.filter(
+            project_id=project_id, user=user, is_deleted=False
+        ).first()
 
     class Meta:
         model = Sprint
@@ -9489,7 +9544,10 @@ class ProjectDetailSerializer(ProjectSerializer):
         caller's two-axis RBAC facets (ADR-0078) resolved against the project's
         default team. The web uses this to render-gate Product-Owner / Scrum-Master
         controls (e.g. the backlog auto-rank + reorder affordances) without a
-        separate round-trip. Both False for an anonymous caller or a non-member.
+        separate round-trip. Both False for an anonymous caller, a non-member, or a
+        member whose project access was revoked (#3386) — the render-gate therefore
+        matches what the write gates will actually allow, which is the ADR-0133
+        "one rule, called twice" property applied to the facet axis.
 
         Detail-only (never on the list serializer) to keep the project list cheap —
         one membership lookup per project would be an N+1 on a list response.

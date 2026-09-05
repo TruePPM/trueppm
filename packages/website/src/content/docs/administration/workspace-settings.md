@@ -74,7 +74,7 @@ On the General page the ⓘ appears on these fields:
 
 | Field | Learn more → |
 |---|---|
-| Default timezone | [Timezone & date format](/features/timezone-and-date-format/#timezone) |
+| Default timezone | [Default timezone](#default-timezone) |
 | Fiscal year starts | [Fiscal year start](#fiscal-year-start) |
 | Work week | [Working calendars](/administration/working-calendars/) |
 | Default project view | This page |
@@ -103,28 +103,72 @@ The same affordance appears throughout the
 |---|---|---|---|
 | `name` | string | `"TruePPM Workspace"` | Display name shown in the nav header and email footers. |
 | `subdomain` | string | `""` | **Read-only via the API.** Reserved for a future hosted edition; self-hosted installs leave this blank. |
-| `timezone` | string (IANA) | `"UTC"` | Default timezone used for display and for interpreting dates without explicit timezone info. |
+| `timezone` | string (IANA) | `"UTC"` | Fallback timezone for a project that sets none of its own. From 0.4 its one effect is anchoring that project's notification quiet-hours window — it is **not** a display timezone. See [Default timezone](#default-timezone). |
 | `fiscal_year_start_month` | integer (1–12) | `1` | Fiscal-year start month. Drives quarter labels across the workspace, including the [Schedule timeline](/features/schedule-toolbar/#fiscal-quarters). |
 | `fiscal_year_start_day` | integer (1–31) | `1` | Fiscal-year start day, validated against the month (year-agnostic: February caps at 28; 30-day months reject 31). **Carried for the display label only** — quarter boundaries are computed from `fiscal_year_start_month` alone, so a fiscal year set to April 6 still labels Q1 as beginning April 1. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
 | `fiscal_year_start_display` | string | `"January 1"` | **Read-only.** Human label derived from month + day, e.g. `"April 6"`. |
 | `work_week` | array of 7 booleans | Mon–Fri `true`, Sat–Sun `false` | Working-day flags, Monday through Sunday. **Stored and returned, but no scheduling path reads it.** Working days come from the project's effective [working calendar](/administration/working-calendars/), never from this field. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
-| `default_project_view` | string | `"board"` | Intended as the view tab a project opens on (`"board"`, `"schedule"`, etc.). **Stored and returned, but nothing reads it** — a project opens on its own `default_view`, which is `schedule` for every project created today. See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
+| `default_project_view` | string | `"board"` | Intended as the view tab a project opens on (`"board"`, `"schedule"`, etc.). **Stored and returned, but nothing reads it** — and no *project* setting decides it either: opening a project follows the viewer's own [view focus](/features/view-focus/). See [Settings that are stored but not yet read](#settings-that-are-stored-but-not-yet-read). |
 | `allow_guests` | boolean | `true` | Whether users with `guest` status may be added to projects. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing` | boolean | `false` | When `true`, designated read-only views may be shared via link so anyone with the link can view without signing in. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing_override_policy` | string | `"suggest"` | Whether downstream scopes may override the workspace sharing values. `"suggest"` (default) lets programs/projects override; `"enforce"` makes the workspace value a hard ceiling. **`enforce` is an Enterprise capability — in the community edition it degrades to `suggest` (no lock).** |
 | `sprint_picker_ready_only_default` <br/>*(ships in 0.4)* | boolean | `true` | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories. This is the **workspace default**; programs and projects inherit it and may override it per scope (Shape A: `null` override = inherit). Advisory only — the picker's own "Show all" toggle always reveals a not-ready story, and committing one is never blocked. There is no override policy / enforcement seam for this field. |
 
+### Default timezone
+
+:::note[Ships in 0.4]
+The behavior below ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest
+release) `timezone` saves, round-trips on reload, and is returned by the API —
+and nothing reads it. On 0.3 it belongs in the [stored but not yet
+read](#settings-that-are-stored-but-not-yet-read) list below; from 0.4 it does
+not, which is why it is absent from that table.
+:::
+
+**Default timezone** is the fallback for a project that sets no timezone of its
+own. From 0.4 it has exactly one effect: it decides what wall-clock time a
+project's [notification quiet
+hours](/features/settings/project-notifications/#quiet-hours) mean. A window of
+20:00–07:00 is 20:00–07:00 *here*.
+
+The chain resolves top-down and stops at the first usable value:
+
+1. the project's own **Timezone** (Project → Settings → General), when it sets one;
+2. this workspace default;
+3. the server's Django `TIME_ZONE`;
+4. UTC.
+
+An unparseable value at any tier falls through to the next one rather than
+resetting the window to UTC. From 0.4 the API also rejects a non-IANA `timezone`
+with a `400` instead of storing it, so a value that saves is a value that works —
+`"Asia/Tokyo"` is accepted, `"Pacific Time"` is not.
+
+Any workspace member can read this value (`GET /api/v1/workspace/` is open to
+members; only writes need Admin). But knowing the workspace default does not tell
+you which tier actually won for a given project — a project and a workspace set
+to the same zone look identical from outside. So the per-project
+notification-preferences response reports the resolved answer directly:
+`quiet_hours_timezone` (the IANA name in force) and `quiet_hours_timezone_source`
+(`project`, `workspace`, `server`, or `fallback`). In normal operation only the
+first two occur — `server` means no workspace row exists yet, and `fallback` means
+no tier was usable at all.
+
+**This is not a display timezone.** Timestamps in the app are always re-clocked
+into each viewer's own [personal
+timezone](/features/timezone-and-date-format/#timezone), and no timezone setting
+ever shifts a task's stored calendar dates.
+
 ### Settings that are stored but not yet read
 
-Three fields on this page save, round-trip on reload, and are returned by the API —
+Four fields on this page save, round-trip on reload, and are returned by the API —
 and **nothing in the product consumes them**. They are listed here rather than hidden
 because the control is live: changing one produces a saved value and no behavior
 change, with nothing to tell you which of the two happened.
 
 | Field | What it does today | What would make it real |
 |---|---|---|
+| `timezone` | Nothing. A project's own **Time zone** anchors that project's [notification quiet hours](/features/settings/project-notifications/#quiet-hours), and when it is blank the window falls back to the *server's* timezone — UTC — not to this value. No display anywhere derives from it either: task dates are calendar dates that no timezone moves, and timestamps follow your [personal timezone](/features/timezone-and-date-format/#timezone). | [#3377](https://gitlab.com/trueppm/trueppm/-/issues/3377) — make this value the fallback the quiet-hours resolver actually reads |
 | `work_week` | Nothing. Every schedule's working days come from the project's effective [working calendar](/administration/working-calendars/) (`Calendar.working_days`), resolved workspace → program → project. A workspace on a Sunday–Thursday week that sets this field still gets Monday–Friday schedules. **Set working days on a calendar instead** — that path works today. | [#75](https://gitlab.com/trueppm/trueppm/-/issues/75) — workspace-level working-week defaults feeding calendar resolution (milestone 0.8) |
-| `default_project_view` | Nothing. A project opens on its own `default_view`, and no code path seeds that from this value — every project created today starts at `schedule` regardless of what is set here. | [#3234](https://gitlab.com/trueppm/trueppm/-/issues/3234) tracks the gap; per-user [view focus](/features/view-focus/) is the mechanism that does choose a landing view |
+| `default_project_view` | Nothing, and its replacement is not the project's `default_view` either — that column is [also unread](/administration/project-settings/#general). Opening a project takes you to the view your own [view focus](/features/view-focus/) prefers, so two people opening the same project land in different places no matter what either setting says. | [#3234](https://gitlab.com/trueppm/trueppm/-/issues/3234) tracks this field; [#3380](https://gitlab.com/trueppm/trueppm/-/issues/3380) decides whether a project's `default_view` should take precedence over the per-user focus |
 | `fiscal_year_start_day` | Contributes to the `fiscal_year_start_display` label only. Quarter boundaries on the [Schedule timeline](/features/schedule-toolbar/#fiscal-quarters) derive from `fiscal_year_start_month` alone. A UK operator setting **April 6** sees "April 6" confirmed here and Q1 drawn from **April 1**. | [#3234](https://gitlab.com/trueppm/trueppm/-/issues/3234) — day-precision fiscal quarters |
 
 `fiscal_year_start_month` is **not** in this list: it is fully wired and does drive

@@ -12,6 +12,27 @@
 5-tab navigation spec, design-token parity, and the `mobile:lint` /
 `mobile:type-check` CI gates; native iOS/Android projects, WatermelonDB
 (#41), and the Detox e2e suite remain deferred follow-ups).
+
+> **Amended 2026-09-04 (#3367) — two claims above and in §2 did not hold.**
+> The original text is kept; read it with these corrections.
+>
+> 1. **"design-token parity" did not land.** `packages/mobile/tailwind.config.js`
+>    reads `packages/web/brand/tokens.json`, but `packages/web/tailwind.config.ts`
+>    imports nothing from it — web's shipped semantic colors are CSS custom
+>    properties in `globals.css` and have since diverged from that file (notably
+>    the warning weight, replaced as a WCAG 1.4.3 failure, #1377). Editing
+>    `tokens.json` reskins mobile only. The §2 tree's
+>    `tailwind.config.js # imports the SAME design tokens as packages/web (parity)`
+>    and the "shared-Tailwind-token parity check" below should be read as the
+>    intent, not the outcome.
+> 2. **`.detoxrc.js`, `e2e/`, and `eas.json` no longer exist in the tree.** They
+>    were scaffolded here and deleted by #3367 because none of them could run:
+>    `detox` was never installed, the config pointed at APKs under an `android/`
+>    project that does not exist, and no eslint config or tsconfig covered the
+>    tree. The §2 structure and §4 remain the blueprint for **#1599**, which
+>    restores them alongside the native projects. `eas.json` in particular must
+>    come back **without** the `channel` keys it carried — those declared
+>    `expo-updates` OTA channels, which §1 of this ADR explicitly rejects.
 **Scope:** OSS (`trueppm-suite`, Apache-2.0). Mobile is OSS. **Never** imports
 `trueppm_enterprise`.
 **Owns:** issue #94. **Feeds:** #41 (WatermelonDB schema + sync adapter), #23

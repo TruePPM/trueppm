@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Methodology, Project
+from trueppm_api.apps.projects.surface_visibility import SURFACE_KEYS
 
 User = get_user_model()
 
@@ -165,42 +166,58 @@ def test_admin_can_set_surface_override(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("field", [f"show_{key}" for key in SURFACE_KEYS])
 def test_non_admin_cannot_set_surface_override(
     waterfall_project: Project,
+    field: str,
 ) -> None:
-    """Member-role PATCH show_reporting=False is rejected with 403 (permission gate)."""
+    """Member-role PATCH of ANY ``show_*`` override is rejected with 403.
+
+    Parametrized over the live ``SURFACE_KEYS`` tuple rather than a hand-copied
+    list, so a fifth surface added later is covered without anyone remembering to
+    add a case (#3376). It matters most for ``show_time_tracking``: nothing reads
+    that column, the settings row now says so in as many words, and the plausible
+    next reading of "it does nothing" is "so let a Scheduler set it". The gate is
+    field-agnostic today — membership in ``_SCHEDULER_WRITABLE_FIELDS`` — which is
+    exactly why a per-field assertion is what would catch one field being carved
+    out of it.
+    """
     client = _client_for(waterfall_project, Role.MEMBER, "sv_member")
     resp = client.patch(
         f"/api/v1/projects/{waterfall_project.pk}/",
-        {"show_reporting": False},
+        {field: False},
         format="json",
     )
     assert resp.status_code == 403
     waterfall_project.refresh_from_db()
     # Field must remain unchanged (None = inherit).
-    assert waterfall_project.show_reporting is None
+    assert getattr(waterfall_project, field) is None
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("field", [f"show_{key}" for key in SURFACE_KEYS])
 def test_scheduler_cannot_set_surface_override(
     waterfall_project: Project,
+    field: str,
 ) -> None:
     """A Scheduler passes the permission gate but is blocked by serializer field-gating.
 
     ``show_*`` are not in ``_SCHEDULER_WRITABLE_FIELDS`` (serializers.py), so the
     ``validate()`` field-governance gate rejects a Scheduler write with 400 (not
     403 — the Scheduler clears the viewset's write gate, unlike Member/Viewer).
-    Without this case, adding ``show_reporting`` to the scheduler-writable set
-    would silently regress. Mirrors
+    Without this case, adding a ``show_*`` field to the scheduler-writable set
+    would silently regress; parametrizing over the live ``SURFACE_KEYS`` means one
+    field being carved out is caught too, not just the whole family (#3376).
+    Mirrors
     ``test_sharing_inheritance.py::test_project_scheduler_cannot_set_override``.
     """
     client = _client_for(waterfall_project, Role.SCHEDULER, "sv_scheduler")
     resp = client.patch(
         f"/api/v1/projects/{waterfall_project.pk}/",
-        {"show_reporting": False},
+        {field: False},
         format="json",
     )
     assert resp.status_code == 400
     waterfall_project.refresh_from_db()
     # Field must remain unchanged (None = inherit).
-    assert waterfall_project.show_reporting is None
+    assert getattr(waterfall_project, field) is None

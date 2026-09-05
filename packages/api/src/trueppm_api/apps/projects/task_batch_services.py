@@ -150,7 +150,16 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
     Broadcasts ``tasks_bulk_mutated`` and enqueues a recalculation on commit — an
     undo is a mutation collaborators are watching for, same as the paste it reverses.
     """
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
     from trueppm_api.apps.projects.models import PasteManyOperation, SyncBatchOperationStatus, Task
+
+    # Archived is *lifecycle state, not authority*, so it is a property of the plan
+    # rather than of the caller and does not belong to the view layer alone (#3354).
+    # The view's `IsProjectNotArchived` is the fast refusal; this is the floor that
+    # holds for a caller DRF never sees — a Celery task, a management command, or an
+    # endpoint that resolves its project from the request body. Placed before the
+    # transaction so nothing is opened on a write that must not happen.
+    assert_project_not_archived(operation.project_id)
 
     with transaction.atomic():
         operation = PasteManyOperation.objects.select_for_update().get(pk=operation.pk)
@@ -226,11 +235,15 @@ def undo_cascade_classification_operation(
     mirroring the forward cascade's own hooks in ``TaskClassificationView.patch`` —
     a reverted ``delivery_mode`` can move CPM dates the same way applying it did.
     """
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
     from trueppm_api.apps.projects.models import (
         CascadeClassificationOperation,
         SyncBatchOperationStatus,
         Task,
     )
+
+    # Same lifecycle floor as `undo_paste_many_operation` — see its comment (#3354).
+    assert_project_not_archived(operation.project_id)
 
     with transaction.atomic():
         operation = CascadeClassificationOperation.objects.select_for_update().get(pk=operation.pk)
@@ -314,8 +327,15 @@ def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str,
     lock here is the concurrency backstop, same reasoning as the other two undo
     functions.
     """
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
     from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
     from trueppm_api.apps.projects.models import Task
+
+    # Same lifecycle floor as the two undos above (#3354). `CsvImportUndoView` has
+    # always carried `IsProjectNotArchived`, so this closes no open hole — it is here
+    # because the floor is only worth anything if it is uniform: an undo service that
+    # is the one exception is the one a non-view caller will reach for.
+    assert_project_not_archived(csv_import_request.project_id)
 
     with transaction.atomic():
         csv_import_request = CsvImportRequest.objects.select_for_update().get(

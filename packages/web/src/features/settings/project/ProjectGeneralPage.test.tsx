@@ -155,6 +155,32 @@ describe('ProjectGeneralPage', () => {
     expect(defaultView).not.toBeDisabled();
   });
 
+  // Both controls save a real value and neither does what its copy used to
+  // claim (#3376). Pattern C: keep them editable, fix the claim — so the
+  // assertions are on the hint text, and each pairs the new sentence with the
+  // absence of the old one. A presence-only check would pass on a page that
+  // simply appended the correction beside the over-claim.
+  it('says the default view does not decide where you land', () => {
+    renderPage();
+    expect(screen.getByText(/it does not decide where you land/i)).toBeInTheDocument();
+    // Nothing navigational reads default_view — /projects/:id follows the
+    // viewer's own role-context lens (ADR-0162), so the select stays enabled.
+    expect(screen.getByRole('combobox', { name: /default view/i })).not.toBeDisabled();
+  });
+
+  it('scopes the timezone hint to quiet hours and drops the due-date claim', () => {
+    renderPage();
+    expect(
+      screen.getByText(/Anchors this project's notification quiet hours/i),
+    ).toBeInTheDocument();
+    // The single reader is the notifications quiet-hours anchor. Task dates are
+    // calendar dates, so no timezone can move them, and displayed instants come
+    // from the viewer's own Profile.timezone.
+    expect(
+      screen.queryByText(/Used for due dates, Gantt rendering, and sprint cutovers/i),
+    ).not.toBeInTheDocument();
+  });
+
   it('renders the duration-change policy control inheriting the program/workspace default', () => {
     renderPage();
     const group = screen.getByRole('radiogroup', { name: 'Duration change percent policy' });

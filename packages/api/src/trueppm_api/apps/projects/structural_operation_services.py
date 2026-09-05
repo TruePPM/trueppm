@@ -555,6 +555,7 @@ def undo_structural_operation(
     summary unchanged rather than raising: a double ⌘Z is a no-op, not an error, matching
     ``undo_paste_many_operation``.
     """
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
     from trueppm_api.apps.projects.models import (
         Dependency,
         StructuralOperation,
@@ -562,6 +563,15 @@ def undo_structural_operation(
         Task,
     )
     from trueppm_api.apps.projects.task_grouping import assert_graph_feasible, capture_graph_state
+
+    # `StructuralOperationViewSet` already carries `IsProjectNotArchived`, so this is
+    # not closing an open hole — it makes the floor uniform across the family after
+    # #3354 found three of its five undo paths missing it at the view layer. The
+    # distinction that justifies putting it here and NOT the role check the
+    # `authorize` callback carries: archived is lifecycle state, a property of the
+    # plan, so it holds for every caller; authority is a property of the requester
+    # and stays in the view's vocabulary (see this function's docstring).
+    assert_project_not_archived(operation.project_id)
 
     with transaction.atomic():
         locked = StructuralOperation.objects.select_for_update().get(pk=operation.pk)

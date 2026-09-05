@@ -191,7 +191,23 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
         # policy (ADR-0153, #976) — DRF maps the model ArrayField to allow_empty=
         # False by default, which would 400 a legitimate ``[]`` before
         # validate_allowed_attachment_types runs, so opt back in.
-        extra_kwargs = {"allowed_attachment_types": {"allow_empty": True}}
+        extra_kwargs = {
+            "allowed_attachment_types": {"allow_empty": True},
+            # help_text via extra_kwargs, not on the model field and not by redeclaring
+            # the field: model help_text lives in migration state and would generate an
+            # AlterField for a documentation change, while redeclaring drops the
+            # ModelSerializer-derived attributes. This is the only published description
+            # of what the field does — the schema showed a bare 64-char string (#3377).
+            "timezone": {
+                "help_text": (
+                    "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — "
+                    "unlike the per-user profile timezone this one is resolved "
+                    "server-side. It is the quiet-hours fallback for a project that sets "
+                    "no timezone of its own, not a display timezone. A non-IANA value is "
+                    "rejected with a 400."
+                )
+            },
+        }
 
     def get_logo_url(self, obj: Workspace) -> str | None:
         """Public serve-endpoint URL for the workspace logo, or ``None`` if unset."""
@@ -199,6 +215,34 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             return None
         version = int(obj.updated_at.timestamp()) if obj.updated_at else 0
         return f"/api/v1/workspace/logo/?v={version}"
+
+    def validate_timezone(self, value: str) -> str:
+        """Reject a non-IANA zone — this field is load-bearing as of #3377.
+
+        Until #3377 nothing read ``Workspace.timezone``, so an unvalidated write was
+        inert. It is now the second tier of the quiet-hours chain
+        (``notifications.services.resolve_quiet_hours_timezone``), which cannot raise
+        inside a dispatch path and therefore *silently* walks past an unparseable
+        value. Without this validator an admin saving ``"Pacific Time"`` would get a
+        200 and no signal anywhere that their quiet hours never moved.
+
+        Same form as the sibling validators (``TaskRecurrenceRuleSerializer`` /
+        ``UserProfileSerializer`` / ``ProjectSerializer``): ``ZoneInfo(value)`` in a
+        try/except, NOT ``available_timezones()`` membership, so exactly the
+        OS-tzdata strings a client's ``Intl….timeZone`` emits are accepted. Unlike the
+        profile field there is no ``"auto"`` sentinel — the workspace root is resolved
+        server-side, where there is no browser to ask.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        stripped = (value or "").strip()
+        if not stripped:
+            raise serializers.ValidationError("Select a timezone for the workspace.")
+        try:
+            ZoneInfo(stripped)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return stripped
 
     def validate_iteration_label(self, value: str) -> str:
         """The workspace label is the non-null root — reject empty (ADR-0116).

@@ -332,6 +332,23 @@ describe('WorkspaceGeneralPage — contextual help', () => {
       screen.queryByRole('button', { name: 'About the Workspace name options' }),
     ).not.toBeInTheDocument();
   });
+
+  it('says the default timezone anchors quiet hours for projects with none of their own (#3377)', () => {
+    renderPage();
+    // Workspace.timezone is now the quiet-hours fallback for a project that sets
+    // no timezone of its own (#3377) — the #3376 "stored but unread" claim no
+    // longer holds. Pair the new sentence with the absence of both stale claims —
+    // appending a correction beside an over-claim is not a fix.
+    expect(
+      screen.getByText(/Anchors quiet hours for any project that sets no timezone of its own/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Saved here, but nothing reads it/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Used for due dates and Gantt rendering/i),
+    ).not.toBeInTheDocument();
+  });
 });
 
 // ----- Failed GET must not read as a stuck loading state (#2656) -------------

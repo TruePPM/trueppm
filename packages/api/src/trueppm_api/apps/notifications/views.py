@@ -78,9 +78,15 @@ def _resolve_snooze_preset(preset: str, now: datetime.datetime) -> datetime.date
     """Resolve a snooze preset key to an absolute datetime, or None if unknown.
 
     ``1h`` / ``3h`` are relative to ``now``; ``tomorrow`` is the next day at 09:00
-    in the workspace timezone (``settings.TIME_ZONE``), returned as an aware UTC
-    datetime. The workspace tz is used because the default ``auth.User`` carries
-    no per-user timezone.
+    in the **server** timezone (``settings.TIME_ZONE``), returned as an aware UTC
+    datetime.
+
+    Deliberately *not* the admin-set ``Workspace.timezone`` and *not* the snoozing
+    user's ``profiles.Profile.timezone``. The profile value defaults to ``"auto"``
+    (resolved in the browser) and is scoped display-only by ADR-0410, so it is not
+    a server-resolvable anchor; widening this preset to either is a behavior change
+    with its own UX question, not a wording fix. ``Workspace.timezone`` has exactly
+    one reader — ``services._project_timezone``, the quiet-hours anchor (#3377).
     """
     if preset == "1h":
         return now + datetime.timedelta(hours=1)
@@ -550,6 +556,11 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
 
     def _get_or_create_pref(self, project: Project, user: Any) -> ProjectNotificationPreference:
         pref, _ = ProjectNotificationPreference.objects.get_or_create(project=project, user=user)
+        # Prime the FK cache. get_or_create only populates it on the *create* branch
+        # (the get branch is a plain manager .get(), which never sets fields_cache), so
+        # on the common existing-row path `pref.project` would otherwise be a cold
+        # lazy load — and the quiet-hours timezone serializer field reads it (#3377).
+        pref.project = project
         return pref
 
     def get(self, request: Request, pk: str) -> Response:
@@ -569,6 +580,13 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         payload["event_delivery"] = _event_delivery()
         return Response(payload, status=status.HTTP_200_OK)
 
+    # Declared, or the operation publishes no ``requestBody`` and a generated client
+    # has no parameter to send the matrix through (#3364). A plain ``APIView`` has no
+    # ``serializer_class`` for drf-spectacular to infer a writable shape from, so
+    # nothing supplies this but the annotation — which is why the account-wide
+    # sibling below (``MyNotificationSettingsView.patch``) was declared and this one,
+    # the same shape one class up, was not.
+    @extend_schema(request=ProjectNotificationPreferenceSerializer)
     def patch(self, request: Request, pk: str) -> Response:
         project = self._get_project(request, pk)
         pref = self._get_or_create_pref(project, request.user)
@@ -586,7 +604,7 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
                 setattr(pref, field, validated[field])
         pref.save()
 
-        payload = ProjectNotificationPreferenceSerializer(pref).data
+        payload = serializer.data
         payload["matrix"] = _merge_matrix(pref.matrix or {}, {})
         # Same shape as GET. The web hook maps the PATCH response through the same
         # deserializer and writes it to the query cache, so omitting this here would
@@ -697,9 +715,17 @@ class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
         obj = WorkspaceEmailSettings.load()
         return Response(_email_settings_payload(obj, can_edit=bool(request.user.is_superuser)))
 
+    # Both writes published no ``requestBody`` while ``_update`` reads one, so the
+    # settings page's own save had no documented shape (#3364). Declared per method
+    # rather than on the class so GET keeps taking no body. These two are the
+    # instances the first draft of the #3364 sweep could not see: the read is one
+    # frame down in ``_update``, and a handler-local search finds only a delegating
+    # one-liner — which is why that sweep now follows ``self._helper()`` calls.
+    @extend_schema(request=WorkspaceEmailSettingsSerializer)
     def put(self, request: Request) -> Response:
         return self._update(request, partial=False)
 
+    @extend_schema(request=WorkspaceEmailSettingsSerializer)
     def patch(self, request: Request) -> Response:
         return self._update(request, partial=True)
 

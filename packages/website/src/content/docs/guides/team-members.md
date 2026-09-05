@@ -1,7 +1,21 @@
 ---
 title: For Team Members
 description: How TruePPM keeps you focused on your work — board, sprints, tasks, and updates — without PM overhead.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+A few things on this page are **not** in `v0.3.0-alpha.3`, the latest release:
+
+- **Automatic Jira sync**, so you never double-enter a task — **0.4**.
+- **The installable PWA**, the offline surface before the native app —
+  **0.5**.
+- **The native mobile app**, with offline sync/replay and 15-second time
+  capture — **0.6**.
+
+Everything else on this page — the board, sprints, My Work, and the API — is
+in 0.3 and current.
+:::
 
 You want to know what you're working on, move things forward, and stay in sync with your team. TruePPM is designed to minimize the overhead of project management for people doing the actual work.
 
@@ -66,7 +80,7 @@ To see everything assigned to you across all your projects and sprints, use the 
 
 Changes you make appear instantly for everyone on the project. Changes others make appear instantly for you. No manual refresh.
 
-The sync protocol supports offline clients — it is built for the 0.5 mobile app, which will queue updates locally and replay them when the connection returns. The web app today requires a connection for writes.
+The sync protocol supports offline clients — it is built for the native mobile app, which lands in **0.6** and will queue updates locally and replay them when the connection returns. No client implements it yet; the installable PWA in **0.5** is the offline surface before it. The web app today requires a connection for writes.
 
 → See [Real-time collaboration](/features/real-time/), [Offline sync](/features/offline-sync/)
 
@@ -107,7 +121,7 @@ The only question that matters: does this remove a click, or add one? Run these 
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as a team member.** Open `http://localhost:5173` and sign in as **`tom`** — Tom Nguyen, Senior Engineer, seeded with the **Member** role.
+2. **Sign in as a team member.** Open `http://localhost:5173` and sign in as **`atlas-tom`** — Tom Becker, Engineer, seeded with the **Member** role and carrying work in the active sprint.
 
 3. **Open My Work.** Click **My Work**, pinned at the top of the left sidebar (`/me/work`). Everything assigned to you, across every project, active-sprint tasks first. Update status right here — you never have to open the full project.
 

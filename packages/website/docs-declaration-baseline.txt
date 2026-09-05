@@ -1,6 +1,7 @@
 # Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh.
 #
-# Pages under: features administration getting-started overview that carry NO "documentedFor" front-matter key,
+# Pages under: features administration getting-started overview guides that carry NO "documentedFor" front-matter key,
+# plus these docs-root behavior pages: the-story.md
 # (exempt: overview/roadmap.md — the source of truth, not a page derived from it)
 # with the sha256 of the contents they had when they were last recorded here.
 # Editing one of these pages breaks its hash and fails docs:version-accuracy
@@ -24,7 +25,7 @@ features/decisions.md b8fc0fcf7c2c6417a49024b027e3626166657cbdc13694130129191f6d
 features/estimation-poker.md 6015245cd7f02daed5ffc42fe25f55d568c20d1573e819d879cbebdf55a4523e
 features/flow-analytics.md 165f0b0662dd3736db45a7e71e857bde343f21557ecd2ff8797b02939dc4bdbf
 features/inbound-task-sync.md 73caeb820b35681eb69248d189dc3743ae5f6afe2478d5370c20b82f69a39c0b
-features/my-work.md 644ad7045f7ef7415de28792513f347dcb6dbf7579d83ee99b57c21a278b1600
+features/my-work.md 2ab210d5ace7546445b587fc6218ec55809c4f509e72e9601abc2ae5f80d3562
 features/plan-sprint.md 866266a87c0eed8fe6b7200dfb68a2d15b40bd8994a15f8a698eea9dd25da664
 features/program-schedule.md 5b73eb0695d7881b17112002d26240818394dc8402579138924bbc19d7fb3ab1
 features/real-time.md 62c6165233dff368c626b07a7f6c2dd0d79597438a1cc35a577d8722c2f7469d
@@ -42,6 +43,13 @@ features/unified-data-model.md c2eff42dd7eea9c61a9821f1f3401066e540f78a4c26299a6
 features/velocity-calibration.md b2d5e6dd2b3753d65331ac5bbddb578a3957e4d66081b3b5c93aac39137992f7
 features/velocity.md 553c2841897dab2d8ddf070c27deaa366117abe152f2d47ea8a43873837b6305
 features/wip-overload.md 4fec6e11d6aea17e8729f43aec30891985e28dafd0a742d320abd9b8915b7f76
+guides/agile-coaches.md 4560ebac2adc9f85ad25a0d050ee160819c61214404ada2d7e2c295a782e140c
+guides/executives.md 3a657f2cf3bae8d0e6895b8139c874b9ac9227f7ca95c593bcabb19b8de217fc
+guides/pmo-directors.md 003adff785adcb858bbfca5fc2cd71f04ec2cf613998be268e43c10d0ecc09f2
+guides/product-owners.md 2b441fc538c0b1cb28ab077a1bc79f170ea0634aec81851ed8b63f6c7d5f8eef
+guides/project-managers.md cc31911ef1195d3aba47afaf12b036aaa2132019038181f2a054386f6b31feda
+guides/resource-managers.md be1e54982a89efc91d3cf376073c58f0d0dcacc9f6efac7bcc7f0193a0e7d43f
+guides/scrum-masters.md efa70003aefabb56ccc4cbb76a1eaff516942ffde79b5f54b5bdec4fada0df05
 overview/data-model.md 7457bf7eae21f7e6bc22fe27cc8e3b5884ca3046afd5be67f48dea778ce770fd
 overview/how-this-was-built.md 59a8715cc9e40c2a823ab3ef1fa68b61a5cca70a66d6310208119182b30395ad
 overview/index.md 740f8ad52a06f4b1fe003c5e5d8d1246c09ee0477a9db24fce997b7d1ef09a4e
@@ -49,5 +57,5 @@ overview/known-issues.md f650c38603fbe32a20760645a7ff4c5a7d20b68ef15dcfd2d7e6e1a
 overview/principles.md 7e0deb47a888f9dd1781ed5485ecd5a1b5112f3e81b1a6c1bd8742942d9bda82
 overview/sso-is-not-enterprise.md 341af901e840f8ad28d9d3c36dcba41b63e16170a433de50e8c9411ac25fcba7
 overview/team-ownership-not-surveillance.md 16cf95931e99d9a2aeee63df051291a2cf0adededcbb3a247afbe0c5e2a75b34
-overview/what-it-does-not-do.md 1bc61fdeeb49f0d417a441df4c8497d029e1534ada648ff5fab89d9d11a7602f
+overview/what-it-does-not-do.md 3d8fccb7e2ddf7bf9a59f797a646c6d7677960d0694cb2a278a9b021dde677c7
 overview/why-now.md dcc249a428f6309e185bf63cf3c45813bfaec4e1f0a2c6ff30a2a0efddb0ed8b

@@ -712,6 +712,20 @@ only tier that depends on who is asking.
 Publishing and applying both require **Project Manager (Admin)** or above on the
 project in question (ADR-0773). Reading the gallery requires only authentication.
 
+**Apply and undo are refused on an archived project** with a `403`, at every role
+including Owner — archiving makes a plan read-only, and that is a property of the
+plan rather than of the caller. Reads are unaffected: you can still list
+applications and poll one on an archived project. **Publishing from an archived
+project still works**, because extracting a template reads the source plan and
+writes nothing into it. Unarchive the target project first, then re-apply.
+
+Because apply is asynchronous, a project archived *after* a `202` is refused at
+seeding time rather than at request time: the application lands on
+`status: "failed"` with `error_detail` naming the archived project, and no rows
+are written. Poll `GET /api/v1/template-applications/{id}/` for it — there is no
+second `403` to catch, because the request that would have carried one already
+returned.
+
 Apply is rate-limited on the shared `seed_import` throttle scope — the same bound
 the seed and spreadsheet import paths carry.
 
@@ -1093,6 +1107,14 @@ Member the apply above admits. So a Member can receive a `200` here, with a real
 from the same rule the undo endpoint enforces; read it rather than comparing role
 ordinals yourself, exactly as with `can_author` on the project resource.
 
+`can_undo` answers the **role** question only. Both batch undos —
+`POST /api/v1/cascade-classification-operations/{operation_id}/undo/` and
+`POST /api/v1/paste-many-operations/{operation_id}/undo/` — are separately refused
+with a `403` once the project is **archived**, at every role including Owner.
+Archiving makes a plan read-only; that is a property of the plan, not of the
+caller, so no role clears it, and `can_undo` does not report it. Reading a ledger
+row on an archived project still works — unarchive the project to undo.
+
 ### Task attachments
 
 Each attachment is **either** an uploaded file **or** an external URL — never both.
@@ -1402,6 +1424,12 @@ delete operations require the Scheduler role or higher on the project.
 |--------|------|------|-------------|
 | GET | `/api/v1/workspace/` | Any active member | Retrieve workspace config. |
 | PATCH | `/api/v1/workspace/` | Workspace Admin+ | Update workspace config (partial). |
+
+`timezone` is an IANA identifier (there is no `auto` sentinel — unlike the per-user
+profile timezone, this one is resolved server-side). From 0.4 a non-IANA value is
+rejected with a `400` instead of stored, and the field is the quiet-hours fallback for
+a project that sets no timezone of its own — not a display timezone. See
+[Default timezone](/administration/workspace-settings/#default-timezone).
 
 The workspace config includes `public_sharing` and `allow_guests` (the inheritance
 defaults for all programs and projects) and `public_sharing_override_policy`
@@ -1742,6 +1770,13 @@ Member+ on the target project — program authority alone cannot drop a task int
 a project. A `project_id` outside this program returns `400`; an item that is no
 longer `PROPOSED` returns `409`.
 
+:::note[Ships in 0.4]
+From **0.4**, a pull into an **archived** target project is refused with a `403`.
+On the current release only the *program's* closed state is checked, so a pull
+into an archived project succeeds. The archived refusal clears for no role — the
+project has to be unarchived.
+:::
+
 ### Mention groups
 
 A user-defined `@mention` group is a named alias for a curated set of people, so
@@ -1791,6 +1826,38 @@ The first `GET` lazily backfills the default matrix for a user who has none.
 | GET | `/api/v1/me/notification-preferences/` | Your full matrix (paginated) |
 | PATCH | `/api/v1/me/notification-preferences/{id}/` | Toggle one row — only `enabled` is writable |
 | POST | `/api/v1/me/notification-preferences/apply-preset/` | Apply a preset across the whole matrix |
+
+Project-scoped routing is a separate, per-(project, user) document:
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/projects/{id}/notification-preferences/` | Any project member | Your routing for this project. Lazily created on first read. |
+| PATCH | `/api/v1/projects/{id}/notification-preferences/` | Any project member | Partial update; the matrix is merged, not replaced. |
+
+Each member reads and writes only their own row — there is no admin surface for
+editing another member's routing, and the row is resolved from the authenticated
+user rather than from a path segment.
+
+Alongside the stored window (`quiet_hours_enabled`, `quiet_hours_from`,
+`quiet_hours_until`), the response carries the zone that window is actually read in.
+Both fields are read-only; `PATCH`ing them is ignored.
+
+| Field | Type | Description |
+|---|---|---|
+| `quiet_hours_timezone` | string (IANA) | The zone `quiet_hours_from` / `quiet_hours_until` are interpreted in, e.g. `"Asia/Tokyo"`. |
+| `quiet_hours_timezone_source` | enum | Which tier of the chain supplied it: `project`, `workspace`, `server`, or `fallback`. |
+
+The chain is the project's own `timezone`, then the workspace `timezone`, then the
+server's `TIME_ZONE`, then UTC; an unparseable value at any tier falls through to the
+next. In normal operation only `project` and `workspace` occur — `server` means no
+workspace row exists yet, and `fallback` means no tier was usable at all. These two
+fields ship in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
+
+:::caution
+The OpenAPI schema does not yet describe this endpoint's response body — it declares
+`200: No response body` for both methods. The field list above is the contract until
+that annotation lands ([#3396](https://gitlab.com/trueppm/trueppm/-/issues/3396)).
+:::
 
 `apply-preset` takes a preset name, not a preference row:
 

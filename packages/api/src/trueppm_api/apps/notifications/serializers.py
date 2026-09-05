@@ -8,6 +8,7 @@ import zoneinfo
 from functools import partial
 from typing import Any, cast
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.schema_migrations import migrate_payload
@@ -27,6 +28,12 @@ from .models import (
     WorkspaceEmailSettings,
 )
 from .schema_migrations import SURFACE_PROJECT_NOTIFICATION_MATRIX
+from .services import (
+    QUIET_HOURS_TZ_SOURCE_FALLBACK,
+    QUIET_HOURS_TZ_SOURCE_PROJECT,
+    QUIET_HOURS_TZ_SOURCE_SERVER,
+    QUIET_HOURS_TZ_SOURCE_WORKSPACE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -336,6 +343,47 @@ _VALID_EVENT_TYPES = {choice.value for choice in ProjectNotificationEventType}
 _VALID_CHANNELS = {choice.value for choice in ProjectNotificationChannel}
 
 
+#: The published shape of the notification matrix (#3364).
+#:
+#: A bare ``JSONField`` carries no schema hint, so drf-spectacular publishes it as
+#: ``{}`` — "any JSON at all". That is not a small imprecision on this field: it is
+#: the only thing ``PATCH .../notification-preferences/`` exists to write, and the
+#: field below rejects every key outside the two enumerations with a 400. Declaring
+#: the body while leaving its one field untyped would tell an integrator "send some
+#: JSON" and 400 on every guess — the same gap #3364 closes one level up.
+#:
+#: Derived from the enums rather than restated, so a new event type or channel
+#: reaches the published contract without a second edit that can be forgotten.
+#:
+#: ``propertyNames`` is JSON Schema, not OpenAPI 3.0 Schema Object — this project
+#: publishes ``openapi: 3.0.3`` (see ``docs/api/openapi.json``), whose meta-schema
+#: has no such keyword and rejects the whole object under ``additionalProperties``'
+#: ``oneOf`` the moment it appears anywhere in the tree. The two enumerations are
+#: small and closed, so each key is spelled out explicitly under ``properties``
+#: instead, with ``additionalProperties: False`` doing the same "no unknown key"
+#: rejection ``propertyNames`` would have — this is what "9×4 grid" means literally.
+_PROJECT_NOTIFICATION_MATRIX_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Per-event, per-channel routing grid. Keys are event types; each value is "
+        "an object of channel to boolean. A PATCH may send a partial grid — the "
+        "supplied cells are merged onto the stored ones, so a single toggle need "
+        "not repost the whole matrix. Any key outside these two enumerations, or "
+        "any non-boolean leaf, is rejected with a 400."
+    ),
+    "properties": {
+        event_type: {
+            "type": "object",
+            "properties": {channel: {"type": "boolean"} for channel in sorted(_VALID_CHANNELS)},
+            "additionalProperties": False,
+        }
+        for event_type in sorted(_VALID_EVENT_TYPES)
+    },
+    "additionalProperties": False,
+}
+
+
+@extend_schema_field(_PROJECT_NOTIFICATION_MATRIX_SCHEMA)
 class _ProjectNotificationMatrixField(serializers.JSONField):
     """JSON matrix `{event_type: {channel: bool}}` with strict key validation.
 
@@ -389,6 +437,16 @@ class ProjectNotificationPreferenceSerializer(
     """
 
     matrix = _ProjectNotificationMatrixField()
+    # The window is stored as a bare wall-clock range, so without these two the
+    # governed user cannot tell what "22:00" means (#3377). Workspace.timezone is
+    # itself member-readable (IsWorkspaceAdmin admits any role on safe methods), so
+    # this is not a disclosure question — it is that resolving the window client-side
+    # means re-implementing a four-tier chain across three models and keeping it in
+    # sync, and the winning *tier* is not derivable from the values at all. If
+    # GET /workspace/ is ever narrowed to IsWorkspaceAdminStrict (#1724), revisit
+    # whether these two should follow it; today they expose nothing new.
+    quiet_hours_timezone = serializers.SerializerMethodField()
+    quiet_hours_timezone_source = serializers.SerializerMethodField()
 
     class Meta:
         model = ProjectNotificationPreference
@@ -399,9 +457,71 @@ class ProjectNotificationPreferenceSerializer(
             "quiet_hours_enabled",
             "quiet_hours_from",
             "quiet_hours_until",
+            "quiet_hours_timezone",
+            "quiet_hours_timezone_source",
             "updated_at",
         ]
+        # quiet_hours_timezone* are SerializerMethodFields — inherently read-only, and
+        # DRF forbids naming a declared field here.
         read_only_fields = ["schema_version", "updated_at"]
+
+    def _resolved_quiet_hours_tz(self, instance: ProjectNotificationPreference) -> tuple[str, str]:
+        """``(IANA name, tier)`` for this row's window, memoized per project.
+
+        Memoized because both method fields call it for the same row; keyed on the
+        project so a serializer instance reused across projects cannot report one
+        project's zone for another.
+
+        ``instance.project`` costs no query because the view primes the FK cache —
+        ``get_or_create`` populates ``fields_cache`` on its create branch but not on
+        the get branch, which is the common one.
+
+        The workspace tier is left to the resolver rather than pre-loaded into
+        ``context``. Pre-loading it would be wrong twice over on this endpoint: it
+        queries even when the project sets its own timezone and the chain never
+        reaches the workspace, and — because the natural pre-load is
+        ``Workspace.load()``, a get_or_create — a *read* of this endpoint on an
+        install with no singleton would create the row and then report
+        ``source="workspace"``, where the dispatcher (which never writes) would have
+        reported ``"server"``. The whole point of these fields is to say what dispatch
+        does. ``context["workspace"]`` is still honored for a caller that has one in
+        hand, matching ``projects.bulk_settings``.
+        """
+        from trueppm_api.apps.notifications.services import resolve_quiet_hours_timezone
+
+        cache: dict[Any, tuple[str, str]] = getattr(self, "_quiet_hours_tz_cache", {})
+        key = instance.project_id
+        if key not in cache:
+            zone, source = resolve_quiet_hours_timezone(
+                instance.project, workspace=self.context.get("workspace")
+            )
+            cache[key] = (zone.key, source)
+            self._quiet_hours_tz_cache = cache
+        return cache[key]
+
+    @extend_schema_field(serializers.CharField())
+    def get_quiet_hours_timezone(self, instance: ProjectNotificationPreference) -> str:
+        """IANA zone the stored ``quiet_hours_from``/``_until`` are interpreted in."""
+        return self._resolved_quiet_hours_tz(instance)[0]
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[
+                QUIET_HOURS_TZ_SOURCE_PROJECT,
+                QUIET_HOURS_TZ_SOURCE_WORKSPACE,
+                QUIET_HOURS_TZ_SOURCE_SERVER,
+                QUIET_HOURS_TZ_SOURCE_FALLBACK,
+            ]
+        )
+    )
+    def get_quiet_hours_timezone_source(self, instance: ProjectNotificationPreference) -> str:
+        """Which tier supplied it: ``project``, ``workspace``, ``server`` or ``fallback``.
+
+        Provenance, not decoration — ``project`` vs ``workspace`` is the difference
+        between "my project lead set this" and "the workspace admin did", and
+        ``fallback`` says the chain found nothing usable and landed on UTC.
+        """
+        return self._resolved_quiet_hours_tz(instance)[1]
 
     def to_representation(self, instance: ProjectNotificationPreference) -> dict[str, Any]:
         """Upgrade the stored matrix to the current shape on read.

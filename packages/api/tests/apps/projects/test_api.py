@@ -168,6 +168,26 @@ class TestProjectGeneralFields:
         assert project.timezone == "Europe/London"
         assert project.default_view == "BOARD"
 
+    def test_patch_rejects_a_non_iana_timezone(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """The field validator must actually be reached from the endpoint (#3377).
+
+        A unit test on ``ProjectSerializer.validate_timezone`` proves the function
+        rejects; it does not prove the write path runs it. Since #3377 this field is
+        tier 1 of the quiet-hours chain, and the resolver cannot raise inside a
+        dispatch path — so a value that saves must be a value that works.
+        """
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"timezone": "Pacific Time"},
+            format="json",
+        )
+        assert r.status_code == 400, r.content
+        assert "timezone" in r.data
+        project.refresh_from_db()
+        assert project.timezone == ""
+
     @pytest.mark.parametrize(
         "code",
         ["", "A", "ATLAS", "ENG-2026", "AB1-CD2-EF3X"[:12], "0", "ABC-DEF-1234"],

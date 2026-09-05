@@ -387,14 +387,25 @@ export function WorkspaceGeneralPage() {
           <WorkspaceLogoField logoUrl={ws.logoUrl} name={ws.name} />
         </FieldRow>
 
+        {/* Two claims removed here, both false and both the same class the project
+            row's timezone copy was corrected for in this change (#3376). (1) It
+            was never "used for due dates and Gantt rendering": task dates are
+            calendar dates, so no zone can move them, and displayed instants come
+            from the viewer's own Profile.timezone (ADR-0410). (2) There was no
+            "when a project doesn't override" cascade — a project's timezone fell
+            back to settings.TIME_ZONE (hardcoded UTC), never to this column. That
+            second gap is now closed: this column is the quiet-hours fallback for
+            any project that sets no timezone of its own (#3377). Correcting one
+            page and leaving its sibling asserting the opposite would have shipped
+            the contradiction this change exists to remove. */}
         <FieldRow
           label="Default timezone"
-          hint="Used for due dates and Gantt rendering when a project doesn't override."
+          hint="Anchors quiet hours for any project that sets no timezone of its own."
           help={
             <FieldHelp
               label="Default timezone"
-              body="The time zone the workspace uses for due dates and Gantt rendering. A project can set its own; this applies wherever a project doesn't override it. It affects how dates display only — it never shifts a scheduled date to another day."
-              docHref="features/timezone-and-date-format/#timezone"
+              body="The fallback timezone for a project that sets none of its own. Its one effect today is anchoring the notification quiet-hours window of any project that sets none, so a 20:00–07:00 window means 20:00–07:00 here. A project that sets its own timezone is unaffected. It is not a display timezone — the times you see are always shown in your own personal timezone, and this never shifts a scheduled date to another day."
+              docHref="administration/workspace-settings/#default-timezone"
             />
           }
         >
@@ -490,7 +501,11 @@ export function WorkspaceGeneralPage() {
               /* Zero consumers: nothing seeds Project.default_view from this value, and
                  projects/seed/importer.py hardcodes "SCHEDULE". The control persists and
                  changes nothing (#3234). */
-              body="The view a member is intended to land on the first time they open a project. TruePPM does not read it yet — every project opens on its own default view, which is the Schedule. This field saves and reloads, but where you land does not change."
+              /* The replaced sentence corrected one false claim by asserting a
+                 second: nothing opens a project on its own `default_view` either
+                 — the redirect follows the viewer's role-context lens (ADR-0162,
+                 #3376). */
+              body="The view a member is intended to land on the first time they open a project. TruePPM does not read it: opening a project takes you to the view your own role context prefers, and no project setting is consulted either. This field saves and reloads, but where you land does not change."
               docHref="administration/workspace-settings/#settings-that-are-stored-but-not-yet-read"
             />
           }
