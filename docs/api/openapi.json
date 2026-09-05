@@ -61692,7 +61692,7 @@
             },
             "ProgramMembershipRead": {
                 "type": "object",
-                "description": "Response serializer for ProgramMembership — mirrors the project version.",
+                "description": "Response serializer for ProgramMembership — mirrors the project version.\n\n``joined_at`` carries the same caveat as its project twin: it is the date the row\nwas first created, and a revoked member who is later re-added keeps it, so the\nspan may contain revoked intervals (#3410). It is not proof of uninterrupted\naccess.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -63743,7 +63743,7 @@
             },
             "ProjectMembershipRead": {
                 "type": "object",
-                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole                       — integer ordinal (canonical wire format; use for comparisons)\nrole_label                 — human-readable label e.g. \"Project Manager\" (display only)\njoined_at                  — when this membership row was created (per-project access evidence)\nrole_changed_at            — when the role last changed, or null if unchanged since joining\nother_active_project_count — how many OTHER active (non-archived, non-deleted) projects this\n                             user belongs to, excluding the current one. A resource-load\n                             signal for the assigner (#598). The full count is shown; it is a\n                             number only and leaks no project identities.\nother_active_project_names — names of those other projects, but ONLY the ones the *requesting*\n                             user is OWNER of (visibility gate — never reveal the name of a\n                             project the requester cannot already see). Empty for non-OWNERs.",
+                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole                       — integer ordinal (canonical wire format; use for comparisons)\nrole_label                 — human-readable label e.g. \"Project Manager\" (display only)\njoined_at                  — when this membership row was first created. Per-project access\n                             evidence, but NOT proof of uninterrupted access: re-adding a\n                             previously removed member revives their original row and keeps\n                             this date, so the span may contain one or more revoked intervals\n                             (#3410). Nothing on the row records the gap.\nrole_changed_at            — when the role last changed, or null if unchanged since joining\nother_active_project_count — how many OTHER active (non-archived, non-deleted) projects this\n                             user belongs to, excluding the current one. A resource-load\n                             signal for the assigner (#598). The full count is shown; it is a\n                             number only and leaks no project identities.\nother_active_project_names — names of those other projects, but ONLY the ones the *requesting*\n                             user is OWNER of (visibility gate — never reveal the name of a\n                             project the requester cannot already see). Empty for non-OWNERs.",
                 "properties": {
                     "id": {
                         "type": "string",
