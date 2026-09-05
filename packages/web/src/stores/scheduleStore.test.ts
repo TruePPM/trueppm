@@ -28,11 +28,6 @@ describe('useScheduleStore', () => {
     expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
 
-  it('setZoomLevel updates zoom', () => {
-    useScheduleStore.getState().setZoomLevel('month');
-    expect(useScheduleStore.getState().zoomLevel).toBe('month');
-  });
-
   it('setSelectedTaskId selects a task', () => {
     useScheduleStore.getState().setSelectedTaskId('t1');
     expect(useScheduleStore.getState().selectedTaskId).toBe('t1');

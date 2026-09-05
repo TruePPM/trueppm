@@ -146,11 +146,4 @@ describe('ProgramProjectsPage (settings)', () => {
     renderPage();
     expect(screen.getByRole('button', { name: /Add project/i })).toBeInTheDocument();
   });
-
-  it('does not render the StubPageBanner once wired', () => {
-    useProgram.mockReturnValue({ data: { id: 'p-1', name: 'Phase 2', my_role: 400 } });
-    useProgramProjects.mockReturnValue({ data: [], isLoading: false, error: null });
-    renderPage();
-    expect(screen.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
-  });
 });

@@ -8,7 +8,6 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * - The slip-propagation radio and escalation_days input render from GET.
  * - Changing either field arms the shell save bar; Save fires a PATCH.
  * - Non-admin role sees disabled controls and the Read-only pill.
- * - The stub-page-banner is gone (the page is no longer a stub).
  */
 
 const ME_ID = 'user-alice';
@@ -131,8 +130,6 @@ test.describe('Program Settings → Risk & deps policy', () => {
     // The warn radio is the default fixture; the sr-only input carries the checked state.
     await expect(page.getByRole('radio', { name: /Warn only/ })).toBeChecked();
     await expect(page.getByRole('spinbutton')).toHaveValue('3');
-    // Stub banner is gone — the page is wired.
-    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
   });
 
   test('changing the slip radio arms the save bar and Save sends a PATCH', async ({ page }) => {

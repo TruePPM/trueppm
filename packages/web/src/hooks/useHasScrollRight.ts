@@ -8,8 +8,8 @@ import { useEffect, useState } from 'react';
  * platforms with auto-hiding scrollbars (macOS, touch), where the rightmost
  * board column clipped flush at the viewport edge otherwise reads as truncation,
  * not overflow (#1972). This is the horizontal analog of `useHasScrollBelow`
- * (the board's vertical edge-fade, #1962) and of the `ShellNavScroller` probe
- * (web-rule 174).
+ * (the board's vertical edge-fade, #1962) and of the `StatusClusterScroller`
+ * edge-fade probe (web-rule 290).
  *
  * Re-measured on scroll and via `ResizeObserver` on the container and its direct
  * children, so a viewport resize, a card added to a column, a panel expanding, a

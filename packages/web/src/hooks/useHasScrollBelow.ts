@@ -7,8 +7,8 @@ import { useEffect, useState } from 'react';
  * Drives a bottom edge-fade affordance so vertical overflow is discoverable on
  * platforms with auto-hiding scrollbars (macOS, touch), where a card clipped
  * flush at the fold otherwise reads as truncation, not overflow (#1962). This
- * is the vertical analog of the horizontal edge-fade probe in `ShellNavScroller`
- * (web-rule 174).
+ * is the vertical analog of the horizontal edge-fade probe in
+ * `StatusClusterScroller` (web-rule 290).
  *
  * Re-measured on scroll and via `ResizeObserver` on the container and its direct
  * children, so a viewport resize, a card added to a column, a panel expanding,
