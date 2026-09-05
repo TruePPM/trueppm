@@ -239,6 +239,7 @@ steepest part of the curve is not yet explained by any of them (#3385).
 - **Workshop facilitation core** (#1396 #1397) — a shared timer and dot voting on the Live Retro Board, riding the existing realtime channel with no new trust surface; the full collaborative-canvas shell (Excalidraw, guest links) follows at 0.7 (#1281)
 - **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
 - **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
+- **Fully cloud native — basic HA in the OSS core** (#3408) — operator-managed in-cluster HA PostgreSQL with automatic failover and WAL archiving (#3403), replicated Valkey with Sentinel and a CI failover drill (#3404), one application Secret contract with an ExternalSecret template and rollout-on-rotation (#3405), zero-downtime rotation of every application key (#3406), and multi-arch images (#3407). External managed datastores stay fully supported; cross-region and DR remain Enterprise
 - **System Health operator UI** (#691) — dead-letter requeue/drop write actions over the durable-execution backbone (outbox dispatch, Beat heartbeat, retention purge), building on the read-only overview dashboard and dead-letter inspector that shipped at 0.2; rich outbox metrics and subscriber breakdown follow at 1.0
 
 ### 0.6 — open & portable (no date — next after 0.5)
@@ -384,6 +385,6 @@ These features live in a separate proprietary repository and overlay the OSS cor
 - Jira / GitLab / ServiceNow connectors (git integration hub — 0.2)
 - AI scheduling and scenario modeling
 - Portfolio Monte Carlo
-- Multi-tenancy and HA deployment
+- Multi-tenancy, and advanced HA / disaster recovery — cross-region replication, geo failover, active-active with leader-elected singletons, SLA-grade failover evidence, managed backup verification (basic single-cluster HA — in-cluster HA PostgreSQL and Valkey — lands in the OSS core at 0.5, #3408)
 - Methodology Marketplace and Automated Cohesion Inference (both undated — see **Direction** above)
 - **AI governance overlay** — the organizational counterpart to the OSS AI layer, registering against its extension points: immutable agent audit trail, approval workflows for agent writes, custom agent roles and capability policy, cross-program AI decision-memory and forecast calibration, portfolio AI scenario modeling, org-wide AI model-governance and data-egress policy, compliance evidence export for AI-assisted decisions, and bidirectional Integration-Hub AI-reconciliation
