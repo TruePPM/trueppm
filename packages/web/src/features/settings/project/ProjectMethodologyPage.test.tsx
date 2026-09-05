@@ -94,8 +94,34 @@ describe('ProjectMethodologyPage', () => {
   it('seeds the picker from the project methodology and shows the inherited default', () => {
     renderPage();
     expect(screen.getByRole('radio', { name: /Agile/i, checked: true })).toBeInTheDocument();
-    // The inherited (workspace/program) default is surfaced as context.
+    // Standalone project (no program) → the inherited value came from the workspace.
     expect(screen.getByText(/Inherited from the workspace default/i)).toBeInTheDocument();
+  });
+
+  // #3293: `inherited_methodology` resolves program → workspace, but the banner
+  // hard-coded "workspace default", so a project inside a program whose
+  // methodology differs from the workspace's was told the wrong scope.
+  it('names the program when the inherited default came from the parent program', () => {
+    useProject.mockReturnValue({
+      data: makeProject({
+        program: 'prog-1',
+        methodology: 'AGILE',
+        effective_methodology: 'AGILE',
+        // The program runs Waterfall; the workspace default is Hybrid. The banner
+        // renders WATERFALL, so it must name the program, not the workspace.
+        inherited_methodology: 'WATERFALL',
+      }),
+    });
+    renderPage();
+    expect(screen.getByText(/Inherited from the program default/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Inherited from the workspace default/i)).not.toBeInTheDocument();
+  });
+
+  it('names the workspace for a standalone project', () => {
+    useProject.mockReturnValue({ data: makeProject({ program: null }) });
+    renderPage();
+    expect(screen.getByText(/Inherited from the workspace default/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Inherited from the program default/i)).not.toBeInTheDocument();
   });
 
   it('saves the chosen override via PATCH for an Admin under SUGGEST', async () => {

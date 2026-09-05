@@ -1,0 +1,107 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+
+  // Reachability roots. Everything in `project` that no chain of imports
+  // reaches from one of these is reported as an unused file.
+  "entry": [
+    "src/main.tsx",
+
+    // MUST stay explicit. createCpmWorker.ts builds the worker URL in two
+    // steps *on purpose* — the comment there says why: the single-expression
+    // `new Worker(new URL('./cpmWorker.ts', import.meta.url))` form triggers
+    // Vite's worker-bundling transform, which hangs under Vitest's jsdom
+    // collection. knip resolves worker URLs by the same static-analysis
+    // pattern Vite does, so it inherits exactly that blindness and would
+    // report cpmWorker.ts (and everything only it imports) as unused.
+    "src/workers/cpmWorker.ts",
+
+    "e2e/**/*.spec.ts",
+    "e2e/fixtures/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright*.config.ts",
+    "tailwind.config.ts",
+    "postcss.config.js",
+    "eslint.config.js",
+    "scripts/*.mjs"
+  ],
+
+  // The population the gate polices. `**/*.test.ts(x)` and `e2e/**` are in
+  // deliberately: a vitest or Playwright spec is a real consumer, so a
+  // test-only export (GanttRenderer.ts, scheduleConstants.ts) needs no
+  // per-file ignore. Do not add one — an ignore is how this gate goes blind.
+  "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
+
+  "ignore": [
+    // Hand-maintained (not generated — see the file's own header and #2609).
+    // Interfaces are written ahead of their consumers as the API schema
+    // moves, so every unbuilt endpoint reads here as a dead export.
+    "src/api/types.ts",
+
+    // Gitignored build artifacts. Absent from a clean checkout, present in
+    // any tree that has run `tsc -b` / `npm run build`, so the gate must give
+    // the same answer either way.
+    "vite.config.js",
+    "vite.config.d.ts",
+    "vitest.config.js",
+    "vitest.config.d.ts"
+  ],
+
+  // Turns OFF knip's Vite plugin — and with it the ONLY thing that matters
+  // here, its `import.meta.glob` visitor
+  // (node_modules/knip/dist/plugins/vite/visitors/importMetaGlob.js).
+  //
+  // That visitor reads the glob pattern and nothing else: it does not look at
+  // the options object, so `query: '?raw'` is invisible to it and every
+  // matched file is recorded as a real module import. Nine specs in this tree
+  // do source-text scans that way, and two of them glob `src/**/*.{ts,tsx}`
+  // from two directories deep — which makes the ENTIRE src tree reachable and
+  // silently reduces this gate to zero findings. Verified: with the plugin on,
+  // a freshly created `src/<anything>.ts` exporting a symbol nobody imports is
+  // reported clean.
+  //
+  // Nothing else is lost. The plugin's other jobs are resolving vite.config.ts
+  // and index.html into entry points; both are named explicitly above. Every
+  // `import.meta.glob` in the tree today is `query: '?raw'`, so no genuine
+  // module edge disappears with it. If a real (non-raw) module glob is ever
+  // added, its targets will start reading as unused — add them to `entry`
+  // rather than turning this back on.
+  "vite": false,
+
+  // Per-rule severity. Only DOWNGRADES are listed: every rule not named here
+  // keeps knip's default `error`, so a rule added by a future knip version
+  // arrives enforced rather than silently omitted. `warn` still prints the
+  // finding in full — same file, same symbol, same line — it just does not
+  // reach the exit code, which is what lets this job run `allow_failure: false`
+  // and be a real gate for the classes that ARE at zero.
+  //
+  // At `error` and clean today: `unlisted` (was 9 — `@eslint/js` and the three
+  // `istanbul-*` packages are imported directly by `eslint.config.js` and
+  // `scripts/merge*-coverage*.mjs` but resolved only transitively; they are now
+  // declared devDependencies, which is the actual fix, not a suppression),
+  // `unresolved`, `dependencies`, `devDependencies`, `binaries`, `enumMembers`,
+  // `namespaceMembers`, `nsExports`, `nsTypes`, `cycles`, and the catalog rules.
+  //
+  // The four below have a non-zero backlog that predates this gate. Promoting
+  // each to `error` as it reaches zero is #3434 — do not promote one while it
+  // still reports, and do not clear a finding by adding an `ignore`.
+  //
+  //   files (9)       every one is deleted by #3369, already in flight. This is
+  //                   the class the gate exists for; it is the first to promote.
+  //   exports (50)    mostly barrel re-exports nobody imports through the barrel
+  //                   (`schedule/buildMode/index.ts` alone is ~28 of them).
+  //   types (53)      same shape, same barrels.
+  //   duplicates (3)  three aliased re-export pairs in `scheduleConstants.ts`.
+  "rules": {
+    "files": "warn",
+    "exports": "warn",
+    "types": "warn",
+    "duplicates": "warn"
+  },
+
+  // A symbol exported only so a sibling in the same file can use it is a
+  // style question, not a dead surface.
+  "ignoreExportsUsedInFile": true,
+
+  "paths": { "@/*": ["src/*"] }
+}
