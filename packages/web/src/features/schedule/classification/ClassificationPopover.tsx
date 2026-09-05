@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { DeliveryMode, GovernanceClass, Task } from '@/types';
+import { shouldDiscloseUndoFloor } from '@/lib/roles';
 import type { ClassificationError } from './useClassificationPopover';
 import {
   CLASSIFICATION_PRESETS,
@@ -63,6 +64,16 @@ export interface ClassificationPopoverProps {
   tasks: Task[];
   isPending: boolean;
   /**
+   * The server's `Project.can_undo_batch_operations` — may THIS caller reverse the
+   * cascade they are about to apply? (#3357, web rule 373(d))
+   *
+   * Three-valued on purpose: `undefined` is "the project query has not answered
+   * yet", which is not the same as `false`. Pass the raw field through; the
+   * disclosure decision is {@link shouldDiscloseUndoFloor}, which discloses only on
+   * an affirmative `false`.
+   */
+  canUndoBatchOperations: boolean | undefined;
+  /**
    * The refusal from a failed cascade. Only a `retryable` one switches Apply to
    * "Retry" — see {@link ClassificationError}.
    */
@@ -83,6 +94,7 @@ export function ClassificationPopover({
   target,
   tasks,
   isPending,
+  canUndoBatchOperations,
   error,
   onApply,
   onClose,
@@ -140,6 +152,27 @@ export function ClassificationPopover({
 
   const activePreset = matchingPreset(governanceClass, deliveryMode);
   const canApply = governanceClass !== null || deliveryMode !== null;
+  // Web rule 373(d): the undo floor (Admin+) sits above the apply floor, so a caller
+  // can commit a cascade nobody but a Project Manager can replay. #3304 stopped
+  // OFFERING them the Undo; this says so before they act, on the standing surface
+  // that commits it — the 8s toast cannot carry a second clause (rule 356).
+  const discloseUndoFloor = shouldDiscloseUndoFloor(canUndoBatchOperations);
+  /**
+   * Id for the disclosure note, bound from BOTH the dialog and the Apply button.
+   *
+   * The dialog binding is the mechanism, not the belt-and-braces (web rule 380).
+   * `aria-describedby` is announced when the described element takes FOCUS — and this
+   * popover submits on `Enter` from anywhere inside it, while `useFocusTrap` seats
+   * initial focus on the first preset chip. So the fastest keyboard path (open, arrow
+   * an axis, Enter) never focuses Apply, and a screen-reader user bound only at the
+   * button would commit the cascade having never heard the disclosure. A dialog
+   * description is announced on focus ENTRY, whichever child receives it.
+   *
+   * `useId` rather than a module constant because a duplicate id silently breaks every
+   * `aria-describedby` pointing at it and NO test catches that: the unit and E2E
+   * assertions both compare the attribute against `note.id`, which still matches.
+   */
+  const undoFloorId = useId();
 
   // Clamp inside the viewport before first paint so the popover never opens
   // half off-screen on a row near the bottom of a tall grid.
@@ -156,7 +189,12 @@ export function ClassificationPopover({
     if (top + rect.height > vh - VIEWPORT_PAD) top = Math.max(VIEWPORT_PAD, vh - VIEWPORT_PAD - rect.height);
     if (top < VIEWPORT_PAD) top = VIEWPORT_PAD;
     setPosition({ top, left });
-  }, [anchor.x, anchor.y, containerRef]);
+    // `discloseUndoFloor` and `visibleError` are dependencies because the clamp pins
+    // `top` to `vh - pad - height` from ONE measurement, and this is `position: fixed`
+    // — there is no page scroll to recover content pushed below the viewport floor.
+    // Both of these insert lines into the footer after mount, and they stack for
+    // exactly one reader: the below-Admin caller who gets the note AND then a refusal.
+  }, [anchor.x, anchor.y, containerRef, discloseUndoFloor, visibleError]);
 
   // Click-outside closes. mousedown (not click) so we fire before an inner
   // control's click handler can run against a popover that is about to unmount.
@@ -223,6 +261,7 @@ export function ClassificationPopover({
       role="dialog"
       aria-modal="false"
       aria-label="Classification"
+      aria-describedby={discloseUndoFloor ? undoFloorId : undefined}
       data-testid="classification-popover"
       tabIndex={-1}
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
@@ -317,6 +356,45 @@ export function ClassificationPopover({
       </div>
 
       <div className="px-4 py-3 border-t border-neutral-border">
+        {/* Rule 373(d): the reversal floor, disclosed BEFORE the act — not appended
+            to the receipt afterwards (rule 356: a notice about a missing notice is
+            noise, and an 8s `aria-live` region cannot carry a second clause).
+
+            Standing content, so a plain `<p>` — deliberately NOT inside the
+            `role="status"` preview below, whose implicit `aria-atomic` would make AT
+            re-read this sentence on every keystroke that changes the preview. It is
+            bound to Apply with `aria-describedby` because it is about that act, but
+            the binding is belt-and-braces: DOM containment inside the dialog is what
+            actually guarantees a reader meets it (rule 377(c)).
+
+            Leads with the FACT, not the floor. "Reversing a cascade needs Project
+            Manager" states a rule that is under live revision — #3355 is open on
+            whether the Admin+ floor is right at all, and `structural_operation_services`
+            already implements actor-or-Admin instead. If that floor moves, a sentence
+            naming it is wrong copy; a sentence naming what happens to THIS caller stays
+            true and simply stops rendering, because the server field flips with the
+            predicate. The role belongs in the recovery clause, where rule 373(d)
+            requires it: the reader needs to know someone can.
+
+            "Project Manager" rather than "an Admin" because it is the server's own
+            label for ROLE_ADMIN (access/models.py), so the sentence matches the member
+            list and the role chip this user already sees.
+
+            Third clause because the first two alone overstate the harm. The cascade
+            deletes nothing and this popover stays reachable, so it is not a dead end —
+            what is unrecoverable is the prior per-row mixture the ledger undo would
+            replay. */}
+        {discloseUndoFloor && (
+          <div id={undoFloorId} className="mb-2" data-testid="classification-undo-floor">
+            <p className="leading-snug font-medium text-neutral-text-primary">
+              You won&rsquo;t be able to reverse this — someone with Project Manager rights
+              can.
+            </p>
+            <p className="mt-1 leading-snug text-neutral-text-secondary">
+              Reclassifying afterwards won&rsquo;t restore what each row had before.
+            </p>
+          </div>
+        )}
         {/* A sibling of the preview, not a child of it: `role="status"` carries an
             implicit `aria-atomic="true"`, so an error appended inside it makes AT
             re-read the whole preview before the refusal — and nesting `role="alert"`
@@ -376,6 +454,7 @@ export function ClassificationPopover({
               size="sm"
               disabled={!canApply || isPending}
               onClick={submit}
+              aria-describedby={discloseUndoFloor ? undoFloorId : undefined}
               data-testid="classification-apply"
             >
               {/* A refused 4xx keeps the Apply label: the way forward is to change

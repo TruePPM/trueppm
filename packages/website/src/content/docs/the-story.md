@@ -1,9 +1,28 @@
 ---
 title: "The story — bridging two worlds"
 description: How TruePPM bridges agile sprint cadence and waterfall schedule rigor on a single data model.
+documentedFor: "0.4"
 sidebar:
   order: 1
 ---
+
+:::note[Ships in 0.4]
+Several things on this page are **not** in `v0.3.0-alpha.3`, the latest release:
+
+- **The AI client persona and the read-only MCP server** ("Computed, not
+  guessed") — ship in **0.4**, TruePPM's first beta.
+- **The provenance graph** behind computed answers, and the **hosted read-only
+  demo** — also **0.4**.
+- **Plan-mode dry runs** for the MCP server — **0.5**.
+- **The committing write surface, the native mobile app, and the mobile exec
+  view** — **0.6**.
+- The **Enterprise portfolio dashboard** is a separate roadmap item with no
+  version commitment yet.
+
+Everything else on this page — the six human personas, the eight-step hybrid
+flow, and the translation-layer argument — describes 0.3 behavior and is
+current.
+:::
 
 Most P3M tools force a choice. Jira speaks Agile and translates poorly to a Gantt chart. MS Project speaks Waterfall and ignores the team's actual cadence. **TruePPM is built so a Scrum Master and a Program Manager look at the same data — and each sees the view they need.**
 
@@ -122,10 +141,14 @@ Raj enters durations and dependencies on the work packages — not the leaves ye
 
 **Actors:** Sarah (RM), Raj (PM)
 
-Raj assigns roles (not people yet) to work packages. Sarah sees the demand land in her capacity heat map and immediately flags a contention: the migration phase needs two senior database engineers in October, but one is committed to a different program and the other is on PTO. Raj reschedules the phase or escalates for hire — before the sprint team has touched a single story.
+Raj staffs the work packages from the project roster, at fractional units — Priya at 0.5 on the migration phase, not "a DBA, TBD". Sarah opens the project's week × person capacity heat map (**Team → Heatmap**), groups it by job role, and immediately flags a contention: the migration phase needs two senior database engineers in October and the heat map shows Priya at 140% for three straight weeks. Raj reschedules the phase or escalates for hire — before the sprint team has touched a single story.
 
 :::tip[This is the win]
 Capacity contention is caught at plan time, not discovered three sprints in. Most agile-first tools have no notion of this. Most waterfall-first tools don't reflect actual sprint commitments. TruePPM models both, so Sarah's view is real.
+:::
+
+:::note[Read the heat map at the scope it has]
+The heat map is **per project** — it sums the assignment units on one project's roster and answers "who is overcommitted *here*". Seeing the same person's commitments across every program at once is the **cross-portfolio** heat map, which is part of the Enterprise edition. It also reads assignments, not the `assignee` field: a task with a bare assignee and no resource assignment contributes zero load. Inside an active sprint, [capacity preflight](/features/capacity-preflight/) asks the same question of the sprint's committed hours.
 :::
 
 → See [Capacity preflight](/features/capacity-preflight/)
@@ -147,35 +170,44 @@ A story is just a leaf task with a `sprint` FK, a `story_points` field, and a pa
 Sprint 1 opens. Maya runs sprint planning on the board view. She drags stories from the backlog into the sprint. The team discusses, splits, estimates. Tom and his peers commit to 38 points based on a 3-sprint rolling average velocity of 41.
 
 - **Maya's view:** standard Scrum board with WIP limits per column, daily standup view, [Plan Sprint dialog](/features/plan-sprint/) for the next iteration.
-- **Raj's view:** the same stories, rolled up to their parent work package, appear on his Gantt with their forecast completion date based on velocity. TruePPM suggests a revised CPM duration for the work package, non-destructively — Raj reviews and applies it in one click. (As of 0.3, closing a sprint reforecasts the master schedule automatically.) If sprint commitment is materially off the work package's baseline, his schedule variance indicator turns yellow.
+- **Raj's view:** the same stories, rolled up to their parent work package. Once the sprint is linked to a milestone, that milestone's percent complete rolls up live from sprint state, and a **sprint-plan variance chip** reads the latest planned or active sprint's finish date against the milestone's CPM date — `Sprint plan: +3d slip`. The variance is display only: sprint dates are never mutated and there is no "shift the milestone" button. When the sprint closes, TruePPM offers Raj a revised most-likely duration for each pointed story — one suggestion at a time, and nothing is written until he accepts.
 
-→ See [Sprints workspace](/features/sprints/), [Sprint backlog](/features/sprint-backlog/), [Plan Sprint dialog](/features/plan-sprint/)
+→ See [Sprints workspace](/features/sprints/), [Sprint backlog](/features/sprint-backlog/), [Plan Sprint dialog](/features/plan-sprint/), [Sprint → milestone rollup](/features/sprint-milestone-rollup/)
 
 ### 6. Execute — daily cadence, two worlds in sync
 
 **Actors:** Tom, Maya, Raj, Sarah
 
-During sprint execution, Tom moves cards across the board. He never opens the Gantt. Maya runs standup against the board. Sarah watches actual hours roll up against allocated capacity. Raj watches the schedule view as velocity-based duration suggestions land on his work packages from real velocity and burndown.
+During sprint execution, Tom moves cards across the board. He never opens the Gantt. Maya runs standup against the board. Raj watches the bound milestone's rollup and its variance chip move as stories close. Sarah's heat map holds steady while they do — load is the assignment's full allocation rate across the task's span, deliberately not scaled down by percent complete, because a person's real commitment to a task does not shrink because they finished part of it.
 
 When Tom marks a story done, the API:
 
 ```
 1. Update task.status, task.actual_finish, task.server_version
-2. Recompute parent work_package.remaining_points
-3. Recompute the velocity-based forecast (velocity × remaining_points)
-   and surface a non-destructive duration suggestion for the PM
-4. If the forecast drifts > X days from baseline:
-     mark schedule_variance flag, broadcast WS event
-5. Recompute critical path if dependencies cross the threshold
-6. Push WS event to all subscribed views
+2. Roll the change up through the parent work package
+3. If the task's sprint targets a milestone, recompute that milestone's
+   percent complete and its sprint-plan variance
+4. Recompute the CPM pass over the durations already on the plan
+5. Broadcast milestone_rollup_updated + the task delta to every
+   subscribed view
 ```
 
-The reforecast is a suggestion loop by default — Raj reviews the velocity-suggested
-durations and applies them non-destructively — and as of 0.3, closing a sprint
-applies the reforecast to the master schedule automatically.
+None of that rewrites the plan. The rollup advises; the durations on Raj's Gantt are still the ones he entered.
+
+#### What closing a sprint actually does
+
+This is the bridge, and it is the claim most easily overstated — so here is the whole of it. Closing a sprint does three things:
+
+1. **It recomputes the milestone rollup.** The bound milestone's percent complete and its sprint-plan variance chip pick up the closing sprint's final committed/completed snapshot.
+2. **It writes a forecast band.** TruePPM takes the milestone's *existing* CPM finish date, wraps a **P50/P80 band** around it from the team's velocity re-paced over the remaining bound backlog, and stores that as a forecast snapshot with a confidence label. If the band materially moves the likely finish or the confidence, the project's manager cohort is notified. The milestone's own CPM date is **read**, not written.
+3. **It offers velocity-calibration suggestions.** Each pointed story in the closing sprint gets a proposed revised most-likely duration, waiting in the task drawer as a banner Raj can accept or dismiss.
+
+A routine CPM recompute is queued after the close, as after any write — it recalculates dates from the durations already on the plan. **Closing a sprint never rewrites a duration.** An estimate changes only when Raj accepts a suggestion, which writes that task's most-likely duration and queues a CPM and Monte Carlo recompute; that value is the one Monte Carlo samples, so it moves the confidence dates on the forecast. The deterministic duration on the bar stays the PM's to set.
+
+Live per-bar Gantt forecasts and amber/red schedule-variance indicators driven by *mid-sprint* velocity are part of the deep CPM-aware bridge planned for 0.5 (#372) — they do not exist yet.
 
 :::note[One source of truth]
-Tom updated one card. Maya's burndown moved. Raj's Gantt picked up a fresh forecast. Sarah's capacity reconciled. Diana's portfolio dashboard updates the same way (roadmap: Enterprise portfolio dashboard), as will Carlos's exec view (roadmap: mobile exec view). **Zero status meetings to keep them consistent.**
+Tom updated one card. Maya's burndown moved. Raj's milestone rollup moved with it. Sarah's heat map picked up whatever dates the CPM shifted downstream. Diana's portfolio dashboard updates the same way (roadmap: Enterprise portfolio dashboard), as will Carlos's exec view (roadmap: mobile exec view). **Zero status meetings to keep them consistent.**
 :::
 
 → See [Sprint backlog](/features/sprint-backlog/), [Burndown chart](/features/sprint-burndown/), [WIP overload detection](/features/wip-overload/), [Real-time sync](/features/real-time/)
@@ -186,7 +218,7 @@ Tom updated one card. Maya's burndown moved. Raj's Gantt picked up a fresh forec
 
 Mid-program, Raj runs a Monte Carlo on the milestone forecast. The simulation pulls historical sprint velocity (real, not estimated) for the team-driven nodes and PERT-style three-point estimates for the deterministic ones. The result is a probability distribution on the milestone date.
 
-**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Carlos opens his exec view on his phone (roadmap: the mobile exec view ships with the native app at 0.5). He sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
+**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Carlos opens his exec view on his phone (roadmap: the mobile exec view ships with the native app at 0.6). He sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
 
 And Raj is no longer the only one who can run that question. With the read-only MCP server that lands in the 0.4 beta, an engineer can put the same what-if to an agent — *"slip the migration three days, do we still make October 15th?"* — and get the identical distribution, because the agent calls the same Monte Carlo the button does. The model phrases the answer; the engine computes it.
 
@@ -196,11 +228,11 @@ And Raj is no longer the only one who can run that question. With the read-only 
 
 **Actors:** Maya, Raj, Diana
 
-Sprint retros feed into the team's continuous improvement. Project closeout captures schedule variance against the baseline, cost variance against the budget, and a structured lessons-learned set. Diana's PMO archive is the next program's velocity prior.
+Sprint retros feed into the team's continuous improvement — and each action item carries an explicit **Promote to backlog**, so last sprint's lessons become real work items rather than a document nobody reopens. Raj gets schedule variance against the plan he committed: a baseline is a frozen snapshot of the schedule, and every task reports its start/finish drift in days against it (in-app capture and the baseline manager ship in 0.4; on the latest release baselines are reachable over the REST API only). The team's closed-sprint velocity history is there for the next program to plan against.
 
-Because every story, work package, milestone, and decision is in the same relational store, the closeout report is a query, not a content-creation exercise.
+**What closeout does not include today.** Cost variance against a budget is not one of these numbers — TruePPM has no cost model. Resource costs (#73) and EV-lite (PV/EV/AC with SPI/CPI, #2139) are sequenced for 0.8; past 0.6 a version number records how work is currently sequenced in the tracker, not a date we have committed to. There is no generated closeout report either: the retro, the baseline variance table, the risk register, and the change history are each their own surface, and assembling a closeout pack out of them is still a manual exercise. What the shared data model buys you is that every one of those surfaces reads the same rows — not that a report writes itself.
 
-→ See [Retrospective panel](/features/retrospective/), [Multi-team Sprints lens](/features/multi-team-lens/)
+→ See [Retrospective panel](/features/retrospective/), [Baselines](/features/baselines/), [Multi-team Sprints lens](/features/multi-team-lens/)
 
 ## The translation layer — one data model, two views
 
@@ -231,9 +263,9 @@ The proof of hybrid PM is what each persona *doesn't* have to do anymore.
 | Persona | Pain in today's stack | What TruePPM gives them | Time saved / week |
 |---|---|---|---|
 | Maya | Re-entering sprint summary into a status doc the PMO requested. Explaining velocity to a PM who just wants a date. | Board view she lives in. Velocity automatically informs a forecast date her PM can read. No status doc. | ~3 hours |
-| Raj | Reconciling sprint progress to his Gantt every Monday. Estimating "done-ness" of stories he can't see. | Real-time forecast on his Gantt, driven by actual sprint velocity. Critical path auto-recomputes. | ~5 hours |
+| Raj | Reconciling sprint progress to his Gantt every Monday. Estimating "done-ness" of stories he can't see. | A milestone rollup that moves as the team works, and a P50/P80 forecast band written from real velocity every time a sprint closes. Critical path auto-recomputes on every write. | ~5 hours |
 | Diana | Begging 12 PMs for status decks every other Friday. Drift between what the deck says and what the team is actually doing. | Live portfolio dashboard (roadmap: Enterprise portfolio dashboard). Health computed, not reported. Drill-through to any team's actual board. | ~6 hours + meetings |
-| Sarah | Maintaining a separate spreadsheet of who's allocated where, never trusting any PM's number. | Demand auto-aggregated from sprint commitments + waterfall assignments. Conflicts surfaced before they happen. | ~8 hours |
+| Sarah | Maintaining a separate spreadsheet of who's allocated where, never trusting any PM's number. | Per-project demand auto-aggregated from sprint commitments + waterfall assignments. Conflicts surfaced before they happen. (The cross-portfolio view is Enterprise.) | ~8 hours |
 | Carlos | Reading watermelon decks. Asking "how confident?" and getting a shrug. | Phone view: 3 programs, P50/P80 confidence, one-line risk. Trend arrows on velocity, scope, burn (roadmap: mobile exec view). | Meetings he doesn't have to take |
 | Tom | Three tools, two of which his manager's manager makes him update. | One mobile-first card view. Updates propagate everywhere. He never opens the Gantt. | ~2 hours + frustration |
 

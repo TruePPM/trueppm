@@ -9,6 +9,12 @@
  * the edge cases cover the application still `pending` (nothing to summarize
  * yet — the banner is not a progress bar) and the Next strip's own empty state.
  *
+ * The terminal `failed` cases (#3348) sit alongside them: the apply rolls back in
+ * one transaction, so the project really is empty and the blank canvas below is
+ * right — but until #3348 nothing said the apply had failed at all, and
+ * `error_detail` had no reader anywhere in the web. The `failed` case here used to
+ * assert only the bare canvas, pinning that silence as correct.
+ *
  * The pending cases are deliberately TWO, seeded with and without rows (#3312).
  * The original single case set `applicationStatus: 'pending'` but seeded the
  * fixture WITH tasks, so the empty-and-pending window — the one a user lands in
@@ -111,8 +117,15 @@ const APPLICATION_SUCCESS = {
 
 async function setup(
   page: Page,
-  opts: { applicationStatus?: string; tasks?: typeof FIXTURE_TASKS } = {},
+  opts: {
+    applicationStatus?: string;
+    tasks?: typeof FIXTURE_TASKS;
+    /** `null` stands for a template deleted since the apply (#3348). */
+    template?: string | null;
+    errorDetail?: string;
+  } = {},
 ) {
+  const status = opts.applicationStatus ?? 'success';
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
@@ -123,7 +136,13 @@ async function setup(
       contentType: 'application/json',
       body: JSON.stringify({
         ...APPLICATION_SUCCESS,
-        status: opts.applicationStatus ?? 'success',
+        status,
+        template: opts.template === undefined ? APPLICATION_SUCCESS.template : opts.template,
+        // A real `failed` row always carries a reason (or an empty string); the
+        // success fixture's '' would make the verbatim-surfacing assertion vacuous.
+        error_detail:
+          opts.errorDetail ??
+          (status === 'failed' ? 'Template structure is no longer valid.' : ''),
       }),
     });
   });
@@ -273,21 +292,92 @@ test.describe('Seeded landing (#2731, ADR-0799)', () => {
     await expect(page.getByTestId('seed-banner')).toBeHidden();
   });
 
-  test('empty and NOT applying: the ordinary blank-project canvas is untouched', async ({
+  // #3348. This case USED to assert only the bare blank canvas, pinning the
+  // silence as correct. It still doubles as the seeding state's negative control —
+  // a `failed` apply is genuinely not seeding, and the blank canvas below it is
+  // genuinely right, because the apply rolled back in one transaction and left the
+  // project completely empty. What was missing was anything SAYING so.
+  test('empty and failed: the failure is stated ABOVE an untouched blank canvas', async ({
     page,
   }) => {
-    // The negative control. A `failed` application is deliberately not seeding
-    // (#3348) — that project really is empty, and the live draft row is the
-    // right affordance for it. Without this, the assertion above would pass just
-    // as well against a state that swallowed the blank canvas unconditionally.
     await setup(page, { applicationStatus: 'failed', tasks: [] });
     await page.goto(SCHEDULE_URL);
 
-    await expect(page.getByRole('textbox', { name: 'First item name' })).toBeVisible({
-      timeout: 10_000,
-    });
+    const banner = page.getByTestId('seed-failure-banner');
+    await expect(banner).toBeVisible({ timeout: 10_000 });
+    await expect(banner).toContainText('Delivery skeleton');
+    // The reassurance clause — the fact that was unsaid before this issue.
+    await expect(banner).toContainText('Nothing was written');
+    // `error_detail` reaches the user verbatim. It had no reader anywhere in the
+    // web until now, despite shipping on the serializer from the start.
+    await expect(page.getByTestId('seed-failure-banner-reason')).toHaveText(
+      'Reason: Template structure is no longer valid.',
+    );
+    // The recovery path names the canvas below as a CHOICE, not a leftover.
+    await expect(page.getByTestId('seed-failure-banner-recovery')).toHaveText(
+      'Try again, or just start building this project below.',
+    );
+
+    // The canvas underneath is deliberately UNCHANGED — "continue with an empty
+    // project" is that surface, not something the banner needs to offer. This is
+    // still the seeding state's negative control.
+    await expect(page.getByRole('textbox', { name: 'First item name' })).toBeVisible();
     await expect(page.getByLabel('Ways to fill this project')).toBeVisible();
     await expect(page.getByTestId('schedule-seeding-state')).toBeHidden();
+    // A failed apply wrote nothing, so there is nothing to undo or sweep — the
+    // success banner and its disposal controls must stay away.
+    await expect(page.getByTestId('seed-banner')).toBeHidden();
+  });
+
+  test('retrying a failed apply hands the schedule back to the seeding state', async ({
+    page,
+  }) => {
+    // The retry mints a NEW application id, and `ScheduleView` must swap to it
+    // *and* release the one-shot latches it keeps for the first apply. If it does
+    // not, the retry appears to work and then quietly lands back on the empty
+    // canvas — which is why this asserts the skeleton, not just the POST.
+    await setup(page, { applicationStatus: 'failed', tasks: [] });
+    const RETRY_ID = 'app-retry-0000-0000-000000003348';
+    await page.route(`**/api/v1/template-applications/${RETRY_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...APPLICATION_SUCCESS, id: RETRY_ID, status: 'pending' }),
+      }),
+    );
+    await page.route('**/api/v1/project-templates/tpl-1/apply/', (route) =>
+      route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ queued: true, application: RETRY_ID }),
+      }),
+    );
+    await page.goto(SCHEDULE_URL);
+
+    await expect(page.getByTestId('seed-failure-banner')).toBeVisible({ timeout: 10_000 });
+    const applyRequest = page.waitForRequest(
+      (req) => req.url().includes('/project-templates/tpl-1/apply/') && req.method() === 'POST',
+    );
+    await page.getByTestId('seed-failure-banner-retry').click();
+    const req = await applyRequest;
+    expect(req.postDataJSON()).toEqual({ project: PROJECT_ID });
+
+    // The failure notice gives way to the wait it started.
+    await expect(page.getByTestId('schedule-seeding-state')).toBeVisible();
+    await expect(page.getByTestId('seed-failure-banner')).toBeHidden();
+  });
+
+  test('a failed apply whose template was deleted offers no retry', async ({ page }) => {
+    // `template: null` is the one case where retry is structurally impossible, so
+    // the control is OMITTED rather than disabled and the sentence explains why.
+    await setup(page, { applicationStatus: 'failed', tasks: [], template: null });
+    await page.goto(SCHEDULE_URL);
+
+    await expect(page.getByTestId('seed-failure-banner')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('seed-failure-banner-retry')).toBeHidden();
+    await expect(page.getByTestId('seed-failure-banner-recovery')).toHaveText(
+      "This template no longer exists, so it can't be applied again. Start building this project below.",
+    );
   });
 
   test('edge case: a fully hand-authored plan shows no Next strip', async ({ page }) => {

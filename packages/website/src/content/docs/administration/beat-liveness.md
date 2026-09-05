@@ -20,8 +20,9 @@ To make that failure visible, the API records a **heartbeat** and exposes it for
 monitoring.
 
 :::note[Edition]
-Redundant Beat with leader-election failover is an Enterprise HA feature
-(`enterprise#20`). This page covers the basic detection layer every adopter gets.
+Redundant Beat with leader-election failover is an advanced-HA Enterprise feature
+(`enterprise#20`); basic single-cluster HA is part of the OSS core. This page
+covers the basic detection layer every adopter gets.
 :::
 
 For the broader picture — what survives a pod loss, what a Beat outage actually

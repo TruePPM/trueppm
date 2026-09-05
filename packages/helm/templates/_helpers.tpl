@@ -411,12 +411,64 @@ miss AND confirms the pod can reach the broker.
     the beat pod (a generous failureThreshold keeps a brief worker blip from
     killing beat).
 
-Value-tunable per component under .Values.probes.<component>. `app` names the
-Celery application (matches the worker/beat -A argument).
-Usage: include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME")
+`kind` is "liveness" or "readiness" and selects WHICH timings to resolve (#3230).
+Before #3230 this helper emitted one body that celery-worker/deployment.yaml
+included twice, so the two probes were forced to identical numbers — despite
+opposite risk profiles. A readiness failure is free (the worker sits behind no
+Service; readiness paces rolling updates and nothing else). A liveness failure
+KILLS the container, and for the worker that burns
+lifecycle.worker.terminationGracePeriodSeconds — 300s of unavailability per kill.
+
+Resolution order for every numeric knob, and note that the FLAT key wins:
+
+  1. .Values.probes.<component>.<key>           — the pre-#3230 flat form
+  2. .Values.probes.<component>.<kind>.<key>    — the per-probe form
+  3. the built-in below                         — only if the block was emptied
+
+The flat keys used to mean "both probes", and preserving that meaning exactly is
+what keeps an existing operator values file working: if the per-probe layer won,
+the chart's own re-derived defaults (which ship UNDER liveness:/readiness:) would
+silently override a flat value an operator had already set — the precise break the
+split must not cause. So a flat key is a SHARED OVERRIDE that forces both probes to
+one number, exactly as before; to tune the two apart, set the per-probe key and
+leave the flat one null. The built-ins are the pre-#3230 numbers, so a values file
+that strips the probe block back to `enabled` still renders today's behavior.
+
+kubelet's own `timeoutSeconds` is derived rather than configured, because it has to
+cover the celery ping budget PLUS the `sh` fork, the Python start, and the
+Django/Celery app import that every exec probe pays inside the container it is
+measuring. It was hardcoded at the celery --timeout +5, which does not scale: raise
+the ping budget because the node is slow, and the fixed 5s of import headroom stays
+5s on the same slow node. If kubelet fires first there is no celery stderr to read,
+so the failure presents as a bare `Liveness probe failed:` with an empty body and
+nothing naming the cause. The derivation is therefore max(t+5, 1.5t) — identical to
+the old +5 at the default t=10 (both give 15), and widening headroom as t grows
+(t=20 -> 30 rather than 25) so celery's own timeout is what fires and reports.
+Override with `kubeletTimeoutSeconds` (flat or per-probe) when the derived value is
+wrong for your node.
+
+`app` names the Celery application (matches the worker/beat -A argument).
+Usage: include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "liveness" "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME")
 */}}
 {{- define "trueppm.celeryProbe" -}}
-{{- $timeout := .probe.timeoutSeconds | default 10 -}}
+{{- $p := .probe -}}
+{{- $o := (index $p .kind) | default dict -}}
+{{- $init := 30 -}}
+{{- if not (kindIs "invalid" $o.initialDelaySeconds) }}{{- $init = $o.initialDelaySeconds -}}{{- end -}}
+{{- if not (kindIs "invalid" $p.initialDelaySeconds) }}{{- $init = $p.initialDelaySeconds -}}{{- end -}}
+{{- $period := 60 -}}
+{{- if not (kindIs "invalid" $o.periodSeconds) }}{{- $period = $o.periodSeconds -}}{{- end -}}
+{{- if not (kindIs "invalid" $p.periodSeconds) }}{{- $period = $p.periodSeconds -}}{{- end -}}
+{{- $threshold := 3 -}}
+{{- if not (kindIs "invalid" $o.failureThreshold) }}{{- $threshold = $o.failureThreshold -}}{{- end -}}
+{{- if not (kindIs "invalid" $p.failureThreshold) }}{{- $threshold = $p.failureThreshold -}}{{- end -}}
+{{- $timeout := 10 -}}
+{{- if not (kindIs "invalid" $o.timeoutSeconds) }}{{- $timeout = $o.timeoutSeconds -}}{{- end -}}
+{{- if not (kindIs "invalid" $p.timeoutSeconds) }}{{- $timeout = $p.timeoutSeconds -}}{{- end -}}
+{{- $t := $timeout | int64 -}}
+{{- $kubelet := max (add $t 5) (div (mul $t 3) 2) -}}
+{{- if not (kindIs "invalid" $o.kubeletTimeoutSeconds) }}{{- $kubelet = $o.kubeletTimeoutSeconds -}}{{- end -}}
+{{- if not (kindIs "invalid" $p.kubeletTimeoutSeconds) }}{{- $kubelet = $p.kubeletTimeoutSeconds -}}{{- end -}}
 {{- $dest := "" -}}
 {{- if .destination }}{{- $dest = printf "--destination %s " .destination -}}{{- end -}}
 exec:
@@ -426,10 +478,33 @@ exec:
     - sh
     - -c
     - {{ printf "celery -A %s inspect ping %s--timeout %v" .app $dest $timeout | quote }}
-initialDelaySeconds: {{ .probe.initialDelaySeconds | default 30 }}
-periodSeconds: {{ .probe.periodSeconds | default 60 }}
-timeoutSeconds: {{ add ($timeout | int) 5 }}
-failureThreshold: {{ .probe.failureThreshold | default 3 }}
+initialDelaySeconds: {{ $init }}
+periodSeconds: {{ $period }}
+timeoutSeconds: {{ $kubelet }}
+failureThreshold: {{ $threshold }}
+{{- end }}
+
+{{/*
+Is the `kind` ("liveness"/"readiness") probe rendered for this celery component?
+Non-empty output = yes.
+
+Note the precedence here is the OPPOSITE of the numeric knobs above, on purpose.
+For a timing, the flat key wins, because the flat keys predate the split and must
+keep meaning "both probes". For `enabled` there is nothing to preserve — the
+per-probe key ships null, so `probes.<component>.enabled` is the effective master
+switch and an existing `--set probes.worker.enabled=false` still removes both
+probes. Set a per-probe `enabled` explicitly and it wins, including re-enabling one
+probe under a component-level false; that is the point of having it. The per-probe
+key exists because the two are not equally safe to run: the worker's readiness
+probe gates nothing in production but still forks a Django import into the worker's
+own CPU budget, while liveness is the one that can kill the container (#3230).
+*/}}
+{{- define "trueppm.celeryProbeEnabled" -}}
+{{- $p := .probe -}}
+{{- $o := (index $p .kind) | default dict -}}
+{{- $on := $p.enabled -}}
+{{- if not (kindIs "invalid" $o.enabled) }}{{- $on = $o.enabled -}}{{- end -}}
+{{- if $on }}true{{- end -}}
 {{- end }}
 
 {{/*

@@ -593,6 +593,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # where no test would catch it. Calls the SAME predicate IsProjectPlanAuthor
     # enforces — one rule, called twice (ADR-0133).
     can_author = serializers.SerializerMethodField()
+    # Server-derived "may the requesting user REVERSE a recorded batch write" verdict
+    # (web rule 373(d), #3357). Sibling of ``can_author`` and emitted for the same
+    # reason: the undo floor sits ABOVE the apply floor, so a caller who cleared the
+    # write's gate has learned nothing about the undo's, and a surface that wants to
+    # disclose the asymmetry BEFORE the irreversible act cannot wait for the apply
+    # response's own ``can_undo`` to tell it. Calls the SAME predicate the undo
+    # endpoints enforce — one rule, called three times now (ADR-0133).
+    can_undo_batch_operations = serializers.SerializerMethodField()
     # The server's own current date, so a client can tell whether a date it is about to
     # commit has already arrived (#3075). Several server rules are gated on
     # ``timezone.localdate()`` — most visibly the NOT_STARTED → IN_PROGRESS promote in
@@ -861,6 +869,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role_label",
             # Whether the caller may enter the Designer's Author mode (ADR-0773 §(d)).
             "can_author",
+            # Whether the caller may reverse a recorded batch write (web rule 373(d), #3357).
+            "can_undo_batch_operations",
             # The server's today, for client-side previews of date-gated server rules (#3075).
             "server_date",
             # Two separate lifecycles, both read-only, each with its own transition
@@ -880,6 +890,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role",
             "my_role_label",
             "can_author",
+            "can_undo_batch_operations",
             "server_date",
             "default_member_role_label",
             "effective_calendar",
@@ -1108,6 +1119,89 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             return False
         return can_user_author_plan(request, obj)
 
+    # Explicit `help_text` rather than letting drf-spectacular lift the docstring:
+    # the reasoning below is for the next person to edit this method, and dumping all
+    # of it into the published schema puts internal module names and an open tracker
+    # question in front of every API consumer. `can_author` emits ~460 characters;
+    # unannotated, this one emitted 2,611.
+    @extend_schema_field(
+        serializers.BooleanField(
+            help_text=(
+                "Whether the requesting user may reverse a recorded batch write on "
+                "this project — the classification cascade and paste-many undo "
+                "endpoints. Read-only; the same rule those endpoints enforce. Clients "
+                "use it to disclose, before an irreversible batch write, that the "
+                "caller will not be able to undo it. Does not answer for structural "
+                "operations, whose undo rule is actor-or-Admin."
+            )
+        )
+    )
+    def get_can_undo_batch_operations(self, obj: Project) -> bool:
+        """Whether the caller may reverse a recorded batch write (web rule 373(d)).
+
+        The pre-act half of the rule #3304 implemented post-act. The cascade's own
+        200 already carries a ``can_undo`` computed by this same predicate, but that
+        answer arrives *after* the irreversible act — so a surface that wants to say
+        "you will not be able to take this back" **before** the user commits it needs
+        the verdict on a payload it already holds. This is that payload.
+
+        Resolved exactly like ``can_author``: prefer the viewset's ``_my_role``
+        annotation so a project list costs no extra query per row, fall back to the
+        request-scoped wrapper when the annotation is absent (a freshly-created
+        instance, or a route that does not annotate). Both paths end in
+        :func:`role_can_undo_batch_operation`, the function
+        ``batch_operation_views._require_admin`` enforces with — so the disclosure and
+        the refusal cannot disagree, and if the floor moves (an open question at the
+        time of writing, #3355) the disclosure moves with it instead of drifting.
+
+        Deliberately NOT re-derived client-side as ``role >= ROLE_ADMIN``. The rule is
+        a threshold today and such a comparison would agree, but the client would then
+        hold a second implementation of a floor the server has already said it may
+        change — and on the product backlog the authority already in scope is
+        ``can_manage_backlog`` (Admin+ **or** the Product Owner facet), which is a
+        different rule and answers this question wrong for a PO below Admin.
+
+        **Scope it exactly — the plural in the name is a family, not "all undo".**
+        This answers for the ledgers under ``batch_operation_views``, whose refusal
+        resolves through the same predicate: the classification cascade and paste-many.
+        The CSV-import fix (``csvimport.views._require_project_admin``) and template
+        apply (``template_views``) hold their own inline copies of the identical
+        Admin+ comparison, so the answer is currently the same for them — but they are
+        copies, not callers, and only a rebind would make that a guarantee.
+        **Structural operations are a different rule and this field does not answer for
+        them**: ``structural_operation_services`` deliberately implements
+        *actor-or-Admin* (ADR-0880 §4), so an actor below Admin may reverse their own
+        structural operation while this field says ``False``.
+
+        Within that family the floor is a pure function of the caller's role, identical
+        for every ledger row. Whether a *particular* operation is still reversible is a
+        separate fact (the apply response's ``operation_id``, orthogonal per web rule
+        373(b)) and this field must never be read as answering it.
+
+        **It answers the ROLE question only, so it over-reports on an archived project.**
+        The undo viewsets carry ``IsProjectNotArchived``, which 403s at every role
+        including Owner; this field still returns ``True`` for an Admin there. The
+        apply response's ``can_undo`` has the identical property. It fails in the safe
+        direction for the disclosure this exists for — the note renders on ``False``
+        only, so a wrong ``True`` produces silence rather than false copy — but a caller
+        using it to decide whether an undo *request* will succeed will be wrong.
+
+        Fails closed to ``False`` without a request.
+        """
+        from trueppm_api.apps.access.permissions import (
+            can_user_undo_batch_operation,
+            role_can_undo_batch_operation,
+        )
+
+        annotated_role = getattr(obj, "_my_role", None)
+        if annotated_role is not None:
+            return role_can_undo_batch_operation(annotated_role)
+
+        request = self.context.get("request")
+        if request is None:
+            return False
+        return can_user_undo_batch_operation(request, obj.pk)
+
     @extend_schema_field(serializers.DateField())
     def get_server_date(self, obj: Project) -> str:
         """The server's current date, as the date-gated task rules resolve it.
@@ -1126,11 +1220,23 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         ``None`` when the caller has no annotated role. Mirrors
         ``ProgramSerializer.get_my_role_label``.
+
+        ``None`` **also** for an ordinal the ``Role`` enum does not define, and that
+        branch is not defensive padding: ADR-0072 reserves the 2-99, 101-199, 201-299
+        and 301-399 bands for Enterprise custom roles, ``ProjectMembership.role`` is a
+        plain ``IntegerField`` whose ``choices`` PostgreSQL does not enforce, and a bare
+        ``Role(350)`` raises ``ValueError`` — which DRF does not convert, so it 500s the
+        WHOLE response, not this one field. Every *gate* in the tree is written as a
+        band comparison and handles such a role correctly; the display path was the one
+        place that did not, which meant one Enterprise custom role made the project
+        unreadable for whoever held it (#3419). Returning ``None`` is honest — the OSS
+        edition genuinely has no name for that ordinal — and every consumer already
+        renders the nullable case.
         """
         role = getattr(obj, "_my_role", None)
         if role is None:
             return None
-        return Role(role).label
+        return Role(role).label if role in Role.values else None
 
     def get_default_member_role_label(self, obj: Project) -> str:
         """Human label for the project's default new-member role (ADR-0363)."""
@@ -1150,6 +1256,39 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
                 "Default member role must be below Project Admin (Owner)."
             )
         return value
+
+    def validate_timezone(self, value: str) -> str:
+        """Reject a non-IANA zone; ``""`` is the explicit "inherit" sentinel.
+
+        This is *tier 1* of the quiet-hours chain
+        (``notifications.services.resolve_quiet_hours_timezone``), so it outranks the
+        workspace default. #3377 added the same validator to
+        ``WorkspaceSettingsSerializer`` because that tier had become load-bearing — the
+        argument applies here more strongly. ``TaskRecurrenceRuleSerializer``,
+        ``UserProfileSerializer`` and the digest-timezone validator already had theirs;
+        ``CalendarSerializer`` is the one write path still without one, tracked in
+        #3398 (it is not in this chain, and touching it reaches the MS Project importer
+        and the seed fixtures).
+
+        Without it a project admin saving ``"Pacific Time"`` gets a 200 and their
+        quiet-hours window silently resolves to the workspace or server zone instead,
+        defeating a setting they believe they made, with no signal at either end —
+        the resolver cannot raise inside a dispatch path, so the write is the only
+        place anyone can be told.
+
+        Same form as the siblings: ``ZoneInfo(value)`` in a try/except, not
+        ``available_timezones()`` membership.
+        """
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        stripped = (value or "").strip()
+        if not stripped:
+            return ""
+        try:
+            ZoneInfo(stripped)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return stripped
 
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.
@@ -2520,6 +2659,12 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         role = getattr(obj, "_my_role", None)
         if role is None:
             return None
+        # Same unnamed-ordinal guard as ProjectSerializer.get_my_role_label (#3419):
+        # `Role(350)` raises ValueError for an Enterprise band role and 500s the
+        # response. `_PROGRAM_ROLE_LABELS` is keyed by `Role`, so it cannot answer for
+        # an ordinal the enum does not define either.
+        if role not in Role.values:
+            return None
         return _PROGRAM_ROLE_LABELS.get(Role(role), Role(role).label)
 
 
@@ -3609,7 +3754,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if user is None or not getattr(user, "is_authenticated", False) or project is None:
             return None
         return (
-            ProjectMembership.objects.filter(project=project, user=user)
+            # `is_deleted=False` is load-bearing, not defensive tidying (#3386). The
+            # `(project, user)` unique constraint is unconditional, so revocation —
+            # a soft delete — leaves the row in place with its role ordinal intact,
+            # and without this filter a revoked Admin keeps passing every role gate
+            # that reads this method. `_membership_role` in apps.access.permissions
+            # answers the same question and has always filtered it; the two must not
+            # disagree about who is a member.
+            ProjectMembership.objects.filter(project=project, user=user, is_deleted=False)
             .values_list("role", flat=True)
             .first()
         )
@@ -4585,6 +4737,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         (de)classification, or a prioritization scoring input) is actually being
         written, so it never interferes with quick-add (type=STORY) or ordinary
         story grooming.
+
+        Both arms refuse a revoked project member (#3386), and each needed its own
+        fix. The facet arm runs whenever the role arm refused, so it is load-bearing
+        that ``has_team_facet`` floors on a live ``ProjectMembership``: the ADR-0078
+        §F mirror is create-only, so revoking project access leaves the mirrored
+        ``TeamMembership`` behind with its PO flag intact. The role arm needed
+        ``_get_caller_role`` to filter ``is_deleted`` — otherwise a revoked *Admin*
+        satisfied ``can_manage_backlog`` outright and the facet floor was never
+        reached, leaving this gate open on the axis nobody was looking at.
         """
         from rest_framework.exceptions import PermissionDenied
 
@@ -8059,7 +8220,13 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             project_id = getattr(view, "kwargs", {}).get("project_pk") if view else None
         if project_id is None:
             return None
-        return ProjectMembership.objects.filter(project_id=project_id, user=user).first()
+        # `is_deleted=False` for the same reason as `_get_caller_role` (#3386): the
+        # caller treats a returned row as proof of Scheduler+ access, and revocation
+        # is a soft delete against an unconditional (project, user) unique constraint,
+        # so without this a revoked Scheduler keeps passing the gate.
+        return ProjectMembership.objects.filter(
+            project_id=project_id, user=user, is_deleted=False
+        ).first()
 
     class Meta:
         model = Sprint
@@ -9489,7 +9656,10 @@ class ProjectDetailSerializer(ProjectSerializer):
         caller's two-axis RBAC facets (ADR-0078) resolved against the project's
         default team. The web uses this to render-gate Product-Owner / Scrum-Master
         controls (e.g. the backlog auto-rank + reorder affordances) without a
-        separate round-trip. Both False for an anonymous caller or a non-member.
+        separate round-trip. Both False for an anonymous caller, a non-member, or a
+        member whose project access was revoked (#3386) — the render-gate therefore
+        matches what the write gates will actually allow, which is the ADR-0133
+        "one rule, called twice" property applied to the facet axis.
 
         Detail-only (never on the list serializer) to keep the project list cheap —
         one membership lookup per project would be an N+1 on a list response.

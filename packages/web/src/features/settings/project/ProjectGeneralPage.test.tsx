@@ -170,7 +170,9 @@ describe('ProjectGeneralPage', () => {
 
   it('scopes the timezone hint to quiet hours and drops the due-date claim', () => {
     renderPage();
-    expect(screen.getByText(/Anchors this project's quiet hours/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Anchors this project's notification quiet hours/i),
+    ).toBeInTheDocument();
     // The single reader is the notifications quiet-hours anchor. Task dates are
     // calendar dates, so no timezone can move them, and displayed instants come
     // from the viewer's own Profile.timezone.

@@ -327,6 +327,32 @@ export interface ApiProjectDetail {
    */
   can_author: boolean;
   /**
+   * Whether the caller may **reverse** a recorded batch write on this project
+   * (#3357, web rule 373(d)). Produced by the same `role_can_undo_batch_operation`
+   * predicate the `/…-operations/{id}/undo/` endpoints enforce (ADR-0133).
+   *
+   * Not a duplicate of the `can_undo` on the cascade's own 200. That one answers
+   * the question *after* the act, which is all a receipt needs; this one answers
+   * it on a payload the surface already holds, so a control can disclose the
+   * asymmetry **before** the irreversible act commits.
+   *
+   * Scope the plural: it answers for the ledgers routed through that predicate —
+   * the classification cascade and paste-many — and, by inline copies of the same
+   * comparison, the CSV-import fix and template apply. It does **not** answer for
+   * structural operations, which deliberately use actor-or-Admin (ADR-0880 §4).
+   *
+   * It is also NOT `my_role >= ROLE_ADMIN`. See `shouldDiscloseUndoFloor` for the
+   * two reasons, neither of which is the ordinal — the rule genuinely is a
+   * threshold today, so a comparison would agree; what it cannot survive is the
+   * floor moving (#3355) or `useCurrentUserRole`'s terminal `role: null`.
+   *
+   * Required, not optional, for the reason `can_author` is: the serializer always
+   * emits it, and an optional declaration would let a field drop degrade silently.
+   * Read it through `shouldDiscloseUndoFloor`, whose pessimism is INVERTED relative
+   * to `canAuthorPlan` — see that function for why.
+   */
+  can_undo_batch_operations: boolean;
+  /**
    * The server's current date, `YYYY-MM-DD` (#3075).
    *
    * Several server rules fire on `timezone.localdate()` — most visibly the

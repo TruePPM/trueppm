@@ -60555,6 +60555,7 @@
                     "timezone": {
                         "type": "string",
                         "minLength": 1,
+                        "description": "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — unlike the per-user profile timezone this one is resolved server-side. It is the quiet-hours fallback for a project that sets no timezone of its own, not a display timezone. A non-IANA value is rejected with a 400.",
                         "maxLength": 64
                     },
                     "fiscal_year_start_month": {
@@ -62571,12 +62572,17 @@
                     "my_role_label": {
                         "type": "string",
                         "nullable": true,
-                        "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.",
+                        "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.\n\n``None`` **also** for an ordinal the ``Role`` enum does not define, and that\nbranch is not defensive padding: ADR-0072 reserves the 2-99, 101-199, 201-299\nand 301-399 bands for Enterprise custom roles, ``ProjectMembership.role`` is a\nplain ``IntegerField`` whose ``choices`` PostgreSQL does not enforce, and a bare\n``Role(350)`` raises ``ValueError`` — which DRF does not convert, so it 500s the\nWHOLE response, not this one field. Every *gate* in the tree is written as a\nband comparison and handles such a role correctly; the display path was the one\nplace that did not, which meant one Enterprise custom role made the project\nunreadable for whoever held it (#3419). Returning ``None`` is honest — the OSS\nedition genuinely has no name for that ordinal — and every consumer already\nrenders the nullable case.",
                         "readOnly": true
                     },
                     "can_author": {
                         "type": "boolean",
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
+                        "readOnly": true
+                    },
+                    "can_undo_batch_operations": {
+                        "type": "boolean",
+                        "description": "Whether the requesting user may reverse a recorded batch write on this project — the classification cascade and paste-many undo endpoints. Read-only; the same rule those endpoints enforce. Clients use it to disclose, before an irreversible batch write, that the caller will not be able to undo it. Does not answer for structural operations, whose undo rule is actor-or-Admin.",
                         "readOnly": true
                     },
                     "server_date": {
@@ -62622,6 +62628,7 @@
                     "at_risk_count",
                     "calendar_source",
                     "can_author",
+                    "can_undo_batch_operations",
                     "default_member_role_label",
                     "draft_started_at",
                     "effective_allow_guests",
@@ -63297,12 +63304,17 @@
                     "my_role_label": {
                         "type": "string",
                         "nullable": true,
-                        "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.",
+                        "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.\n\n``None`` **also** for an ordinal the ``Role`` enum does not define, and that\nbranch is not defensive padding: ADR-0072 reserves the 2-99, 101-199, 201-299\nand 301-399 bands for Enterprise custom roles, ``ProjectMembership.role`` is a\nplain ``IntegerField`` whose ``choices`` PostgreSQL does not enforce, and a bare\n``Role(350)`` raises ``ValueError`` — which DRF does not convert, so it 500s the\nWHOLE response, not this one field. Every *gate* in the tree is written as a\nband comparison and handles such a role correctly; the display path was the one\nplace that did not, which meant one Enterprise custom role made the project\nunreadable for whoever held it (#3419). Returning ``None`` is honest — the OSS\nedition genuinely has no name for that ordinal — and every consumer already\nrenders the nullable case.",
                         "readOnly": true
                     },
                     "can_author": {
                         "type": "boolean",
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
+                        "readOnly": true
+                    },
+                    "can_undo_batch_operations": {
+                        "type": "boolean",
+                        "description": "Whether the requesting user may reverse a recorded batch write on this project — the classification cascade and paste-many undo endpoints. Read-only; the same rule those endpoints enforce. Clients use it to disclose, before an irreversible batch write, that the caller will not be able to undo it. Does not answer for structural operations, whose undo rule is actor-or-Admin.",
                         "readOnly": true
                     },
                     "server_date": {
@@ -63373,7 +63385,7 @@
                         "additionalProperties": {
                             "type": "boolean"
                         },
-                        "description": "The requesting user's own team facets on this project (#1095).\n\nReturns ``{\"is_scrum_master\": bool, \"is_product_owner\": bool}`` — the\ncaller's two-axis RBAC facets (ADR-0078) resolved against the project's\ndefault team. The web uses this to render-gate Product-Owner / Scrum-Master\ncontrols (e.g. the backlog auto-rank + reorder affordances) without a\nseparate round-trip. Both False for an anonymous caller or a non-member.\n\nDetail-only (never on the list serializer) to keep the project list cheap —\none membership lookup per project would be an N+1 on a list response.",
+                        "description": "The requesting user's own team facets on this project (#1095).\n\nReturns ``{\"is_scrum_master\": bool, \"is_product_owner\": bool}`` — the\ncaller's two-axis RBAC facets (ADR-0078) resolved against the project's\ndefault team. The web uses this to render-gate Product-Owner / Scrum-Master\ncontrols (e.g. the backlog auto-rank + reorder affordances) without a\nseparate round-trip. Both False for an anonymous caller, a non-member, or a\nmember whose project access was revoked (#3386) — the render-gate therefore\nmatches what the write gates will actually allow, which is the ADR-0133\n\"one rule, called twice\" property applied to the facet axis.\n\nDetail-only (never on the list serializer) to keep the project list cheap —\none membership lookup per project would be an N+1 on a list response.",
                         "readOnly": true
                     }
                 },
@@ -63384,6 +63396,7 @@
                     "at_risk_count",
                     "calendar_source",
                     "can_author",
+                    "can_undo_batch_operations",
                     "default_member_role_label",
                     "draft_started_at",
                     "effective_allow_guests",
@@ -73499,6 +73512,7 @@
                     },
                     "timezone": {
                         "type": "string",
+                        "description": "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — unlike the per-user profile timezone this one is resolved server-side. It is the quiet-hours fallback for a project that sets no timezone of its own, not a display timezone. A non-IANA value is rejected with a 400.",
                         "maxLength": 64
                     },
                     "fiscal_year_start_month": {

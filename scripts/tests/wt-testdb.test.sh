@@ -58,6 +58,22 @@ cat > "$STUB_BIN/docker" <<'STUBEOF'
 #!/usr/bin/env bash
 { echo "ARGV: $*"; } >> "$DB_STUB_LOG"
 
+# Faithfulness matters more than convenience here. Real `docker exec -i`
+# ATTACHES STDIN and hands it to the container process, so a caller that runs
+# it inside a `while read` loop has its remaining input eaten (#3417). A stub
+# that quietly ignores stdin diverges from the real command on exactly the
+# behavior that broke, and Case 5 passed for a year against a prune-dbs that
+# dropped one database per run. Drain it whenever -i is present.
+# Guarded on `! -t 0`: drain a PIPE or heredoc (the case that reproduces #3417),
+# never a terminal. Real `docker exec -i` attaches either way, but a stub that
+# blocks on a tty makes this suite unrunnable by hand for no extra fidelity —
+# the hazard only exists where a caller's stdin carries data it still needs.
+if [[ ! -t 0 ]]; then
+  for _a in "$@"; do
+    if [[ "$_a" == "-i" ]]; then cat >/dev/null 2>&1 || true; break; fi
+  done
+fi
+
 if [[ "$1" == "ps" ]]; then
   # db_available: print the container name only when the stack is "up".
   [[ "${DB_STUB_UP:-1}" == "1" ]] && echo "${DB_STUB_CONTAINER:-trueppm-db-1}"
@@ -249,11 +265,16 @@ echo "Case 5: prune-dbs drops only orphaned databases"
 D5="$TMP/case5"; mk_repo "$D5"
 B5="$TMP/case5-wts"
 mk_wt "$D5" "$B5" "feat/9501-live" "9501-live" "test_trueppm_wt_9501_live"
+# THREE droppable orphans, not one. With a single droppable row "drops every
+# orphan" and "stops after the first drop" are indistinguishable, which is the
+# other half of why #3417 survived this case. 9502/9504/9505 must ALL go.
 catalog \
   "test_trueppm_wt_9501_live" \
   "test_trueppm_wt_9501_live_gw0" \
   "test_trueppm_wt_9502_dead" \
   "test_trueppm_wt_9503_busy" \
+  "test_trueppm_wt_9504_dead" \
+  "test_trueppm_wt_9505_dead" \
   "test_trueppm" \
   "trueppm"
 printf 'test_trueppm_wt_9503_busy 1\n' > "$DB_STUB_CONNS"
@@ -263,6 +284,8 @@ rc5=0
 ( cd "$D5" && TRUEPPM_WT_BASE="$B5" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes >/dev/null 2>&1 ) || rc5=$?
 check "prune-dbs is a real subcommand"  "$([[ "$rc5" -eq 0 ]]; echo $?)"
 check "orphan dropped"                  "$(! in_catalog test_trueppm_wt_9502_dead; echo $?)"
+check "SECOND orphan dropped"           "$(! in_catalog test_trueppm_wt_9504_dead; echo $?)"
+check "THIRD orphan dropped"            "$(! in_catalog test_trueppm_wt_9505_dead; echo $?)"
 check "live worktree's DB spared"       "$(in_catalog test_trueppm_wt_9501_live; echo $?)"
 check "live worktree's worker spared"   "$(in_catalog test_trueppm_wt_9501_live_gw0; echo $?)"
 check "in-use orphan spared"            "$(in_catalog test_trueppm_wt_9503_busy; echo $?)"
@@ -274,6 +297,51 @@ catalog "test_trueppm_wt_9502_dead" "trueppm"
 ( cd "$D5" && TRUEPPM_WT_BASE="$B5" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs </dev/null >/dev/null 2>&1 ) || true
 check "declined prompt drops nothing"   "$(in_catalog test_trueppm_wt_9502_dead; echo $?)"
 
+# --- Case 7: the LAST catalogued DB being owned must not abort the caller ---
+# #3418: orphan_test_dbs ended its loop body with `(( owned == 1 )) && printf`.
+# On an OWNED database that test is false, the && list yields 1, and as the last
+# command in the loop body it becomes the while's status, then the function's.
+# Both callers do `orphans="$(orphan_test_dbs)"` under `set -e`, so the script
+# died with no output at all.
+#
+# ORDERING IS THE TRIGGER, which is why a case that merely contains an owned
+# database does not reproduce it: db_list_wt sorts, so the bug only fires when
+# an owned name sorts LAST. `_9601_live` is deliberately after `_9600_dead`.
+# That also makes the failure data-dependent in production — it appears only
+# once every orphan has been cleaned up, i.e. exactly when things are tidy.
+echo "Case 7: an owned database sorting last does not abort doctor/prune-dbs"
+D7="$TMP/case7"; mk_repo "$D7"
+B7="$TMP/case7-wts"
+mk_wt "$D7" "$B7" "feat/9601-live" "9601-live" "test_trueppm_wt_9601_live"
+: > "$DB_STUB_CONNS"
+
+# 7a — every database is owned: nothing to drop, and it must still exit 0.
+catalog "test_trueppm_wt_9601_live" "trueppm"
+rc7a=0
+( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes </dev/null >/dev/null 2>&1 ) || rc7a=$?
+check "prune-dbs exits 0 when all DBs are owned"   "$([[ "$rc7a" -eq 0 ]]; echo $?)"
+check "owned DB survives that run"                 "$(in_catalog test_trueppm_wt_9601_live; echo $?)"
+
+rc7b=0
+( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" doctor </dev/null >"$TMP/doc7.out" 2>"$TMP/doc7.err" ) || rc7b=$?
+check "doctor exits 0 when all DBs are owned"      "$([[ "$rc7b" -eq 0 ]]; echo $?)"
+# Match the DATABASE line specifically. A bare /orphaned/ also matches the
+# reservations block's "no orphaned reservations", which doctor prints BEFORE
+# the abort — so the loose pattern passed against the unfixed function and
+# asserted nothing.
+check "doctor reaches its DB section"              "$(grep -qE 'orphaned test database|no orphaned test_trueppm_wt' "$TMP/doc7.out" "$TMP/doc7.err"; echo $?)"
+check "doctor reaches its final WIP line"          "$(grep -q 'WIP:' "$TMP/doc7.out" "$TMP/doc7.err"; echo $?)"
+
+# 7b — an orphan present, but an OWNED name sorts last. The orphan must still be
+# dropped: the abort used to happen on the final iteration, after the earlier
+# ones had run, so a bare "did it drop anything" check would pass regardless.
+catalog "test_trueppm_wt_9600_dead" "test_trueppm_wt_9601_live" "trueppm"
+rc7c=0
+( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes </dev/null >/dev/null 2>&1 ) || rc7c=$?
+check "prune-dbs exits 0 with an owned DB sorting last" "$([[ "$rc7c" -eq 0 ]]; echo $?)"
+check "the orphan before it was still dropped"          "$(! in_catalog test_trueppm_wt_9600_dead; echo $?)"
+check "the trailing owned DB survives"                  "$(in_catalog test_trueppm_wt_9601_live; echo $?)"
+
 # --- Case 6: wiring + bash 3.2 portability ---------------------------------
 echo "Case 6: wiring + bash 3.2 portability"
 check "remove reads the DB name before removal" "$(grep -q 'rm_test_db="\$(worktree_test_db "\$path")"' "$WT"; echo $?)"
@@ -283,6 +351,22 @@ check "doctor reports orphans"                  "$(grep -q 'orphan_test_dbs' "$W
 check "prune-dbs is dispatched"                 "$(grep -qE 'prune-dbs\).*cmd_prune_dbs' "$WT"; echo $?)"
 check "drop is prefix-guarded"                  "$(grep -q 'is_wt_test_db "\$name" ||' "$WT"; echo $?)"
 check "drop checks pg_stat_activity"            "$(grep -q 'pg_stat_activity' "$WT"; echo $?)"
+# #3417: db_query runs inside a `while read` loop. It must not attach stdin, or
+# psql drains the loop's remaining input and the sweep silently stops after one
+# row. Both halves are asserted: no -i, and an explicit redirect from /dev/null.
+#
+# Matched against COMMENT-STRIPPED source. The fix's own comment necessarily
+# contains the string "docker exec -i" to explain what it is avoiding, and a
+# naive grep over the whole file fails on the very diff that fixes the bug —
+# the same reason enterprise-boundary-check reads import syntax and not prose.
+WT_CODE="$(grep -vE '^[[:space:]]*#' "$WT")"
+check "db_query does not attach stdin (-i)"     "$(! printf '%s\n' "$WT_CODE" | grep -q 'docker exec -i'; echo $?)"
+check "db_query redirects stdin from /dev/null" "$(printf '%s\n' "$WT_CODE" | grep -q 'psql .*</dev/null'; echo $?)"
+check "prune-dbs reconciles its own totals"     "$(printf '%s\n' "$WT_CODE" | grep -q 'processed != orphan_count'; echo $?)"
+# #3418: the emitter must be an `if`, not an `&&` list whose false condition
+# becomes the loop's — and therefore the function's — exit status under set -e.
+check "orphan emitter is an if, not an && list" "$(! printf '%s\n' "$WT_CODE" | grep -qE '\(\( *owned == 1 *\)\) *&&'; echo $?)"
+check "orphan_test_dbs ends with an explicit return 0" "$(printf '%s\n' "$WT_CODE" | awk '/^orphan_test_dbs\(\)/,/^}/' | grep -q 'return 0'; echo $?)"
 # The prefix guard must require something AFTER the prefix, or the shared
 # `test_trueppm_wt` name itself would be droppable.
 check "prefix guard requires a suffix"          "$(grep -q '"\${WT_TEST_DB_PREFIX}"?\*' "$WT"; echo $?)"

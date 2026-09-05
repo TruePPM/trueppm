@@ -79,7 +79,9 @@ vi.mock('@/hooks/useProjectTemplates', async (orig) => ({
     data: applicationId
       ? {
           id: applicationId,
+          template: 'tpl-1',
           template_name: 'Delivery skeleton',
+          error_detail: 'Template structure is no longer valid.',
           status: mockApplicationStatus,
           result_summary: { tasks_created: 0, milestones_created: 0, dependencies_created: 0 },
           undone_at: null,
@@ -287,6 +289,11 @@ vi.mock('@/hooks/useProject', () => ({
       recalculated_at: '2026-10-01T00:00:00Z',
       effective_methodology: mockEffectiveMethodology,
       can_author: serverCanAuthor(),
+      // #3357. This literal is untyped, so `tsc` cannot see the field become
+      // required on `ApiProjectDetail` — omitting it would silently render every
+      // ScheduleView test with `classifyCanUndo={undefined}`, which is exactly the
+      // value that makes the disclosure absent and every absence assertion vacuous.
+      can_undo_batch_operations: true,
     },
     isLoading: false,
   }),
@@ -2791,6 +2798,85 @@ describe('ScheduleView — F8/Shift+F8 unresolved-owner-token navigation (#2727,
   });
 });
 
+
+// ───────────────────────────────────────────────────────────────────────────
+// #3356 — the Schedule's own action toast had an unconditional auto-dismiss.
+// The global `ToastHost` has paused on hover/focus since #2203, and the two
+// diverged; these pin the Schedule side of `usePausableAutoDismiss`. Real timers
+// with a tiny dwell, not fake ones: this file drives a canvas view with a lot of
+// other timing in it, and the assertion here is about the toast surviving wall
+// clock, which a short real dwell states directly.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ScheduleView — action toast auto-dismiss is pausable (#3356)', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  function showToast(durationMs = 60) {
+    act(() => {
+      useScheduleStore.getState().setScheduleActionToast({
+        message: 'Deleted “Foundation”',
+        durationMs,
+        action: { label: 'Undo', onClick: vi.fn() },
+      });
+    });
+  }
+
+  it('dismisses on its own when nothing touches it', async () => {
+    // The control for the two below: without it, a toast that never dismisses at
+    // all would satisfy both pause assertions vacuously.
+    renderSchedule();
+    showToast();
+    expect(screen.getByTestId('schedule-action-toast')).toBeInTheDocument();
+    await act(async () => {
+      await wait(250);
+    });
+    expect(screen.queryByTestId('schedule-action-toast')).not.toBeInTheDocument();
+    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+  });
+
+  it('suspends the dwell while the pointer is over it (WCAG 2.2.1)', async () => {
+    renderSchedule();
+    showToast();
+    const toast = screen.getByTestId('schedule-action-toast');
+    fireEvent.mouseEnter(toast);
+    await act(async () => {
+      await wait(250);
+    });
+    expect(screen.getByTestId('schedule-action-toast')).toBeInTheDocument();
+  });
+
+  it('never removes the toast while it contains focus, so Undo stays reachable', async () => {
+    // The defect in user terms: an Admin tabs toward the cascade's Undo and the
+    // toast unmounts under the focused control at the dwell, dropping focus to
+    // `<body>` (web rules 356(d) and 368; WCAG 2.4.3 Focus Order).
+    renderSchedule();
+    showToast();
+    const toast = screen.getByTestId('schedule-action-toast');
+    const undo = within(toast).getByRole('button', { name: 'Undo' });
+    act(() => {
+      undo.focus();
+      fireEvent.focus(undo);
+    });
+    await act(async () => {
+      await wait(250);
+    });
+    expect(screen.getByTestId('schedule-action-toast')).toBeInTheDocument();
+    expect(document.activeElement).toBe(undo);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('gives the Undo button the 44px touch floor (web rule 5)', () => {
+    // jsdom has no layout, so this asserts the utility that produces the floor
+    // rather than a measured box; the measured box is `e2e/schedule-build-mode`.
+    renderSchedule();
+    showToast();
+    const undo = within(screen.getByTestId('schedule-action-toast')).getByRole('button', {
+      name: 'Undo',
+    });
+    expect(undo.className).toContain('min-h-[44px]');
+    expect(undo.className).toContain('min-w-[44px]');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // resolveScheduleSeeding (#3312) — the one predicate the desktop canvas, the
 // outline's draft row and the mobile body all answer from, so they cannot
@@ -2842,8 +2928,10 @@ describe('resolveScheduleSeeding (#3312)', () => {
   });
 
   it('is false on every terminal status', () => {
-    // `failed` is deliberately not seeding (#3348): that project really is empty,
-    // and a live first row is the right affordance for it.
+    // `failed` is still not seeding, and that stayed right when it finally got a
+    // surface (#3348): the apply rolls back in one transaction, so the project
+    // really is empty and a live first row is the correct affordance. The failure
+    // is stated by `SeedFailureBanner` ABOVE the canvas, not by this predicate.
     for (const status of ['success', 'failed', 'undone']) {
       expect(resolveScheduleSeeding({ ...base, status })).toBe(false);
     }
@@ -2954,6 +3042,20 @@ describe('ScheduleView — the seeding effects (#3312)', () => {
     mockApplicationStatus = 'running';
     renderSchedule(SEED_URL);
     expect(screen.getByTestId('mobile-schedule')).toHaveAttribute('data-seeding', 'true');
+  });
+
+  it('states a failed apply on the mobile surface too', () => {
+    // The banner mounts above `ScheduleMainArea`'s `isMobile` early return, so it
+    // annotates MobileSchedule's "No items yet" card — which that component's own
+    // comment says reads as "the apply failed" and, until #3348, could not confirm.
+    // No Playwright project covers the mobile arm, so this is the only layer that
+    // pins it.
+    mockMobile = true;
+    mockTasks = [];
+    mockApplicationStatus = 'failed';
+    renderSchedule(SEED_URL);
+    expect(screen.getByTestId('seed-failure-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-schedule')).toHaveAttribute('data-seeding', 'false');
   });
 
   it('leaves the mobile surface unseeded with no application in flight', () => {

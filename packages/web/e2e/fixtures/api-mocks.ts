@@ -319,8 +319,17 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   // read-only and fail on a missing control, for a reason nothing in the spec
   // names. A spec exercising the refusal sets `can_author: false` on its
   // fixture and that wins, because the spread is second.
+  // `can_undo_batch_operations` (web rule 373(d), #3357) is defaulted here for the
+  // same reason and with the opposite polarity of consequence: it drives a
+  // *disclosure*, so a spec that silently dropped to `undefined` would render no
+  // note and its absence assertions would pass vacuously. Defaulting it to `true`
+  // keeps every existing spec on the caller it was written against (an Admin, who
+  // sees no note) and makes the refusal something a spec has to ask for by putting
+  // `can_undo_batch_operations: false` on its own fixture — the spread is second,
+  // so that wins.
   const projects = (opts.projects ?? [DEFAULT_PROJECT]).map((p) => ({
     can_author: true,
+    can_undo_batch_operations: true,
     ...p,
   }));
   const projectId = opts.projectId ?? projects[0].id;

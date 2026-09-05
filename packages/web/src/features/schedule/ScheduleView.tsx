@@ -35,6 +35,7 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
@@ -158,6 +159,7 @@ import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 import type { DependencyDirection } from './deps/linkTypes';
 import { PendingCrossProjectReview } from './PendingCrossProjectReview';
 import { SeedBanner } from './SeedBanner';
+import { SeedFailureBanner } from './SeedFailureBanner';
 import { ScheduleSeedingState } from './ScheduleSeedingState';
 import { useTemplateApplication } from '@/hooks/useProjectTemplates';
 import { useQueryClient } from '@tanstack/react-query';
@@ -293,19 +295,31 @@ export function ScheduleEmptyState({ onAddTask }: { onAddTask?: () => void }) {
 // affordance (#477) and any future mutation that needs a follow-up button.
 // Auto-dismisses on the toast's `durationMs` (default 6000); explicit
 // dismissal on Esc and on Undo click.
+//
+// The dwell is PAUSABLE (#3356). This surface is not the global `ToastHost` — the
+// Schedule keeps its own renderer because its toast is the one backed by a session
+// trail (see the `trailBacked` discussion in `components/Toast/toastStore.ts`) — but
+// the WCAG 2.2.1 pause and web rule 356(d)'s "an element with focus inside it is
+// never auto-removed" are a single shared implementation, `usePausableAutoDismiss`,
+// not a copy. Two surfaces that have already diverged once on an accessibility
+// guarantee will diverge again.
 // ---------------------------------------------------------------------------
 
 function ScheduleActionToastRenderer() {
   const toast = useScheduleStore((s) => s.scheduleActionToast);
   const setToast = useScheduleStore((s) => s.setScheduleActionToast);
 
-  // Auto-dismiss timer — restarts whenever the toast identity changes.
-  useEffect(() => {
-    if (!toast) return;
-    const duration = toast.durationMs ?? 6000;
-    const handle = window.setTimeout(() => setToast(null), duration);
-    return () => window.clearTimeout(handle);
-  }, [toast, setToast]);
+  // Auto-dismiss timer — restarts whenever the toast identity changes, and stops
+  // entirely while the toast is hovered or contains focus. Without the pause, an
+  // Admin tabbing toward the cascade's Undo loses the button out from under the
+  // focus ring when the dwell elapses — 8s for the classification cascade, 6s for
+  // everything else — and focus falls to `<body>` (rule 368, WCAG 2.4.3).
+  const { pauseHandlers } = usePausableAutoDismiss({
+    active: toast !== null,
+    durationMs: toast?.durationMs ?? 6000,
+    restartKey: toast,
+    onDismiss: () => setToast(null),
+  });
 
   // Dismiss on Escape (consistent with other transient surfaces).
   useEffect(() => {
@@ -328,13 +342,17 @@ function ScheduleActionToastRenderer() {
       data-testid="schedule-action-toast"
       role="status"
       aria-live="polite"
+      {...pauseHandlers}
       className="fixed bottom-14 left-1/2 -translate-x-1/2 z-[60] min-w-[280px] max-w-[420px] px-4 py-2 rounded-card border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary flex items-center gap-3"
     >
       <span className="flex-1">{toast.message}</span>
       {toast.action && (
         <button
           type="button"
-          className="text-brand-primary font-medium hover:underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+          // `min-h-[44px]`/`min-w-[44px]`: rule 5's touch floor. The label is as
+          // short as "Undo", so height alone does not reach 44×44 the way it does
+          // on `ToastHost`'s wider padded pill button.
+          className="min-h-[44px] min-w-[44px] px-2 text-brand-primary font-medium hover:underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
           onClick={() => {
             toast.action!.onClick();
             // The handler is responsible for replacing or clearing the toast;
@@ -648,8 +666,13 @@ export function schedulePanelWidth(outlineRendered: boolean, outlineWidth: numbe
  *   a surface offering no row to type and no template to apply.
  * - `taskCount` gates on ALL tasks, never the visible subset. A filter that hides
  *   every row of a populated project is a filter result, and keeps its own state.
- * - A terminal `failed` is deliberately NOT seeding (#3348) — that project really
- *   is empty, and a live first row is the right affordance for it.
+ * - A terminal `failed` is still NOT seeding, and that stayed right when the failure
+ *   finally got a surface (#3348): a failed apply is a total rollback, so the
+ *   project really is empty and a live first row is the correct affordance for it.
+ *   What was missing was never this predicate — it was that nothing else read the
+ *   status. `SeedFailureBanner` states the failure ABOVE an untouched canvas, which
+ *   is why this stayed a boolean instead of widening to a three-state union its four
+ *   consumers would each have had to grow an arm for without acting on it.
  */
 export function resolveScheduleSeeding(input: {
   applicationId: string | null;
@@ -2055,6 +2078,13 @@ export function ScheduleView() {
   // this one polls real status rather than guessing from a URL flag, so the timer
   // is the last resort rather than the primary exit.
   const [seedingTimedOut, setSeedingTimedOut] = useState(false);
+  // The failure banner gets its OWN dismissal rather than sharing `SeedBanner`'s
+  // `setSeedApplicationId(null)` (#3348). On the success banner that handler is
+  // free — it discards a summary of rows still on screen. Here the same handler
+  // would be destructive and unrecoverable: this banner is the only reader of
+  // `error_detail` in the web, and the id it needs was stripped from the URL
+  // one-shot on consume, so nothing can bring the reason back.
+  const [seedFailureDismissed, setSeedFailureDismissed] = useState(false);
   useEffect(() => {
     if (!seedApplicationId) return;
     const timer = setTimeout(() => setSeedingTimedOut(true), 60_000);
@@ -2076,6 +2106,20 @@ export function ScheduleView() {
     void seedQueryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     void seedQueryClient.invalidateQueries({ queryKey: ['dependencies', projectId] });
   }, [seedApplication?.status, projectId, seedQueryClient]);
+
+  // A retry from `SeedFailureBanner` (#3348) mints a NEW application, so both of the
+  // one-shot latches above have to be released with it. `seedTerminalHandledRef` is
+  // a ref that has already fired for the failed apply, so without the reset the
+  // retried one would never invalidate the task cache on success; `seedingTimedOut`
+  // is sticky state whose effect only restarts a timer, so past 60s the retry would
+  // never show the seeding skeleton at all. Both are invisible when wrong — the
+  // retry appears to work and then quietly lands on an empty canvas.
+  const handleSeedRetried = useCallback((nextApplicationId: string) => {
+    seedTerminalHandledRef.current = false;
+    setSeedingTimedOut(false);
+    setSeedFailureDismissed(false);
+    setSeedApplicationId(nextApplicationId);
+  }, []);
 
   const scheduleSeeding = resolveScheduleSeeding({
     applicationId: seedApplicationId,
@@ -4370,6 +4414,25 @@ export function ScheduleView() {
         />
       )}
 
+      {/* The failure counterpart (#3348) — a SIBLING rather than a branch inside
+          `SeedBanner`, whose contract is summarizing a successful apply. Renders
+          only on a terminal `failed`, shares the banner's query key so the pair
+          costs one request, and deliberately leaves the empty-state ladder below
+          untouched: the blank canvas IS "continue with an empty project". Mounted
+          here, above `ScheduleMainArea`'s `isMobile` early return, so it also
+          annotates MobileSchedule's "No items yet" — the card whose own comment
+          notes it reads as "the apply failed", which until now it could not
+          confirm. */}
+      {projectId && seedApplicationId && !seedFailureDismissed && (
+        <SeedFailureBanner
+          projectId={projectId}
+          applicationId={seedApplicationId}
+          currentRole={currentRole}
+          onRetried={handleSeedRetried}
+          onDismiss={() => setSeedFailureDismissed(true)}
+        />
+      )}
+
       {/* Task creation modal — replaces the inline AddTaskForm strip
           (issue #305 / ADR-0052). The unified TaskFormModal handles both
           create and edit flows; here it always opens in create mode. */}
@@ -4655,6 +4718,7 @@ export function ScheduleView() {
         classifyState={classify.state}
         classifyTarget={classify.target}
         classifyPending={classify.isPending}
+        classifyCanUndo={projectDetail?.can_undo_batch_operations}
         classifyError={classify.error}
         onClassifyApply={classify.apply}
         onClassifyClose={classify.close}
@@ -4784,6 +4848,13 @@ interface ScheduleOverlayLayerProps {
   classifyState: { taskId: string; anchor: { x: number; y: number } } | null;
   classifyTarget: Task | null;
   classifyPending: boolean;
+  /**
+   * `Project.can_undo_batch_operations` (#3357) — threaded down rather than re-read
+   * here, so the popover's disclosure and `hasEditRights` above resolve off the ONE
+   * `useProject` response this view already holds. `undefined` = not answered yet,
+   * which is not `false`; see `shouldDiscloseUndoFloor`.
+   */
+  classifyCanUndo: boolean | undefined;
   classifyError: ClassificationError | null;
   onClassifyApply: (spec: ClassificationApply) => void;
   onClassifyClose: () => void;
@@ -4842,6 +4913,7 @@ function ScheduleOverlayLayer({
   classifyState,
   classifyTarget,
   classifyPending,
+  classifyCanUndo,
   classifyError,
   onClassifyApply,
   onClassifyClose,
@@ -4915,6 +4987,8 @@ function ScheduleOverlayLayer({
           target={classifyTarget}
           tasks={allTasks}
           isPending={classifyPending}
+          // Same project payload `can_author` above rides on (#3357, web rule 373(d)).
+          canUndoBatchOperations={classifyCanUndo}
           error={classifyError}
           onApply={onClassifyApply}
           onClose={onClassifyClose}

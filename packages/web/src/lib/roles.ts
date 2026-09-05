@@ -86,6 +86,52 @@ export function canAuthorPlan(canAuthor: boolean | undefined): boolean {
 }
 
 /**
+ * Should a surface DISCLOSE that this caller cannot reverse a batch write?
+ * (#3357, web rule 373(d))
+ *
+ * Takes `Project.can_undo_batch_operations` — the server's own verdict, from the
+ * predicate the `/…-operations/{id}/undo/` endpoints enforce — never a client-side
+ * `role >= ROLE_ADMIN`.
+ *
+ * Be precise about why, because the obvious reason is the one that does NOT apply.
+ * Unlike {@link canAuthorPlan}, the server's rule here IS a plain threshold, so an
+ * ordinal comparison would agree with it today, custom Enterprise band included. Two
+ * other things decide it:
+ *
+ * 1. **The floor is under live revision.** #3355 is open on whether Admin+ is right
+ *    at all, and `structural_operation_services` already implements actor-or-Admin
+ *    instead. A client-side copy is a second implementation of a rule the server has
+ *    said it may change, and nothing would fail when it drifts.
+ * 2. **`useCurrentUserRole` sets `retry: false`**, so one dropped request is terminal
+ *    and returns `role: null` for the life of the page. Against a `>= ROLE_ADMIN`
+ *    test that renders as a standing "you cannot undo" shown to a Project Manager who
+ *    can — and 35 of its 41 call sites do not destructure `isError`, so the miss is
+ *    the default outcome, not a hypothetical (#2961, rule 302).
+ *
+ * A third trap is not about the ordinal at all: on the product backlog the authority
+ * already in scope is `canManageBacklog` (Admin+ **or** the Product Owner facet),
+ * which is a different rule and answers this question wrong for a PO below Admin.
+ * Reusing the variable at hand is the mistake this field exists to make impossible.
+ *
+ * **The pessimism is inverted relative to {@link canAuthorPlan}, on purpose.** That
+ * one returns `false` on `undefined` so an affordance stays ABSENT until the server
+ * answers — absence beats a false affordance (#2949). Here the output is not an
+ * affordance but a *withdrawal*, so the same default would produce the opposite
+ * harm: it would tell a Project Manager they cannot undo, every time the project
+ * query is in flight. Assuming rights on an unknown costs at worst a note that
+ * appears a beat late; assuming denial states something false to the one reader who
+ * has the right. So this discloses ONLY on an affirmative `false`.
+ *
+ * Named for the disclosure rather than the capability for the same reason: a
+ * `canUndo()` helper reads as a capability check and every call site would then have
+ * to remember to negate it *and* re-handle `undefined`, which is the shape that
+ * produced the wrong default the first time.
+ */
+export function shouldDiscloseUndoFloor(canUndoBatchOperations: boolean | undefined): boolean {
+  return canUndoBatchOperations === false;
+}
+
+/**
  * May this reader author dependency **edges**? (#3053, ADR-0773 §7)
  *
  * A SECOND permission, not a rephrasing of {@link canAuthorPlan}, and the two are

@@ -4,8 +4,12 @@
 
 Accepted (2026-08-30)
 
-This ADR ships **no code**. #3155 implements it, after #3200 merges (that issue edits the
-same picker rows). It exists because the feature makes a deliberate, permanent decision to
+> **Implementation status (2026-09-04 ADR audit, #3379):** the *decision* stands, but this
+> ADR ships **no code** — verified 2026-09-04, no booking-signal count is computed or
+> served anywhere under `packages/api/src` or `packages/web/src`. #3155 implements it,
+> after #3200 merges (that issue edits the same picker rows).
+
+It exists because the feature makes a deliberate, permanent decision to
 disclose one new fact to a non-org-admin audience, and because the filed design bundle
 (`handoff-0.4-3155-booking-signal`, decisions `B1`–`B20`) reaches the right conclusion on
 the central question via an argument that is **backwards**. A privacy rationale that is

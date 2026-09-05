@@ -4,11 +4,14 @@
 
 Accepted (2026-08-29)
 
-Answers the scoping decision issue #2222 exists to make — *"docs surface vs. richer
-task notes vs. deferral"* — with **a docs surface**, and constrains its shape. No
-endpoint, model, or page ships with this ADR; it is the design gate that has to be
-passed before #2222 can be implemented, and it is the record the implementer will
-meet instead of re-deriving these choices.
+> **Implementation status (2026-09-04 ADR audit, #3379):** the *decision* stands, but
+> **no endpoint, model, or page ships with this ADR** — verified 2026-09-04, there is no
+> wiki model, route, or component anywhere under `packages/api/src` or
+> `packages/web/src`. It answers the scoping decision issue #2222 exists to make —
+> *"docs surface vs. richer task notes vs. deferral"* — with **a docs surface**, and
+> constrains its shape. It is the design gate that has to be passed before #2222 can be
+> implemented, and the record the implementer will meet instead of re-deriving these
+> choices.
 
 ## Context
 
