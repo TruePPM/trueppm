@@ -21,7 +21,11 @@
 # the api readiness path. The install DOES change the celery probe settings: the
 # worker's are turned OFF and beat's are widened. See the CELERY_PROBE_OVERRIDES
 # block below for the evidence, and note the consequence — no runtime gate
-# exercises the chart's own celery probe defaults any more (#3218, #3230).
+# exercises the chart's own celery probe defaults (#3218). #3230 settled that: a
+# runtime gate is unavailable for the reason the override exists (an exec probe
+# cannot succeed under kind-in-dind CPU contention at ANY timing), so the
+# defaults were re-derived against the 300s worker grace instead and are held
+# statically by section N+5 of scripts/helm-structure-check.sh.
 # For a local run against an already-published tag, set RELEASE_IMAGE_TAG (e.g.
 # `latest`) and, if that tag predates readyz, add the /health/ readiness override
 # yourself. See #2279 (drill) and #2284 (per-commit image).
@@ -93,12 +97,21 @@ INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
 # drill does not double Django-import forks into the chart's tightest cgroup
 # (250m CPU / 256Mi).
 #
-# The chart-level question this raises is #3230 and is deliberately NOT answered
-# here: a Celery worker sits behind NO Service (verified — the api and web
-# Services both select on app.kubernetes.io/component), so its readinessProbe
-# gates nothing in production except rolling-update pacing, while costing a
-# control-plane round trip inside its own CPU budget. Removing it is a
-# production semantics change and needs review, not a drill fix.
+# The chart-level question this raises was #3230, and it is now answered in the
+# chart rather than here: a Celery worker sits behind NO Service (verified — the
+# api and web Services both select on app.kubernetes.io/component), so its
+# readinessProbe gates nothing in production except rolling-update pacing, while
+# costing a control-plane round trip inside its own CPU budget. #3230 split the
+# two probes apart (probes.worker.liveness.* / .readiness.*, each with its own
+# `enabled`) so that trade can be made per-probe. This drill deliberately keeps
+# the blunt master switch: `probes.worker.enabled=false` is what #3218's evidence
+# supports, and narrowing it to readiness alone would be a new claim about
+# liveness under kind-in-dind that no job has tested.
+#
+# This array is held identical to the one in scripts/helm-netpol-drill.sh by
+# scripts/tests/helm-celery-probe-overrides.test.sh (#3230), which extracts both
+# and compares them — the prose note that used to say "keep the two in sync" had
+# no mechanism behind it.
 CELERY_PROBE_OVERRIDES=(
   --set probes.worker.enabled=false
   --set probes.beat.initialDelaySeconds=45
