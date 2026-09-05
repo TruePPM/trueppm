@@ -96,6 +96,54 @@ describe('TaskScheduleStrip', () => {
     expect(within(startCell).getByText('—')).toBeInTheDocument();
   });
 
+  describe('free float inside the Float cell (#3344)', () => {
+    const floatCell = () => within(screen.getByRole('group', { name: 'Float' }));
+
+    it('shows free float beside total float when the two DIFFER', () => {
+      render(<TaskScheduleStrip task={makeTask({ totalFloat: 5, freeFloat: 2 })} />);
+      expect(floatCell().getByText('5d')).toBeInTheDocument();
+      expect(floatCell().getByText('free 2d')).toBeInTheDocument();
+    });
+
+    it('says nothing when free float EQUALS total float', () => {
+      // The equal case is a task with no successor, which is the common shape of
+      // a leaf row. "3d · free 3d" states one fact twice in the narrowest cell on
+      // the strip (web rule 284) and teaches the reader to stop looking at it.
+      render(<TaskScheduleStrip task={makeTask({ totalFloat: 3, freeFloat: 3 })} />);
+      expect(floatCell().getByText('3d')).toBeInTheDocument();
+      expect(floatCell().queryByText(/free /)).toBeNull();
+    });
+
+    it('says nothing when free float is absent from an older payload', () => {
+      render(<TaskScheduleStrip task={makeTask({ totalFloat: 3, freeFloat: null })} />);
+      expect(floatCell().queryByText(/free /)).toBeNull();
+    });
+
+    it('shows a NEGATIVE free float, which is a real and different fact', () => {
+      // Total float positive, free float negative: this row has slack against
+      // the project finish and is ALREADY late against its own successor. That
+      // is the case the pair exists to make visible.
+      render(<TaskScheduleStrip task={makeTask({ totalFloat: 4, freeFloat: -1 })} />);
+      expect(floatCell().getByText('free -1d')).toBeInTheDocument();
+    });
+
+    it('folds free float into the cell\'s spoken text, not only its pixels', () => {
+      // The visible chip is `aria-hidden`, matching the `computed` chip beside
+      // it, so without the sr-only branch a screen-reader user hears the total
+      // and never learns there is a second, smaller number.
+      render(<TaskScheduleStrip task={makeTask({ totalFloat: 5, freeFloat: 2 })} />);
+      expect(
+        screen.getByRole('group', { name: 'Float' }).textContent,
+      ).toContain('free float 2 working days');
+    });
+
+    it('renders NO free float at all when total float itself is missing', () => {
+      render(<TaskScheduleStrip task={makeTask({ totalFloat: null, freeFloat: 2 })} />);
+      expect(floatCell().getByText('—')).toBeInTheDocument();
+      expect(floatCell().queryByText(/free /)).toBeNull();
+    });
+  });
+
   describe('remaining-duration qualifier chip (ADR-0752 §9)', () => {
     it('shows "Nd left" when remaining work has shrunk below the full estimate', () => {
       render(<TaskScheduleStrip task={makeTask({ duration: 4, remainingDuration: 1 })} />);

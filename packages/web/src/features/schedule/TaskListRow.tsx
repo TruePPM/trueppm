@@ -1312,6 +1312,15 @@ function TaskDataCells({
       {/* ── Owner column (#248) ─────────────────────────────────────────────── */}
       {/* Summary tasks: empty cell (assignees roll up implicitly, not authored). */}
       {!isEditing && visible.owner && <TaskOwnerCell task={task} widthPx={widths.owner} />}
+
+      {/* ── Float columns (#3344) ───────────────────────────────────────────── */}
+      {/* Rightmost, so rule 370's render clamp spends these before the dates. */}
+      {!isEditing && visible.totalFloat && (
+        <TaskFloatCell value={task.totalFloat} label="Total float" widthPx={widths.totalFloat} />
+      )}
+      {!isEditing && visible.freeFloat && (
+        <TaskFloatCell value={task.freeFloat} label="Free float" widthPx={widths.freeFloat} />
+      )}
     </>
   );
 }
@@ -3996,6 +4005,78 @@ function TaskFinishCell({ task, widthPx }: { task: Task; widthPx: number }) {
       ) : (
         <DateCellValue value={task.finish} entry={entry} widthPx={widthPx} />
       )}
+    </div>
+  );
+}
+
+/**
+ * The visible text of a float cell.
+ *
+ * Deliberately NOT the string `Nd float` that the drawer, the board card and the
+ * print KPI all use: several shipped E2E specs locate those by loose text
+ * (`getByText('5d float')`, a `getByText(/0d float/)` asserted to have count 0),
+ * and a per-row cell rendering the same phrase turns each of them into a
+ * strict-mode collision on an unrelated surface (#3344). A bare `5d` is also the
+ * right thing in a column whose header already says which float it is.
+ *
+ * `null`/`undefined` means CPM has not run for this row, which is not zero — an
+ * em-dash says "no answer yet" where `0d` would say "no slack", the opposite.
+ */
+export function formatFloatCell(days: number | null | undefined): string {
+  return days === null || days === undefined ? '\u2014' : `${days}d`;
+}
+
+/**
+ * Spoken form of a float cell. The sign is the non-colour carrier: a negative
+ * float is rendered in the critical colour AND states "already late" in words,
+ * because colour alone would make the one value that changes what the reader
+ * does next a WCAG 1.4.1 failure (web rules 12/120).
+ */
+export function floatCellAriaLabel(
+  label: 'Total float' | 'Free float',
+  days: number | null | undefined,
+): string {
+  if (days === null || days === undefined) return `${label}: not computed yet`;
+  if (days < 0) return `${label}: ${Math.abs(days)} working days late`;
+  return `${label}: ${days} working ${days === 1 ? 'day' : 'days'}`;
+}
+
+/**
+ * A read-only CPM float cell (#3344).
+ *
+ * Read-only on purpose, and therefore absent from `EDITABLE_COLUMNS`: float is
+ * derived from the whole dependency graph, so there is no single value a user
+ * could type here that the next CPM pass would honour. That also keeps ADR-0054's
+ * "a new column must be reconciled with the editable-cell registry" satisfied by
+ * a deliberate non-entry rather than by omission.
+ *
+ * Negative float turns the cell critical, matching the treatment the drawer's
+ * Float cell and the PDF's row model already give it (web rule 284(d)). Zero
+ * float does NOT: a great many rows sit at zero on a fully-constrained plan, and
+ * criticality is already carried by the row name's own weight and colour.
+ */
+function TaskFloatCell({
+  value,
+  label,
+  widthPx,
+}: {
+  value: number | null | undefined;
+  label: 'Total float' | 'Free float';
+  widthPx: number;
+}) {
+  const late = typeof value === 'number' && value < 0;
+  return (
+    <div
+      className={[
+        'flex items-center justify-end shrink-0 border-r border-neutral-border/20',
+        'text-right tabular-nums pr-2',
+        late ? 'text-semantic-critical font-semibold' : 'text-neutral-text-secondary',
+      ].join(' ')}
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={floatCellAriaLabel(label, value)}
+    >
+      {formatFloatCell(value)}
     </div>
   );
 }

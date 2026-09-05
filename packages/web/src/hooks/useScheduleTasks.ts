@@ -95,6 +95,9 @@ export interface ApiTask {
   pessimistic_duration: number | null;
   estimate_status: 'pending' | 'accepted' | null;
   total_float: number | null;
+  /** Free float (#3344). Optional: a payload synced before the field was
+   *  surfaced on the web simply omits it, which reads the same as pre-CPM. */
+  free_float?: number | null;
   // Board batch 3 (ADR-0035) — PPM signal annotations.
   predecessor_count?: number;
   is_blocked?: boolean;
@@ -399,6 +402,7 @@ export function mapTask(t: ApiTask): Task {
     pessimisticDuration: t.pessimistic_duration,
     estimateStatus: t.estimate_status,
     totalFloat: t.total_float,
+    freeFloat: t.free_float ?? null,
     predecessorCount: t.predecessor_count ?? 0,
     isBlocked: t.is_blocked ?? false,
     hasRelatedLinks: t.has_related_links ?? false,
@@ -499,11 +503,11 @@ export function mapTask(t: ApiTask): Task {
 /**
  * One task's CPM date delta, as carried in the batched `task_dates_updated`
  * WebSocket event (ADR-0091). Field names mirror the API serializer so the
- * payload can be spliced straight into the tasks cache. `late_start` and
- * `free_float` are part of the wire contract (and used by mobile) but are
- * not surfaced on the web {@link Task}, so the web splice ignores them.
- * `late_finish` **is** surfaced (issue #1493, drag-preview CP-flip fix) — see
- * {@link applyTaskDatesDelta}.
+ * payload can be spliced straight into the tasks cache. `late_start` is part of
+ * the wire contract (and used by mobile) but is not surfaced on the web
+ * {@link Task}, so the web splice ignores it. `late_finish` **is** surfaced
+ * (issue #1493, drag-preview CP-flip fix), and so is `free_float` (#3344, the
+ * Free float column) — see {@link applyTaskDatesDelta}.
  */
 export interface TaskDatesDelta {
   id: string;
@@ -547,6 +551,7 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     duration: displayDuration,
     isCritical: delta.is_critical,
     totalFloat: delta.total_float,
+    freeFloat: delta.free_float,
     lateFinish: delta.late_finish ?? undefined,
     plannedStart: delta.planned_start,
   };

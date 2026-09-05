@@ -59,6 +59,48 @@ export function OwnerAvatar({ name }: { name: string }) {
   );
 }
 
+/**
+ * A read-only CPM float cell for the Flat/Grouped table (#3344).
+ *
+ * `hidden lg:flex` matches the header's own `hidden lg:block` — the two must
+ * carry the same breakpoint or the body drifts a column out of alignment with
+ * the heading above it, which no type check can see.
+ *
+ * Null means CPM has not run for this row and renders an em-dash, never `0d`:
+ * "no answer yet" and "no slack at all" are opposite readings, and the second
+ * one is the alarming one. Negative float is the one value that changes what a
+ * reader does next, so it takes the critical colour AND semibold weight AND
+ * keeps its minus sign — colour is never the sole carrier (web rules 12/120).
+ */
+export function GridFloatCell({
+  value,
+  label,
+}: {
+  value: number | null | undefined;
+  label: 'Total float' | 'Free float';
+}) {
+  const late = typeof value === 'number' && value < 0;
+  return (
+    <span
+      role="gridcell"
+      aria-label={
+        value === null || value === undefined
+          ? `${label}: not computed yet`
+          : late
+            ? `${label}: ${Math.abs(value)} working days late`
+            : `${label}: ${value} working ${value === 1 ? 'day' : 'days'}`
+      }
+      className={[
+        'hidden lg:flex items-center justify-end flex-shrink-0 tppm-mono text-xs',
+        'lg:w-16 lg:text-right lg:pr-2',
+        late ? 'text-semantic-critical font-semibold' : 'text-neutral-text-secondary',
+      ].join(' ')}
+    >
+      {value === null || value === undefined ? '—' : `${value}d`}
+    </span>
+  );
+}
+
 export function fmtDate(iso: string | undefined): string {
   if (!iso) return '—';
   const d = new Date(`${iso}T00:00:00Z`);

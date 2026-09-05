@@ -96,6 +96,14 @@ describe('useScheduleTasks mapper', () => {
     expect(task.deliveryMode).toBeUndefined();
   });
 
+  it('maps free_float, and reads an older payload without it as "not computed" (#3344)', () => {
+    expect(mapTask({ ...base, free_float: 2 }).freeFloat).toBe(2);
+    expect(mapTask({ ...base, free_float: 0 }).freeFloat).toBe(0);
+    // `?? null` and not `?? 0`: a payload predating the field has not told us
+    // this task has no slack, it has told us nothing.
+    expect(mapTask(base).freeFloat).toBeNull();
+  });
+
   it('maps late_finish onto the web Task (issue #1493)', () => {
     const task = mapTask({ ...base, late_finish: '2026-11-01' });
     expect(task.lateFinish).toBe('2026-11-01');
@@ -878,6 +886,21 @@ describe('applyTaskDatesDelta', () => {
     expect(spliced.totalFloat).toBe(refetched.totalFloat);
     expect(spliced.lateFinish).toBe(refetched.lateFinish);
     expect(spliced.plannedStart).toBe(refetched.plannedStart);
+  });
+
+  it('splices free_float, which the wire has always carried and the splice used to drop (#3344)', () => {
+    // `free_float` was in `TaskDatesDelta` from ADR-0091 and the splice ignored
+    // it, because nothing on the web read it. Now that a column does, a
+    // collaborator's CPM run has to move BOTH numbers or the Free float column
+    // silently keeps a stale value until the next full refetch — visible only as
+    // two columns disagreeing about a task nobody touched.
+    const existing = { ...mapTask(base), freeFloat: 99 };
+    expect(applyTaskDatesDelta(existing, delta).freeFloat).toBe(1);
+  });
+
+  it('splices a null free_float rather than leaving the previous number in place', () => {
+    const existing = { ...mapTask(base), freeFloat: 7 };
+    expect(applyTaskDatesDelta(existing, { ...delta, free_float: null }).freeFloat).toBeNull();
   });
 
   it('splices scheduled_start (the span) into bar geometry, not just early_start (ADR-0752)', () => {

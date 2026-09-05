@@ -226,11 +226,54 @@ exactly the situation the span exists to surface rather than hide.
 
 ## Layout
 
-Split-pane: a virtualized task list on the left (eight columns — WBS, Task, Links, Dur, Start, Finish, %, Owner — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronized in both directions. The **Links** column names the types of each row's dependencies and opens the picker — see [Task-list columns](/features/schedule-toolbar/#the-links-column).
+Split-pane: a virtualized task list on the left (ten columns — WBS, Task, Links, Dur, Start, Finish, %, Owner, Float, Free — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronized in both directions. The **Links** column names the types of each row's dependencies and opens the picker — see [Task-list columns](/features/schedule-toolbar/#the-links-column).
 
 :::tip[Build the plan from the keyboard]
 The task list is [Schedule build mode](/features/schedule-build-mode/) — a keyboard-first construction surface, on by default: type a task, `Alt + →` to indent, `Space` to complete, `F2` to edit. It builds the schedule; sprint planning still lives on the [Board](/features/board/).
 :::
+
+### Float and free float
+
+:::note[Ships in 0.4]
+The two float columns and the drawer's free-float reading land in 0.4. Until then
+the Schedule shows total float in the task drawer only, and free float nowhere —
+both numbers are computed by the engine and returned by the API today.
+:::
+
+The engine computes two kinds of slack for every task, and 0.4 will put both in
+the outline as their own columns:
+
+| Column | Reads | Answers |
+|---|---|---|
+| **Float** | Total float | How long can this task slip before the **project finish** moves? |
+| **Free** | Free float | How long can it slip before **the task after it** has to move? |
+
+Free float is never larger than total float, and the two are equal for a task with
+nothing downstream of it. The gap between them is the useful part: a task with
+`8d` of total float and `2d` of free float has eight days of room in the plan but
+only two before its own successor is pushed, so spending the other six costs
+somebody else their start date. See the [scheduler
+reference](/features/scheduler/#task-outputs) for how each is derived.
+
+Both columns will be read-only, right-aligned, and set in tabular figures so a
+column of them scans. A task the scheduler has not reached yet will show an em
+dash rather than `0d` — no answer yet and no slack left are opposite readings, and
+only one of them is a warning. **Negative float** — a task that is already late
+against the project finish — will read in the critical color, in bold, with its
+minus sign.
+
+Which of them you see by default follows the project's [methodology
+preset](/features/methodology-preset/): both will be **on** for Waterfall and
+Hybrid projects, where float is the number a planner scans a plan by, and **off**
+for Agile projects, whose Schedule tab is not in the nav by default. That is a
+default, not a restriction — turn either on or off from **Display ▸ Columns** on
+any project and the choice sticks.
+
+Sorting is a Table/Grid affordance rather than a Schedule one: the outline's row
+order **is** the work breakdown structure, so it cannot be re-ordered by a column
+without destroying the containment it exists to show. To rank tasks by slack, open
+the same two columns on the [Table/Grid view](/features/grid/), where they will be
+sortable. Tasks with no computed float sort last in both directions.
 
 ### On a narrow desktop window
 
@@ -240,6 +283,15 @@ gives ground first**. It keeps the columns you sized and clips the rightmost one
 the bar track holds a 320px floor and stays readable. Nothing you set is changed:
 widen the window, or collapse the left rail, and your outline comes back exactly as
 it was. Drag the divider if you would rather spend the width the other way.
+
+Worth knowing what that costs in practice, because the numbers are not obvious. At
+1280px with the left rail expanded the eight-column outline already asks for more
+room than the clamp can give it, so the Owner column has always been the first to
+clip there. The two float columns 0.4 adds are the rightmost pair, which puts them
+first in line: at 1440px and above the full ten-column set fits, and below that you
+will want to hide a column you are not reading, collapse the rail, or drag the
+divider. That order is deliberate — float is the pair a planner consults rather
+than reads on every row, so it is the right thing to spend first.
 
 ### On a phone
 
@@ -293,7 +345,10 @@ the drawer groups everything about the task into four tabs:
   estimates, recurrence). **Duration is editable right here** — click it and type
   a new value (e.g. `10`, or `2w` for two working weeks) instead of dragging the
   bar; Start, Finish, and Float re-compute the moment you commit. Milestones have
-  no duration, and Viewers see it read-only.
+  no duration, and Viewers see it read-only. From 0.4 the Float cell will also
+  carry a `free 2d` chip whenever this task's free float differs from its total
+  float — that is, whenever it has a successor close enough to be pushed. When the
+  two are the same number the chip stays away rather than printing it twice.
 - **Subtasks** — the checklist breakdown, with a done/total count on the tab.
 - **Activity** — notes, comments, an **All events** timeline (field changes plus
   system recalculations and schedule, risk, time and attachment events), and baseline.

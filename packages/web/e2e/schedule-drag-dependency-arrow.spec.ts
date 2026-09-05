@@ -160,9 +160,37 @@ test.describe('Schedule drag preview keeps dependency arrows intact (#1499)', ()
     // Drag Foundation's bar body (mid-bar, well clear of the link-dot zone at
     // [barRight+8, +16]) forward in time by a generous delta — enough to
     // guarantee a date change regardless of day-snap granularity.
-    const startX = fBox.x + fBox.width / 2;
+    //
+    // The delta is DERIVED from the canvas rather than a constant (#3344). It was
+    // `200`, and 200 was only ever safe because of how wide the canvas happened
+    // to be: the outline is `flex-shrink-0` and the canvas is `flex-1`, so every
+    // column the outline gains comes out of the room this gesture has. Adding the
+    // two float columns took 112px of it, the drag ended past the chart's right
+    // edge, and the failure surfaced as "the commit popover never appeared" —
+    // with nothing anywhere naming a column. The 1920 viewport in `beforeEach` is
+    // the same compensation written as a constant; deriving the delta is what
+    // stops the next column repeating this.
+    // Aim just INSIDE the bar's left edge, not at its centre (#3344).
+    //
+    // `GanttHitIndex` puts the resize zone at `barRight - 16`, floored at
+    // `barLeft + MIN_BODY_WIDTH`, and there is no zone on the left. At this
+    // fixture's auto-fitted zoom the Foundation bar was ~32.6px wide, so its
+    // centre sat 16.3px from the right edge and cleared the resize zone by
+    // **0.3px** — the gesture was a body-drag by rounding. The bar's width is a
+    // function of the canvas's, the canvas is `flex-1` beside a `flex-shrink-0`
+    // outline, and two more outline columns took 112px off it: the bar narrowed
+    // to 28.7px, the centre landed inside the resize zone, and the spec failed
+    // with "the Reschedule popover never appeared" while a **Resize** popover
+    // was on screen the whole time. Nothing in the failure named a column.
+    const startX = fBox.x + 3;
     const startY = fBox.y + fBox.height / 2;
-    await dragBarBody(page, startX, startY, 200);
+    const canvasBox = await page.locator('canvas[data-layer="interaction"]').boundingBox();
+    if (!canvasBox) throw new Error('no interaction canvas box');
+    const dx = Math.min(200, canvasBox.x + canvasBox.width - 24 - startX);
+    // A drag too short to cross a day boundary would make the assertions below
+    // vacuous, so fail loudly here rather than on a confusing "dates are equal".
+    expect(dx).toBeGreaterThan(60);
+    await dragBarBody(page, startX, startY, dx);
 
     // The pull-to-commit popover (ADR-0067) gates the actual PATCH — it must
     // appear with the previewed (changed) dates, and the drag must NOT have

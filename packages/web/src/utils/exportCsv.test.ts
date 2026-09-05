@@ -84,7 +84,10 @@ describe('tasksToCsvString', () => {
   it('produces a header row as the first line', () => {
     const csv = tasksToCsvString([]);
     const firstLine = csv.split('\r\n')[0];
-    expect(firstLine).toBe('WBS,Name,Start,Finish,Duration (days),Progress (%),Status,Critical');
+    expect(firstLine).toBe(
+      'WBS,Name,Start,Finish,Duration (days),Progress (%),Status,Critical,' +
+        'Total float (days),Free float (days)',
+    );
   });
 
   it('produces one data row per task', () => {
@@ -94,15 +97,32 @@ describe('tasksToCsvString', () => {
   });
 
   it('encodes task fields in the correct column order', () => {
-    const task = makeTask({ isCritical: true });
+    const task = makeTask({ isCritical: true, totalFloat: 4, freeFloat: 2 });
     const lines = tasksToCsvString([task]).split('\r\n');
     const dataRow = lines[1];
-    expect(dataRow).toBe('1,Test task,2026-01-05,2026-01-09,5,50,IN_PROGRESS,Yes');
+    expect(dataRow).toBe('1,Test task,2026-01-05,2026-01-09,5,50,IN_PROGRESS,Yes,4,2');
   });
 
   it('marks non-critical tasks with "No"', () => {
     const lines = tasksToCsvString([makeTask({ isCritical: false })]).split('\r\n');
-    expect(lines[1].endsWith(',No')).toBe(true);
+    expect(lines[1].split(',')[7]).toBe('No');
+  });
+
+  it('leaves a float cell EMPTY when CPM has not run, never 0 (#3344)', () => {
+    // A pre-CPM row has no float. Writing `0` would assert this task has no
+    // slack — the opposite reading, and the alarming one — to every spreadsheet
+    // that opens the file.
+    const lines = tasksToCsvString([makeTask({ totalFloat: null, freeFloat: null })]).split('\r\n');
+    expect(lines[1].endsWith(',,')).toBe(true);
+  });
+
+  it('escapes a NEGATIVE float, whose leading minus is a formula trigger (#3344)', () => {
+    // `-3` starts with one of FORMULA_PREFIX_CHARS, so an unescaped cell would
+    // ship something Excel evaluates. This is the case a "numbers need no
+    // quoting" shortcut gets wrong.
+    const lines = tasksToCsvString([makeTask({ totalFloat: -3, freeFloat: -3 })]).split('\r\n');
+    expect(lines[1].endsWith(",'-3,'-3")).toBe(true);
+    expect(lines[1]).not.toMatch(/,-3/);
   });
 
   it('escapes task names that contain commas', () => {

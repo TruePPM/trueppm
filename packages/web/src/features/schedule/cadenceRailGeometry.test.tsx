@@ -39,6 +39,8 @@ const WIDTHS: ColumnWidths['widths'] = {
   finish: 74,
   progress: 56,
   owner: 60,
+  totalFloat: 64,
+  freeFloat: 64,
 };
 
 const VISIBLE: ColumnWidths['visible'] = {
@@ -50,6 +52,8 @@ const VISIBLE: ColumnWidths['visible'] = {
   finish: true,
   progress: true,
   owner: true,
+  totalFloat: true,
+  freeFloat: true,
 };
 
 /** The outline header's own rendered height, in px. */

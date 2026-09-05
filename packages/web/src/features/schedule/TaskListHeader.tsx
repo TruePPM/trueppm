@@ -1,6 +1,7 @@
 import { useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import { useRef, type PointerEvent, type KeyboardEvent } from 'react';
 import { MIN_COL_WIDTHS, type ColumnKey, type ColumnWidths } from '@/hooks/useColumnWidths';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { ROW_VOCABULARY } from './rowVocabulary';
 
 interface ResizeHandleProps {
@@ -48,6 +49,8 @@ const COLUMN_DISPLAY_NAME: Record<ColumnKey, string> = {
   finish: 'Finish date',
   progress: 'Progress',
   owner: 'Owner',
+  totalFloat: 'Total float',
+  freeFloat: 'Free float',
 };
 
 function ResizeHandle({ colKey, setWidth, currentWidth, maxWidth }: ResizeHandleProps) {
@@ -283,7 +286,7 @@ export function TaskListHeader({
         </span>
       )}
 
-      {/* Owner avatar column (#248) — rightmost; left-aligned for vertical scan */}
+      {/* Owner avatar column (#248) — left-aligned for vertical scan */}
       {visible.owner && (
         <span
           className="relative pl-2 shrink-0"
@@ -293,6 +296,61 @@ export function TaskListHeader({
         >
           Owner
           <ResizeHandle colKey="owner" setWidth={setWidth} currentWidth={widths.owner} />
+        </span>
+      )}
+
+      {/* Float columns (#3344) — rightmost, and deliberately so. They are the
+          pair a planner consults rather than reads on every row, and rule 370's
+          clamp sacrifices the RIGHTMOST columns first, so putting them here
+          means a narrow window costs the reader float before it costs them the
+          owner or the dates.
+
+          The headings are abbreviated the way `Dur` and `%` are, with the full
+          reading in `aria-label` — and each visible word is a substring of its
+          own accessible name ("Float" of "Total float", "Free" of "Free float"),
+          so WCAG 2.5.3 Label in Name holds by construction.
+
+          These two carry a `title`, which none of their six siblings does, and
+          the asymmetry is deliberate: `Dur` and `%` abbreviate a word the reader
+          already has, while `Float` and `Free` name a CONCEPT — expanding "Free"
+          to "Free float" tells a first-time self-hoster nothing about what free
+          float is (rule 287). The definitions come from `ABBREVIATIONS` so this
+          header, the drawer's Float cell and the table's headers cannot drift
+          into three readings of one term.
+
+          They shipped without the `title` for one run, because both definitions
+          said "this task" and the row-vocabulary lock sweeps every string this
+          header renders (#3027/#3031). The lock was right and the repair was the
+          definition, not the header: the same column heads phases and milestones,
+          and the drawer was already explaining a phase's Float cell in terms of a
+          "task". See the note in `lib/abbreviations.ts`. */}
+      {visible.totalFloat && (
+        <span
+          className="relative text-right shrink-0 pr-2"
+          style={{ width: widths.totalFloat }}
+          role="columnheader"
+          aria-label="Total float"
+          title={ABBREVIATIONS.FLOAT}
+        >
+          Float
+          <ResizeHandle
+            colKey="totalFloat"
+            setWidth={setWidth}
+            currentWidth={widths.totalFloat}
+          />
+        </span>
+      )}
+
+      {visible.freeFloat && (
+        <span
+          className="relative text-right shrink-0 pr-2"
+          style={{ width: widths.freeFloat }}
+          role="columnheader"
+          aria-label="Free float"
+          title={ABBREVIATIONS.FREE_FLOAT}
+        >
+          Free
+          <ResizeHandle colKey="freeFloat" setWidth={setWidth} currentWidth={widths.freeFloat} />
         </span>
       )}
     </div>

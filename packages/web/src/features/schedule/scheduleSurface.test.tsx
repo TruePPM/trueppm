@@ -28,6 +28,8 @@ const WIDTHS: ColumnWidths['widths'] = {
   finish: 74,
   progress: 60,
   owner: 72,
+  totalFloat: 64,
+  freeFloat: 64,
 };
 
 const ALL_VISIBLE: ColumnWidths['visible'] = {
@@ -39,6 +41,8 @@ const ALL_VISIBLE: ColumnWidths['visible'] = {
   finish: true,
   progress: true,
   owner: true,
+  totalFloat: true,
+  freeFloat: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -52,7 +56,16 @@ describe('scheduleSurface — column profile (#2960)', () => {
     }
     expect(surfaceRendersColumn('timeline', 'wbs')).toBe(true);
     expect(surfaceRendersColumn('timeline', 'task')).toBe(true);
-    for (const col of ['links', 'dur', 'start', 'finish', 'progress', 'owner'] as const) {
+    for (const col of [
+      'links',
+      'dur',
+      'start',
+      'finish',
+      'progress',
+      'owner',
+      'totalFloat',
+      'freeFloat',
+    ] as const) {
       expect(surfaceRendersColumn('timeline', col)).toBe(false);
     }
   });
@@ -68,6 +81,8 @@ describe('scheduleSurface — column profile (#2960)', () => {
       finish: false,
       progress: false,
       owner: false,
+      totalFloat: false,
+      freeFloat: false,
     });
   });
 
@@ -95,6 +110,8 @@ describe('scheduleSurface — column profile (#2960)', () => {
       'finish',
       'progress',
       'owner',
+      'totalFloat',
+      'freeFloat',
     ]);
     // A one-item section, on purpose: three checkboxes that change nothing would
     // be worse, and hiding the section takes away the one that works.
@@ -357,7 +374,7 @@ describe('one row model, two surfaces (#2960)', () => {
     expect(phaseOf(timeline)?.expanded).toBe(phaseOf(grid)?.expanded);
   });
 
-  it('differs ONLY in the columns: eight on the Grid, two on the Timeline', () => {
+  it('differs ONLY in the columns: ten on the Grid, two on the Timeline', () => {
     const grid = renderSurface('grid');
     const timeline = renderSurface('timeline');
     expect(grid.headers).toEqual([
@@ -369,6 +386,8 @@ describe('one row model, two surfaces (#2960)', () => {
       'Finish',
       '%',
       'Owner',
+      'Float',
+      'Free',
     ]);
     expect(timeline.headers).toEqual(['WBS', 'Item']);
     // The name column is byte-identical, which is what makes a gate's name "two
@@ -387,8 +406,25 @@ describe('one row model, two surfaces (#2960)', () => {
     expect(surfaceToggleableColumns('timeline')).not.toContain('links');
   });
 
+  it('draws Float on the Grid ONLY, and the Display menu says the same (#3344)', () => {
+    // Same rule-316 pairing the Links column is pinned by: the surface predicate
+    // that decides whether the panel draws a column is the one the Display menu
+    // maps over, so a column can never be offered on a surface that hides it.
+    expect(renderSurface('grid').headers).toEqual(
+      expect.arrayContaining(['Float', 'Free']),
+    );
+    expect(renderSurface('timeline').headers).not.toContain('Float');
+    expect(renderSurface('timeline').headers).not.toContain('Free');
+    expect(surfaceToggleableColumns('grid')).toEqual(
+      expect.arrayContaining(['totalFloat', 'freeFloat']),
+    );
+    expect(surfaceToggleableColumns('timeline')).not.toContain('totalFloat');
+    expect(surfaceToggleableColumns('timeline')).not.toContain('freeFloat');
+  });
+
   it('shrinks the panel box to the columns it actually draws', () => {
-    expect(renderSurface('grid').panelWidth).toBe('676px');
+    // 676 + the two 64px float columns (#3344).
+    expect(renderSurface('grid').panelWidth).toBe('804px');
     expect(renderSurface('timeline').panelWidth).toBe('268px');
   });
 

@@ -1,7 +1,7 @@
 import { ROW_VOCABULARY } from '../schedule/rowVocabulary';
 import { useEffect, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import type { Task } from '@/types';
-import { StatusPill, OwnerAvatar, fmtDate, progressBarColor } from './ui';
+import { StatusPill, OwnerAvatar, fmtDate, progressBarColor, GridFloatCell } from './ui';
 
 /**
  * Left-border + background class for a flat/grouped row: critical tasks read
@@ -313,6 +313,10 @@ export function TaskRow({
         >
           {task.duration}d
         </span>
+
+        {/* Float pair (#3344) — `lg` and up only; see the header's own note. */}
+        <GridFloatCell value={task.totalFloat} label="Total float" />
+        <GridFloatCell value={task.freeFloat} label="Free float" />
 
         <span
           role="gridcell"

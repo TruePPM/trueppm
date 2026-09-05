@@ -18,6 +18,8 @@ const WIDTHS: ColumnWidths['widths'] = {
   finish: 74,
   progress: 56,
   owner: 60,
+  totalFloat: 64,
+  freeFloat: 64,
 };
 
 const VISIBLE: ColumnWidths['visible'] = {
@@ -29,6 +31,8 @@ const VISIBLE: ColumnWidths['visible'] = {
   finish: true,
   progress: true,
   owner: true,
+  totalFloat: true,
+  freeFloat: true,
 };
 
 function renderHeader(setWidth = vi.fn(), gripReserve = 0, nudgeReserve = 0) {

@@ -40,7 +40,7 @@ import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
-import { useColumnWidths } from '@/hooks/useColumnWidths';
+import { useColumnWidths, type ColumnKey } from '@/hooks/useColumnWidths';
 import { useScheduleChartPrefs, hiddenChartCountForView } from '@/hooks/useScheduleChartPrefs';
 import {
   buildWbsTree,
@@ -608,10 +608,10 @@ function PanelSplitter({ currentTaskWidth, setWidth, maxTaskWidth }: PanelSplitt
 
 // Display-menu labels for the toggleable task-list columns (#2097). The `task`
 // column is always visible (locked) so it is deliberately absent.
-const COLUMN_MENU_LABELS: Record<
-  'wbs' | 'links' | 'dur' | 'start' | 'finish' | 'progress' | 'owner',
-  string
-> = {
+// The key union is `Exclude<ColumnKey, 'task'>` rather than a hand-written list:
+// a hand-written one lets a new column reach `surfaceToggleableColumns` with no
+// label, which is an `undefined` menu row rather than a compile error (#3344).
+const COLUMN_MENU_LABELS: Record<Exclude<ColumnKey, 'task'>, string> = {
   wbs: 'WBS',
   links: 'Links',
   dur: 'Duration',
@@ -619,6 +619,8 @@ const COLUMN_MENU_LABELS: Record<
   finish: 'Finish',
   progress: '% Complete',
   owner: 'Owner',
+  totalFloat: 'Total float',
+  freeFloat: 'Free float',
 };
 
 // ---------------------------------------------------------------------------
@@ -1437,7 +1439,17 @@ export function ScheduleView() {
   // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
   // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
   const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
-  const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths();
+  // Fetched HERE, ahead of `useColumnWidths` and of the two preview hooks far
+  // below, because three things need it and the earliest wins: the float
+  // columns' default visibility is methodology-dependent (#3344) and a hook
+  // argument cannot be read from below its own call; the preview hooks need the
+  // project's data date; and the project-start floor prompt (#868) needs
+  // `start_date`. Passing `undefined` while the query is in flight is safe —
+  // `useColumnWidths` derives visibility every render instead of latching it.
+  const { data: projectDetail } = useProject(projectIdUndef);
+  const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths(
+    projectDetail?.effective_methodology,
+  );
 
   /**
    * The active surface's column profile (#2960).
@@ -1602,11 +1614,6 @@ export function ScheduleView() {
     }
   }, [engine, scheduleScales, visibleTasks, rowHeight]);
 
-  // Fetched ahead of the two preview hooks below because both need the
-  // project's data date. Project start date also feeds the project-start floor
-  // prompt (#868) — a reschedule before that date opens snap/move/cancel
-  // instead of silently clamping.
-  const { data: projectDetail } = useProject(projectIdUndef);
   // ADR-0132's data date (#2813): the floor the server applies to every
   // not-yet-finished task on the next CPM run. Resolved HERE rather than inside
   // the preview engine — the `?? today` half of the server's
@@ -6507,6 +6514,32 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   // there is nothing there for the outline to crowd out.
   const outlinePaneWidth = outlinePaneWidthFor(paneWidth, totalWidth, SPLITTER_WIDTH);
 
+  /**
+   * Where the canvas actually starts — which is NOT `panelWidth` once the clamp
+   * fires (#3344).
+   *
+   * `panelWidth` is the outline's *asked-for* width (its columns plus the two
+   * left lanes). `outlinePaneWidth` is what it was *given*, and `TaskListPanel`
+   * paints at that with `overflow-hidden`. The overlays that hang off the
+   * outline's right edge — the legend, and the unscheduled tray, whose header,
+   * rail and card strip are all `paddingLeft`-ed by this number — must use the
+   * width that exists on screen, or they indent past the canvas by the amount
+   * the outline was clipped and push their own content out of the viewport.
+   *
+   * This was already wrong before the float columns: at 1280 with the sidebar
+   * expanded the eight-column outline asked for 738 against a 708px budget, so
+   * the tray was 30px out and nobody noticed. Two more columns took the gap to
+   * 142 and pushed the tray's cards off the right edge — visible only as six
+   * unrelated gutter specs failing, because `toBeVisible()` is the assertion
+   * that finally sees it (web rule 370's own lesson, from the other side).
+   *
+   * The milestone pulse (`panelWidth` at its `x` offset) has the same defect and
+   * is NOT fixed here: it lives in a sibling component that never sees
+   * `paneWidth`, so correcting it means hoisting the measurement rather than
+   * changing an argument. Filed separately rather than folded in.
+   */
+  const overlayAnchorWidth = panelWidth > 0 ? outlinePaneWidth : 0;
+
   if (isMobile) {
     // Dedicated mobile-first Schedule surface (#1671, ADR-0348) — a DOM
     // list-timeline that replaces the desktop canvas below md. Owns its own
@@ -6736,7 +6769,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={panelWidth} canLink={props.canLinkDependencies} />
+        <ScheduleLegend taskListWidth={overlayAnchorWidth} canLink={props.canLinkDependencies} />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop
@@ -6754,7 +6787,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
           projectId={projectId}
           scaleData={scheduleScales}
           canvasScrollRef={canvasScrollRef}
-          taskListWidth={panelWidth}
+          taskListWidth={overlayAnchorWidth}
           sprints={sprints}
           onScheduleMany={onScheduleMany}
           onWalkToUnscheduled={onWalkToUnscheduled}
