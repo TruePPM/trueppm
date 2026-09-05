@@ -401,7 +401,7 @@ function BoardDesktopGrid({
           cursor classes wire Space-held drag-panning (issue 1265);
           `select-none` while panning stops text selection mid-drag. The
           `relative` wrapper hosts the bottom edge-fade overflow cue
-          (#1962) — the vertical analog of ShellNavScroller (rule 174). */}
+          (#1962) — the vertical analog of `StatusClusterScroller` (rule 290). */}
       <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
         <div
           ref={setBoardScrollEl}

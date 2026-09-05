@@ -1,8 +1,11 @@
-"""The case 16 rendering rule, as a server fact (#2953, ADR-0843).
+"""The case 16 rendering rule, as a server derivation (#2953, ADR-0843).
 
-These mirror `laneAssignment.test.ts` deliberately. The rule now exists in two
-places, and two answers to one question would be worse than the API-first gap
-this closes — so the invariants are asserted identically on both sides.
+These mirror `laneAssignment.test.ts` deliberately: the rule exists in two
+places, and two answers to one question would be worse than one duplicated
+answer — so the invariants are asserted identically on both sides. The server
+copy is the oracle the structure-declaration suites assert invariant 1 through
+(`test_structure_declaration_on_restructure.py`,
+`test_structure_declaration_on_bulk_writes.py`).
 """
 
 from __future__ import annotations
@@ -113,106 +116,3 @@ class TestEdges:
         by_name = {t.name: str(t.id) for t in tree}
         assert any(x.id == by_name["Electrical"] for x in lanes), "deeper lanes at depth 2"
         assert by_name["Switchgear PO"] not in crumbs, "its lane IS its parent now"
-
-
-@pytest.mark.django_db
-class TestEndpoint:
-    """The rule reachable over HTTP — the point of the whole issue."""
-
-    @pytest.fixture
-    def client(self, db: object):  # type: ignore[no-untyped-def]
-        from django.contrib.auth import get_user_model
-        from rest_framework.test import APIClient
-
-        user = get_user_model().objects.create_user(username="laneuser", password="pw")
-        c = APIClient()
-        c.force_authenticate(user=user)
-        c._user = user  # type: ignore[attr-defined]
-        return c
-
-    @pytest.fixture
-    def membership(self, client, project: Project):  # type: ignore[no-untyped-def]
-        from trueppm_api.apps.access.models import ProjectMembership, Role
-
-        return ProjectMembership.objects.create(project=project, user=client._user, role=Role.OWNER)
-
-    def test_returns_lanes_with_real_container_ids(
-        self, client, project: Project, tree: list[Task], membership: object
-    ) -> None:
-        r = client.get(f"/api/v1/projects/{project.id}/board/lanes/")
-        assert r.status_code == 200
-        by_name = {t.name: str(t.id) for t in tree}
-        ids = [x["id"] for x in r.data["lanes"]]
-        assert by_name["Mobilization"] in ids
-        assert "root" in ids, "the project node is a lane, not a synthetic bucket"
-
-    def test_the_root_lane_carries_the_projects_name(
-        self, client, project: Project, tree: list[Task], membership: object
-    ) -> None:
-        r = client.get(f"/api/v1/projects/{project.id}/board/lanes/")
-        root = next(x for x in r.data["lanes"] if x["is_root"])
-        assert root["name"] == "Pad 39C"
-
-    def test_crumbs_name_the_nested_container(
-        self, client, project: Project, tree: list[Task], membership: object
-    ) -> None:
-        r = client.get(f"/api/v1/projects/{project.id}/board/lanes/")
-        by_name = {t.name: str(t.id) for t in tree}
-        assert r.data["crumbs"][by_name["Switchgear PO"]] == "Electrical"
-
-    def test_group_depth_is_honored_and_echoed(
-        self, client, project: Project, tree: list[Task], membership: object
-    ) -> None:
-        r = client.get(f"/api/v1/projects/{project.id}/board/lanes/?group_depth=2")
-        assert r.data["group_depth"] == 2
-
-    def test_a_junk_group_depth_falls_back_rather_than_500ing(
-        self, client, project: Project, tree: list[Task], membership: object
-    ) -> None:
-        """The #2795 class: a query param is user-controlled input."""
-        for junk in ("abc", "", "-4", "0"):
-            r = client.get(f"/api/v1/projects/{project.id}/board/lanes/?group_depth={junk}")
-            assert r.status_code == 200, junk
-            assert r.data["group_depth"] >= 1
-
-    def test_a_non_member_is_refused(self, client, project: Project, tree: list[Task]) -> None:
-        r = client.get(f"/api/v1/projects/{project.id}/board/lanes/")
-        assert r.status_code in (403, 404)
-
-
-class TestSchemaBinding:
-    """The #2455 orphaned-decorator trap, pinned.
-
-    Inserting a view between an existing ``@extend_schema_view`` and the class it
-    decorates silently reassigns that decorator to the new view — the new view
-    gets the wrong response, and the original view loses its schema entirely.
-    That happened while building this endpoint and was invisible until the
-    generated schema was read back.
-    """
-
-    @staticmethod
-    def _schema() -> dict:
-        import json
-        from pathlib import Path
-
-        root = Path(__file__).resolve().parents[5]
-        return json.loads((root / "docs" / "api" / "openapi.json").read_text())
-
-    def test_lanes_declares_its_own_response(self) -> None:
-        s = self._schema()["paths"]["/api/v1/projects/{id}/board/lanes/"]["get"]
-        ref = s["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
-        assert ref.endswith("/BoardLanes")
-
-    def test_board_config_kept_its_own(self) -> None:
-        """The half that would have regressed silently."""
-        s = self._schema()["paths"]["/api/v1/projects/{id}/board-config/"]["get"]
-        ref = s["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
-        assert ref.endswith("/BoardColumnConfigResponse")
-
-    def test_group_depth_is_a_declared_parameter(self) -> None:
-        s = self._schema()["paths"]["/api/v1/projects/{id}/board/lanes/"]["get"]
-        assert "group_depth" in [q["name"] for q in s.get("parameters", [])]
-
-    def test_the_lane_shape_is_visible_not_a_bare_object(self) -> None:
-        props = self._schema()["components"]["schemas"]["BoardLanes"]["properties"]
-        assert set(props) == {"group_depth", "lanes", "crumbs"}

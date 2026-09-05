@@ -135,3 +135,28 @@ schema:NotificationPreferenceRequest
 /api/v1/projects/{id}/workshop/start/
 schema:WorkshopSession
 schema:WorkshopParticipant
+
+# #3370 — three routes with no consumer of their own.
+# Verified against packages/web (src + e2e), packages/mobile, packages/mcp,
+# docs/, packages/website, trueppm-enterprise, trueppm-android and
+# trueppm-apple: nothing calls any of them. Like #3301 above, this is a
+# DELIBERATE BREAKING REMOVAL of published paths, not a phantom-component
+# cleanup — anyone who generated a client from the schema loses them. It lands
+# inside the pre-0.9 window stability.md allows and is recorded as a policy
+# exception in that page's step 3.
+#
+#   GET /teams/{id}/          — team attributes are still served by the
+#                              project-scoped list /projects/{id}/teams/.
+#   GET /projects/{id}/board/lanes/ — NO server-side replacement; the swimlane
+#                              grouping is a client-side derivation again.
+#                              board-config's `lanes` are the named lanes WITHIN
+#                              a status column (#2967) — a different thing.
+#                              Never shipped: built during 0.4, unreleased.
+#   GET /tasks/{id}/scope/    — the rollup service behind it is kept (ADR-0108
+#                              §3) and is now covered as a unit.
+/api/v1/teams/{id}/
+/api/v1/projects/{id}/board/lanes/
+/api/v1/tasks/{id}/scope/
+schema:BoardLane
+schema:BoardLanes
+schema:TaskScopeRollup

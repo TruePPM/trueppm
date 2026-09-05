@@ -3,6 +3,15 @@
 ## Status
 Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: computed-on-read `_delta` in `apps/scheduling/serializers.py`, `forecast_history_settings.py`). 
 
+> **Amended 2026-09-05 (#3370).** §3 no longer has an HTTP surface of its own:
+> `GET /api/v1/tasks/{id}/scope/` is removed. The scope-delta drawer that was to
+> consume it was filed as a separate frontend issue and never landed, so no web,
+> mobile, MCP or external caller ever read the route, while the rollup behind it
+> stayed correct. `services.compute_scope_rollup(task)` is **unchanged** and remains
+> the §3 decision; what is withdrawn is only the claim that §3 is reachable over the
+> API. A client needing scope delta today has no endpoint for it, and re-exposing one
+> is a fresh API-design call rather than a restoration.
+
 ## Context
 
 Issue #408 asks for a "rollup engine" so a parent/summary `Task` reflects its children: a
