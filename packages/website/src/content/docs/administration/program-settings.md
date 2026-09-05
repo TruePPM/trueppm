@@ -89,9 +89,64 @@ here affect every project in the program.
 ## Projects
 
 The **Projects** section is a bulk matrix of the projects assigned to this
-program. Each project **inherits the program's methodology unless it overrides
-it**, and the matrix lets you review and set the methodology and iteration label
-across the program's projects at once. See [Methodology presets](/features/methodology-preset/).
+program. It lets you review and set the methodology and iteration label across
+the program's projects at once. See [Methodology presets](/features/methodology-preset/).
+
+**The program methodology seeds new projects; it does not flow down to existing
+ones.** A project created in this program starts with the program's methodology,
+and after that it keeps its own — changing the program's methodology later leaves
+every existing project where it was. This matrix is how you move them. (The
+iteration label is different: it is a true nullable override, so clearing it on a
+project really does fall back to the program's.)
+
+### Seeing which projects deviate from the default
+
+:::note[Ships in 0.4]
+The deviation markers, the column count, and the methodology filter described
+below ship in **TruePPM 0.4**, the first beta. In `v0.3.0-alpha.3`, the latest
+release, the matrix shows each project's methodology and nothing about where
+that value came from.
+:::
+
+Scanning a column of values tells you what each project runs on, not which ones
+are a deliberate exception. From 0.4 the matrix will answer that directly, at
+three levels:
+
+- **Per row.** A project whose methodology differs from the one it would inherit
+  will read `Waterfall ≠ program (Hybrid)` — its own value, then the scope it was
+  compared against and that scope's value. Rows that match show the value alone.
+  The marker is text, so it survives print, monochrome, and a color-vision
+  deficit.
+- **Per column.** The **Methodology** header will carry the tally —
+  `Methodology · 12 differ`. When every project matches it reads
+  `· none differ` rather than `· 0 differ`.
+- **Across the list.** A **methodology filter** above the matrix will narrow the
+  list to one preset or to **Deviates from default**, with a count on every
+  option. Changing it clears any selection you had made, so a bulk edit can never
+  land on rows you can no longer see.
+
+The comparison names the scope it actually made. Normally that is the program.
+Under a workspace **Inherit** methodology policy the workspace default wins at
+every scope, so the marker, the filter option, and the count all re-parent to the
+workspace — `≠ workspace (Hybrid)`, **Deviates from workspace** — and the header
+reads `Methodology · read-only · 21 differ`. A project that still differs under
+that policy is a pre-lock override the policy has not reconciled, which is worth
+seeing precisely because you cannot edit the column there.
+
+All three are **reads**. They render for every role, including Viewer, and on a
+closed program, where the bulk-edit controls do not.
+
+:::caution[Deviates from the default is not the same as "someone chose this"]
+`methodology` is a non-null column at every scope, so a project explicitly set to
+Hybrid and a project nobody ever configured are identical on the wire. The marker
+therefore answers *"does this differ from the value it would inherit?"* — which
+is the question a scan is actually asking — and cannot tell you whether anyone
+made a decision. There is no stored provenance for methodology today.
+:::
+
+On a screen narrower than 768px the matrix becomes a read-only card list: the
+markers, the count, and the filter stay, and the bulk-edit controls are replaced
+by a note that they need a wider screen.
 
 ## Access
 

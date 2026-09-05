@@ -15,6 +15,14 @@
  * `FieldDescriptor` is marked `resettable: false` and is dropped from the picker when the
  * mount passes it `locked` (a workspace `inherit` policy) — it then stays a read-only
  * display column.
+ *
+ * A field may additionally report a **deviation** per row (#3295): whether that row's own
+ * value differs from the one it would inherit. That is a separate axis from `overridden`,
+ * which only means "a null-sentinel override is present" and is therefore always false for
+ * methodology. The three levels the deviation renders at — per-cell marker, per-column
+ * header count, and (on the mount's own toolbar) a filter — are one flag, because a
+ * 5-row page and a 200-row page fail at different levels and naming *which* rows deviate
+ * needs all three.
  */
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -27,14 +35,41 @@ import {
 } from 'react';
 
 import { Button } from '@/components/Button';
+import { LockIcon } from '@/components/Icons';
 import { toast } from '@/components/Toast/toast';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import type { BulkFieldValue } from '@/hooks/useBulkProjectFields';
+
+/**
+ * One row's difference from the value it would inherit (#3295).
+ *
+ * Present only when the row actually carries something to compare against. When it is
+ * absent the column renders no marker, no header count and no filter count — never a
+ * `0 differ`, because a visible zero is a claim that a check happened and with no
+ * inherited value on the payload none did.
+ */
+export interface FieldDeviation {
+  /** true → this row's own value differs from the one it would inherit. */
+  differs: boolean;
+  /** The scope actually compared against — "program", "workspace" under a workspace
+   *  `inherit` lock, where inheritance re-parents. State the comparison you made.
+   *  A caller-controlled literal: this renders as a factual claim and into the cell's
+   *  accessible name, so never pass a server-derived string through it. */
+  scope: string;
+  /** The value this row would inherit, unformatted (the cell formats it). */
+  inherited: string | number | null;
+  /** This row's own stored value. Equals `effective` except under a lock, where the
+   *  workspace value is in force but the unreconciled stored value is what differs. */
+  own: string | number | null;
+}
 
 /** Effective (in-force) value of a field on one row + whether it's an explicit override. */
 export interface FieldRead {
   effective: string | number | null;
   /** true → the value is set on this row; false → inherited from the parent scope. */
   overridden: boolean;
+  /** Difference from the inherited value, when the row can be compared at all (#3295). */
+  deviation?: FieldDeviation;
 }
 
 interface FieldBase<Row> {
@@ -47,6 +82,12 @@ interface FieldBase<Row> {
   /** Display-only column, excluded from the field picker — e.g. methodology under a
    *  workspace `inherit` lock (web-rule 196). */
   locked?: boolean;
+  /** Grid floor for this column, default `140px`. A column carrying a deviation marker
+   *  needs more: "Waterfall ≠ program (Hybrid)" is ~194px at 12px mono and the locked
+   *  variant ~208px, so the default clips it. Widening the floor is the fix — a
+   *  "drop the parenthetical when tight" conditional would fire on every render at the
+   *  default width and never at 220px, which is a rule nobody maintains. */
+  minWidth?: string;
 }
 
 export type FieldDescriptor<Row> = FieldBase<Row> &
@@ -71,6 +112,35 @@ interface Props<Row> {
   /** Plural noun for the leading column header, e.g. "Project". */
   rowNoun: string;
   maxRows?: number;
+  /**
+   * Muted clause describing the cohort the rows were narrowed to, rendered in the
+   * action bar. Opaque on purpose: the matrix is entity-agnostic and must not learn
+   * the word "filter" or which facets a mount offers. Pass `undefined` when the rows
+   * are unnarrowed — a clause reading "47 of 47 shown · All" trains the eye to skip
+   * the slot, which is the one thing it must not do when it *does* say something.
+   */
+  scopeNote?: ReactNode;
+  /**
+   * Rows the per-column tallies are computed over, when `rows` is a narrowed subset.
+   * Defaults to `rows`. A mount that filters must pass the unnarrowed set: a header
+   * reading "5 differ" beside a facet chip reading "12" uses one word for one fact
+   * and disagrees with itself, and neither number states its denominator.
+   */
+  tallyRows?: Row[];
+  /**
+   * Below `md` (768px), collapse to a read-only stacked card list — the whole read
+   * layer stays and only the write affordances go. Opt-in per mount: it is a product
+   * ruling about *this* surface's errands (checking a deviation count from a phone is
+   * one; bulk-editing on one is not), not a property of the matrix, so a mount that
+   * has not made that call keeps its existing behavior at every width.
+   */
+  narrowReadOnly?: boolean;
+  /**
+   * Changing this clears the selection and announces it. A mount passes whatever
+   * identifies the current cohort (its filter value); the matrix only knows that the
+   * set of rows underneath the checkboxes is no longer the set the user checked.
+   */
+  selectionResetKey?: string | number;
 }
 
 const UNSET = Symbol('unset');
@@ -78,7 +148,7 @@ type Staged = BulkFieldValue | typeof UNSET;
 
 const GRID_CHECKBOX = '36px';
 const GRID_NAME = 'minmax(180px, 1fr)';
-const VALUE_COL = 'minmax(140px, 1fr)';
+const DEFAULT_VALUE_MIN = '140px';
 
 export function BulkFieldsMatrix<Row>({
   rows,
@@ -91,7 +161,12 @@ export function BulkFieldsMatrix<Row>({
   entityNoun,
   rowNoun,
   maxRows = 200,
+  scopeNote,
+  selectionResetKey,
+  tallyRows,
+  narrowReadOnly = false,
 }: Props<Row>) {
+  const isNarrow = useBreakpoint() === 'sm' && narrowReadOnly;
   const editableFields = useMemo(() => fields.filter((f) => !f.locked), [fields]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [fieldKey, setFieldKey] = useState<string>(() => editableFields[0]?.key ?? '');
@@ -133,6 +208,39 @@ export function BulkFieldsMatrix<Row>({
     if (liveRef.current) liveRef.current.textContent = msg;
   }, []);
 
+  /**
+   * Per-column deviation tally. `null` means "no row in this column could be
+   * compared" — the column then says nothing at all, which is a different state
+   * from "checked, and none differ" and must not collapse into it.
+   */
+  const deviationCounts = useMemo(() => {
+    const out = new Map<string, number | null>();
+    const counted = tallyRows ?? rows;
+    for (const f of fields) {
+      let comparable = 0;
+      let differing = 0;
+      for (const row of counted) {
+        const d = f.read(row).deviation;
+        if (!d) continue;
+        comparable += 1;
+        if (d.differs) differing += 1;
+      }
+      out.set(f.key, comparable === 0 ? null : differing);
+    }
+    return out;
+  }, [fields, rows, tallyRows]);
+
+  // A cohort change invalidates the selection: the rows the user checked are no
+  // longer the rows under the checkboxes. Clearing silently would let an Apply
+  // land on a set nobody chose, so it is announced on the existing live region.
+  const prevResetKey = useRef(selectionResetKey);
+  useEffect(() => {
+    if (prevResetKey.current === selectionResetKey) return;
+    prevResetKey.current = selectionResetKey;
+    setSelected(new Set());
+    announce(`Selection cleared. Showing ${rows.length} ${entityNoun}.`);
+  }, [selectionResetKey, rows.length, entityNoun, announce]);
+
   const runApply = useCallback(
     async (value: BulkFieldValue) => {
       if (!field || selectedCount === 0 || isApplying) return;
@@ -155,11 +263,12 @@ export function BulkFieldsMatrix<Row>({
 
   if (rows.length === 0) return null; // page owns the empty/loading/error states
 
-  const showActionBar = canEdit && editableFields.length > 0;
+  const showWriteAffordances = canEdit && !isNarrow;
+  const showActionBar = showWriteAffordances && editableFields.length > 0;
   const gridTemplate = [
-    canEdit ? GRID_CHECKBOX : null,
+    showWriteAffordances ? GRID_CHECKBOX : null,
     GRID_NAME,
-    ...fields.map(() => VALUE_COL),
+    ...fields.map((f) => `minmax(${f.minWidth ?? DEFAULT_VALUE_MIN}, 1fr)`),
   ]
     .filter(Boolean)
     .join(' ');
@@ -202,6 +311,15 @@ export function BulkFieldsMatrix<Row>({
                 <ValueControl field={field} staged={staged} onStage={setStaged} disabled={isApplying} />
               )}
 
+              {scopeNote && (
+                <span
+                  className="text-[11px] text-neutral-text-secondary"
+                  data-testid="bulk-fields-scope-note"
+                >
+                  {scopeNote}
+                </span>
+              )}
+
               <div className="ml-auto flex items-center gap-2">
                 <Button
                   variant="primary"
@@ -237,17 +355,44 @@ export function BulkFieldsMatrix<Row>({
         </div>
       )}
 
-      {overCap && (
+      {canEdit && isNarrow && (
+        <p
+          className="mb-2 text-[12px] text-neutral-text-secondary"
+          data-testid="bulk-fields-narrow-wall"
+        >
+          Bulk edits need a wider screen.
+        </p>
+      )}
+
+      {/* The cohort clause rides the action bar when there is one — it says what an
+          Apply will reach. With no bar it still has to be said: it is read context,
+          and stranding it behind a write gate would hide it from exactly the readers
+          (Viewer, closed program, narrow viewport) whose only affordance is scanning. */}
+      {scopeNote && !showActionBar && (
+        <p
+          className="mb-2 text-[11px] text-neutral-text-secondary"
+          data-testid="bulk-fields-scope-note"
+        >
+          {scopeNote}
+        </p>
+      )}
+
+      {overCap && !isNarrow && (
         <p className="mb-2 text-[11px] text-neutral-text-secondary" role="note" data-testid="bulk-fields-cap">
           You can apply to at most <span className="tppm-mono">{maxRows}</span> rows at once.
         </p>
       )}
 
       <div
-        className="grid items-center rounded-t-card border border-neutral-border bg-neutral-surface-sunken px-4 py-2 text-[11px] font-semibold uppercase tracking-[.08em] text-neutral-text-secondary"
-        style={{ gridTemplateColumns: gridTemplate }}
+        className={[
+          isNarrow ? 'flex flex-wrap items-baseline gap-x-3 gap-y-1' : 'grid items-center',
+          'rounded-t-card border border-neutral-border bg-neutral-surface-sunken px-4 py-2',
+          'text-[11px] font-semibold uppercase tracking-[.08em] text-neutral-text-secondary',
+        ].join(' ')}
+        style={isNarrow ? undefined : { gridTemplateColumns: gridTemplate }}
+        data-testid="bulk-fields-header"
       >
-        {canEdit && (
+        {showWriteAffordances && (
           <span className="flex items-center">
             <SelectAllCheckbox
               checkedCount={selectedCount}
@@ -258,7 +403,12 @@ export function BulkFieldsMatrix<Row>({
         )}
         <span>{rowNoun}</span>
         {fields.map((f) => (
-          <span key={f.key}>{f.label}</span>
+          <ColumnHeader
+            key={f.key}
+            label={f.label}
+            locked={f.locked}
+            differing={deviationCounts.get(f.key) ?? null}
+          />
         ))}
       </div>
 
@@ -270,13 +420,14 @@ export function BulkFieldsMatrix<Row>({
             <div
               key={id}
               className={[
-                'grid items-center px-4 py-3 text-[13px]',
+                isNarrow ? 'flex flex-col gap-1' : 'grid items-center',
+                'px-4 py-3 text-[13px]',
                 i < rows.length - 1 ? 'border-b border-neutral-border/55' : '',
                 isSelected ? 'bg-neutral-surface-sunken ring-2 ring-inset ring-navy-700 dark:ring-reversed' : '',
               ].join(' ')}
-              style={{ gridTemplateColumns: gridTemplate }}
+              style={isNarrow ? undefined : { gridTemplateColumns: gridTemplate }}
             >
-              {canEdit && (
+              {showWriteAffordances && (
                 <span className="flex items-center">
                   <input
                     type="checkbox"
@@ -287,10 +438,28 @@ export function BulkFieldsMatrix<Row>({
                   />
                 </span>
               )}
-              <span className="truncate font-medium text-neutral-text-primary">{rowLabel(row)}</span>
-              {fields.map((f) => (
-                <ValueCell key={f.key} field={f} row={row} />
-              ))}
+              <span
+                className={[
+                  'font-medium text-neutral-text-primary',
+                  isNarrow ? '' : 'truncate',
+                ].join(' ')}
+              >
+                {rowLabel(row)}
+              </span>
+              {fields.map((f) =>
+                isNarrow ? (
+                  // In a card the field label has to travel with its value — the
+                  // column header is no longer beside it.
+                  <span key={f.key} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-[11px] uppercase tracking-[.08em] text-neutral-text-secondary">
+                      {f.label}
+                    </span>
+                    <ValueCell field={f} row={row} />
+                  </span>
+                ) : (
+                  <ValueCell key={f.key} field={f} row={row} />
+                ),
+              )}
             </div>
           );
         })}
@@ -301,17 +470,86 @@ export function BulkFieldsMatrix<Row>({
   );
 }
 
+/**
+ * Column header: the label, plus the constraint and the deviation tally as **label
+ * text**, never a control — the count is scent at 200 rows, not an affordance.
+ *
+ * Order is constraint before count (`Methodology · read-only · 21 differ`): the
+ * read-only state changes what the count means, so it has to be read first. `null`
+ * suppresses the tally entirely; `0` renders as "none differ" rather than "0 differ",
+ * because the numeral is there for scanning quantity and there is no quantity.
+ */
+function ColumnHeader({
+  label,
+  locked,
+  differing,
+}: {
+  label: string;
+  locked?: boolean;
+  differing: number | null;
+}) {
+  return (
+    <span>
+      {label}
+      {locked && (
+        <span className="normal-case">
+          {' · '}
+          <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />{' '}
+          read-only
+        </span>
+      )}
+      {differing != null && (
+        <span className="normal-case" data-testid="deviation-count">
+          {' · '}
+          {differing === 0 ? 'none' : differing} differ
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** Read-only display of a field's effective value; inherited values are muted with an
  * em-dash prefix so the inherited/overridden distinction is not by color alone (WCAG
- * 1.4.1). Methodology is always solid (web-rule 196 — it has no inherited-null state). */
+ * 1.4.1). Methodology is always solid (web-rule 196 — it has no inherited-null state).
+ *
+ * A row that differs from its inherited value carries a `≠ scope (value)` suffix in the
+ * same grammar: text and a glyph, never a dot, a fill or a row tint, so it survives
+ * monochrome, print and a color-vision deficit. The suffix says "differs from", never
+ * "override" — under a NOT-NULL column with no sentinel there was nothing to override. */
 function ValueCell<Row>({ field, row }: { field: FieldDescriptor<Row>; row: Row }) {
-  const { effective, overridden } = field.read(row);
+  const { effective, overridden, deviation } = field.read(row);
   const label = formatValue(field, effective);
+
+  if (deviation?.differs) {
+    // The compared value leads, not the effective one. They are the same value except
+    // under a lock, where the workspace default is in force on every row and the
+    // unreconciled stored value is the only thing this cell can usefully say — a cell
+    // reading "Hybrid ≠ workspace (Hybrid)" would be false on its face.
+    const ownLabel = formatValue(field, deviation.own);
+    const inheritedLabel = formatValue(field, deviation.inherited);
+    return (
+      <span
+        className="tppm-mono break-words text-[12px] text-neutral-text-primary"
+        aria-label={`${field.label}: ${ownLabel}, differs from ${deviation.scope} default ${inheritedLabel}`}
+        data-testid={`deviation-marker-${field.key}`}
+      >
+        {/* An `aria-label` on a non-widget container does not suppress its
+            descendants in NVDA/JAWS — without this the reader hears the label and
+            then the raw text again. */}
+        <span aria-hidden="true">
+          {ownLabel} ≠ {deviation.scope} ({inheritedLabel})
+        </span>
+      </span>
+    );
+  }
+
   // A resettable (null-sentinel) field that is inherited reads muted "— inherited".
   if (field.resettable && !overridden) {
     return (
       <span className="text-neutral-text-secondary" aria-label={`${field.label}: inherited, ${label}`}>
-        — inherited{effective != null && effective !== '' ? ` (${label})` : ''}
+        <span aria-hidden="true">
+          — inherited{effective != null && effective !== '' ? ` (${label})` : ''}
+        </span>
       </span>
     );
   }
@@ -320,7 +558,7 @@ function ValueCell<Row>({ field, row }: { field: FieldDescriptor<Row>; row: Row 
       className="tppm-mono text-[12px] text-neutral-text-primary"
       aria-label={`${field.label}: ${label}${field.resettable ? ', set on this row' : ''}`}
     >
-      {label}
+      <span aria-hidden="true">{label}</span>
     </span>
   );
 }
