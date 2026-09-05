@@ -2,10 +2,20 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { Methodology, Project } from '@/types';
 
+/**
+ * One row of `GET /programs/{id}/projects/`.
+ *
+ * This route serves `ProgramProjectRowSerializer`, NOT the full project object
+ * (#3439) — it is reachable by a program Viewer over projects they hold no membership
+ * on, so it carries identity, dates, methodology and rollup counts and nothing about
+ * how a project is configured or who leads it. `description` used to be declared here
+ * and is no longer returned. Read project settings from `GET /projects/{id}/` instead;
+ * this file is hand-maintained with no drift gate (#2609/#2633), so a field added here
+ * that the roster does not send will typecheck and then be `undefined` at runtime.
+ */
 interface ApiProject {
   id: string;
   name: string;
-  description: string;
   start_date: string;
   methodology?: Methodology;
   program?: string | null;
