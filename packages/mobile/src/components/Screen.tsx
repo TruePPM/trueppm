@@ -5,7 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { palette } from '../theme/tokens';
 
 interface ScreenProps {
-  /** Detox/test handle and accessibility anchor for the screen root. */
+  /** Test handle for the screen root. Maps to Android `resource-id` /
+   *  iOS `accessibilityIdentifier`; TalkBack and VoiceOver do NOT announce it. */
   testID: string;
   /** Screen title rendered in the header band. */
   title: string;
@@ -18,13 +19,17 @@ interface ScreenProps {
  * Shared placeholder screen primitive for the scaffold. Wraps content in a
  * safe-area view (notch / gesture-bar aware) and renders a token-styled header.
  * Feature work replaces the placeholder body per surface; the header + testID
- * contract stays stable so the navigation smoke test keeps passing.
+ * contract stays stable so screens stay addressable as features land.
  */
 export function Screen({ testID, title, subtitle, children }: ScreenProps): ReactNode {
   return (
     <SafeAreaView testID={testID} style={styles.root} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
+        {/* accessibilityRole="header" gives TalkBack/VoiceOver heading
+            navigation a target on every screen that uses this primitive. */}
+        <Text accessibilityRole="header" style={styles.title}>
+          {title}
+        </Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       <View style={styles.body}>{children}</View>

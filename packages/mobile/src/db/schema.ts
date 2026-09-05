@@ -24,6 +24,36 @@ export interface VersionedRecord {
   is_deleted: boolean;
 }
 
-/** Synced table names the WatermelonDB schema (#41) will register. Kept here so
- *  the sync engine's scope handling has a typed surface before the schema lands. */
-export type SyncedTable = 'projects' | 'tasks' | 'time_entries' | 'project_members';
+/**
+ * Collections the project delta returns, in the server's fixed protocol order
+ * (`ProjectSyncView.sources`, `apps/sync/views.py`). The pager drains them in
+ * this order and the order is part of the protocol — mirror it, do not sort.
+ *
+ * HAND-MAINTAINED, and therefore able to drift: the scaffold shipped
+ * `project_members` (the server calls it `memberships`) and only 3 of the 15
+ * names. It cannot yet be derived — `SyncPullResponse.changes` is
+ * `additionalProperties: {}` in `docs/api/openapi.json`, so the pull collection
+ * keys are not published. Deriving this union is blocked on the server naming
+ * them in the schema; until then, re-check this list against `views.py`
+ * whenever you touch it.
+ *
+ * `programs` / `program_memberships` are NOT here: they come from the separate
+ * user-program endpoint (`UserProgramSyncView`, `GET /api/v1/sync/user/programs/`),
+ * not the project delta.
+ */
+export type SyncedTable =
+  | 'projects'
+  | 'tasks'
+  | 'dependencies'
+  | 'calendars'
+  | 'memberships'
+  | 'risks'
+  | 'sprints'
+  | 'sprint_retros'
+  | 'retro_action_items'
+  | 'task_suggested_assignees'
+  | 'task_links'
+  | 'task_recurrence_rules'
+  | 'time_entries'
+  | 'labels'
+  | 'task_relations';

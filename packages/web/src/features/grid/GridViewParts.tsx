@@ -12,6 +12,7 @@
 import type { ComponentProps, Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
 import type { Task, TaskStatus } from '@/types';
 import { CheckIcon } from '@/components/Icons';
+import type { PauseHandlers } from '@/components/Toast/usePausableAutoDismiss';
 import { LabelFacet } from '@/components/filters/LabelFacet';
 import { OwnerFacet } from '@/components/filters/OwnerFacet';
 import { StatusFacet } from '@/components/filters/StatusFacet';
@@ -91,11 +92,24 @@ export interface GridToastState {
  * `role` is `alert` for an error and `status` otherwise, so a failure interrupts a
  * screen reader and a routine confirmation does not.
  */
-export function GridToast({ toast }: { toast: GridToastState | null }) {
+export function GridToast({
+  toast,
+  pauseHandlers,
+}: {
+  toast: GridToastState | null;
+  /**
+   * Hover/focus-within pause for the dwell (web rule 378). Owned by `GridView`,
+   * which holds the timer, because the toast state lives there — this component
+   * only paints it. Optional so a caller that renders a toast with no Undo need
+   * not thread it, though `GridView` always does.
+   */
+  pauseHandlers?: PauseHandlers;
+}) {
   if (!toast) return null;
   return (
     <div
       role={toast.isError ? 'alert' : 'status'}
+      {...pauseHandlers}
       className="absolute bottom-3 left-1/2 -translate-x-1/2 z-50
         flex items-center gap-2 px-4 py-2 rounded
         bg-neutral-surface-raised border border-neutral-border
