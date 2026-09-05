@@ -4,9 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { render, screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { MemoryRouter } from 'react-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ScheduleCoachBar } from './buildMode/ScheduleCoachBar';
+import { BuildModeProvider } from './buildMode/BuildModeContext';
+import { useScheduleFocus, type BuildModeApi } from './buildMode';
 import { SessionTrail } from './trail/SessionTrail';
 import { useTrailStore } from './trail/trailStore';
+import { TaskListRow } from './TaskListRow';
+import { resolveNudgeLaneWidth } from './scheduleConstants';
+import type { Task } from '@/types';
+import type { ColumnWidths } from '@/hooks/useColumnWidths';
 
 /**
  * #3020 — a teaching surface may not name a chord the keyboard layer cannot
@@ -35,6 +43,19 @@ import { useTrailStore } from './trail/trailStore';
  *
  * A chip whose text does not parse as a chord at all (`hover a row`) is prose in
  * a chip and is skipped.
+ *
+ * ## A glyph is a claim too — about a control, not a key (#3257)
+ *
+ * The distinction above answers "is `⇥` a keyboard trap". It never asked whether
+ * the glyphs it licenses resolve to controls that exist, and for months one did
+ * not: `◆` was taught, #3115 unpinned the toolbar Milestone button on the
+ * strength of the row's ◆ replacing it, and the row rendered two buttons. So
+ * the bar's glyph run is now checked the same way its chips are — derived from
+ * the rendered row, not from a list. Each row control carries `data-glyph`
+ * naming the coach-bar glyph it answers to, an authorable row is rendered, and
+ * every glyph the bar prints must appear in that set. A button whose mark is an
+ * SVG (the diamond, web rule 242) is exactly why the attribute exists: its
+ * `textContent` is empty, so the glyph has to be declared.
  *
  * ## Where the live set comes from
  *
@@ -303,6 +324,106 @@ describe('ScheduleCoachBar names only chords the keyboard resolves', () => {
     const { container } = render(<ScheduleCoachBar onDismiss={() => {}} onShowCheatsheet={() => {}} />);
     expect(screen.getByText('+ ⇤ ⇥ ◆')).toBeInTheDocument();
     expect(keystrokeClaims(container)).not.toContain('tab');
+  });
+});
+
+/**
+ * The coach bar's glyph run, split into the glyphs it claims. `+ ⇤ ⇥ ◆` is
+ * rendered as one `<b>`; the line's chip is the prose `hover a row`.
+ */
+function rowControlGlyphClaims(container: HTMLElement): string[] {
+  const claims: string[] = [];
+  for (const b of container.querySelectorAll('b')) {
+    const text = (b.textContent ?? '').trim();
+    // A run of single non-letter glyphs separated by spaces; prose is skipped.
+    if (!/^(\S\s)*\S$/.test(text) || /[A-Za-z]/.test(text)) continue;
+    claims.push(...text.split(/\s+/));
+  }
+  return claims;
+}
+
+const ROW_WIDTHS: ColumnWidths['widths'] = {
+  wbs: 48, task: 220, links: 76, dur: 60, start: 80, finish: 80, progress: 50, owner: 72,
+};
+const ROW_VISIBLE: ColumnWidths['visible'] = {
+  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
+};
+const AUTHORABLE_ROW: Task = {
+  id: 't-glyph', wbs: '1.1', name: 'Permits', start: '2026-04-05', finish: '2026-04-09',
+  duration: 5, progress: 0, parentId: 't-root', isCritical: false, isComplete: false,
+  isSummary: false, isMilestone: false, status: 'NOT_STARTED', assignees: [], notes: '',
+  canEdit: true,
+};
+
+/** A row as `TaskListPanel` mounts it for an author: build mode on, lane reserved. */
+function AuthorableRow() {
+  const focus = useScheduleFocus();
+  const noop = () => {};
+  const api: BuildModeApi = {
+    focus,
+    indent: noop, outdent: noop, insertBelow: noop, insertAbove: noop, insertChild: noop,
+    mergeIntoPreviousRow: noop, isPristineNewRow: () => false, isCaretAtEndRow: () => false,
+    clearCaretAtEndRow: noop, convertToMilestone: noop, convertToTask: noop,
+    duplicateSubtree: noop, deleteTask: noop, isMutationPending: () => false,
+  };
+  return (
+    <BuildModeProvider api={api}>
+      <TaskListRow
+        task={AUTHORABLE_ROW}
+        level={2}
+        widths={ROW_WIDTHS}
+        visible={ROW_VISIBLE}
+        nudgeReserve={resolveNudgeLaneWidth(false)}
+      />
+    </BuildModeProvider>
+  );
+}
+
+/** The `data-glyph` set an authorable row actually renders. */
+function renderedRowControlGlyphs(): Set<string> {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const { container } = render(
+    <MemoryRouter initialEntries={['/projects/p1/schedule']}>
+      <QueryClientProvider client={qc}>
+        <AuthorableRow />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  return new Set(
+    Array.from(container.querySelectorAll<HTMLElement>('button[data-glyph]')).map(
+      (b) => b.dataset.glyph ?? '',
+    ),
+  );
+}
+
+describe('ScheduleCoachBar names only row controls the row renders (#3257)', () => {
+  afterEach(cleanup);
+
+  it('every glyph in the row-controls line resolves to a rendered control', () => {
+    const rendered = renderedRowControlGlyphs();
+    cleanup();
+    const { container } = render(<ScheduleCoachBar onDismiss={() => {}} onShowCheatsheet={() => {}} />);
+    const claims = rowControlGlyphClaims(container);
+
+    // The property first, so a regression names the dead glyph: with the ◆
+    // button removed this reads `['◆']`, which is what shipped for months.
+    expect(claims.filter((glyph) => !rendered.has(glyph))).toEqual([]);
+
+    // Non-vacuous on both sides: the bar really does teach glyphs, and the row
+    // really does render the four — an extraction that silently matched nothing
+    // would pass the filter above with an empty list.
+    expect(claims).toEqual(['+', '⇤', '⇥', '◆']);
+    expect(rendered.has('◆')).toBe(true);
+    expect(rendered.size).toBeGreaterThanOrEqual(4);
+  });
+
+  it('the ◆ control is a real button with the row in its name, not a decorative mark', () => {
+    // `data-glyph` on a `<span>` would satisfy the set and teach nothing. The
+    // resolution has to land on something a pointer can press.
+    renderedRowControlGlyphs();
+    const btn = screen.getByRole('button', { name: /^Milestone — Permits/ });
+    expect(btn.dataset.glyph).toBe('◆');
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
   });
 });
 
