@@ -69181,6 +69181,9 @@
                     "matched": {
                         "type": "integer"
                     },
+                    "rows_written": {
+                        "type": "integer"
+                    },
                     "governance": {
                         "$ref": "#/components/schemas/TaskClassificationAxis"
                     },
@@ -69206,6 +69209,7 @@
                     "can_undo",
                     "matched",
                     "operation_id",
+                    "rows_written",
                     "skipped",
                     "subtree"
                 ]
