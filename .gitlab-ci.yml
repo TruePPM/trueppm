@@ -311,8 +311,32 @@ workflow:
     paths:
       - .cache/pip/
   services:
+    # Durability off. Every database this service ever holds is a throwaway test
+    # DB in a container that is destroyed with the job, so the WAL is never read
+    # by anyone — fsync buys nothing here and costs the one thing api:test is
+    # actually bound by (#3389). The api:test workload is disk-write-shaped
+    # rather than query-shaped: 4 xdist workers each CREATE DATABASE ... TEMPLATE
+    # migrated (a file-level copy of the whole schema) and each transaction=True
+    # test TRUNCATEs every table afterwards, so the shard's wall time tracks how
+    # contended the host's disk is rather than what the tests assert. That is why
+    # the SAME commit with the SAME split ran 326s on nuc-runner-2 and 783s on
+    # runner-04-NUC: no baseline, fresh or stale, can explain a 2.4x gap the
+    # split is held constant across.
+    #
+    # Deliberately scoped to this template. `backup:restore-drill` declares its
+    # own postgres service and MUST keep durability on — it exists to prove a
+    # dump survives a real restore, and a drill run against fsync=off is not
+    # evidence of anything. tests/test_ci_api_test_contract.py pins both sides.
     - name: postgres:16-alpine
       alias: postgres
+      command:
+        - postgres
+        - -c
+        - fsync=off
+        - -c
+        - full_page_writes=off
+        - -c
+        - synchronous_commit=off
     - name: valkey/valkey:8-alpine
       alias: valkey
   variables:
@@ -3944,9 +3968,25 @@ api:test:
     # coverage-instrumented run whose wall time actually gates the stage. This
     # costs one line of output per run and makes the next investigation a read
     # rather than a reconstruction.
+    #
+    # --reuse-db lives here and NOT in pyproject.toml's addopts, deliberately.
+    # Its only effect in this job is that pytest-django skips
+    # teardown_databases() at session end — four DROP DATABASE statements, each
+    # unlinking a full clone of the migrated schema. That drop is pure waste in
+    # CI: the postgres service container is destroyed with the job either way.
+    # It is also the tail --durations has been misattributing, because pytest
+    # charges session-scoped finalizers to whichever test a worker happened to
+    # run last. On the 783s job the top two teardowns were two non-DB unit tests
+    # in tests/test_valkey_sentinel.py, at 92.95s and 67.92s — 161s of that run,
+    # with nothing to do with Valkey or Sentinel (#3389).
+    #
+    # Locally --reuse-db is a trap, which is why it stays out of addopts: a
+    # persistent test DB carries state between runs, and the failures it causes
+    # name YOUR diff's files while being pollution from an earlier run. In CI
+    # there is no next run to pollute.
     - python -m pytest tests/ --tb=short -q -n 4
         --splits "$CI_NODE_TOTAL" --group "$CI_NODE_INDEX"
-        --durations=25
+        --durations=25 --reuse-db
         --cov=trueppm_api --cov-report=
   artifacts:
     paths:
