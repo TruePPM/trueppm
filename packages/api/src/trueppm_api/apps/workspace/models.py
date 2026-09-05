@@ -173,6 +173,12 @@ class Workspace(models.Model):
     # Read-only via the API. Self-hosted installs have no subdomain; the column
     # exists so a future hosted edition can populate it without a schema change.
     subdomain = models.CharField(max_length=63, blank=True, default="")
+    # Fallback IANA timezone for a project that sets none. Its single reader is
+    # ``notifications.services._project_timezone`` (#3377), which interprets a
+    # project's quiet-hours window in it — Project.timezone wins where set, and
+    # this value is the next link before ``settings.TIME_ZONE``. Not a display
+    # timezone: an instant shown to a person is re-clocked from that person's
+    # own ``profiles.Profile.timezone``.
     timezone = models.CharField(max_length=64, default="UTC")
     # Structured fiscal-year anchor (#756): month (1–12) + day (1–31), replacing
     # the former free-text ``fiscal_year_start`` CharField. Year-agnostic — a

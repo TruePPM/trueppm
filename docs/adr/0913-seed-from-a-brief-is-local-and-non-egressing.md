@@ -4,8 +4,12 @@
 
 Accepted (2026-08-28)
 
-Closes the design question in issue #2720. Constrains a future endpoint and the
-Start-sheet way-in card that would call it; no endpoint ships with this ADR.
+> **Implementation status (2026-09-04 ADR audit, #3379):** the *decision* stands, but
+> **no endpoint ships with this ADR** — verified 2026-09-04, the only references in the
+> tree are the comments in `packages/web/src/features/shell/` recording that the fourth
+> Start-sheet way-in card is cut, plus the test that asserts it stays cut. It closes the
+> design question in issue #2720 and constrains a future endpoint and the card that
+> would call it.
 
 ## Context
 

@@ -62,11 +62,13 @@ When at least one sprint targets a milestone task:
 Binding is what turns on every rollup above — until a sprint targets a
 milestone, none of it applies.
 
-**In the app.** From the sprint panel, a Scheduler (or above) uses **Link
-milestone** — the action appears only while the sprint is unbound. It opens a
-dialog with a live **reforecast preview** (projected dates and a team-pace band,
-computed on the fly and persisted to nothing), then either mints a new milestone
-from the sprint goal or binds an existing milestone in the same project.
+**In the app.** From the sprint workspace's *Advancing to milestone* card or the
+board's sprint panel, a Scheduler (or above) uses **Promote to milestone** while
+the sprint is unbound — and **Change milestone** once it is bound, which opens
+the same dialog in its [already-bound view](#read-only-override). It carries a
+live **reforecast preview** (projected dates and a team-pace band, computed on
+the fly and persisted to nothing), then either mints a new milestone from the
+sprint goal or binds an existing milestone in the same project.
 
 **Over the API.** `POST /api/v1/sprints/{id}/promote-to-milestone/` (Scheduler+):
 
@@ -145,9 +147,25 @@ the same endpoint that powers the [Board mid-sprint scope-change
 badge](/features/board-sprint-panel/#mid-sprint-scope-changes). It is a
 visibility surface only; it never accepts or rejects a change.
 
-*Screenshot TODO: a milestone row in the Schedule-view task list showing the
-persistent `Scope changed +5 / −2 pts` chip, and the open scope-change audit
-drawer.*
+### What it looks like
+
+On a milestone row in the Schedule-view task list, the chip sits inline after the
+rolled-up percent, alongside the lock indicator and the variance chip:
+
+```
+1.4  ▸ UAT signoff        🔒 73%   Sprint plan: +3d slip   Scope changed +5 / −2 pts
+```
+
+Clicking the chip opens the audit drawer, one row per scope change:
+
+| Task | Points | Change | Who | When | Decision |
+|---|---|---|---|---|---|
+| T-4192 Export retry backoff | 5 | Added | Priya N. | Jul 8, 10:12 | accepted |
+| T-4088 Legacy shim removal | 2 | Removed | Sam K. | Jul 9, 14:40 | pending |
+
+The chip carries the net delta between the sprint's current backlog and its
+activation-time snapshot; the drawer is where you see which individual changes
+produced it and whether each one was accepted, is pending, or was rejected.
 
 ## What is broadcast
 
@@ -202,13 +220,24 @@ Any recipient can mute either channel from **Settings → Notifications**.
 
 ## Read-only override
 
-There is no override flag in v1. To edit a milestone's percent manually:
+There is no override flag in v1. To edit a milestone's percent manually, either
+unlink the sprint or close every sprint targeting the milestone. The field
+unlocks immediately once the last live targeting sprint is gone.
 
-1. Unlink the sprint by setting `target_milestone = null` on the sprint, or
-2. Close all targeting sprints.
+**Unlinking in the app.** On a bound sprint, **Change milestone** (Scheduler or
+above) — on the sprint workspace's *Advancing to milestone* card, and on the
+board's sprint panel — opens the binding dialog in its already-bound view, which
+offers **Keep**, **Unbind**, and rebinding to a different milestone. Rebinding
+unbinds first: a binding never silently re-points.
 
-The milestone field unlocks immediately when the last live targeting sprint
-is gone.
+**Unlinking over the API.** `POST /api/v1/sprints/{id}/unbind-milestone/`
+(Scheduler+) is the same call the dialog makes. It clears `target_milestone` and
+its provenance and recomputes the freed milestone's rollup, and is no-op-safe —
+an already-unbound sprint returns **200** unchanged.
+
+Setting `target_milestone = null` through a plain sprint update also releases the
+lock, but prefer the endpoint: it is the path that clears the binding provenance
+and recomputes the freed milestone in one step.
 
 ## Limitations and scope
 

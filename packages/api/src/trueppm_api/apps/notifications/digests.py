@@ -83,7 +83,10 @@ def resolve_user_timezone(name: str) -> zoneinfo.ZoneInfo:
 
     A user whose stored timezone was removed from the tz database (or was never
     valid) must not break the sweep for everyone else, so an unknown key degrades
-    to ``settings.TIME_ZONE`` rather than raising.
+    to ``settings.TIME_ZONE`` — the **server** timezone, not the admin-set
+    ``Workspace.timezone``. Digests are already anchored per user, so there is
+    nothing for a workspace-wide default to decide here; the one reader of
+    ``Workspace.timezone`` is ``services._project_timezone`` (#3377).
     """
     if name:
         try:

@@ -19,10 +19,12 @@ how to prove the procedure works with a periodic restore drill.
 
 :::note[Edition]
 This is **logical** backup and restore — everything one team needs to not lose
-its data. Continuous archiving / point-in-time recovery (WAL shipping),
-cross-region replication, and managed backup automation are Enterprise HA
-features (`enterprise#20`). The logical backup here is the foundation those build
-on, not a lesser version of them.
+its data. The chart has no WAL archiving today, so there is no point-in-time
+recovery from it; PITR lands in the OSS core with the operator-managed in-cluster
+PostgreSQL mode planned for 0.5 ([#3403](https://gitlab.com/trueppm/trueppm/-/issues/3403)),
+or comes from a managed database now. Cross-region replication, DR failover, and
+managed backup automation with restore verification are Enterprise (`enterprise#20`).
+The logical backup here is the foundation those build on, not a lesser version of them.
 :::
 
 ## What is in the backup

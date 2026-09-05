@@ -1192,9 +1192,11 @@ otelCollector:
 # chart REFUSES to render that combination rather than ship a backup that is not
 # one (#3185).
 #
-# This is LOGICAL backup only (pg_dump). Continuous archiving / point-in-time
-# recovery (WAL shipping), cross-region replication, and managed backup automation
-# are Enterprise HA features (trueppm-enterprise #20).
+# This is LOGICAL backup only (pg_dump). The chart has no WAL archiving today, so
+# the RPO is the CronJob interval. Point-in-time recovery arrives with the
+# operator-managed in-cluster PostgreSQL mode (#3403, 0.5), where it is a knob on
+# the datastore operator. Cross-region replication, DR failover, and managed backup
+# automation with restore verification are Enterprise (trueppm-enterprise #20).
 # https://docs.trueppm.com/administration/backup-restore/
 backup:
   enabled: false

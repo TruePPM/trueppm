@@ -266,6 +266,23 @@ skips anything with an open connection. It is separate from `wt prune` on
 purpose — `wt prune` reaps worktrees, and should not also delete databases you
 did not ask it about.
 
+It reconciles its own totals: every orphan it listed must end up either dropped
+or explicitly kept, and if the two do not add up it says so and **exits 1**
+rather than printing a total that is short. That check exists because the
+failure it catches is otherwise invisible — `db_query` used to run
+`docker exec -i`, psql inherited the sweep loop's stdin and ate the rest of the
+list, and the command dropped one database per run while reporting success
+(#3417). The individual counts were honest; only their sum knew.
+
+Two things `prune-dbs` deliberately does **not** cover. It is anchored on the
+`test_trueppm_wt` prefix, so a database minted by hand under some other name
+(`test_trueppm_regcheck…`, `test_trueppm_audit_…`) is invisible to it and to
+`wt doctor` — use the `TRUEPPM_TEST_DB` your worktree's `.envrc` already exports
+rather than inventing a name. And it will not touch a database with an open
+connection, so a sweep run while another session is mid-`pytest` legitimately
+reports fewer drops than orphans; that case is counted as *kept*, not missing,
+and does not trip the reconciliation.
+
 ## Stashing
 
 **Do not run `git stash` in a worktree while other worktrees are active.** Use
