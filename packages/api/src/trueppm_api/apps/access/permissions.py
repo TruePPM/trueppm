@@ -302,11 +302,14 @@ def can_user_undo_batch_operation(request: Request, project_id: Any) -> bool:
     """Resolve the caller's role on ``project_id`` and apply the undo rule.
 
     Backs the declarative ``can_undo`` field on the classification cascade's own 200
-    response. Enforcement calls :func:`role_can_undo_batch_operation` directly (from
+    response, and — since #3357 — ``ProjectSerializer.can_undo_batch_operations``,
+    which answers the same question *before* the act so a surface can disclose the
+    asymmetry rather than only withhold the Undo afterwards. Enforcement calls
+    :func:`role_can_undo_batch_operation` directly (from
     ``batch_operation_views._require_admin``, which already has the role in hand), so
-    the two share the *predicate* rather than this wrapper — the ADR-0133 "one rule,
-    called twice" pattern that ``can_author`` follows. Change the predicate, not
-    either caller.
+    all of them share the *predicate* rather than this wrapper — the ADR-0133 "one
+    rule, called twice" pattern that ``can_author`` follows. Change the predicate, not
+    any caller.
 
     Two honest limits on that guarantee, so nobody reads it as stronger than it is:
 

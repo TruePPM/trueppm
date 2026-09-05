@@ -1115,6 +1115,26 @@ Archiving makes a plan read-only; that is a property of the plan, not of the
 caller, so no role clears it, and `can_undo` does not report it. Reading a ledger
 row on an archived project still works — unarchive the project to undo.
 
+##### Knowing before you apply
+
+`can_undo` rides the apply response, so it arrives *after* the irreversible act. To
+tell a caller **before** they commit a cascade that they will not be able to reverse
+it, read `can_undo_batch_operations` on the **project** resource
+(`GET /api/v1/projects/{id}/`, and on project list rows). It is the same predicate as
+`can_undo`, on a payload you already hold.
+
+| Read | When | To |
+|---|---|---|
+| `Project.can_undo_batch_operations` | Before the write | Disclose that the act will not be reversible by this caller |
+| `can_undo` on the apply response | After the write | Decide whether to offer an Undo control |
+
+Same caveats as `can_undo`: it is a **role** answer only, so it does not report the
+archived-project refusal, and it does not tell you whether any *particular* operation
+is still reversible — that is `operation_id`. Its scope is the batch-operation ledgers
+(cascade classification and paste-many). It does **not** answer for structural
+operations, whose undo rule is *actor-or-Admin* rather than a role floor: the person
+who applied one may reverse their own even below Admin.
+
 ### Task attachments
 
 Each attachment is **either** an uploaded file **or** an external URL — never both.

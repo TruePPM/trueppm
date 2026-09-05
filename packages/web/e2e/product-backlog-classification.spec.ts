@@ -84,7 +84,16 @@ async function setup(
 ) {
   await setupAuth(page);
   await setupCatchAll(page);
-  await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: FIXTURE_PROJECT_ID });
+  await setupApiMocks(page, {
+    // `canUndo` drives BOTH payloads (#3357). The project detail's
+    // `can_undo_batch_operations` is what the popover discloses from, before the
+    // act; the apply response's `can_undo` is what the toast withholds the Undo
+    // from, after it. One server predicate answers both, so splitting them in the
+    // fixture would model a state the server cannot produce — and would let the
+    // pre-act assertion pass while the post-act one silently drifted.
+    projects: FIXTURE_PROJECTS.map((p) => ({ ...p, can_undo_batch_operations: canUndo })),
+    projectId: FIXTURE_PROJECT_ID,
+  });
 
   await page.route('**/api/v1/projects/*/product-backlog/', (route) =>
     route.fulfill({
@@ -236,7 +245,50 @@ async function classifyFromBacklog(page: import('@playwright/test').Page): Promi
   await expect(popover).toBeHidden();
 }
 
-test.describe('Classification undo from the product backlog (#3304)', () => {
+test.describe('Classification undo from the product backlog (#3304, #3357)', () => {
+  test('a PO below Admin is told before applying that they cannot reverse it', async ({
+    page,
+  }) => {
+    // The case the server-side flag exists for, and the reason this spec is the one
+    // that proves it. This page's entry point is gated on `can_manage_backlog` —
+    // `Admin+ OR the Product Owner facet` — so this caller passes that gate, is
+    // invited to classify, and still cannot undo. A client that had reused the
+    // authority already in scope here (`canManageBacklog`, which is true) would show
+    // no note and this assertion would fail; an ordinal test off `useCurrentUserRole`
+    // would answer from a query this page does not need and that returns a terminal
+    // `null` on one dropped request. Only the server's own verdict gets it right.
+    await setup(page, { canUndo: false });
+    await gotoBacklog(page);
+
+    // The manage gate really is open for this caller — asserted, not assumed, so the
+    // note below cannot be passing because the whole surface is read-only.
+    const classifyButton = page.getByRole('button', { name: 'Classify PCI audit trail' });
+    await expect(classifyButton).toBeVisible();
+    await classifyButton.click();
+
+    const popover = page.getByTestId('classification-popover');
+    await expect(popover).toBeVisible();
+    const note = popover.getByTestId('classification-undo-floor');
+    await expect(note).toBeVisible();
+    await expect(note).toContainText('You won\u2019t be able to reverse this');
+    // "rights", not the ROLE_ADMIN label: Owner clears the same floor and displays as
+    // "Project Admin", and #3355 may move the floor out from under both.
+    await expect(note).toContainText('someone with Project Manager rights can');
+  });
+
+  test('an Admin sees no such note', async ({ page }) => {
+    await setup(page, { canUndo: true });
+    await gotoBacklog(page);
+    await page.getByRole('button', { name: 'Classify PCI audit trail' }).click();
+
+    const popover = page.getByTestId('classification-popover');
+    await expect(popover).toBeVisible();
+    // Gated on the preview having rendered, so the absence is measured against a
+    // popover that finished, not an empty one.
+    await expect(popover.getByTestId('classification-preview')).toBeVisible();
+    await expect(popover.getByTestId('classification-undo-floor')).toHaveCount(0);
+  });
+
   test('an Admin gets the success toast WITH an Undo action', async ({ page }) => {
     await setup(page, { canUndo: true });
     await classifyFromBacklog(page);

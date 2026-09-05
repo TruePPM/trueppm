@@ -4672,6 +4672,7 @@ export function ScheduleView() {
         classifyState={classify.state}
         classifyTarget={classify.target}
         classifyPending={classify.isPending}
+        classifyCanUndo={projectDetail?.can_undo_batch_operations}
         classifyError={classify.error}
         onClassifyApply={classify.apply}
         onClassifyClose={classify.close}
@@ -4801,6 +4802,13 @@ interface ScheduleOverlayLayerProps {
   classifyState: { taskId: string; anchor: { x: number; y: number } } | null;
   classifyTarget: Task | null;
   classifyPending: boolean;
+  /**
+   * `Project.can_undo_batch_operations` (#3357) — threaded down rather than re-read
+   * here, so the popover's disclosure and `hasEditRights` above resolve off the ONE
+   * `useProject` response this view already holds. `undefined` = not answered yet,
+   * which is not `false`; see `shouldDiscloseUndoFloor`.
+   */
+  classifyCanUndo: boolean | undefined;
   classifyError: ClassificationError | null;
   onClassifyApply: (spec: ClassificationApply) => void;
   onClassifyClose: () => void;
@@ -4859,6 +4867,7 @@ function ScheduleOverlayLayer({
   classifyState,
   classifyTarget,
   classifyPending,
+  classifyCanUndo,
   classifyError,
   onClassifyApply,
   onClassifyClose,
@@ -4932,6 +4941,8 @@ function ScheduleOverlayLayer({
           target={classifyTarget}
           tasks={allTasks}
           isPending={classifyPending}
+          // Same project payload `can_author` above rides on (#3357, web rule 373(d)).
+          canUndoBatchOperations={classifyCanUndo}
           error={classifyError}
           onApply={onClassifyApply}
           onClose={onClassifyClose}

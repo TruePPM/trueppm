@@ -1430,6 +1430,11 @@ function DesktopGroomingView() {
           target={classify.target}
           tasks={classifyTasks}
           isPending={classify.isPending}
+          // The server's verdict, NOT `canManageBacklog` (#3357, web rule 373(a)).
+          // This entry point's own gate is Admin+ OR the Product Owner facet, so a PO
+          // below Admin passes it, may apply — and may not undo. Reusing the authority
+          // already in scope here is exactly the mistake the server field prevents.
+          canUndoBatchOperations={projectDetail?.can_undo_batch_operations}
           error={classify.error}
           onApply={classify.apply}
           onClose={classify.close}

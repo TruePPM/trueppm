@@ -21,6 +21,7 @@ import {
   canAuthorPlan,
   canEditRisk,
   canCommitPlan,
+  shouldDiscloseUndoFloor,
   progressCompleteAutoStatus,
 } from './roles';
 
@@ -111,6 +112,33 @@ describe('canAuthorPlan (#3034, ADR-0773 §(d))', () => {
     // ordinal comparison reintroduces #3034, so the disagreement is pinned here.
     expect(canEditTask(ROLE_SCHEDULER)).toBe(true);
     expect(canAuthorPlan(false)).toBe(false);
+  });
+});
+
+describe('shouldDiscloseUndoFloor (#3357, web rule 373(d))', () => {
+  it('discloses only when the server has affirmatively said no', () => {
+    expect(shouldDiscloseUndoFloor(false)).toBe(true);
+    expect(shouldDiscloseUndoFloor(true)).toBe(false);
+  });
+
+  it('stays SILENT while the project detail is unresolved (undefined)', () => {
+    // The inverted-pessimism case, and the reason this is not spelled
+    // `!canUndoBatchOperations(flag)`. `canAuthorPlan(undefined)` is false because
+    // absence beats a false affordance; here the output is a WITHDRAWAL, so the same
+    // default would tell a Project Manager they cannot undo on every render before
+    // the project query lands. Silence costs a note that arrives a beat late; the
+    // other default states something false to the one reader who holds the right.
+    expect(shouldDiscloseUndoFloor(undefined)).toBe(false);
+  });
+
+  it('is the opposite polarity to canAuthorPlan on the same unresolved input', () => {
+    // Pinned against each other so a future "make the two helpers consistent"
+    // refactor has to confront the asymmetry rather than flatten it.
+    expect(canAuthorPlan(undefined)).toBe(false);
+    expect(shouldDiscloseUndoFloor(undefined)).toBe(false);
+    // …and they diverge the moment the server answers `false`.
+    expect(canAuthorPlan(false)).toBe(false);
+    expect(shouldDiscloseUndoFloor(false)).toBe(true);
   });
 });
 
