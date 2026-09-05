@@ -15,7 +15,6 @@ interface SchedulerState {
   setRecalculating: (isRecalculating: boolean) => void;
   setCpmError: (error: CpmError) => void;
   setCpmComplete: (recalculatedAt: string) => void;
-  clearCpmError: () => void;
 }
 
 export const useSchedulerStore = create<SchedulerState>()((set) => ({
@@ -26,5 +25,4 @@ export const useSchedulerStore = create<SchedulerState>()((set) => ({
   setCpmError: (error) => set({ isRecalculating: false, cpmError: error }),
   setCpmComplete: (recalculatedAt) =>
     set({ isRecalculating: false, cpmError: null, recalculatedAt }),
-  clearCpmError: () => set({ cpmError: null }),
 }));

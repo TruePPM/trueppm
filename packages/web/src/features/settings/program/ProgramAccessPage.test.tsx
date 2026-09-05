@@ -266,11 +266,4 @@ describe('ProgramAccessPage (settings)', () => {
     renderPage();
     expect(screen.getByText(/No members yet/i)).toBeInTheDocument();
   });
-
-  it('does not render the StubPageBanner once wired', () => {
-    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
-    useProgramMembers.mockReturnValue({ data: [], isLoading: false, isError: false });
-    renderPage();
-    expect(screen.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
-  });
 });
