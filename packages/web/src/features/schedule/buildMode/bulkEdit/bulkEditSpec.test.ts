@@ -58,9 +58,11 @@ function bulkResponse(over: Partial<TaskBulkResponse> = {}): TaskBulkResponse {
     rejected: [],
     skipped: [],
     capabilities_denied: [],
+    dependencies: { applied: [], rejected: [] },
     operation_id: null,
+    can_undo: true,
     ...over,
-  } as TaskBulkResponse;
+  };
 }
 
 // ---------------------------------------------------------------------------

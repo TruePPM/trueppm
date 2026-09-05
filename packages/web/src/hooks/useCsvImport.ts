@@ -206,6 +206,11 @@ export interface CsvImportStatusResponse {
   /** Outbox lifecycle: pending → dispatched → done | dead. */
   status: 'pending' | 'dispatched' | 'done' | 'dead';
   filename: string;
+  /**
+   * The importer's result summary. **`{}` until the job has run, never `null`** —
+   * `result_summary` is a `JSONField(default=dict)` with `null=False`. Branch on
+   * `status`, not on this being absent.
+   */
   summary: {
     /** Every row written, the Import review branch included. */
     tasks_created?: number;
@@ -225,8 +230,31 @@ export interface CsvImportStatusResponse {
     warning_count?: number;
     warnings?: string[];
     error?: string;
-  } | null;
+  };
   requested_at: string;
+  /**
+   * The slash-date convention this import actually ran under, and whether a human
+   * accepted it rather than letting `auto` decide (#2926). Both are `required` on the
+   * declared `CsvImportStatusResponse` schema; the `date_order*` fields on
+   * {@link CsvPreview} above belong to the PREVIEW payload and are a different set.
+   */
+  date_order: CsvDateOrder;
+  date_order_confirmed: boolean;
+  /**
+   * May THIS caller undo the import? (#3353, web rule 373(a))
+   *
+   * Committing an import is `IsProjectScheduler` (200); `POST …/import/csv/{id}/undo/`
+   * is Admin+ (300). So a Scheduler runs an import successfully and is refused the
+   * Undo — the server's verdict has to ride the payload the wizard already reads,
+   * because the 202 on the commit answers a different question.
+   *
+   * Orthogonal to `status`: `status === 'done'` says there is something to undo,
+   * this says whether you may. The wizard requires both.
+   *
+   * An **authority** answer only — the undo also refuses on an archived project,
+   * which no role clears and this field does not report.
+   */
+  can_undo: boolean;
 }
 
 function buildForm(

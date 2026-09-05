@@ -837,7 +837,9 @@ reported in exactly one of three buckets:
   "rejected": [{ "index": 7, "id": null, "code": "malformed_id", "message": "…" }],
   "skipped":  [{ "index": 9, "id": "…", "code": "tombstoned", "message": "…" }],
   "dependencies": { "applied": [], "rejected": [] },
-  "capabilities_denied": []
+  "capabilities_denied": [],
+  "operation_id": "7c2e…9f",
+  "can_undo": true
 }
 ```
 
@@ -873,6 +875,29 @@ The structural-undo surface publishes its own separate set as
 are `already_undone`, `too_large`, `not_top_of_stack`, `shape_changed`,
 `forbidden` — plus the **empty string**, which means the operation *is* undoable
 and is the value you will see most often.
+
+##### Undoing a batch
+
+Two fields govern the undo, and they answer different questions — read **both**
+before offering an Undo control. This is the same pair the classification cascade
+publishes, and it works the same way.
+
+| Field | Answers | `null` / `false` means |
+|---|---|---|
+| `operation_id` | Is there a ledger row to reverse? | The batch created no rows, so nothing was recorded |
+| `can_undo` | May **this caller** reverse it? | Your role is below Project Manager on this project |
+
+`POST /api/v1/paste-many-operations/{operation_id}/undo/` reverses the batch's
+creates, and it requires **Project Manager or above** — a strictly higher floor than
+this endpoint admits. So a Team Member can receive a `207` here, with a real
+`operation_id`, and still be refused the undo. `can_undo` is that answer, computed
+from the same rule the undo endpoint enforces; read it rather than comparing role
+ordinals yourself.
+
+`can_undo` is an **authority** answer only. It does not report the archived-project
+refusal (see [Undoing a cascade](#undoing-a-cascade) below), and it does not promise
+the ledger row still exists: batch operations are purged after the deployment's
+`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS` window, after which the undo is a `404`.
 
 ##### Client-minted ids
 

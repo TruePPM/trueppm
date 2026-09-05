@@ -504,6 +504,15 @@ edited since; those are left in place, and the confirmation names how many. Undo
 single step per import and is only offered for a completed import, never a failed or
 still-running one.
 
+**Undoing an import needs the Project Manager role — importing does not.** Running an
+import is open to Resource Manager and above; reversing one in a single step is Project
+Manager and above. If your role is below that line, the wizard says so in place of the
+Undo control rather than offering an action the server would refuse, and `⌘Z` is left
+alone. The rows an import created are ordinary tasks, so you can still delete them
+yourself, or ask a project manager to undo the import. The status endpoint reports the
+answer as `can_undo`, so an API client can make the same decision without hard-coding
+the role table.
+
 ### Severity: did the row become a task?
 
 Every diagnostic carries a `severity`, and it answers exactly one question:

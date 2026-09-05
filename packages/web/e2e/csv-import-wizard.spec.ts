@@ -41,7 +41,17 @@ const PREVIEW_BODY = {
   ],
 };
 
-const DONE_STATUS = {
+/** The terminal status payload the wizard polls — the shape, not just a literal.
+ *  Annotated so `routeImport`'s `done` option inherits it and a hand-built variant
+ *  cannot omit `can_undo` (#3353). */
+const DONE_STATUS: {
+  id: string;
+  status: string;
+  filename: string;
+  summary: Record<string, unknown>;
+  requested_at: string;
+  can_undo: boolean;
+} = {
   id: 'imp-1',
   status: 'done',
   filename: 'plan.csv',
@@ -50,12 +60,16 @@ const DONE_STATUS = {
     row_errors: [{ row: 4, message: 'Duration is not a number' }],
   },
   requested_at: '2026-07-27T00:00:00Z',
+  // #3353: the server's verdict on whether THIS caller may undo the import.
+  // Committing is `IsProjectScheduler` (200) and the undo is Admin+ (300), so a
+  // Scheduler reaches this payload having cleared only the first floor.
+  can_undo: true,
 };
 
-async function gotoSchedule(
-  page: Page,
-  opts: { search?: string; role?: number } = {},
-) {
+/** The same terminal payload as a Resource Manager (Scheduler, 200) sees it (#3353). */
+const DONE_STATUS_NO_UNDO = { ...DONE_STATUS, can_undo: false };
+
+async function gotoSchedule(page: Page, opts: { search?: string; role?: number } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -202,8 +216,16 @@ async function routeImport(
   opts: {
     preview: { status: number; body: unknown };
     commit?: boolean;
-    /** Terminal status payload; defaults to {@link DONE_STATUS}. */
-    done?: unknown;
+    /**
+     * Terminal status payload; defaults to {@link DONE_STATUS}.
+     *
+     * Typed against that constant rather than `unknown` (#3353): an inline literal
+     * here omitted `can_undo` and, once the wizard started reading it, silently
+     * exercised the *no-authority* path — Undo gone, the floor note rendered — while
+     * claiming to test ordinary success. It passed because it asserted on neither.
+     * Spread `...DONE_STATUS` for a variant rather than rebuilding the object.
+     */
+    done?: typeof DONE_STATUS;
     /**
      * Out param: filled with the real Content-Type header of each intercepted
      * request. A Playwright route fulfills regardless of what the browser
@@ -325,9 +347,50 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     // with. `platform.test.ts` owns the spelling; this owns the flow.
     await dialog.getByRole('button', { name: /^Undo import/ }).click();
 
-    await expect(dialog.getByText('Import undone — the rows it created were removed.')).toBeVisible();
+    await expect(
+      dialog.getByText('Import undone — the rows it created were removed.'),
+    ).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toHaveCount(0);
     await expect(dialog.getByRole('button', { name: /^Undo import/ })).toHaveCount(0);
+  });
+
+  // #3353 — the receipt, not the endpoint. `POST …/import/csv/{id}/undo/` always
+  // refused a Scheduler correctly; what shipped broken was the wizard offering the
+  // control anyway, and claiming ⌘Z away from `SeedBanner` to do it.
+  test('a Scheduler who may import and may not undo is offered no Undo (#3353)', async ({
+    page,
+  }) => {
+    await gotoSchedule(page);
+    await routeImport(page, {
+      preview: { status: 200, body: PREVIEW_BODY },
+      commit: true,
+      done: DONE_STATUS_NO_UNDO,
+    });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await dialog.getByRole('button', { name: /Import 12 tasks/ }).click();
+
+    // The import really succeeded — this is the same terminal result the Undo
+    // test above acts on, differing only in the server's authority verdict.
+    await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'View schedule' })).toBeVisible();
+
+    // Omitted, not disabled (rule 302) …
+    await expect(dialog.getByRole('button', { name: /^Undo import/ })).toHaveCount(0);
+    // … and said out loud, on a standing surface that can carry the clause (rule 373(d)).
+    await expect(dialog.getByText(/someone with Project Manager rights can/)).toBeVisible();
+
+    // ⌘Z does nothing rather than firing an undo that would 403. Asserted through
+    // the result the undo would have produced: the outcome sentence is unchanged.
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
+    await expect(dialog.getByText('Import undone — the rows it created were removed.')).toHaveCount(
+      0,
+    );
   });
 
   test('unresolvable rows are parked in a review branch, not dropped (#2732)', async ({ page }) => {
@@ -348,9 +411,7 @@ test.describe('CSV/Excel import wizard (#746)', () => {
       },
       commit: true,
       done: {
-        id: 'imp-1',
-        status: 'done',
-        filename: 'plan.csv',
+        ...DONE_STATUS,
         summary: {
           tasks_created: 13,
           plan_tasks_created: 10,
@@ -533,9 +594,7 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(
-      page.getByRole('dialog', { name: 'Import from a spreadsheet' }),
-    ).toBeHidden();
+    await expect(page.getByRole('dialog', { name: 'Import from a spreadsheet' })).toBeHidden();
   });
 });
 
@@ -668,9 +727,7 @@ test.describe('CSV import — date order (#2926)', () => {
     await expect(readings.getByText('3 days')).toBeVisible();
 
     // The primary action names the convention it would accept.
-    await expect(
-      dialog.getByRole('button', { name: 'Confirm M/D/Y and continue' }),
-    ).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Confirm M/D/Y and continue' })).toBeVisible();
 
     // Scoped to the preview table: the readings table above it carries the same
     // numbers, and an unscoped match is a strict-mode collision between the two.

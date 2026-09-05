@@ -13,7 +13,7 @@ from django.db import transaction
 from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -22,7 +22,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.access.permissions import IsProjectNotArchived, IsProjectScheduler
+from trueppm_api.apps.access.permissions import (
+    IsProjectNotArchived,
+    IsProjectScheduler,
+    can_user_undo_batch_operation,
+    role_can_undo_batch_operation,
+)
 from trueppm_api.apps.csvimport.mapping import field_choices
 from trueppm_api.apps.csvimport.parser import (
     DATE_ORDERS,
@@ -82,6 +87,12 @@ def _require_project_admin(user: object, project_pk: str) -> None:
     top of". ``undo_import_fix_operation`` partitions on ``server_version`` via
     ``task_batch_services._partition_touched`` and reverts only untouched rows,
     counting the rest as ``kept`` — so it removes nothing anyone else has changed.
+
+    Defers the comparison to :func:`role_can_undo_batch_operation` rather than
+    testing the ordinal here (#3353). ``CsvImportStatusView`` reports the same rule
+    to the wizard as ``can_undo`` so it can withhold an Undo this endpoint would
+    refuse, and a second copy of the comparison is exactly how the two drift —
+    especially while the floor itself is open at #3355.
     """
     role = (
         ProjectMembership.objects.filter(
@@ -92,7 +103,7 @@ def _require_project_admin(user: object, project_pk: str) -> None:
         .values_list("role", flat=True)
         .first()
     )
-    if role is None or role < Role.ADMIN:
+    if not role_can_undo_batch_operation(role):
         raise PermissionDenied("You need at least Project Manager role to undo an import.")
 
 
@@ -214,6 +225,53 @@ _IMPORT_REQUEST_SCHEMA = {
         "required": ["file"],
     }
 }
+
+
+class CsvImportStatusResponseSerializer(serializers.Serializer[Any]):
+    """The 200 body of ``GET …/import/csv/{id}/`` — declared, not prose (#3353).
+
+    This payload used to be typed ``OpenApiTypes.OBJECT`` with the key names listed
+    in a sentence, which is not a contract anyone can generate an SDK against. It
+    matters most for ``can_undo``: a field whose entire purpose is to be read by a
+    client, reaching ``docs/api/openapi.json`` as an undiscoverable member of a free
+    object, is a field that does not exist for a non-browser caller (the #2942 class).
+
+    Response-only — nothing deserializes it; the view builds the dict itself.
+    """
+
+    id = serializers.UUIDField()
+    status = serializers.CharField(
+        help_text="Outbox lifecycle: `pending` → `dispatched` → `done` | `dead`."
+    )
+    filename = serializers.CharField()
+    summary = serializers.DictField(
+        help_text=(
+            "The importer's own result summary — counts, parked rows, row errors. "
+            "**Empty (`{}`), never null**, until the job has run: `result_summary` is a "
+            "`JSONField(default=dict)` with `null=False` and nothing writes `None` to it. "
+            "Branch on `status`, not on this being absent."
+        )
+    )
+    requested_at = serializers.DateTimeField()
+    date_order = serializers.CharField(
+        help_text=(
+            "The slash-date convention this import actually ran under, read back so "
+            '"why does this task say 62 days" stays answerable afterwards (#2926).'
+        )
+    )
+    date_order_confirmed = serializers.BooleanField(
+        help_text="Whether a human accepted that convention rather than letting `auto` decide."
+    )
+    can_undo = serializers.BooleanField(
+        help_text=(
+            "May THIS caller undo the import? (#3353) Committing is the Scheduler band "
+            "and `POST …/import/csv/{id}/undo/` is Admin+, so reaching this endpoint at "
+            "all says nothing about the undo's gate. **Authority only** — a `true` is "
+            "not a promise the undo will succeed: it additionally requires the project "
+            "to be unarchived, and the import to still be in `done` state. Orthogonal "
+            "to `status`, which answers whether there is anything to undo."
+        )
+    )
 
 
 class CsvImportPreviewView(IdempotencyMixin, APIView):
@@ -423,10 +481,10 @@ class CsvImportStatusView(APIView):
         summary="Status and result summary of one CSV/Excel import",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=CsvImportStatusResponseSerializer,
                 description=(
-                    '{"status", "filename", "summary", "requested_at", '
-                    '"date_order", "date_order_confirmed"}.'
+                    "The import's outbox row: lifecycle state, result summary, the date "
+                    "convention it ran under, and the caller's authority over the undo."
                 ),
             ),
             403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
@@ -459,6 +517,18 @@ class CsvImportStatusView(APIView):
                 # client. `date_order_confirmed` had no reader at all until this.
                 "date_order": req.date_order,
                 "date_order_confirmed": req.date_order_confirmed,
+                # #3353: committing an import is `IsProjectScheduler` (200) and
+                # `CsvImportUndoView` is Admin+ (300), so a Scheduler runs an import
+                # and is refused the Undo the wizard used to offer regardless. The
+                # status payload is where the wizard learns which of the two floors
+                # the caller cleared — a 202 on the commit says nothing about the
+                # undo's gate (web rule 373(a)).
+                #
+                # Pure authority, deliberately orthogonal to `status`: `status ==
+                # "done"` answers "is there anything to undo", this answers "may
+                # you". Folding them into one boolean would make a `false` mean
+                # either, with no way for a client to tell them apart.
+                "can_undo": can_user_undo_batch_operation(request, project_pk),
             },
             status=status.HTTP_200_OK,
         )
