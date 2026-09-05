@@ -19,6 +19,13 @@ describe('activityFormat', () => {
       expect(fieldLabel('planned_start')).toBe('Start date');
       expect(fieldLabel('some_unmapped_field')).toBe('some_unmapped_field');
     });
+    it('names the inherit bit for what it says, not for its column (#3306)', () => {
+      // The server surfaces this field only when it is a record's ONLY change — a
+      // cascade that broke the root's inheritance and moved nothing else. Falling
+      // through to the raw key would render "parent_governance_inherited" in the
+      // Activity tab, which is the bug's "no legible record" in a second form.
+      expect(fieldLabel('parent_governance_inherited')).toBe('Governance source');
+    });
   });
 
   describe('changeVerb', () => {
