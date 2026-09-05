@@ -1606,7 +1606,6 @@ pointer here.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/projects/{project_id}/teams/` | List a project's teams |
-| GET | `/api/v1/teams/{id}/` | Retrieve a team |
 | GET | `/api/v1/teams/{team_id}/members/` | List a team's roster |
 | PATCH | `/api/v1/teams/{team_id}/members/{id}/` | Change a member's role/facets |
 

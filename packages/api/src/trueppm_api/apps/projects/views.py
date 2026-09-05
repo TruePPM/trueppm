@@ -166,7 +166,6 @@ from trueppm_api.apps.projects.serializers import (
     BaselineDetailSerializer,
     BaselineSerializer,
     BoardColumnConfigSerializer,
-    BoardLanesSerializer,
     BoardSavedViewSerializer,
     CalendarExceptionSerializer,
     CalendarPreviewSerializer,
@@ -231,7 +230,6 @@ from trueppm_api.apps.projects.serializers import (
     TaskRecurrenceRuleSerializer,
     TaskRelationSerializer,
     TaskReorderSerializer,
-    TaskScopeRollupSerializer,
     TaskSerializer,
     TaskWriteResponseSerializer,
     ZeroDurationNotMilestoneError,
@@ -6157,22 +6155,6 @@ class TaskViewSet(
 
         return Response({"deleted": deleted}, status=status.HTTP_200_OK)
 
-    @extend_schema(responses=TaskScopeRollupSerializer)
-    @action(detail=True, methods=["get"], url_path="scope")
-    def scope(self, request: Request, **kwargs: Any) -> Response:
-        """Scope rollup for a task's subtree (ADR-0108 §3, #408).
-
-        Returns the live story-point sum over leaf descendants, the active
-        baseline's snapshot of that scope, and the delta (null when no active
-        baseline). Detail-scoped so the per-call queries are not an N+1; any
-        project member may read (the default permission applies — no schedule or
-        backlog gate, this is a read-only computed view).
-        """
-        from trueppm_api.apps.projects.services import compute_scope_rollup
-
-        task = self.get_object()
-        return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
-
     @extend_schema(
         summary="Duration-change audit events for a task (ADR-0151, #414)",
         # Without this, drf-spectacular infers the viewset's default TaskSerializer
@@ -6185,8 +6167,12 @@ class TaskViewSet(
 
         Detail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new
         duration, the percent-complete policy applied, the actor, and the active
-        sprint (if any) at change time. Any project member may read (same gate as
-        ``scope``). IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the
+        sprint (if any) at change time. Any project member may read: this action
+        declares no ``permission_classes`` of its own, so it falls through to the
+        generic ``IsProjectMember`` branch at the end of ``_rbac_permissions()``
+        (Viewer+). The class-level ``permission_classes`` is *not* what applies —
+        ``get_permissions()`` replaces it wholesale.
+        IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the
         caller's projects, so ``get_object`` 404s on a foreign task. Paginated
         newest-first; ``select_related`` keeps actor-name rendering off the N+1 path.
         """
@@ -11076,94 +11062,6 @@ def _project_spi_and_health(project: Project, today: datetime.date) -> tuple[flo
         return None, "unknown"
     spi = round(planned_complete / planned_count, 3)
     return spi, _spi_health_band(spi)
-
-
-@extend_schema(
-    summary="Board swimlanes",
-    description=(
-        "The board's swimlane grouping, as a server fact (#2953, ADR-0843).\n\n"
-        "Lanes are **real container ids plus the project node** — there is no "
-        "synthetic catch-all lane and no promotion of childless rows. Three "
-        "invariants, identical to the web client's:\n\n"
-        "1. A container is never a card, at any depth.\n"
-        "2. Every task appears exactly once, in the lane of its top-level "
-        "container ancestor; a nested container travels on the card as a crumb.\n"
-        "3. Root-level work belongs to the project node, whose lane carries the "
-        "project's name and is absent when it holds nothing.\n\n"
-        "This closes the #986 API-first gap: the grouping previously existed only "
-        "in the browser, so no agent, MCP client or integration could reproduce "
-        "the board a human sees."
-    ),
-    parameters=[
-        OpenApiParameter(
-            name="group_depth",
-            type=OpenApiTypes.INT,
-            location=OpenApiParameter.QUERY,
-            required=False,
-            description=(
-                "WBS depth at which lanes are cut. Defaults to 1. No UI exposes "
-                "this; it exists so a client may ask. Measured 2026-08-18, 94.9% "
-                "of leaf rows sit at depth <= 2 and carry no crumb at all."
-            ),
-        ),
-    ],
-    responses={200: BoardLanesSerializer},
-)
-class BoardLanesView(McpReadableViewMixin, APIView):
-    """GET the board's lane grouping for a project.
-
-    Read-only and open to any project member, matching ``BoardColumnConfigView``
-    — this is current board shape, not gated historical performance.
-    """
-
-    mcp_scope = McpScope.PATH
-
-    def get_permissions(self) -> list[BasePermission]:
-        # The mixin's get_permissions is replaced entirely here, so the MCP guards
-        # must be re-appended explicitly or the view is MCP-readable with no token
-        # guard at all — no team opt-out (ADR-0678), no scope/owner check, not even
-        # the kill switch (ADR-0497). Asserted by the conformance test in
-        # tests/apps/access/test_mcp_team_opt_out.py.
-        return [
-            IsAuthenticated(),
-            IsProjectMember(),
-            IsProjectNotArchived(),
-            *self.mcp_token_guards(),
-        ]
-
-    def get(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.projects.board_lanes import build_lanes
-
-        project = get_object_or_404(Project, pk=pk)
-        self.check_object_permissions(request, project)
-
-        try:
-            group_depth = max(1, int(request.query_params.get("group_depth", 1)))
-        except (TypeError, ValueError):
-            group_depth = 1
-
-        tasks = list(
-            Task.objects.filter(project_id=pk, is_deleted=False, is_subtask=False).only(
-                "id", "name", "wbs_path", "is_subtask"
-            )
-        )
-        lanes, crumbs = build_lanes(tasks, project_name=project.name, group_depth=group_depth)
-        return Response(
-            {
-                "group_depth": group_depth,
-                "lanes": [
-                    {
-                        "id": lane.id,
-                        "name": lane.name,
-                        "is_root": lane.is_root,
-                        "task_ids": lane.task_ids,
-                    }
-                    for lane in lanes
-                ],
-                "crumbs": crumbs,
-            },
-            status=status.HTTP_200_OK,
-        )
 
 
 @extend_schema(

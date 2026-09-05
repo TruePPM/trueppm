@@ -154,42 +154,6 @@ class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
     )
 
 
-class BoardLaneSerializer(serializers.Serializer[dict[str, Any]]):
-    """One board swimlane (#2953)."""
-
-    id = serializers.CharField(help_text="Container task id, or `root` for the project node.")
-    name = serializers.CharField(
-        help_text="The container's name, or the project's own name for the root lane."
-    )
-    is_root = serializers.BooleanField(
-        help_text="True for the project-node lane. Says WHICH object it is, not that it lacks one."
-    )
-    task_ids = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Cards in this lane, in WBS order. A container is never among them.",
-    )
-
-
-class BoardLanesSerializer(serializers.Serializer[dict[str, Any]]):
-    """The board's lane grouping (#2953, ADR-0843).
-
-    Declared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the
-    shape is visible to anyone diffing the schema — see #2942 for what OBJECT
-    costs.
-    """
-
-    group_depth = serializers.IntegerField(help_text="Depth the lanes were cut at.")
-    lanes = BoardLaneSerializer(many=True)
-    crumbs = serializers.DictField(
-        child=serializers.CharField(),
-        help_text=(
-            "task id → the name of the nested container it actually sits in, when "
-            "that differs from its lane. Absent for a card sitting directly in its "
-            "lane, which is the overwhelming majority."
-        ),
-    )
-
-
 class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
     """The body of the ``409`` a contradicted ``structure_role`` returns (#2976).
 
@@ -8893,21 +8857,6 @@ class MilestoneListItemSerializer(serializers.Serializer[Any]):
     wbs_path = serializers.CharField(read_only=True)
     early_finish = serializers.DateField(read_only=True, allow_null=True)
     is_bound = serializers.BooleanField(read_only=True)
-
-
-class TaskScopeRollupSerializer(serializers.Serializer[dict[str, Any]]):
-    """Scope rollup for a task's subtree (ADR-0108 §3, #408).
-
-    ``current_scope`` is the live story-point sum over leaf descendants;
-    ``baselined_scope`` / ``scope_delta`` are null when there is no active baseline
-    (or it captured no scope) — never a misleading 0. ``has_baseline`` lets the UI
-    distinguish "no baseline" from "delta is exactly 0".
-    """
-
-    current_scope = serializers.IntegerField()
-    baselined_scope = serializers.IntegerField(allow_null=True)
-    scope_delta = serializers.IntegerField(allow_null=True)
-    has_baseline = serializers.BooleanField()
 
 
 class PreviousForecastSnapshotSerializer(serializers.Serializer[Any]):
