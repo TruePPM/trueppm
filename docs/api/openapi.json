@@ -52898,6 +52898,9 @@
                     "threshold": {
                         "type": "integer"
                     },
+                    "disregarded_vote_count": {
+                        "type": "integer"
+                    },
                     "your_vote": {
                         "type": "string",
                         "nullable": true
@@ -52916,6 +52919,7 @@
                     "approve_count",
                     "can_vote",
                     "created_at",
+                    "disregarded_vote_count",
                     "eligible_count",
                     "expires_at",
                     "from_ceiling",
@@ -68928,6 +68932,9 @@
                     "matched": {
                         "type": "integer"
                     },
+                    "rows_written": {
+                        "type": "integer"
+                    },
                     "governance": {
                         "$ref": "#/components/schemas/TaskClassificationAxis"
                     },
@@ -68953,6 +68960,7 @@
                     "can_undo",
                     "matched",
                     "operation_id",
+                    "rows_written",
                     "skipped",
                     "subtree"
                 ]

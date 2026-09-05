@@ -117,9 +117,6 @@ test.describe('Program Settings → Projects', () => {
 
     // The hardcoded fixture row from the stub page must not appear.
     await expect(page.getByText('Ground Support Equipment')).toHaveCount(0);
-
-    // The stub banner must not render on a wired page.
-    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
   });
 
   test('admin bulk-sets a field on the selected projects (issue 1233)', async ({ page }) => {

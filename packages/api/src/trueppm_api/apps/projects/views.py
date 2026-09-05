@@ -11839,11 +11839,49 @@ _HISTORY_DIFF_DISPLAY_EXCLUDED = frozenset(
         # flood the timeline with integer noise — mirrors the other rank/bookkeeping
         # exclusions (#1885). Deliberate ordering signals (priority_rank) stay visible.
         "sprint_rank",
+        # Promoted back into the diff when it is a record's ONLY change — see
+        # ``_HISTORY_DIFF_PROMOTED_WHEN_ALONE`` below.
         "parent_governance_inherited",  # internal inheritance bookkeeping
         "recurrence_occurrence_date",  # system-set during recurrence expansion
         "recurrence_rule",  # FK to the rule object; recurrence shown via is_recurring
     }
 )
+
+# Excluded fields that are surfaced anyway when they are the ONLY thing a record
+# changed (#3306).
+#
+# ``parent_governance_inherited`` is genuinely bookkeeping alongside a governance
+# change: every ordinary governance write moves the two together, so surfacing both
+# would double the diff rows on the highest-frequency case and turn the summary verb
+# from "changed governance" into "updated 2 fields". That call stands.
+#
+# But the bit can also move *alone*, and then the exclusion plus the empty-diff drop
+# below erase the write entirely. The concrete case is a classification cascade onto a
+# root already at the requested ``governance_class`` with ``parent_governance_inherited
+# =True``: declaring the class on the root sets the bit to False, which writes the row,
+# bumps ``server_version``, records an undo-ledger row and broadcasts
+# ``tasks_bulk_mutated`` — and left the task's Activity tab showing nothing at all. It
+# was the one classification write with no record on any surface.
+#
+# Narrowing the drop rule instead (rendering every empty-diff ``~`` record) was
+# rejected: that is the bare "Updated" pill issue 874 removed, and it would resurrect
+# it for every ``sprint_rank`` reorder and every transient ``sprint_pending`` flip.
+# Promotion keeps the exclusion's intent — no noise beside a change the user can
+# already read — while guaranteeing that no write is invisible.
+_HISTORY_DIFF_PROMOTED_WHEN_ALONE = frozenset({"parent_governance_inherited"})
+
+# The members of ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` that are excluded for an RBAC
+# reason rather than a noise one, and are therefore never promotable.
+#
+# That set is mixed-purpose, and the promotion above is a general escape hatch out of
+# it. ``blocked_reason`` is read-gated to the assignee and @-mentioned users by
+# ``can_read_blocker_reason()`` while this endpoint is Viewer+ for every project
+# member, so surfacing it here bypasses that gate — and it is deliberately *not* in
+# ``_HISTORY_EXCLUDED_TASK`` (the historical model tracks it), which makes the display
+# exclusion the only thing keeping it out. A promotion path that filtered on tracking
+# alone would inherit the noise exclusions and silently shed the privacy one, so the
+# two are named apart rather than left to the next editor to notice.
+_HISTORY_DIFF_PRIVACY_GATED = frozenset({"blocked_reason"})
 
 
 @functools.lru_cache(maxsize=1)
@@ -11862,6 +11900,35 @@ def _history_diff_fields() -> tuple[Any, ...]:
         and field.name != "project"
         and field.name not in _HISTORY_DIFF_DISPLAY_EXCLUDED
         and field.name not in _HISTORY_EXCLUDED_TASK
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _history_promoted_diff_fields() -> tuple[Any, ...]:
+    """Concrete ``Task`` fields in :data:`_HISTORY_DIFF_PROMOTED_WHEN_ALONE`.
+
+    Diffed alongside the routine fields, but rendered only when the record has no
+    routine change to show. Three filters, each closing a different way the promotion
+    could go wrong, and none of them derivable from the others:
+
+    - not in ``_HISTORY_EXCLUDED_TASK`` — the historical model does not carry the
+      field at all, so promoting it would diff an attribute that is never set;
+    - not in :data:`_HISTORY_DIFF_PRIVACY_GATED` — the exclusion is an access-control
+      decision, and promotion is an escape hatch out of the *display* exclusions only;
+    - **in** ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` — a field that is not excluded is
+      already in the routine tuple, and promoting it too would diff it twice per
+      record pair and render two identical rows. Disjointness of the two tuples is
+      what keeps the render split coherent, so it is asserted here rather than left
+      as a property the one current entry happens to have.
+    """
+    return tuple(
+        field
+        for field in Task._meta.concrete_fields
+        if field.name in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
+        and not field.primary_key
+        and field.name not in _HISTORY_EXCLUDED_TASK
+        and field.name not in _HISTORY_DIFF_PRIVACY_GATED
+        and field.name in _HISTORY_DIFF_DISPLAY_EXCLUDED
     )
 
 
@@ -12609,6 +12676,10 @@ def _render_history_items(
     ``include`` is set, so the legacy path pays nothing for the unified feed.
     Change (``~``) records whose entire diff was display-excluded are dropped;
     creation (``+``) and deletion (``-``) records are always kept.
+
+    A change in :data:`_HISTORY_DIFF_PROMOTED_WHEN_ALONE` is rendered only when the
+    record has no routine change to show (#3306) — it rescues an otherwise invisible
+    write without adding a row beside a change the user can already read.
     """
     result: list[dict[str, Any]] = []
     merged: list[tuple[Any, dict[str, Any]]] = []
@@ -12616,7 +12687,14 @@ def _render_history_items(
         diff = [
             _render_diff_row(field, old_val, new_val, fk_labels)
             for field, old_val, new_val in changes
+            if field.name not in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
         ]
+        if not diff:
+            diff = [
+                _render_diff_row(field, old_val, new_val, fk_labels)
+                for field, old_val, new_val in changes
+                if field.name in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
+            ]
 
         if record.history_type == "~" and not diff:
             continue
@@ -12858,7 +12936,10 @@ class TaskHistoryView(APIView):
             return exc.response
 
         records, diff_seed, count_truncated = _fetch_history_window(task, until)
-        diff_fields = _history_diff_fields()
+        # Promoted fields are diffed with the rest and separated at render time —
+        # whether one is shown depends on what else the same record changed, which
+        # is not known until the routine rows for that record exist (#3306).
+        diff_fields = _history_diff_fields() + _history_promoted_diff_fields()
         raw_changes, fk_ids = _compute_raw_changes(records, diff_seed, diff_fields)
         fk_labels = _resolve_fk_labels(diff_fields, fk_ids)
         result, merged = _render_history_items(records, raw_changes, fk_labels, include)

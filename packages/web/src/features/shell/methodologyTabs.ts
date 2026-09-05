@@ -39,6 +39,19 @@ export function isTabVisibleForMethodology(view: string, methodology: Methodolog
 }
 
 /**
+ * The view keys a methodology hides from the nav, in matrix order.
+ *
+ * Exported so the pre-save flip warning (#3294) can *name* the views it is
+ * about to hide from this one matrix instead of re-listing them in prose. The
+ * warning that shipped with #2619 hard-coded "sprints" in its copy while the
+ * matrix already hid `product-backlog` alongside it, and said nothing at all
+ * about the two views AGILE hides — a second list of the same fact, drifted.
+ */
+export function hiddenViewsForMethodology(methodology: Methodology): string[] {
+  return [...HIDDEN_FOR_METHODOLOGY[methodology]];
+}
+
+/**
  * The project rail's view taxonomy (ADR-0942, superseding ADR-0128 §A's `PEOPLE`
  * group and its standalone leading/trailing views). Grouping is **visual only**:
  * the route segments are unchanged (rule 108 / ADR-0030) and the methodology filter

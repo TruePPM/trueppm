@@ -13,8 +13,8 @@
  *
  * `isCritical` / `totalFloat` are already computed by the CPM engine and exposed
  * on TaskSerializer (`is_critical` / `total_float`) — this consumes them, no new
- * API. The copy convention (`Nd float`, `· critical path`) matches the existing
- * TaskDrawerHeader float row.
+ * API. The copy convention (`Nd float`, `· critical path`) matches the float
+ * row rendered by `TaskScheduleStrip` and `TaskFlagsSection`.
  */
 
 /** Semantic color band; each surface maps this to its own class chrome. */

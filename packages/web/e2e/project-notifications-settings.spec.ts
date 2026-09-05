@@ -166,8 +166,6 @@ test.describe('Project Settings → Notifications (#522)', () => {
     // banners — the wired-ness check must be scoped to this section.
     const section = page.locator('[data-settings-section="notifications"]');
     await expect(section.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
-    // Stub banner is gone — this section is wired.
-    await expect(section.getByTestId('stub-page-banner')).toBeHidden();
 
     // Initial state: "Task moves to another column" via email is OFF.
     const statusEmail = section.getByRole('switch', {

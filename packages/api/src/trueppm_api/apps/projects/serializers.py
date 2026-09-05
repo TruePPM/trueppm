@@ -3648,9 +3648,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_subtask",
             # Derived state, not a client toggle: it records whether this task
             # inherited its governance from its parent, so a client value can
-            # contradict ``governance_class``. The write also left no audit row —
-            # the field is in ``_HISTORY_DIFF_DISPLAY_EXCLUDED``, whose every other
-            # member is non-writable or privacy-gated. Nothing in the API reads it.
+            # contradict ``governance_class``. It is readable by every project
+            # member — both its current value here and, since #3306, its transitions
+            # on the task history feed when it moves on its own (it stays out of the
+            # diff alongside a ``governance_class`` change, which already says the
+            # same thing). Read-only is about who may *set* it, not who may see it.
             "parent_governance_inherited",
             # ADR-0124: blocked_since / blocked_by / age / impediment verdict are
             # server-stamped or derived — read-only. blocker_type / blocking_task
@@ -6154,6 +6156,14 @@ class TaskClassificationResponseSerializer(serializers.Serializer[Any]):
 
     subtree = serializers.UUIDField()
     matched = serializers.IntegerField()
+    # #3306: rows actually saved, as distinct from `matched` (rows the subtree
+    # resolved) and from the per-axis `applied` tallies, which count row-per-AXIS and
+    # therefore cannot be summed into a row count. The client's receipt needs a unit
+    # the caller can verify against the grid, and this is the only one it cannot
+    # derive: a row written on one axis and withheld on the other appears in exactly
+    # one per-axis total, so `governance.applied + delivery_mode.applied` is neither
+    # rows nor columns.
+    rows_written = serializers.IntegerField()
     governance = TaskClassificationAxisSerializer(required=False)
     delivery_mode = TaskClassificationAxisSerializer(required=False)
     skipped = TaskClassificationSkipSerializer(many=True)
