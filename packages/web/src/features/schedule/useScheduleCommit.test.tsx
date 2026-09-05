@@ -223,7 +223,6 @@ beforeEach(() => {
     scrollToTaskId: null,
     scheduleError: null,
     scheduleActionToast: null,
-    setZoomLevel: useScheduleStore.getState().setZoomLevel,
     setSelectedTaskId: useScheduleStore.getState().setSelectedTaskId,
     scrollToTask: useScheduleStore.getState().scrollToTask,
     setScheduleError: useScheduleStore.getState().setScheduleError,

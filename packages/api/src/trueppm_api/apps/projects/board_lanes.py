@@ -1,14 +1,12 @@
 """Board lane assignment, server-side (#2953, ADR-0843).
 
-The case 16 rendering rule shipped in the browser first
-(``packages/web/src/features/board/laneAssignment.ts``) because it needed no
-field and no migration. That was the right first move and the wrong resting
-place: it left the board's grouping as **web logic no other client can reach**,
-which is the #986 API-first gap. An MCP client, an agent, or anyone's
-integration cannot reproduce the board a human is looking at.
-
-This is that rule as a server fact. The three invariants are identical, and
-deliberately so — two answers to one question is worse than the gap:
+The case 16 rendering rule renders in the browser
+(``packages/web/src/features/board/laneAssignment.ts``). This is the same rule
+as a server derivation, used as the **oracle for ADR-0843 invariant 1**: the
+structure-declaration suites assert that a row promoted to a container by
+indent, or created as one by import, groups here as a lane and never as a card.
+The three invariants are identical to the browser's, and deliberately so — two
+answers to one question is worse than one answer stated twice:
 
 1. **A container is never a card.** A row with structural children is a lane,
    never a work item in a column, at any depth.
@@ -17,9 +15,9 @@ deliberately so — two answers to one question is worse than the gap:
 3. **Root-level work belongs to the project node**, whose lane carries the
    project's name and is absent when it holds nothing.
 
-``group_depth`` defaults to 1. It exists as a parameter so a client can ask for
-something else; no UI exposes it, because the depth distribution measured on
-2026-08-18 put 94.9% of leaf rows at depth <= 2 with no crumb at all.
+``group_depth`` defaults to 1 and is a parameter so a caller can cut lanes
+deeper; the depth distribution measured on 2026-08-18 put 94.9% of leaf rows at
+depth <= 2 with no crumb at all, so nothing asks for anything else today.
 """
 
 from __future__ import annotations

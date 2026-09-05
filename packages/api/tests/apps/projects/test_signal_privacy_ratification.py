@@ -658,3 +658,223 @@ def test_a_ratchet_to_team_broadcasts_the_policy_change(
         svc.ratchet_down_to_team(solo_policy, actor=sm)
 
     assert "signal_privacy_changed" in _bcast_events(bcast)
+
+
+# --------------------------------------------------------------------------- #
+# Amendment C (#3387) — the roster is team membership ∩ live project membership
+# --------------------------------------------------------------------------- #
+
+
+def _offboard(project: Project, user: Any) -> None:
+    """Revoke project access, leaving the mirrored TeamMembership live.
+
+    This is exactly what production does: the ADR-0078 §F mirror is create-only, so
+    there is no delete-side counterpart and no FK a cascade could travel over. The
+    residual team row is the ghost Amendment C exists to stop counting.
+    """
+    ProjectMembership.objects.filter(project=project, user=user).update(is_deleted=True)
+    assert TeamMembership.objects.filter(user=user, is_deleted=False).exists()
+
+
+def test_offboarding_shrinks_the_denominator_and_the_bar(project: Project, team: Team) -> None:
+    """``eligible_count`` / ``threshold`` exclude a revoked project member (C.2)."""
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+    leaver = _team_member(project, team, "dev3")
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    assert open_resp.data["eligible_count"] == 3
+    assert open_resp.data["threshold"] == 2
+
+    _offboard(project, leaver)
+
+    policy = _client(sm).get(_policy_url(project))
+    tally = policy.data["open_proposals"]["velocity"]
+    assert tally["eligible_count"] == 2
+    assert tally["threshold"] == 2
+
+
+def test_a_previously_unratifiable_proposal_now_ratifies(project: Project, team: Team) -> None:
+    """The headline governance defect: offboarding used to make a raise unreachable.
+
+    Six team members, three of whom leave the project. The old denominator counted all
+    six forever, so the bar stayed at ``floor(6/2)+1 = 4`` while only three people could
+    ever cast a vote — the proposal was arithmetically **unratifiable**, and the pending
+    indicator faithfully reported a threshold no one could reach. Under Amendment C the
+    roster is the three who remain, the bar is 2, and the team can decide its own
+    signal-sharing again.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    stays = _team_member(project, team, "stays")
+    _team_member(project, team, "quiet")
+    leavers = [_team_member(project, team, f"leaver{i}") for i in range(3)]
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    proposal_id = open_resp.data["id"]
+    # The pre-amendment state: 6 eligible, bar of 4, and the proposer's auto-approve.
+    assert open_resp.data["eligible_count"] == 6
+    assert open_resp.data["threshold"] == 4
+    assert open_resp.data["status"] == CeilingRaiseStatus.OPEN
+
+    for leaver in leavers:
+        _offboard(project, leaver)
+
+    # One remaining member approves. Roster is now 3, so the bar is 2 and the
+    # proposer's auto-approve plus this one clears it.
+    vote = _client(stays).post(
+        _vote_url(project, proposal_id), {"choice": "approve"}, format="json"
+    )
+
+    assert vote.status_code == 200, vote.data
+    assert vote.data["eligible_count"] == 3
+    assert vote.data["threshold"] == 2
+    assert vote.data["status"] == CeilingRaiseStatus.RATIFIED
+    assert _ceiling(project) == SignalAudience.PROGRAM_SHARED
+
+
+def test_an_offboarded_members_cast_vote_stops_counting(project: Project, team: Team) -> None:
+    """The already-cast-vote rule (C.3): a vote counts only while its caster is eligible.
+
+    Numerator and denominator move together, so a proposal can never ratify on an
+    absent member's approval. Here the departing member's APPROVE is the only thing
+    that would have cleared the bar; with them gone it is disregarded, the proposal
+    stays OPEN, and ``disregarded_vote_count`` says so rather than leaving a reader to
+    infer it from a number that quietly moved.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    leaver = _team_member(project, team, "leaver")
+    _team_member(project, team, "dev3")
+    _team_member(project, team, "dev4")
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    proposal_id = open_resp.data["id"]
+    voted = _client(leaver).post(
+        _vote_url(project, proposal_id), {"choice": "approve"}, format="json"
+    )
+    # 4 eligible, bar of 3, two approvals in hand — still short, still OPEN.
+    assert voted.data["approve_count"] == 2
+    assert voted.data["threshold"] == 3
+    assert voted.data["disregarded_vote_count"] == 0
+
+    _offboard(project, leaver)
+
+    after = _client(sm).get(_policy_url(project)).data["open_proposals"]["velocity"]
+    # Their approval is gone from the numerator at the same instant their seat leaves
+    # the denominator: 3 eligible, bar of 2, and only the proposer's approve remains.
+    assert after["approve_count"] == 1
+    assert after["eligible_count"] == 3
+    assert after["threshold"] == 2
+    assert after["status"] == CeilingRaiseStatus.OPEN
+    assert after["disregarded_vote_count"] == 1
+    assert _ceiling(project) == SignalAudience.TEAM
+
+    # And the vote ROW survives as the audit record — disregarded is not deleted.
+    proposal = SignalCeilingRaiseProposal.objects.get(pk=proposal_id)
+    assert proposal.votes.filter(voter=leaver).exists()
+
+
+def test_a_ratified_proposal_is_not_retroactively_flipped(project: Project, team: Team) -> None:
+    """C.3(3): recomputation reaches only OPEN proposals; a decision made is a fact.
+
+    This is the hazard the live-roster rule is accused of. It does not arise, because
+    ``_tally_and_maybe_apply`` short-circuits off a terminal status and the raise was
+    applied inside the OPEN→RATIFIED transition. A later offboarding cannot un-share a
+    signal; a team that wants the ceiling back lowers it, which §1.1 always allowed.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    approver = _team_member(project, team, "dev2")
+    _team_member(project, team, "dev3")
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    proposal_id = open_resp.data["id"]
+    ratifying = _client(approver).post(
+        _vote_url(project, proposal_id), {"choice": "approve"}, format="json"
+    )
+    assert ratifying.data["status"] == CeilingRaiseStatus.RATIFIED
+    assert _ceiling(project) == SignalAudience.PROGRAM_SHARED
+
+    # Both approvers leave. Under a naive recompute the tally would fall below the bar.
+    _offboard(project, sm)
+    _offboard(project, approver)
+
+    proposal = SignalCeilingRaiseProposal.objects.get(pk=proposal_id)
+    assert proposal.status == CeilingRaiseStatus.RATIFIED
+    assert _ceiling(project) == SignalAudience.PROGRAM_SHARED
+
+
+def test_re_seating_a_member_restores_their_vote(project: Project, team: Team) -> None:
+    """C.3(4): disregarding is not deleting — the vote comes back with the member."""
+    sm = _team_member(project, team, "sm", sm=True)
+    boomerang = _team_member(project, team, "boomerang")
+    _team_member(project, team, "dev3")
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "team_sm_pm"}, format="json"
+    )
+    proposal_id = open_resp.data["id"]
+    _client(boomerang).post(_vote_url(project, proposal_id), {"choice": "reject"}, format="json")
+
+    _offboard(project, boomerang)
+    gone = _client(sm).get(_policy_url(project)).data["open_proposals"]["velocity"]
+    assert gone["reject_count"] == 0
+    assert gone["disregarded_vote_count"] == 1
+
+    ProjectMembership.objects.filter(project=project, user=boomerang).update(is_deleted=False)
+
+    back = _client(sm).get(_policy_url(project)).data["open_proposals"]["velocity"]
+    assert back["reject_count"] == 1
+    assert back["disregarded_vote_count"] == 0
+
+
+def test_a_revoked_project_member_cannot_vote(project: Project, team: Team) -> None:
+    """The write gate agrees with the denominator — ``is_team_member`` carries the floor.
+
+    They are 403'd by ``IsProjectMember`` before the roster is consulted, which is why
+    this was never an authorization hole; the point is that the two seams now give the
+    same answer, so the tally cannot count a roster the vote gate rejects.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+    leaver = _team_member(project, team, "leaver")
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    proposal_id = open_resp.data["id"]
+
+    _offboard(project, leaver)
+
+    resp = _client(leaver).post(
+        _vote_url(project, proposal_id), {"choice": "approve"}, format="json"
+    )
+    assert resp.status_code in (403, 404)
+    assert _ceiling(project) == SignalAudience.TEAM
+
+
+def test_non_team_project_admin_is_not_in_the_eligible_count(project: Project, team: Team) -> None:
+    """ANTI-STUFFING, pinned on the governance surface as well as the seam (C.2).
+
+    The intersection Amendment C adds could only widen the roster if it were a union;
+    this asserts on the number a raise is actually measured against, so a future refactor
+    to ``T ∪ M`` would fail here and not merely in the teams-service unit test.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+    _project_only_member(project, "pmo", Role.ADMIN)
+    _project_only_member(project, "sponsor", Role.OWNER)
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+
+    # Two team members. The Admin and the Owner are project members and not voters.
+    assert open_resp.data["eligible_count"] == 2
+    assert open_resp.data["threshold"] == 2

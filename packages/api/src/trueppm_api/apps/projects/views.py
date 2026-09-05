@@ -167,7 +167,6 @@ from trueppm_api.apps.projects.serializers import (
     BaselineDetailSerializer,
     BaselineSerializer,
     BoardColumnConfigSerializer,
-    BoardLanesSerializer,
     BoardSavedViewSerializer,
     CalendarExceptionSerializer,
     CalendarPreviewSerializer,
@@ -232,7 +231,6 @@ from trueppm_api.apps.projects.serializers import (
     TaskRecurrenceRuleSerializer,
     TaskRelationSerializer,
     TaskReorderSerializer,
-    TaskScopeRollupSerializer,
     TaskSerializer,
     TaskWriteResponseSerializer,
     ZeroDurationNotMilestoneError,
@@ -6176,22 +6174,6 @@ class TaskViewSet(
 
         return Response({"deleted": deleted}, status=status.HTTP_200_OK)
 
-    @extend_schema(responses=TaskScopeRollupSerializer)
-    @action(detail=True, methods=["get"], url_path="scope")
-    def scope(self, request: Request, **kwargs: Any) -> Response:
-        """Scope rollup for a task's subtree (ADR-0108 §3, #408).
-
-        Returns the live story-point sum over leaf descendants, the active
-        baseline's snapshot of that scope, and the delta (null when no active
-        baseline). Detail-scoped so the per-call queries are not an N+1; any
-        project member may read (the default permission applies — no schedule or
-        backlog gate, this is a read-only computed view).
-        """
-        from trueppm_api.apps.projects.services import compute_scope_rollup
-
-        task = self.get_object()
-        return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
-
     @extend_schema(
         summary="Duration-change audit events for a task (ADR-0151, #414)",
         # Without this, drf-spectacular infers the viewset's default TaskSerializer
@@ -6204,8 +6186,12 @@ class TaskViewSet(
 
         Detail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new
         duration, the percent-complete policy applied, the actor, and the active
-        sprint (if any) at change time. Any project member may read (same gate as
-        ``scope``). IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the
+        sprint (if any) at change time. Any project member may read: this action
+        declares no ``permission_classes`` of its own, so it falls through to the
+        generic ``IsProjectMember`` branch at the end of ``_rbac_permissions()``
+        (Viewer+). The class-level ``permission_classes`` is *not* what applies —
+        ``get_permissions()`` replaces it wholesale.
+        IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the
         caller's projects, so ``get_object`` 404s on a foreign task. Paginated
         newest-first; ``select_related`` keeps actor-name rendering off the N+1 path.
         """
@@ -11121,94 +11107,6 @@ def _project_spi_and_health(project: Project, today: datetime.date) -> tuple[flo
 
 
 @extend_schema(
-    summary="Board swimlanes",
-    description=(
-        "The board's swimlane grouping, as a server fact (#2953, ADR-0843).\n\n"
-        "Lanes are **real container ids plus the project node** — there is no "
-        "synthetic catch-all lane and no promotion of childless rows. Three "
-        "invariants, identical to the web client's:\n\n"
-        "1. A container is never a card, at any depth.\n"
-        "2. Every task appears exactly once, in the lane of its top-level "
-        "container ancestor; a nested container travels on the card as a crumb.\n"
-        "3. Root-level work belongs to the project node, whose lane carries the "
-        "project's name and is absent when it holds nothing.\n\n"
-        "This closes the #986 API-first gap: the grouping previously existed only "
-        "in the browser, so no agent, MCP client or integration could reproduce "
-        "the board a human sees."
-    ),
-    parameters=[
-        OpenApiParameter(
-            name="group_depth",
-            type=OpenApiTypes.INT,
-            location=OpenApiParameter.QUERY,
-            required=False,
-            description=(
-                "WBS depth at which lanes are cut. Defaults to 1. No UI exposes "
-                "this; it exists so a client may ask. Measured 2026-08-18, 94.9% "
-                "of leaf rows sit at depth <= 2 and carry no crumb at all."
-            ),
-        ),
-    ],
-    responses={200: BoardLanesSerializer},
-)
-class BoardLanesView(McpReadableViewMixin, APIView):
-    """GET the board's lane grouping for a project.
-
-    Read-only and open to any project member, matching ``BoardColumnConfigView``
-    — this is current board shape, not gated historical performance.
-    """
-
-    mcp_scope = McpScope.PATH
-
-    def get_permissions(self) -> list[BasePermission]:
-        # The mixin's get_permissions is replaced entirely here, so the MCP guards
-        # must be re-appended explicitly or the view is MCP-readable with no token
-        # guard at all — no team opt-out (ADR-0678), no scope/owner check, not even
-        # the kill switch (ADR-0497). Asserted by the conformance test in
-        # tests/apps/access/test_mcp_team_opt_out.py.
-        return [
-            IsAuthenticated(),
-            IsProjectMember(),
-            IsProjectNotArchived(),
-            *self.mcp_token_guards(),
-        ]
-
-    def get(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.projects.board_lanes import build_lanes
-
-        project = get_object_or_404(Project, pk=pk)
-        self.check_object_permissions(request, project)
-
-        try:
-            group_depth = max(1, int(request.query_params.get("group_depth", 1)))
-        except (TypeError, ValueError):
-            group_depth = 1
-
-        tasks = list(
-            Task.objects.filter(project_id=pk, is_deleted=False, is_subtask=False).only(
-                "id", "name", "wbs_path", "is_subtask"
-            )
-        )
-        lanes, crumbs = build_lanes(tasks, project_name=project.name, group_depth=group_depth)
-        return Response(
-            {
-                "group_depth": group_depth,
-                "lanes": [
-                    {
-                        "id": lane.id,
-                        "name": lane.name,
-                        "is_root": lane.is_root,
-                        "task_ids": lane.task_ids,
-                    }
-                    for lane in lanes
-                ],
-                "crumbs": crumbs,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-@extend_schema(
     summary="Commit the plan",
     description=(
         "Takes the project from `draft` to `active` and captures **baseline v1** "
@@ -11983,11 +11881,49 @@ _HISTORY_DIFF_DISPLAY_EXCLUDED = frozenset(
         # flood the timeline with integer noise — mirrors the other rank/bookkeeping
         # exclusions (#1885). Deliberate ordering signals (priority_rank) stay visible.
         "sprint_rank",
+        # Promoted back into the diff when it is a record's ONLY change — see
+        # ``_HISTORY_DIFF_PROMOTED_WHEN_ALONE`` below.
         "parent_governance_inherited",  # internal inheritance bookkeeping
         "recurrence_occurrence_date",  # system-set during recurrence expansion
         "recurrence_rule",  # FK to the rule object; recurrence shown via is_recurring
     }
 )
+
+# Excluded fields that are surfaced anyway when they are the ONLY thing a record
+# changed (#3306).
+#
+# ``parent_governance_inherited`` is genuinely bookkeeping alongside a governance
+# change: every ordinary governance write moves the two together, so surfacing both
+# would double the diff rows on the highest-frequency case and turn the summary verb
+# from "changed governance" into "updated 2 fields". That call stands.
+#
+# But the bit can also move *alone*, and then the exclusion plus the empty-diff drop
+# below erase the write entirely. The concrete case is a classification cascade onto a
+# root already at the requested ``governance_class`` with ``parent_governance_inherited
+# =True``: declaring the class on the root sets the bit to False, which writes the row,
+# bumps ``server_version``, records an undo-ledger row and broadcasts
+# ``tasks_bulk_mutated`` — and left the task's Activity tab showing nothing at all. It
+# was the one classification write with no record on any surface.
+#
+# Narrowing the drop rule instead (rendering every empty-diff ``~`` record) was
+# rejected: that is the bare "Updated" pill issue 874 removed, and it would resurrect
+# it for every ``sprint_rank`` reorder and every transient ``sprint_pending`` flip.
+# Promotion keeps the exclusion's intent — no noise beside a change the user can
+# already read — while guaranteeing that no write is invisible.
+_HISTORY_DIFF_PROMOTED_WHEN_ALONE = frozenset({"parent_governance_inherited"})
+
+# The members of ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` that are excluded for an RBAC
+# reason rather than a noise one, and are therefore never promotable.
+#
+# That set is mixed-purpose, and the promotion above is a general escape hatch out of
+# it. ``blocked_reason`` is read-gated to the assignee and @-mentioned users by
+# ``can_read_blocker_reason()`` while this endpoint is Viewer+ for every project
+# member, so surfacing it here bypasses that gate — and it is deliberately *not* in
+# ``_HISTORY_EXCLUDED_TASK`` (the historical model tracks it), which makes the display
+# exclusion the only thing keeping it out. A promotion path that filtered on tracking
+# alone would inherit the noise exclusions and silently shed the privacy one, so the
+# two are named apart rather than left to the next editor to notice.
+_HISTORY_DIFF_PRIVACY_GATED = frozenset({"blocked_reason"})
 
 
 @functools.lru_cache(maxsize=1)
@@ -12006,6 +11942,35 @@ def _history_diff_fields() -> tuple[Any, ...]:
         and field.name != "project"
         and field.name not in _HISTORY_DIFF_DISPLAY_EXCLUDED
         and field.name not in _HISTORY_EXCLUDED_TASK
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _history_promoted_diff_fields() -> tuple[Any, ...]:
+    """Concrete ``Task`` fields in :data:`_HISTORY_DIFF_PROMOTED_WHEN_ALONE`.
+
+    Diffed alongside the routine fields, but rendered only when the record has no
+    routine change to show. Three filters, each closing a different way the promotion
+    could go wrong, and none of them derivable from the others:
+
+    - not in ``_HISTORY_EXCLUDED_TASK`` — the historical model does not carry the
+      field at all, so promoting it would diff an attribute that is never set;
+    - not in :data:`_HISTORY_DIFF_PRIVACY_GATED` — the exclusion is an access-control
+      decision, and promotion is an escape hatch out of the *display* exclusions only;
+    - **in** ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` — a field that is not excluded is
+      already in the routine tuple, and promoting it too would diff it twice per
+      record pair and render two identical rows. Disjointness of the two tuples is
+      what keeps the render split coherent, so it is asserted here rather than left
+      as a property the one current entry happens to have.
+    """
+    return tuple(
+        field
+        for field in Task._meta.concrete_fields
+        if field.name in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
+        and not field.primary_key
+        and field.name not in _HISTORY_EXCLUDED_TASK
+        and field.name not in _HISTORY_DIFF_PRIVACY_GATED
+        and field.name in _HISTORY_DIFF_DISPLAY_EXCLUDED
     )
 
 
@@ -12753,6 +12718,10 @@ def _render_history_items(
     ``include`` is set, so the legacy path pays nothing for the unified feed.
     Change (``~``) records whose entire diff was display-excluded are dropped;
     creation (``+``) and deletion (``-``) records are always kept.
+
+    A change in :data:`_HISTORY_DIFF_PROMOTED_WHEN_ALONE` is rendered only when the
+    record has no routine change to show (#3306) — it rescues an otherwise invisible
+    write without adding a row beside a change the user can already read.
     """
     result: list[dict[str, Any]] = []
     merged: list[tuple[Any, dict[str, Any]]] = []
@@ -12760,7 +12729,14 @@ def _render_history_items(
         diff = [
             _render_diff_row(field, old_val, new_val, fk_labels)
             for field, old_val, new_val in changes
+            if field.name not in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
         ]
+        if not diff:
+            diff = [
+                _render_diff_row(field, old_val, new_val, fk_labels)
+                for field, old_val, new_val in changes
+                if field.name in _HISTORY_DIFF_PROMOTED_WHEN_ALONE
+            ]
 
         if record.history_type == "~" and not diff:
             continue
@@ -13002,7 +12978,10 @@ class TaskHistoryView(APIView):
             return exc.response
 
         records, diff_seed, count_truncated = _fetch_history_window(task, until)
-        diff_fields = _history_diff_fields()
+        # Promoted fields are diffed with the rest and separated at render time —
+        # whether one is shown depends on what else the same record changed, which
+        # is not known until the routine rows for that record exist (#3306).
+        diff_fields = _history_diff_fields() + _history_promoted_diff_fields()
         raw_changes, fk_ids = _compute_raw_changes(records, diff_seed, diff_fields)
         fk_labels = _resolve_fk_labels(diff_fields, fk_ids)
         result, merged = _render_history_items(records, raw_changes, fk_labels, include)

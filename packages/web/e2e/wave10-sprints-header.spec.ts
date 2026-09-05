@@ -295,9 +295,9 @@ test.describe('Wave 10 — Sprints view header', () => {
 
     await page.goto(BASE_URL);
 
-    // Scope to the in-view breadcrumb — the unified shell bar (ADR-0134) also
-    // renders a "Breadcrumb" nav (when the rail is hidden), but it lives outside
-    // #main-content.
+    // Scope to the in-view breadcrumb. The shell bar's own wayfinding is
+    // `LocationSwitcher`, labelled "Location" — so this stays unambiguous even
+    // if a second "Breadcrumb" nav is ever added to the chrome (#3369).
     await expect(
       page.locator('#main-content').getByRole('navigation', { name: /Breadcrumb/i }),
     ).toContainText('Sprints');

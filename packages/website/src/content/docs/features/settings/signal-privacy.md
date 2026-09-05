@@ -1,6 +1,7 @@
 ---
 title: Signal privacy
 description: Govern how far each team signal — velocity, throughput rollup, and the retro pulse — may travel, on a team-owned ladder with an authorized ceiling.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]
@@ -64,6 +65,19 @@ Within the authorized ceiling, the Scrum Master moves a signal's audience up or 
 While a proposal is open, any team member can approve or reject it, and the proposal together with every vote is a **team-readable audit trail**: who proposed the raise, who voted, and how it resolved. A proposal that is not ratified within 72 hours simply expires with the ceiling unchanged — silence is never read as consent to share more widely. Lowering the ceiling while a raise is pending supersedes the proposal, so a tightened baseline always wins.
 
 There is deliberately **no management override**: nobody outside the team — not a PM, not the PMO — can raise a ceiling or bypass the vote. That is the whole point of the model.
+
+### Who counts toward the majority
+
+The majority is measured against the team's **current** members — the people on the project's team who still have access to the project. Two consequences are worth knowing before you read a tally:
+
+- **Someone who leaves the project stops counting**, both toward the majority and toward the number of approvals needed. A team of six that loses two needs the majority of four, not of six. The bar recalculates on every read, so a proposal never gets stranded above a threshold that the people still present cannot reach.
+- **A project Admin or PM who is not on the team has no vote at all**, and never counted toward the majority. Being able to manage the project is not the same as being able to decide what the team shares about itself.
+
+If a member votes and then leaves the project, their vote stops counting at the same moment their seat does — so a raise is never ratified on the strength of someone who is no longer there. The vote itself is kept in the audit trail, and it comes back if they rejoin. A raise that has **already** been ratified stays ratified: a later departure does not undo a decision the team made while everyone was present. To take a signal back, lower the ceiling, which anyone with the Scrum Master or Admin role can do immediately.
+
+:::note[Ships in 0.4]
+The rules in this section ship in **0.4**. On 0.3, a member who leaves the project keeps their seat in the ratification majority indefinitely — which can leave a proposal needing more approvals than the remaining team is able to cast. If you hit this on 0.3, lower the ceiling to supersede the stuck proposal and open a fresh one.
+:::
 
 ## One-click ratchet
 

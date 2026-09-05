@@ -166,3 +166,33 @@ def test_every_bundled_pack_account_can_see_a_project(stem: str, owner: Any) -> 
             "empty project list — project access is scoped by ProjectMembership, never by "
             "ProgramMembership"
         )
+
+
+# --- re-importing over a revoked member (#3410) --------------------------------
+
+
+def test_re_import_revives_a_revoked_program_membership(owner: Any) -> None:
+    """A seed grant must confer access, not report success and confer nothing.
+
+    ``(program, user)`` uniqueness is unconditional, so a revoked member's row
+    still owns the slot. An ``update_or_create`` whose defaults carried only
+    ``role`` matched that tombstone and updated the role on a row that stayed
+    ``is_deleted=True`` — the grant looked like it worked and granted nothing
+    (#3410). The membership models' own viewsets were the loud half of this
+    defect; the importer was the silent half.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    program = import_seed(_seed(), owner=owner, create_users=True)
+    ada = User.objects.get(username="mem-ada")
+    revoked = ProgramMembership.objects.get(program=program, user=ada)
+    revoked.soft_delete()
+
+    # target_program adopts the existing shell rather than minting a new one, so
+    # the tombstoned row is the one the grant has to reuse.
+    import_seed(_seed(), owner=owner, create_users=True, target_program=program)
+
+    revived = ProgramMembership.objects.get(pk=revoked.pk)
+    assert revived.is_deleted is False
+    assert revived.deleted_version is None
+    assert ProgramMembership.objects.filter(program=program, user=ada).count() == 1

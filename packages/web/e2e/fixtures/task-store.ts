@@ -412,12 +412,17 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
     let govApplied = 0;
     let govKept = 0;
     let deliveryApplied = 0;
+    // #3306: rows saved, which is what the receipt counts. Tallied per row rather
+    // than summed from the two axis counters, for the reason the server does the
+    // same — a row written on both axes is one row in two totals.
+    let rowsWritten = 0;
 
     for (const row of matched) {
       const { withheld, ...counters } = classifyRow(row, body, row.id === body.subtree);
       govApplied += counters.govApplied;
       govKept += counters.govKept;
       deliveryApplied += counters.deliveryApplied;
+      if (counters.govApplied > 0 || counters.deliveryApplied > 0) rowsWritten += 1;
 
       if (withheld.length) {
         skipped.push({
@@ -439,6 +444,7 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
     const report: Record<string, unknown> = {
       subtree: body.subtree,
       matched: matched.length,
+      rows_written: rowsWritten,
       skipped,
       capabilities_denied: [],
       operation_id: operationId,
