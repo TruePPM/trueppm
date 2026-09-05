@@ -39,7 +39,11 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
 
     role                       — integer ordinal (canonical wire format; use for comparisons)
     role_label                 — human-readable label e.g. "Project Manager" (display only)
-    joined_at                  — when this membership row was created (per-project access evidence)
+    joined_at                  — when this membership row was first created. Per-project access
+                                 evidence, but NOT proof of uninterrupted access: re-adding a
+                                 previously removed member revives their original row and keeps
+                                 this date, so the span may contain one or more revoked intervals
+                                 (#3410). Nothing on the row records the gap.
     role_changed_at            — when the role last changed, or null if unchanged since joining
     other_active_project_count — how many OTHER active (non-archived, non-deleted) projects this
                                  user belongs to, excluding the current one. A resource-load
@@ -145,7 +149,13 @@ class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMember
 
 
 class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembership]):
-    """Response serializer for ProgramMembership — mirrors the project version."""
+    """Response serializer for ProgramMembership — mirrors the project version.
+
+    ``joined_at`` carries the same caveat as its project twin: it is the date the row
+    was first created, and a revoked member who is later re-added keeps it, so the
+    span may contain revoked intervals (#3410). It is not proof of uninterrupted
+    access.
+    """
 
     user_detail = _UserSummarySerializer(source="user", read_only=True)
     # ``role_label`` is the *access* role's display name (Owner/Admin/…), a
