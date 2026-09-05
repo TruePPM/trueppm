@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -1421,3 +1422,160 @@ def test_apply_answers_400_not_500_for_a_malformed_project_id(
 
     assert resp.status_code == 400, resp.data
     assert TemplateApplication.objects.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Undo is a mutation too — it owes collaborators the forward path's own event
+# ---------------------------------------------------------------------------
+
+
+def _immediate_on_commit() -> Any:
+    """Run ``transaction.on_commit`` callbacks synchronously.
+
+    Tests run inside a rolled-back transaction (``@pytest.mark.django_db``), so an
+    unpatched ``on_commit`` callback never fires — this is what lets a test assert on
+    the broadcast/recalc calls those callbacks make. Same helper, same reason, as
+    ``test_batch_operations_undo.py``.
+    """
+    return patch("django.db.transaction.on_commit", side_effect=lambda fn, *a, **kw: fn())
+
+
+@pytest.mark.django_db
+def test_undo_broadcasts_the_forward_paths_event_and_recalculates(
+    source_project: Project, target_project: Project
+) -> None:
+    """A collaborator watching the board must see the seeded rows leave (#3415).
+
+    ``apply_template`` emits ``tasks_restructured`` with an empty payload and enqueues
+    a recalculation; undo removes those same rows, so it emits the same event — without
+    it the rows appear live and never disappear, and the dates they moved never move
+    back.
+    """
+    _, application = _seeded_application(source_project, target_project)
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        summary = undo_template_application(application)
+
+    assert summary == {"deleted": 2, "kept": 0}
+    mock_recalc.assert_called_once_with(str(target_project.pk))
+    mock_broadcast.assert_called_once_with(str(target_project.pk), "tasks_restructured", {})
+
+
+@pytest.mark.django_db
+def test_undo_defers_its_broadcast_and_recalc_to_commit(
+    source_project: Project, target_project: Project
+) -> None:
+    """Both hooks must be registered, and neither may fire before the commit.
+
+    A broadcast sent from inside the transaction announces rows that a rollback can
+    still bring back, and there is no correcting event afterwards — the client simply
+    believes it. The negative control is the whole test: ``on_commit`` is replaced with
+    a recorder that does **not** run its callbacks, so anything observed on the mocks
+    before the manual drain below was called inline rather than deferred.
+    """
+    _, application = _seeded_application(source_project, target_project)
+    deferred: list[Any] = []
+
+    with (
+        patch(
+            "django.db.transaction.on_commit",
+            side_effect=lambda fn, *a, **kw: deferred.append(fn),
+        ),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        undo_template_application(application)
+
+        mock_broadcast.assert_not_called()
+        mock_recalc.assert_not_called()
+        assert len(deferred) == 2
+
+        for callback in deferred:
+            callback()
+
+        mock_recalc.assert_called_once_with(str(target_project.pk))
+        mock_broadcast.assert_called_once_with(str(target_project.pk), "tasks_restructured", {})
+
+
+@pytest.mark.django_db
+def test_undo_endpoint_broadcasts_on_the_success_path(
+    admin_client: APIClient, source_project: Project, target_project: Project
+) -> None:
+    """The same event over the real route, which runs under ``ATOMIC_REQUESTS``.
+
+    Worth asserting separately from the service-level test: DRF's exception handler
+    calls ``set_rollback()`` for every ``APIException``, so a hook scheduled on a
+    refusal path is discarded — only the success path can carry this event.
+    """
+    _, application = _seeded_application(source_project, target_project)
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        resp = admin_client.post(
+            f"/api/v1/template-applications/{application.pk}/undo/", {}, format="json"
+        )
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["undo"] == {"deleted": 2, "kept": 0}
+    mock_recalc.assert_called_once_with(str(target_project.pk))
+    mock_broadcast.assert_called_once_with(str(target_project.pk), "tasks_restructured", {})
+
+
+@pytest.mark.django_db
+def test_undo_is_silent_when_every_row_was_kept(
+    source_project: Project, target_project: Project
+) -> None:
+    """No task row changed, so there is nothing to announce.
+
+    This mirrors the forward path's own ``if created`` guard. It is deliberately not
+    the "broadcast on every branch" defect ``broadcast-check`` looks for: this branch
+    commits no write to any task row a collaborator is watching.
+    """
+    _, application = _seeded_application(source_project, target_project)
+    for task in Task.objects.filter(pk__in=application.created_task_ids):
+        task.name = f"{task.name} — our actual scope"
+        task.save()
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        summary = undo_template_application(application)
+
+    assert summary == {"deleted": 0, "kept": 2}
+    mock_broadcast.assert_not_called()
+    mock_recalc.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_undo_of_an_application_that_wrote_nothing_is_silent(target_project: Project) -> None:
+    """The early return is now the one success path that deliberately emits nothing.
+
+    A distinct exit from the every-row-kept case above — it never reaches the
+    ``if deleted:`` guard at all — so it needs its own assertion that the guard is not
+    accidentally hoisted above it later.
+    """
+    application = TemplateApplication.objects.create(
+        project=target_project,
+        status=TemplateApplicationStatus.SUCCESS,
+        created_task_ids=[],
+    )
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        summary = undo_template_application(application)
+
+    assert summary == {"deleted": 0, "kept": 0}
+    mock_broadcast.assert_not_called()
+    mock_recalc.assert_not_called()

@@ -43,6 +43,9 @@ from django.db.models import Q
 from django.utils import timezone
 
 from trueppm_api.apps.projects.refusal_codes import StructuralUndoBlockedReason
+from trueppm_api.apps.projects.restructure_hooks import (
+    broadcast_tasks_restructured_and_recalc,
+)
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -642,7 +645,11 @@ def undo_structural_operation(
             update_fields=["status", "undone_at", "undone_by", "result_summary"],
         )
 
-        _broadcast_and_recalc(locked.project_id)
+        # Post-commit hooks mirroring the forward acts' own, so clients need no change.
+        # The six structural endpoints all emit ``tasks_restructured`` with an empty
+        # payload and enqueue a recalculation; an undo is the same kind of mutation and
+        # emits the same event.
+        broadcast_tasks_restructured_and_recalc(locked.project_id)
         return summary
 
 
@@ -678,21 +685,6 @@ def _resync_shadow_values(operation: StructuralOperation) -> None:
         .order_by("wbs_path"),
         already_locked=True,
     )
-
-
-def _broadcast_and_recalc(project_id: Any) -> None:
-    """Post-commit hooks mirroring the forward acts' own, so clients need no change.
-
-    The six structural endpoints all emit ``tasks_restructured`` with an empty payload and
-    enqueue a recalculation; an undo is the same kind of mutation and emits the same event,
-    so existing collaborator clients already handle it.
-    """
-    from trueppm_api.apps.scheduling.services import enqueue_recalculate
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
-    project_id_str = str(project_id)
-    transaction.on_commit(lambda: enqueue_recalculate(project_id_str))
-    transaction.on_commit(lambda: broadcast_board_event(project_id_str, "tasks_restructured", {}))
 
 
 def may_undo(request: Request, operation: StructuralOperation) -> bool:
