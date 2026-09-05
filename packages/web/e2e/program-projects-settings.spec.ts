@@ -37,7 +37,11 @@ const FIXTURE_PROGRAM = {
 
 type Page = import('@playwright/test').Page;
 
-async function setup(page: Page, projects: Array<Record<string, unknown>>) {
+async function setup(
+  page: Page,
+  projects: Array<Record<string, unknown>>,
+  opts: { methodologyOverridePolicy?: string } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -82,6 +86,67 @@ async function setup(page: Page, projects: Array<Record<string, unknown>>) {
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
+  // The matrix reads the workspace methodology policy for the rule-196 lock, and the
+  // deviation marker re-parents to the workspace under it (#3295). Mock the real
+  // object shape — the catch-all 404s, which leaves the policy undefined.
+  await page.route('**/api/v1/workspace/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        name: 'Acme',
+        subdomain: 'acme',
+        timezone: 'UTC',
+        fiscal_year_start_month: 1,
+        fiscal_year_start_day: 1,
+        fiscal_year_start_display: 'January 1',
+        work_week: [false, true, true, true, true, true, false],
+        default_project_view: 'SCHEDULE',
+        allow_guests: false,
+        public_sharing: false,
+        public_sharing_override_policy: 'suggest',
+        iteration_label: 'Sprint',
+        iteration_label_override_policy: 'suggest',
+        mc_history_enabled: false,
+        mc_history_retention_cap: 10,
+        mc_history_attribution_audience: 'ADMINS',
+        mc_history_override_policy: 'suggest',
+        task_duration_change_percent_policy: 'WARN',
+        task_duration_change_percent_override_policy: 'suggest',
+        estimation_scale: 'FIBONACCI',
+        sprint_picker_ready_only_default: false,
+        methodology: 'HYBRID',
+        methodology_override_policy: opts.methodologyOverridePolicy ?? 'suggest',
+        attachments_enabled: true,
+        allowed_attachment_types: [],
+        attachments_override_policy: 'suggest',
+        calendar: null,
+        calendar_override_policy: 'suggest',
+        logo_url: null,
+      }),
+    }),
+  );
+}
+
+/** A program project row. `inherited_methodology` is what `ProjectSerializer` returns
+ *  from `resolve_inherited_methodology` — never null, so a row that omits it is a
+ *  stale client, not an expected payload. */
+function project(
+  id: string,
+  name: string,
+  methodology: string,
+  inherited: string | null = 'HYBRID',
+): Record<string, unknown> {
+  return {
+    id,
+    name,
+    description: '',
+    start_date: '2026-01-01',
+    methodology,
+    effective_methodology: methodology,
+    ...(inherited === null ? {} : { inherited_methodology: inherited }),
+    program: PROGRAM_ID,
+  };
 }
 
 test.describe('Program Settings → Projects', () => {
@@ -157,5 +222,171 @@ test.describe('Program Settings → Projects', () => {
 
     await expect(page.getByText(/No projects in this program yet/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /Add project/i })).toBeVisible();
+  });
+});
+
+/**
+ * Deviation visibility (#3295). The flag was computed per row and thrown away:
+ * `ValueCell` annotated only `resettable` fields and methodology is `resettable:
+ * false` (web-rule 196), so a 40-project scan told you every project's value and
+ * never which ones deviate.
+ */
+test.describe('Program Settings → Projects — deviation from the default', () => {
+  const DEVIATING = [
+    project('pr-1', 'Artemis IV Lift', 'WATERFALL'),
+    project('pr-2', 'Launch Control Software', 'AGILE'),
+    project('pr-3', 'Ground Support Rig', 'HYBRID'),
+  ];
+
+  test('marks the deviating rows, counts them in the header, and filters to them', async ({
+    page,
+  }) => {
+    await setup(page, DEVIATING);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    // Per-cell marker: text plus ≠, in the grammar of the existing "— inherited"
+    // treatment. Two of three rows deviate from the program's HYBRID.
+    const markers = page.getByTestId('deviation-marker-methodology');
+    await expect(markers).toHaveCount(2);
+    await expect(markers.first()).toHaveText('Waterfall ≠ program (Hybrid)');
+    // Per-column count, as label text rather than a control.
+    await expect(page.getByTestId('deviation-count')).toHaveText('· 2 differ');
+
+    // The filter is mounted on THIS page for the first time. Scope every query to it —
+    // the consolidated settings shell also carries the General section's own
+    // Methodology radiogroup and the bulk bar's value picker.
+    const filter = page.getByRole('radiogroup', { name: 'Filter by methodology' });
+    await expect(filter).toBeVisible();
+    await filter.getByRole('radio', { name: 'Deviates from default, 2' }).click();
+
+    await expect(page.getByText('Artemis IV Lift')).toBeVisible();
+    await expect(page.getByText('Ground Support Rig')).toHaveCount(0);
+    await expect(page.getByTestId('bulk-fields-scope-note')).toHaveText(
+      '2 of 3 shown · Deviates from default',
+    );
+    // The header tally keeps the facet chips' denominator — one word, one number.
+    await expect(page.getByTestId('deviation-count')).toHaveText('· 2 differ');
+  });
+
+  test('clears a live selection when the cohort changes', async ({ page }) => {
+    await setup(page, DEVIATING);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    const row = page.getByLabel('Select Ground Support Rig');
+    await row.check();
+    await expect(row).toBeChecked();
+
+    await page
+      .getByRole('radiogroup', { name: 'Filter by methodology' })
+      .getByRole('radio', { name: 'Deviates from default, 2' })
+      .click();
+
+    // Ground Support is not in the new cohort at all, so an Apply can no longer
+    // reach a row the user checked but can no longer see.
+    await expect(page.getByLabel('Select Ground Support Rig')).toHaveCount(0);
+    await expect(page.getByTestId('bulk-fields-apply')).toBeDisabled();
+  });
+
+  test('says "none differ" and disables the zero option when every project matches', async ({
+    page,
+  }) => {
+    await setup(page, [
+      project('pr-1', 'Artemis IV Lift', 'HYBRID'),
+      project('pr-2', 'Launch Control Software', 'HYBRID'),
+    ]);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    // "I checked, and none" — not "0 differ", and not silence.
+    await expect(page.getByTestId('deviation-count')).toHaveText('· none differ');
+    await expect(page.getByTestId('deviation-marker-methodology')).toHaveCount(0);
+    const zero = page
+      .getByRole('radiogroup', { name: 'Filter by methodology' })
+      .getByRole('radio', { name: 'Deviates from default, 0' });
+    await expect(zero).toBeVisible();
+    await expect(zero).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('renders nothing at all when the payload carries no inherited value', async ({ page }) => {
+    // A stale client. The diff is purely additive over the pre-#3295 render, so this
+    // degrades to the current product rather than to a broken one — and a disabled
+    // zero would claim a check that never happened.
+    await setup(page, [
+      project('pr-1', 'Artemis IV Lift', 'WATERFALL', null),
+      project('pr-2', 'Launch Control Software', 'AGILE', null),
+    ]);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    await expect(page.getByTestId('deviation-count')).toHaveCount(0);
+    await expect(page.getByTestId('deviation-marker-methodology')).toHaveCount(0);
+    const filter = page.getByRole('radiogroup', { name: 'Filter by methodology' });
+    await expect(filter.getByRole('radio')).toHaveCount(4);
+    await expect(filter.getByRole('radio', { name: /Deviates/ })).toHaveCount(0);
+  });
+
+  test('re-parents label, count and marker to the workspace under an inherit lock', async ({
+    page,
+  }) => {
+    // Under a lock `resolve_inherited_methodology` returns the WORKSPACE value, and
+    // the effective value is the workspace's on every row — so a row that still
+    // differs is a pre-lock override the policy has not reconciled, which makes this
+    // column more useful under a lock, not less.
+    await setup(
+      page,
+      [
+        { ...project('pr-1', 'Artemis IV Lift', 'WATERFALL'), effective_methodology: 'HYBRID' },
+        { ...project('pr-2', 'Launch Control Software', 'HYBRID'), effective_methodology: 'HYBRID' },
+      ],
+      { methodologyOverridePolicy: 'inherit' },
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    await expect(page.getByTestId('deviation-marker-methodology')).toHaveText(
+      'Waterfall ≠ workspace (Hybrid)',
+    );
+    // Constraint before count.
+    await expect(page.getByTestId('bulk-fields-header')).toContainText(
+      'Methodology · read-only · 1 differ',
+    );
+    // A house SVG, never a Unicode emoji (rule 242).
+    await expect(page.getByTestId('bulk-fields-header').locator('svg[aria-hidden="true"]')).toBeVisible();
+    const lockedFilter = page.getByRole('radiogroup', { name: 'Filter by methodology' });
+    await expect(
+      lockedFilter.getByRole('radio', { name: 'Deviates from workspace, 1' }),
+    ).toBeVisible();
+    // Bucketing on `effective_methodology` here would read "Waterfall 0" directly
+    // above a visible cell saying "Waterfall ≠ workspace (Hybrid)".
+    await expect(lockedFilter.getByRole('radio', { name: 'Waterfall, 1' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+  });
+
+  test('below 768px the read layer survives and the write layer does not', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page, DEVIATING);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    // Markers, header count and the filter are all intact — checking a deviation
+    // count from a phone is a real errand.
+    await expect(page.getByTestId('deviation-marker-methodology')).toHaveCount(2);
+    await expect(page.getByTestId('deviation-count')).toHaveText('· 2 differ');
+    const filter = page.getByRole('radiogroup', { name: 'Filter by methodology' });
+    // Collapsed to the one comparison worth a 44px target.
+    await expect(filter.getByRole('radio')).toHaveCount(2);
+    await expect(filter.getByRole('radio', { name: 'Deviates from default, 2' })).toBeVisible();
+
+    // Bulk editing on a phone is not an errand.
+    await expect(page.getByTestId('bulk-fields-action-bar')).toHaveCount(0);
+    await expect(page.getByLabel('Select Artemis IV Lift')).toHaveCount(0);
+    await expect(page.getByLabel('Select all rows')).toHaveCount(0);
+    await expect(page.getByTestId('bulk-fields-narrow-wall')).toHaveText(
+      'Bulk edits need a wider screen.',
+    );
   });
 });
