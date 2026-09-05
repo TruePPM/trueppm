@@ -109,6 +109,40 @@ function structuredDetail(error: unknown, message: string): string | null {
   return `${matched} tasks matched — the cap is ${max}. ${SUBTREE_TOO_LARGE_REMEDY}`;
 }
 
+/**
+ * The receipt's headline count, in the unit the planner selected (#3306).
+ *
+ * The old copy read `${governance.applied + delivery_mode.applied} fields written
+ * across ${matched} rows`, and that first number was none of the three things it
+ * could have been. `applied` increments once per row PER AXIS, and the governance
+ * branch writes two model columns per increment — so a 10-row both-axes cascade
+ * announced "20 fields written across 10 rows" having written 30 columns. It was
+ * axis-rows, a unit with no meaning outside the server's own tally loop and nothing
+ * the planner could check against the grid.
+ *
+ * Rows is the unit they chose: they pointed at a subtree and the grid shows rows.
+ * `rows_written` is the server's own count of rows it saved, so the two numbers here
+ * are both verifiable — how many rows the subtree resolved, and how many of them
+ * moved. Which axes moved is already stated by the `parts` clause ahead of this one,
+ * so the receipt names only units the planner supplied.
+ *
+ * Written and matched are collapsed to one number when they agree, because
+ * "10 of 10 rows" reads as a caveat where there is none. They disagree whenever a
+ * milestone was skipped, an override was kept, or a row already held the requested
+ * value — including the whole-subtree no-op, which says "0 of 10 rows reclassified"
+ * rather than going quiet.
+ *
+ * Both branches pluralize off `matched`, and the fallback's singular is reachable
+ * rather than defensive: `cascade: false` resolves the root alone, so re-applying a
+ * class that root already holds is `0 of 1 row`.
+ */
+function describeRowsWritten(rowsWritten: number, matched: number): string {
+  if (rowsWritten === matched) {
+    return `${rowsWritten} row${rowsWritten === 1 ? '' : 's'} reclassified`;
+  }
+  return `${rowsWritten} of ${matched} row${matched === 1 ? '' : 's'} reclassified`;
+}
+
 /** A count as the server sent it, tolerating both the string DRF emits and a raw number. */
 function readCount(value: unknown): string | null {
   if (typeof value === 'string' && value.trim() !== '') return value.trim();
@@ -186,11 +220,9 @@ export function useClassificationPopover({
             const parts: string[] = [];
             if (report.governance) parts.push(`governance → ${report.governance.requested}`);
             if (report.delivery_mode) parts.push(`delivery → ${report.delivery_mode.requested}`);
-            const written =
-              (report.governance?.applied ?? 0) + (report.delivery_mode?.applied ?? 0);
             const kept = report.governance?.overrides_kept ?? 0;
             const detail = [
-              `${written} field${written === 1 ? '' : 's'} written across ${report.matched} row${report.matched === 1 ? '' : 's'}`,
+              describeRowsWritten(report.rows_written, report.matched),
               kept > 0 ? `${kept} governance override${kept === 1 ? '' : 's'} kept` : null,
               report.skipped.length > 0
                 ? `${report.skipped.length} milestone${report.skipped.length === 1 ? '' : 's'} left alone`

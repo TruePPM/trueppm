@@ -75,7 +75,7 @@ here affect every project in the program.
 | Target date | The program's headline target finish date. |
 | Program manager | The program lead — the person accountable for the program. |
 | Health | Manual health override (On track / At risk / Critical), or **Auto** to let the [rollup](#rollup-kpis) compute it. |
-| Methodology | Planning model for the program's projects. Inherits the workspace default unless overridden — see [Methodology presets](/features/methodology-preset/). |
+| Methodology | Planning model new projects created in this program start with. It seeds new projects only — projects already in the program keep their own. See [Methodology presets](/features/methodology-preset/). |
 | Iteration terminology | What the program calls its iteration container (Sprint, Iteration, Cycle…). Inherits the workspace default. |
 | Estimation scale | The estimate scale (story points, hours, T-shirt…) projects inherit. Inherits the workspace default. |
 | Story picker shows Ready stories only, by default *(ships in 0.4)* | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories for this program's projects. Advisory only — never a commit-time block. Inherits the workspace default. |
@@ -89,9 +89,11 @@ here affect every project in the program.
 ## Projects
 
 The **Projects** section is a bulk matrix of the projects assigned to this
-program. Each project **inherits the program's methodology unless it overrides
-it**, and the matrix lets you review and set the methodology and iteration label
-across the program's projects at once. See [Methodology presets](/features/methodology-preset/).
+program. Every project **carries its own methodology** — changing the program's
+methodology on [General](#general) seeds projects created afterward and leaves
+existing ones untouched — so this matrix is where you review and set the
+methodology and iteration label across the program's projects at once. See
+[Methodology presets](/features/methodology-preset/).
 
 ## Access
 
