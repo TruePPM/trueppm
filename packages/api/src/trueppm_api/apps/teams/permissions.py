@@ -24,9 +24,13 @@ from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
 
 def _team_pk_from_view(view: APIView) -> Any | None:
-    """Extract the team pk from nested (``team_pk``) or detail (``pk``) routes."""
-    kwargs = getattr(view, "kwargs", {})
-    return kwargs.get("team_pk") or kwargs.get("pk")
+    """Extract the team pk, which every team-scoped route carries as ``team_pk``.
+
+    There is deliberately no ``pk`` fallback: on the surviving member-detail route
+    ``pk`` names a :class:`TeamMembership`, so falling back to it would resolve the
+    wrong object. Returns None when the route names no team, and callers fail closed.
+    """
+    return getattr(view, "kwargs", {}).get("team_pk")
 
 
 def _project_id_for_team(request: Request, team_id: Any) -> Any | None:
@@ -60,10 +64,10 @@ def _team_role(request: Request, team_id: Any) -> str | None:
 def _route_project_id(request: Request, view: APIView) -> Any | None:
     """Resolve the project a request targets, from either route shape.
 
-    The project-scoped list route carries ``project_pk`` directly; the team and
-    member routes carry ``team_pk`` / ``pk`` and resolve the project through the
-    team. Returns None when neither is present or the team does not exist —
-    callers fail closed on None so an unrecognized route never default-allows.
+    The project-scoped list route carries ``project_pk`` directly; a team-scoped
+    route carries ``team_pk`` and resolves the project through the team. Returns None
+    when neither is present or the team does not exist — callers fail closed on None
+    so an unrecognized route never default-allows.
     """
     project_pk = getattr(view, "kwargs", {}).get("project_pk")
     if project_pk is not None:
@@ -104,6 +108,10 @@ class IsTeamMember(BasePermission):
         return _membership_role(request, project_id) is not None
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        # No route reaches this today — the surviving team route is the project-scoped
+        # list, which never calls get_object(). Kept, and unit-tested directly, because
+        # #599 restores the team detail/PATCH/DELETE routes onto this same class; a gate
+        # nothing has exercised is how a restored route ships unguarded.
         project_id = getattr(obj, "project_id", None)
         if project_id is None:
             return False

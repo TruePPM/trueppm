@@ -3738,8 +3738,11 @@ def compute_scope_rollup(task: Any) -> dict[str, Any]:
     ``BaselineTask.story_points`` field and captured no scope (all rows null →
     ``Sum`` returns ``None``). The UI shows "no baseline" in that case.
 
-    Computed on read (no stored rollup state, per ADR-0024/0074); detail-scoped, so
-    the per-call queries are not an N+1 on list endpoints.
+    Computed on read (no stored rollup state, per ADR-0024/0074). **Call it once per
+    object, never from a list serializer**: each call costs its own ltree subtree scan
+    plus a correlated child-existence check, so a per-row call on a paginated response
+    is an N+1 by construction. That constraint used to be enforced by the fact that the
+    only caller was a detail route; the route is gone, so it is stated here instead.
     """
     from django.db.models import BooleanField, Sum
     from django.db.models.expressions import RawSQL

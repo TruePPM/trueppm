@@ -152,6 +152,15 @@ GET    /api/v1/users/{user_id}/teams/                # David + Alex's reverse vi
                                                      # one-call "what am I facilitating right now across all teams" pivot
 ```
 
+> **Amended 2026-09-05 (#3370).** `GET /api/v1/teams/{team_id}/` is removed. It was
+> the one row of this table that shipped and then found no consumer: the members
+> routes resolve the team themselves for permission purposes, and every client that
+> needs team attributes reads the project-scoped list
+> `GET /api/v1/projects/{project_id}/teams/`. Looking a team up by its id alone is no
+> longer possible. The rest of the surface above is unchanged, and remains design
+> intent rather than shipped behavior — the write routes, the activity feed and the
+> reverse `users/{user_id}/teams/` view are still #599.
+
 Sprint association via existing `PATCH /api/v1/sprints/{id}/` with `team` field. Story-team via `PATCH /api/v1/tasks/{id}/` with `team` field.
 
 ### F. Reporting contract — single-team invisibility
