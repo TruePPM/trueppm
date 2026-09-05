@@ -253,3 +253,48 @@ def test_raise_endpoint_reaches_receiver(
     # The post-commit signal fired and the receiver fanned out to the two
     # non-proposer voters — proving the AppConfig.ready() wiring.
     assert _recipients(OPENED) == {dev2.id, dev3.id}
+
+
+# --------------------------------------------------------------------------- #
+# Amendment C (#3387) — the audience is the eligible voters, so it excludes ghosts
+# --------------------------------------------------------------------------- #
+
+
+def test_revoked_project_member_is_not_notified_on_open(project: Project, team: Team) -> None:
+    """A revoked project member gets no inbox row for a vote they cannot cast.
+
+    The ADR-0078 §F mirror is create-only, so offboarding leaves the team row live and
+    the pre-Amendment-C cohort kept naming them. The residue is bounded (the copy is
+    governance metadata only) but it is a dead link plus the fact that a signal-privacy
+    vote is happening, delivered to someone with no way to open the project.
+    """
+    proposer = _team_member(project, team, "sm", sm=True)
+    stays = _team_member(project, team, "dev2")
+    gone = _team_member(project, team, "dev3")
+    ProjectMembership.objects.filter(project=project, user=gone).update(is_deleted=True)
+    # The precondition: the mirrored team row is untouched by the revocation.
+    assert TeamMembership.objects.filter(user=gone, is_deleted=False).exists()
+
+    proposal = _proposal(project, proposer, CeilingRaiseStatus.OPEN)
+    _emit(project, proposal, CeilingRaiseStatus.OPEN)
+
+    assert _recipients(OPENED) == {stays.id}
+    assert not Notification.objects.filter(recipient_id=gone.id).exists()
+
+
+def test_departed_proposer_still_learns_their_proposals_fate(project: Project, team: Team) -> None:
+    """The §B.2 proposer union survives Amendment C, deliberately (C.4).
+
+    B.2 chose to union the proposer into the *resolved* audience specifically so "a
+    proposer who has since left the team learns their own proposal's fate". A departed
+    proposer is the case that union was written for, so the eligibility floor is applied
+    first and the proposer added back after — not repealed as a side effect.
+    """
+    proposer = _team_member(project, team, "sm", sm=True)
+    stays = _team_member(project, team, "dev2")
+    ProjectMembership.objects.filter(project=project, user=proposer).update(is_deleted=True)
+
+    proposal = _proposal(project, proposer, CeilingRaiseStatus.RATIFIED)
+    _emit(project, proposal, CeilingRaiseStatus.RATIFIED)
+
+    assert _recipients(RESOLVED) == {proposer.id, stays.id}

@@ -42,8 +42,10 @@ const ESTIMATION_MODE_OPTIONS: Array<{ id: EstimationMode; label: string; hint: 
  * `methodologyOverridePolicy` decides whether this picker is editable.
  *
  *  - SUGGEST (or OSS ENFORCE with no enterprise provider) → editable. The
- *    project's own `methodology` wins; "Inherited from workspace (X)" is shown
- *    as informational context.
+ *    project's own `methodology` wins; "Inherited from the {program|workspace}
+ *    default: X" is shown as informational context. The scope noun is not
+ *    hard-coded — `inherited_methodology` resolves program → workspace, so a
+ *    project inside a program is reading its PROGRAM's value (#3293).
  *  - INHERIT (or active Enterprise ENFORCE) → read-only. The effective
  *    methodology is the workspace default; the picker is locked and explains
  *    why. The server is the source of truth — a PATCH under lock is rejected
@@ -316,6 +318,17 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
 
   const effective = project.effective_methodology;
   const inherited = project.inherited_methodology;
+  // Which scope `inherited_methodology` actually resolved from (#3293).
+  // `resolve_inherited_methodology` skips this project's own value and takes its
+  // program's when it has one — and a program's methodology is NOT-NULL, so it
+  // always answers. Membership alone therefore decides the scope; comparing the
+  // values instead would misname it whenever a program happens to agree with the
+  // workspace. Under an active workspace lock the inherited value IS the
+  // workspace default, but that branch renders the locked sentence instead, so
+  // this only reads on the unlocked path. Truthiness, not `!== null`: a payload
+  // from an older cache can omit `program`, and "workspace" is the claim that is
+  // safe to make without it.
+  const inheritedScope = project.program ? 'program' : 'workspace';
 
   return (
     <div>
@@ -337,7 +350,7 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
             </p>
           ) : (
             <p className="text-[13px] text-neutral-text-secondary">
-              Inherited from the workspace default:{' '}
+              Inherited from the {inheritedScope} default:{' '}
               <span className="font-semibold text-neutral-text-primary">
                 {METHOD_LABEL[inherited]}
               </span>
@@ -360,7 +373,7 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
             </SettingsSubHeading>
             <FieldHelp
               label="Methodology"
-              body="The planning model that drives which surfaces this project shows. Waterfall gives you phases, gates, baselines, and the critical path. Agile gives you sprints, story points, and velocity. Hybrid nests sprints inside phase gates. It inherits the workspace default until you choose one here — unless the workspace requires its default, in which case this picker is read-only."
+              body="The planning model that drives which surfaces this project shows. Waterfall gives you phases, gates, baselines, and the critical path. Agile gives you sprints, story points, and velocity. Hybrid nests sprints inside phase gates. Every project carries its own methodology: it starts from the program or workspace default when the project is created, and changing that default afterward does not change this project — unless the workspace requires its default, in which case this picker is read-only."
               docHref="features/methodology-preset/#the-matrix"
             />
           </div>

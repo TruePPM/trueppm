@@ -62,6 +62,10 @@ function projectDetail(overrides: Record<string, unknown> = {}) {
     methodology: 'AGILE',
     effective_methodology: 'AGILE',
     inherited_methodology: 'WATERFALL',
+    // The real serializer always emits `program` (null for a standalone project).
+    // Omitting it made the standalone case assert on `undefined`, a shape the API
+    // never returns (#3293).
+    program: null,
     ...overrides,
   };
 }
@@ -289,6 +293,27 @@ test.describe('Project methodology', () => {
 
     await expect.poll(() => patchBody).not.toBeNull();
     expect(patchBody).toMatchObject({ methodology: 'WATERFALL' });
+  });
+
+  // #3293 — `inherited_methodology` resolves program → workspace, but the banner
+  // hard-coded "workspace default". The golden path above covers the standalone
+  // case; this is the same project inside a program.
+  test('the inheritance banner names the program when the project has one (#3293)', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
+      r.fulfill(json(projectDetail({ program: 'prog-1' }))),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const methodology = page.locator('[data-settings-section="how-this-team-works"]');
+    // Gate on the section's own rendered content before asserting the copy.
+    await expect(methodology.getByRole('radio', { name: /Agile/i, checked: true })).toBeVisible();
+    await expect(methodology.getByText(/Inherited from the program default/i)).toBeVisible();
+    await expect(methodology.getByText(/Inherited from the workspace default/i)).toHaveCount(0);
   });
 
   test('surfaces estimate governance and saves only estimation_mode (#2018)', async ({ page }) => {

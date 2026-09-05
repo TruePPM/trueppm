@@ -1975,6 +1975,38 @@ web:lint:
   script:
     - npm run lint
 
+web:knip:
+  # Dead-surface regrowth gate (#3375). Thirteen web modules with zero importers
+  # accumulated because nothing detected the class; deleting them is a one-time
+  # cleanup, this is what stops it happening again. Config and the reasoning
+  # behind every clause live in packages/web/knip.jsonc.
+  #
+  # Its OWN job, deliberately not folded into `npm run lint`. web:lint heads the
+  # web critical path at ~179s and web:build, web:type-check and web:test all
+  # `needs:` it, so anything appended there is a serial prefix in front of every
+  # other web job. This one has no dependants and runs beside it for free.
+  #
+  # BLOCKING, not allow_failure. The ratchet lives in knip's own per-rule
+  # severity (`rules` in knip.jsonc), not in the job: the rules that are clean
+  # today are `error` and red this job; the four with a backlog that predates
+  # the gate — files (9), exports (50), types (53), duplicates (3) — are `warn`,
+  # which still prints every finding in this log but does not reach the exit
+  # code. #3434 promotes each to `error` as it reaches zero; #3369 clears files.
+  #
+  # This is deliberately NOT `allow_failure: true`. A failing allow_failure job
+  # renders as a GREEN pipeline — the pipeline `status` field says `success`
+  # with the job red underneath — so the one reader who needed the signal is the
+  # one who never sees it. Staging by rule keeps the job's verdict honest:
+  # yellow never happens, and red means a class we said was clean is not.
+  # Do NOT wrap the invocation in `|| true` and do NOT reach for allow_failure
+  # to admit a new backlog; downgrade the specific rule in knip.jsonc, on the
+  # record, with the issue that closes it.
+  extends: [.web, .fast-job]
+  stage: lint
+  <<: *rules-web
+  script:
+    - npm run knip:strict
+
 mobile:lint:
   extends: [.mobile, .fast-job]
   stage: lint
@@ -4066,7 +4098,7 @@ api:coverage:
 
 api:test-durations:
   # Generates packages/api/.test_durations — the per-test wall-time baseline
-  # pytest-split uses to balance the two api:test shards (#687, follow-up to
+  # pytest-split uses to balance the four api:test shards (#687, follow-up to
   # the #680 sharding). Without this file pytest-split falls back to an even
   # test-COUNT split, which unbalances the shards whenever a few slow tests
   # dominate one group and erases the sharding win.
@@ -4081,10 +4113,40 @@ api:test-durations:
   #   - scheduled pipelines refresh the baseline as the suite grows;
   #   - manual on any MR or main to regenerate on demand.
   # This job does NOT commit its result — it publishes .test_durations as an
-  # artifact. Refresh cadence: download the artifact from the latest scheduled
-  # run and commit it to packages/api/.test_durations (a periodic chore, or
-  # whenever shard balance visibly drifts). allow_failure keeps a slow or
-  # flaky full-suite run from ever blocking an MR.
+  # artifact. allow_failure keeps a slow or flaky full-suite run from ever
+  # blocking an MR.
+  #
+  # DO NOT refresh the committed baseline to fix an imbalanced shard (#3389,
+  # !2308). Measured 2026-09-04 on the same runner: the shard that gates the
+  # test stage went 798s -> 968s after a freshly generated baseline was
+  # committed. Two structural reasons, neither fixed by regenerating more often:
+  #
+  #   - This job measures a SERIAL run WITHOUT coverage (see above); api:test
+  #     runs sharded, -n 4, with --cov. Balancing the second on the first
+  #     misallocates, and a MORE accurate baseline misallocates more
+  #     confidently. The stale 17%-coverage file was accidentally protective:
+  #     pytest-split gave the other 83% a fallback average, which made the
+  #     split approximately count-based.
+  #   - The dominant cost is teardown, and it is not stable run to run. On one
+  #     commit, test_valkey_sentinel.py::test_no_new_raw_redis_url_clients tore
+  #     down in 6.38s on one runner and 67.92s on another (jobs 16322310373 and
+  #     16321482217, pipelines 2822331977 and 2822163450, same sha 4d928432).
+  #     pytest-split does record setup+teardown, not just call — but no static
+  #     file captured from a single run can encode a value that moves 10x.
+  #
+  # Read --durations=25 on the slow shard's own log first (added to api:test in
+  # !2309); it names the tail directly instead of requiring the split to be
+  # reconstructed offline. Regenerate this baseline for a genuine change in the
+  # suite's shape, not as a remedy for one slow shard.
+  #
+  # If you do recommit the artifact, FLATTEN THE FIRST-TEST OUTLIER. Whichever
+  # test runs first under django_db absorbs the session test-database clone, so
+  # it is recorded at ~60s while its file-siblings sit at 0.2s. It is not a slow
+  # test, and every shard pays that setup regardless of which group owns the
+  # entry, so committing it verbatim leaves that shard budgeted ~60s it never
+  # spends. Replace the entry with the median of the other tests in the same
+  # file. Sanity check: a genuine slow test is a query-count or N+1 guard at
+  # 5-8s, never 60.
   extends: .api
   stage: test
   needs:

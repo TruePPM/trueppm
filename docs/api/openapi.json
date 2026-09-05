@@ -53151,6 +53151,9 @@
                     "threshold": {
                         "type": "integer"
                     },
+                    "disregarded_vote_count": {
+                        "type": "integer"
+                    },
                     "your_vote": {
                         "type": "string",
                         "nullable": true
@@ -53169,6 +53172,7 @@
                     "approve_count",
                     "can_vote",
                     "created_at",
+                    "disregarded_vote_count",
                     "eligible_count",
                     "expires_at",
                     "from_ceiling",
