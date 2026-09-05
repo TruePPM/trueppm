@@ -118,7 +118,15 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
   // Existing sprints (any state) this project already carries — the flip-warning
   // check below (issue #2619) needs the count regardless of methodology, so this
   // is unconditional rather than gated on the pending selection.
-  const { sprints } = useSprints(projectId);
+  // `totalCount` is the server's `count`, NOT `sprints.length`: the list is
+  // page-1 only, and this number is rendered to the user in the dialog, so a
+  // project with more sprints than one page would understate its own risk in
+  // the one sentence written to convey it (#3313).
+  const {
+    totalCount: sprintCount,
+    isLoading: sprintsLoading,
+    error: sprintsError,
+  } = useSprints(projectId);
 
   const [methodology, setMethodology] = useState<Methodology>('HYBRID');
   const [estimationMode, setEstimationMode] = useState<EstimationMode>('open');
@@ -157,11 +165,21 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
     setInitialEstimationScale(project.estimation_scale);
   }, [project]);
 
+  // A failed sprints read is "cannot rule out sprints", not "no sprints" (#3313).
+  // The count defaults to 0 on error, and treating that as an all-clear silently
+  // suppresses the one warning that exists for this flip — so the safe direction
+  // is to warn, and the dialog says the count is unknown rather than claiming 0.
+  // (Loading needs no equivalent branch: `apiReady` below withholds the save
+  // until the query settles, so by the time `handleSave` can run this is either
+  // a real count or a real error — never a not-yet-known 0.)
+  const sprintCountUnknown = sprintsError !== null;
   // WATERFALL is the only preset that hides the DELIVER nav group (methodologyTabs.ts),
   // so a flip only ever orphans sprints when landing on WATERFALL from something
   // else — never between AGILE and HYBRID, which both show it.
   const willOrphanSprints =
-    methodology === 'WATERFALL' && initial !== 'WATERFALL' && sprints.length > 0;
+    methodology === 'WATERFALL' &&
+    initial !== 'WATERFALL' &&
+    (sprintCountUnknown || sprintCount > 0);
 
   const handleSave = useCallback(async () => {
     if (willOrphanSprints) {
@@ -233,7 +251,17 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
     onReset: handleReset,
     // Arm the save bar when EITHER control is editable — estimation stays editable
     // even when methodology is locked by the workspace policy.
-    apiReady: !!project && (canEdit || canEditEstimation),
+    //
+    // The sprints read is a readiness input too (#3313). `willOrphanSprints` is
+    // evaluated inside `handleSave`, and the count is 0 until the query settles —
+    // so a save that lands in that window checks the trigger against a count
+    // nobody knows yet, finds nothing, and skips the consent dialog on timing
+    // alone. `apiReady: false` is the hard stop, not just a hidden button:
+    // `useDirtyForm` folds it into `dirty`, and `triggerSave` runs only dirty
+    // sections — so the keyboard shortcut and a stale bar are covered as well.
+    // This holds the estimation controls with it, which is the honest trade: the
+    // section registers as one unit, and the wait is one already-in-flight GET.
+    apiReady: !!project && !sprintsLoading && (canEdit || canEditEstimation),
   });
 
   // Gate on BOTH the project and the workspace settings: until both resolve,
@@ -266,6 +294,10 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
     );
   }
 
+  // Deliberately NOT gated on the sprints read. That query is a readiness input
+  // for the SAVE (see `apiReady` above), not for anything rendered here — and
+  // holding the whole block on a skeleton for it would drop the block heading
+  // that the settings jump strip scrolls to and focuses.
   if (projectLoading || !project || ws === undefined) {
     return (
       <div className="px-6 py-8 space-y-3">
@@ -514,7 +546,9 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
 
       {flipConfirmResolver && (
         <MethodologyFlipWarningDialog
-          count={sprints.length}
+          // `null` = the sprints read failed, so the total is unknown; the
+          // dialog says so rather than printing a 0 it cannot stand behind.
+          count={sprintCountUnknown ? null : sprintCount}
           itl={itl}
           pending={flipPending}
           onCancel={() => {

@@ -11,7 +11,21 @@ interface PaginatedSprintResponse {
 }
 
 export interface UseSprintsResult {
+  /**
+   * The sprints on the response's FIRST page — pagination is not followed.
+   * Fine for membership and bucketing, wrong for anything a user reads as a
+   * total; use `totalCount` for that (#3313).
+   */
   sprints: ApiSprint[];
+  /**
+   * The server's `count` for this project's sprints — the total across every
+   * page, which `sprints.length` is not once the list paginates.
+   *
+   * `0` while the query is loading or after it failed, so a caller that shows
+   * this number, or branches on `> 0`, must read `isLoading` / `error` first —
+   * an unresolved read is "unknown", not "none" (#3313).
+   */
+  totalCount: number;
   isLoading: boolean;
   error: Error | null;
   /**
@@ -25,10 +39,13 @@ export interface UseSprintsResult {
 /**
  * GET /api/v1/projects/{id}/sprints/ — fetch every sprint for a project.
  *
- * Returns the full list (PLANNED, ACTIVE, COMPLETED, CANCELLED) in
+ * Returns the first page (PLANNED, ACTIVE, COMPLETED, CANCELLED) in
  * chronological order so the timeline strip can render with one query.
  * The active sprint is derived from the same payload via
  * `useActiveSprint`; no separate request is needed.
+ *
+ * The whole paginated envelope is cached rather than just `results`, so the
+ * server's `count` survives to callers that need a truthful total.
  */
 export function useSprints(projectId: string | null | undefined): UseSprintsResult {
   const query = useQuery({
@@ -37,13 +54,14 @@ export function useSprints(projectId: string | null | undefined): UseSprintsResu
       const res = await apiClient.get<PaginatedSprintResponse>(
         `/projects/${projectId}/sprints/`,
       );
-      return res.data.results;
+      return res.data;
     },
     enabled: !!projectId,
   });
 
   return {
-    sprints: query.data ?? [],
+    sprints: query.data?.results ?? [],
+    totalCount: query.data?.count ?? 0,
     isLoading: query.isLoading,
     error: query.error,
     refetch: () => void query.refetch(),

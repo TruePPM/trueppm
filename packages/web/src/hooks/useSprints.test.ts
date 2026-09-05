@@ -169,10 +169,31 @@ describe('useSprints', () => {
     expect(result.current.error).toBeNull();
   });
 
+  // #3313. `results` is page 1; `count` is the project's total. Any number shown
+  // to a user has to come from `count`, or a project with more sprints than one
+  // page understates itself in the sentence written to convey the risk.
+  it("exposes the server's total count, not the length of the loaded page", async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        count: 37,
+        next: 'http://api/projects/proj-1/sprints/?page=2',
+        previous: null,
+        results: [sprint({ id: 'a' }), sprint({ id: 'b' })],
+      },
+    });
+
+    const { result } = renderHook(() => useSprints('proj-1'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.sprints).toHaveLength(2);
+    expect(result.current.totalCount).toBe(37);
+  });
+
   it('is disabled and returns an empty list when projectId is null', () => {
     const { result } = renderHook(() => useSprints(null), { wrapper: makeWrapper(qc) });
     expect(getMock).not.toHaveBeenCalled();
     expect(result.current.sprints).toEqual([]);
+    expect(result.current.totalCount).toBe(0);
   });
 
   it('surfaces the query error on a failed fetch', async () => {
@@ -183,6 +204,9 @@ describe('useSprints', () => {
     await waitFor(() => expect(result.current.error).toBeTruthy());
     expect(result.current.error?.message).toBe('boom');
     expect(result.current.sprints).toEqual([]);
+    // 0 on a failure is "unknown", not "none" — callers branching on this must
+    // read `error` first (#3313).
+    expect(result.current.totalCount).toBe(0);
   });
 
   it('refetch re-runs the underlying query', async () => {
