@@ -56,6 +56,25 @@ reviewed change.
 MS Project ships eight constraint types plus deadlines. If your schedules are
 contractual and lean on must-finish-on dates, TruePPM cannot express them yet.
 
+The intended direction is recorded in [ADR-1049](/architecture/decisions/), **proposed
+and not yet accepted**: honor `SNET`, `FNLT`, `MSO`, and `MFO`, keep the deadline as a
+separate soft marker with negative float against it (0.5), and omit `ALAP`, `SNLT`, and
+`FNET` with a documented workaround for each. The constraint set itself is sequenced for
+0.6. Until then this section stands as written.
+
+### Effort-driven scheduling — the engine is duration-only
+
+A task has a duration. It does not have effort. Assigning a second person to a
+ten-day task leaves it a ten-day task; there is no fixed-work, fixed-units, or
+fixed-duration task type, and no way to say "this is forty hours of work, however many
+people do it". MS Project and P6 both schedule from effort and units when asked to.
+
+The split of effort from duration is tracked as
+[#1835](https://gitlab.com/trueppm/trueppm/-/issues/1835), sequenced for 0.6. It has
+been described elsewhere as part of the hybrid human/AI scheduling work, and it does
+serve that; but it is a core scheduling gap for a PM staffing a plan with people, and
+it is listed here as one.
+
 ### Sub-day scheduling — whole days only
 
 Durations are whole working days. A twenty-minute task rounds to a day. Sub-day
@@ -80,6 +99,77 @@ earned value.
 **If your practice is cost-centric — if the first question your PMO asks is "what's
 the CPI?" — TruePPM is not ready for you.** Planview, Clarity, and P6 are built
 around this and TruePPM is not, yet.
+
+## Status and variance reporting — not present
+
+A project carries a four-value health flag (`ON_TRACK` / `AT_RISK` / `CRITICAL` /
+`AUTO`) and nothing else a stakeholder can read. There is no status report, no narrative
+behind the flag, no "what moved since the baseline" view, and no one-page export a
+sponsor could receive. The Reports tab is a burn chart. Every input to a status report
+— milestones with baseline variance, critical path movement, P50 / P80, risk severity,
+completed and slipped counts, decisions — is computed and stored; nothing assembles it.
+
+- **0.5:** the **project status update** —
+  [#3425](https://gitlab.com/trueppm/trueppm/-/issues/3425) — a PM-chosen RAG, a
+  written narrative, and a computed snapshot of those facts captured at post time,
+  with history on the project Overview, a per-project rollup on the program Overview,
+  a one-page PDF, and a read-only share render.
+- **0.8:** a generated draft of the narrative from the same snapshot
+  ([#370](https://gitlab.com/trueppm/trueppm/-/issues/370)) — the report written for
+  you, edited before it goes out.
+- **Enterprise:** a report builder, scheduled delivery to arbitrary audiences, and
+  cross-program status packs ([ADR-1048](/architecture/decisions/), proposed).
+
+**If the weekly status report is the artifact your PMO runs on, TruePPM cannot produce
+it today.** It is the largest gap on this page that is not an engine gap, and it is the
+reason 0.5 carries it as a headliner.
+
+## Change control — a rebaseline reason is coming; a scope-change log is not here
+
+A baseline has a name and a frozen calendar. It does not record *why* it was taken,
+what changed since the previous one, or who agreed to the change. Baseline change
+control — a required reason and a visible changeset when you rebaseline — is
+[#101](https://gitlab.com/trueppm/trueppm/-/issues/101) (0.5) and
+[#3150](https://gitlab.com/trueppm/trueppm/-/issues/3150) (0.4).
+
+A **change request** — a proposed scope or schedule change with an impact analysis and
+a recorded disposition — does not exist for a human proposer.
+[#1312](https://gitlab.com/trueppm/trueppm/-/issues/1312) (0.6) delivers a single-approver
+change request that a PM or an agent can raise. Multi-approver change-control boards
+and org-mandated approval are Enterprise; the line is
+[ADR-1048](/architecture/decisions/), proposed: the PM's own record, including one
+approver they chose, is OSS; a mandated second-party sign-off is Enterprise.
+
+## RAID — one letter of four
+
+Risks and decisions ship. The rest of the standard RAID set does not:
+
+- **Issues register** — [#2318](https://gitlab.com/trueppm/trueppm/-/issues/2318),
+  0.6 (a program-scoped register; cross-program transfer may follow later).
+- **Assumption and constraint log** —
+  [#2136](https://gitlab.com/trueppm/trueppm/-/issues/2136), sequenced for 0.7.
+- **Action items** exist only as retrospective actions on the agile side.
+- **Stakeholder register** — [#3427](https://gitlab.com/trueppm/trueppm/-/issues/3427),
+  filed as direction with no milestone.
+
+The risk register itself does not yet affect the forecast; see
+[Known issues](/overview/known-issues/).
+
+## Workflow — six fixed task statuses
+
+`Task.status` is a fixed set: Backlog, Not started, In progress, Review, Complete, and
+a legacy On hold. Board columns can be renamed, reordered, hidden, colored, WIP-capped,
+and split into lanes — but a status cannot be added, and there are no transition rules.
+A team whose workflow is `Triage → Spec → Build → QA → UAT → Done` cannot express it,
+and imports from Taiga or OpenProject collapse their statuses onto the fixed six.
+OpenProject Community and Taiga both ship per-project statuses for free.
+
+The intended direction is [ADR-1050](/architecture/decisions/), **proposed and not yet
+accepted**: per-project workflow states layered over the fixed set as a canonical, so
+the team's vocabulary becomes a fact about the task while every subsystem keeps
+reasoning against the same six values. Statuses are sequenced for 0.6, transition
+rules for 0.7. Until then, lanes are the workaround for the board and there is none for
+filtering or the API.
 
 ## Scale — a measured ceiling, and an unflattering one
 
@@ -252,6 +342,11 @@ portfolio dashboards and health scores across many programs, demand intake, cust
 roles, approval workflow chains, immutable audit trail, multi-tenancy, SAML/SCIM/LDAP
 identity governance, cross-region HA and disaster recovery, and cross-program
 resource leveling.
+
+One more thing an evaluator of the portfolio tier should know: **the enterprise edition
+is not built yet.** As of September 2026 its repository holds a scaffold and no product
+code. "Enterprise" on this page and on the roadmap names where a capability *will* live,
+not something you can buy today.
 
 What *is* in the OSS core: everything one project manager, program manager, or team
 needs to run their own program — including
