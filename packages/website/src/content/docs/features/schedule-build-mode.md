@@ -89,6 +89,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Space | Mark the focused row complete / un-complete |
 | ⌘ D / Ctrl + D | Duplicate the row **and its subtree**, appended below with "(copy)" on the duplicated root only — internal dependencies inside the subtree are not cloned, matching single-row duplicate's existing "dependencies are never cloned" rule. With a multi-row selection, duplicates every top-level selected row as its own subtree |
 | Right-click | Open the row context menu (Edit / Indent / Outdent / Move to… / Convert to milestone / Delete) |
+| Hover a row | Reveal its row controls: **`+`** (insert below), **`⇤`** (outdent), **`⇥`** (indent) and **`◆`** (toggle milestone) — the same acts as the menu, one click each |
 | Delete / Backspace | Delete the focused row — or, with a multi-row selection active, every selected row (no confirm; undo via re-adding, or the delete toast's Undo action) |
 | Esc | Clear the current selection or row focus |
 
@@ -280,6 +281,23 @@ the same "same level as the focused row" placement Enter uses — so pasting whi
 inside a phase adds to that phase, and pasting with nothing focused lands at the project
 root.
 
+## Row controls
+
+Hover any row (or, on a touch screen, look at it — they are always visible there) and
+four controls appear at its left edge, in the order the how-to bar prints them:
+
+| Control | What it does |
+|---|---|
+| **`+`** on the row's bottom edge | Inserts a new row directly below this one, at this depth |
+| **`⇤`** | Outdents the row — moves it out of its phase (`⌥ ←`) |
+| **`⇥`** | Indents the row under the row above (`⌥ →`) |
+| **`◆`** | Toggles the row between an item and a **milestone**. Press once and the row becomes a zero-duration gate; press again and it is an item again at its previous estimate. On a **phase** the control stays readable but refuses: *"A phase cannot be a milestone — its dates roll up from the work inside it."* |
+
+The **`◆`** is the same act as **Convert to milestone** in the row menu — one control,
+both directions. The toolbar's own **+ Milestone** button (which inserts a *new*
+milestone rather than converting the row you have) is unpinned by default and lives in
+the **···** overflow; pin it back from **Display → Toolbar**.
+
 ## Indenting and emergent phases
 
 When you indent a row under a leaf row (one with no children), the parent automatically becomes a summary task — its name goes bold, computed dates roll up from its children, and the chevron lets you collapse / expand. There is no "convert this to a phase" step; phases form as a side effect of structuring.
@@ -303,7 +321,7 @@ press **Undo** on the entry.
 | Ungrouping a phase | Yes — the phase comes back **with its original name, notes and links** |
 | Deleting a row | Yes, but through the delete toast's own **Undo**, not ⌘ Z |
 | Duplicating a row (`⌘ D`) | **No** — delete the copy instead |
-| Turning a row into a milestone | **No** — set its duration back above zero |
+| Turning a row into a milestone | **Not through ⌘ Z** — press the row's **`◆`** again (or **Milestone** in the row menu) and it is an item again, at the estimate it had before |
 | Adding a single row | **No** — delete it |
 
 The panel says the same thing, so you never have to remember this table. An act that
