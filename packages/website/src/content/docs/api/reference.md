@@ -145,6 +145,22 @@ task-sync with their normal credentials, so every inbound push is attributable
 to a minted token. A token whose project does not match the URL returns `401`
 (not `403`) so callers cannot enumerate project existence.
 
+:::note[Ships in 0.4]
+The archived-project refusal described next ships in **TruePPM 0.4**. In
+`v0.3.0-alpha.3` (the latest release) a push into an archived project still
+succeeds and creates or updates the task, so on 0.3 archiving a plan is not what
+stops an integration writing into it — revoke the token.
+:::
+
+**A push into an archived project is refused with a `403`, and writes nothing** —
+no task, no external-link row, no audit entry. Archiving makes a plan read-only,
+and that is a property of the plan rather than of the caller, so the refusal
+clears for no token and no scope: re-minting a `legacy:full` token will not get
+past it and neither will retrying. The project has to be unarchived, after which
+the same push succeeds unchanged. The `401` above is checked first, so a token
+that does not authorize the URL project never learns whether it is archived
+(#3413).
+
 The only scope this endpoint mints is **`legacy:full`**. Sending
 `{"scopes": ["mcp:read"]}` to `POST /api/v1/projects/{id}/api-tokens/` (or the
 program equivalent) is a `400`: a token minted at project or program scope has no
