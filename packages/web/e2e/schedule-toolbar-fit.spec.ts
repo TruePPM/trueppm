@@ -285,8 +285,11 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
   }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
     await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
-    // Focus a row so there is a target to describe.
-    await page.locator('[data-row-id="c1"]').getByRole('gridcell').first().click();
+    // Focus a row so there is a target to describe — via a CONTENT cell. The
+    // row's first gridcell is the row-controls lane (#3026), and its centre only
+    // focused the row while it held two buttons with a 2px gap between them;
+    // with the ◆ as a third control (#3257) the centre is the ⇥ indent button.
+    await page.locator('[data-row-id="c1"]').getByRole('gridcell', { name: /^WBS/ }).click();
 
     const statement = page.getByTestId('schedule-insert-target');
     await expect(statement).toHaveCount(1);

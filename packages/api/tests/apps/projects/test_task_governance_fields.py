@@ -86,7 +86,7 @@ def test_patch_writes_the_two_client_owned_fields(client: APIClient, project: Pr
     (#2585). ``parent_governance_inherited`` is derived state — it records whether
     the task inherited governance from its parent, so a client value can contradict
     ``governance_class`` — and its write left no audit row, because the field sits in
-    ``_HISTORY_DIFF_DISPLAY_EXCLUDED``. It is now read-only, so a supplied value is
+    ``HISTORY_DIFF_NOISE`` (``history.diff_policy``). It is now read-only, so a supplied value is
     dropped silently by DRF rather than rejected: the PATCH still succeeds and the
     other two fields still write.
     """

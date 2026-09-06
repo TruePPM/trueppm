@@ -1,5 +1,6 @@
 /**
- * Milestone conversion and its reverse (#3256, #3258).
+ * Milestone conversion and its reverse (#3256, #3258), and the row's own ◆ toggle
+ * for it (#3257).
  *
  * The shipped act sent a bare `duration: 0`. The serializer's coupling is
  * one-directional — `is_milestone: true` zeroes duration and sets `delivery_mode`,
@@ -176,5 +177,76 @@ test.describe('Milestone conversion (#3256)', () => {
       page.getByText('A phase cannot be a milestone — its dates roll up from the work inside it.'),
     ).toBeVisible();
     expect(store.patches).toHaveLength(0);
+  });
+});
+
+test.describe('The row\u2019s \u25c6 toggle (#3257)', () => {
+  // The coach bar teaches `+ \u21e4 \u21e5 \u25c6` as the row's hover controls, and #3115
+  // unpinned the toolbar's Milestone button because the row's \u25c6 replaced it. For
+  // months the row rendered two buttons: the act was taught, demoted and absent
+  // from the surface it was taught on. These prove the third control exists,
+  // routes through the same act as the menu, and refuses on a phase out loud.
+
+  test('the \u25c6 button converts through the same act as the menu, and reads as pressed', async ({
+    page,
+  }) => {
+    const store = await gotoSchedule(page);
+    const row = page.locator('[data-row-id="c-work"]');
+    const toggle = row.getByRole('button', { name: 'Milestone \u2014 FAT review' });
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    await toggle.click();
+    await expect.poll(() => store.patches.length).toBe(1);
+    // Same request-side contract as the menu: `is_milestone`, never a bare duration.
+    expect(store.patches[0]).toEqual({ is_milestone: true });
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(row.getByTestId('milestone-glyph')).toBeVisible();
+
+    // And back — one control, both directions.
+    await toggle.click();
+    await expect.poll(() => store.patches.length).toBe(2);
+    expect(store.patches[1]).toEqual({ is_milestone: false, duration: 5 });
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('on a phase the \u25c6 is soft-disabled with the reason, and a click states it', async ({
+    page,
+  }) => {
+    const store = await gotoSchedule(page);
+    const phase = page.locator('[data-row-id="c-phase"]');
+    const toggle = phase.getByRole('button', { name: 'Milestone \u2014 Mobilization' });
+    await expect(toggle).toHaveAttribute('aria-disabled', 'true');
+    await expect(toggle).toHaveAttribute(
+      'title',
+      'A phase cannot be a milestone \u2014 its dates roll up from the work inside it.',
+    );
+
+    // Reachable, so the refusal can be heard: the click routes to the act, which
+    // owns the sentence and speaks it. Nothing is written. `force`, because
+    // Playwright's actionability check reads `aria-disabled` as "not enabled" and
+    // would wait forever on a control a real pointer clicks without ceremony —
+    // the soft-disabled state is exactly what keeps it clickable (web rule 387).
+    await toggle.click({ force: true });
+    await expect(
+      page.getByText('A phase cannot be a milestone \u2014 its dates roll up from the work inside it.'),
+    ).toBeVisible();
+    expect(store.patches).toHaveLength(0);
+  });
+
+  test('the \u25c6 sits in the row-controls lane, right of indent and left of the WBS number', async ({
+    page,
+  }) => {
+    // The order the coach bar prints, and the #3026 invariant that the cluster
+    // stays left of the WBS column rather than drifting toward delete.
+    const row = page.locator('[data-row-id="c-work"]');
+    await gotoSchedule(page);
+    const indent = await row.getByRole('button', { name: /^Indent FAT review/ }).boundingBox();
+    const toggle = await row.getByRole('button', { name: 'Milestone \u2014 FAT review' }).boundingBox();
+    const wbs = await row.getByRole('gridcell', { name: /^WBS/ }).boundingBox();
+    expect(indent).not.toBeNull();
+    expect(toggle).not.toBeNull();
+    expect(wbs).not.toBeNull();
+    expect(toggle!.x).toBeGreaterThanOrEqual(indent!.x + indent!.width);
+    expect(toggle!.x + toggle!.width).toBeLessThanOrEqual(wbs!.x + 1);
   });
 });

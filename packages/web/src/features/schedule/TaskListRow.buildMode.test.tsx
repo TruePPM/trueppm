@@ -5,7 +5,7 @@
  * TaskListRow.test.tsx.
  */
 import { useMemo } from 'react';
-import { screen, render, fireEvent, act } from '@testing-library/react';
+import { screen, render, fireEvent, act, cleanup } from '@testing-library/react';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { TaskListRow } from './TaskListRow';
 import { BuildModeProvider } from './buildMode/BuildModeContext';
@@ -33,10 +33,10 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const widths: ColumnWidths['widths'] = {
-  wbs: 48, task: 220, links: 76, dur: 60, start: 80, finish: 80, progress: 50, owner: 72,
+  wbs: 48, task: 220, links: 76, dur: 60, start: 80, finish: 80, progress: 50, owner: 72, totalFloat: 64, freeFloat: 64,
 };
 const visible: ColumnWidths['visible'] = {
-  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
+  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true, totalFloat: true, freeFloat: true,
 };
 
 const baseTask: Task = {
@@ -925,7 +925,7 @@ describe('TaskListRow — the nudges meet the touch floor on a coarse pointer (#
     // (tablet) who has no keyboard. Web rule 5 / WCAG 2.5.5.
     stubCoarsePointer(true);
     renderHarness({ task: editable });
-    for (const name of [/Indent Foundation/, /Outdent Foundation/]) {
+    for (const name of [/Indent Foundation/, /Outdent Foundation/, /^Milestone — Foundation/]) {
       const btn = screen.getByRole('button', { name });
       expect(btn.style.width).toBe(`${NUDGE_SIZE_COARSE}px`);
       expect(btn.style.height).toBe(`${NUDGE_SIZE_COARSE}px`);
@@ -951,15 +951,15 @@ describe('TaskListRow — the nudges meet the touch floor on a coarse pointer (#
     expect(btn.style.height).toBe(`${NUDGE_SIZE_FINE}px`);
   });
 
-  it('gives the pair a lane wide enough for both targets, so neither covers the other', () => {
+  it('gives the cluster a lane wide enough for every target, so none covers another', () => {
     // #2997: a 44px target that only reaches the floor by covering its neighbour
     // has not met the floor — it has moved the failure somewhere the tester will
-    // not look. Two targets therefore cost two targets' width.
+    // not look. Three targets therefore cost three targets' width (#3257).
     stubCoarsePointer(true);
     renderHarness({ task: editable });
     const lane = screen.getByTestId('row-structure-nudges');
     expect(lane.style.width).toBe(`${resolveNudgeLaneWidth(true)}px`);
-    expect(resolveNudgeLaneWidth(true)).toBeGreaterThanOrEqual(2 * 44);
+    expect(resolveNudgeLaneWidth(true)).toBeGreaterThanOrEqual(3 * 44);
   });
 
   it('sizes the lane to the full row height, not to the row minus its border', () => {
@@ -1078,6 +1078,115 @@ describe('TaskListRow — the nudges reserve their space at rest (#3026)', () =>
     expect(lane.contains(screen.getByRole('button', { name: /Indent Foundation/ }))).toBe(true);
   });
 
+});
+
+describe('TaskListRow — the ◆ milestone toggle is the cluster\u2019s third control (#3257)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(restoreCoarsePointer);
+
+  const editable: Task = { ...baseTask, canEdit: true };
+
+  it('renders the button the coach bar teaches, inside the nudge lane', () => {
+    // THE defect: `+ ⇤ ⇥ ◆` was taught, #3115 unpinned the toolbar button on the
+    // strength of the row's ◆, and the row rendered two buttons. A user who tried
+    // the thing the bar teaches got nothing.
+    renderHarness({ task: editable });
+    const btn = screen.getByRole('button', { name: /^Milestone — Foundation/ });
+    expect(screen.getByTestId('row-structure-nudges').contains(btn)).toBe(true);
+    // Order matches the line the bar prints: ⇤ ⇥ ◆.
+    const ink = screen.getByTestId('row-structure-nudges-ink');
+    const glyphs = Array.from(ink.querySelectorAll('button')).map((b) => b.dataset.glyph);
+    expect(glyphs).toEqual(['⇤', '⇥', '◆']);
+  });
+
+  it('draws the house diamond, never the ◆ codepoint (rule 242)', () => {
+    renderHarness({ task: editable });
+    const btn = screen.getByRole('button', { name: /^Milestone — Foundation/ });
+    expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn.textContent).not.toContain('◆');
+  });
+
+  it('is a toggle: aria-pressed reflects isMilestone and the name does not flip with it', () => {
+    // A name that read "Make a milestone" and then "Make an item" would disagree
+    // with `aria-pressed` — WAI-ARIA wants a toggle's label constant.
+    renderHarness({ task: editable });
+    expect(screen.getByRole('button', { name: /^Milestone — Foundation/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    cleanupAndRender({ ...editable, isMilestone: true, duration: 0 });
+    expect(screen.getByRole('button', { name: /^Milestone — Foundation/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('routes through the same pair the row menu uses — convertToMilestone, then convertToTask', () => {
+    // Wiring it to a bare `duration: 0` write is what #3256 removed; the button
+    // must not be a second route to the wrong row type.
+    renderHarness({ task: editable });
+    fireEvent.click(screen.getByRole('button', { name: /^Milestone — Foundation/ }));
+    expect(stableSpies.convertToMilestone).toHaveBeenCalledWith('t-build-1');
+    expect(stableSpies.convertToTask).not.toHaveBeenCalled();
+
+    cleanupAndRender({ ...editable, isMilestone: true, duration: 0 });
+    fireEvent.click(screen.getByRole('button', { name: /^Milestone — Foundation/ }));
+    expect(stableSpies.convertToTask).toHaveBeenCalledWith('t-build-1');
+  });
+
+  it('soft-disables on a phase with the reason, and still hands the click to the act', () => {
+    // A phase's dates roll up from the work inside it, so it cannot be a gate.
+    // `aria-disabled`, not `disabled` (web rule 387): a native disabled button
+    // cannot be reached to hear why. The click still routes to
+    // `convertToMilestone`, which owns the refusal and states it as a toast.
+    renderHarness({ task: { ...editable, isSummary: true }, childCount: 2 });
+    const btn = screen.getByRole('button', { name: /^Milestone — Foundation/ });
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    expect(btn).not.toBeDisabled();
+    expect(btn).toHaveAttribute(
+      'title',
+      'A phase cannot be a milestone — its dates roll up from the work inside it.',
+    );
+    fireEvent.click(btn);
+    expect(stableSpies.convertToMilestone).toHaveBeenCalledWith('t-build-1');
+  });
+
+  it('is absent, not disabled, without edit rights — web rule 302', () => {
+    renderHarness({ task: { ...baseTask, canEdit: false } });
+    expect(screen.queryByRole('button', { name: /^Milestone — Foundation/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Indent Foundation/ })).toBeNull();
+  });
+
+  it('meets the coarse-pointer floor and shares the pair\u2019s lane treatment', () => {
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    const btn = screen.getByRole('button', { name: /^Milestone — Foundation/ });
+    expect(btn.style.width).toBe(`${NUDGE_SIZE_COARSE}px`);
+    expect(btn.style.height).toBe(`${NUDGE_SIZE_COARSE}px`);
+    // Same ink wrapper as ⇤/⇥ — full strength on a finger, 32% at rest on a mouse.
+    expect(screen.getByTestId('row-structure-nudges-ink').contains(btn)).toBe(true);
+  });
+
+  it('does not click through to row focus', () => {
+    // Same `stopPropagation` contract as ⇤/⇥: toggling the row type must not
+    // also focus the row, or every conversion also moves the outline's focus.
+    // Asserted on the focus state the row's click handler writes, not on a
+    // native listener — React's `stopPropagation` halts the synthetic tree, and
+    // a native listener on the row fires before React ever sees the event.
+    const cap = renderHarness({ task: editable });
+    expect(cap.current.focus.state.rowId).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Milestone — Foundation/ }));
+    expect(cap.current.focus.state.rowId).toBeNull();
+    // The control: a click on the row itself does focus it.
+    fireEvent.click(screen.getByRole('row'));
+    expect(cap.current.focus.state.rowId).toBe('t-build-1');
+  });
+
+  /** Re-render the harness with a different task, from a clean DOM. */
+  function cleanupAndRender(task: Task) {
+    cleanup();
+    renderHarness({ task });
+  }
 });
 
 describe('TaskListRow — insert lands where its position implies (#2957)', () => {

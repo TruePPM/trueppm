@@ -23,6 +23,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { ActivityIcon, LinkIcon } from '@/components/Icons';
 import { EmptyState } from '@/components/EmptyState';
 import { formatRelative } from '@/lib/formatRelative';
+import { fieldLabel } from '@/features/schedule/activityFormat';
 import { useElementRef } from '@/hooks/useElementRef';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
@@ -396,8 +397,10 @@ function ActivityRow({
             </span>
           </span>
           {entry.changes.length > 0 && (
+            // The same label map as the task drawer (#3435) — a `governance_class`
+            // change reads "Governance" here and in the drawer, never as the column.
             <span className="mt-0.5 block truncate text-xs text-neutral-text-secondary">
-              {entry.changes.map((c) => c.field).join(', ')}
+              {entry.changes.map((c) => fieldLabel(c.field)).join(', ')}
             </span>
           )}
         </span>

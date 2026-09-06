@@ -301,7 +301,12 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     // the row ABOVE the phase — not the row you just named.
     const grid = page.getByRole('treegrid', { name: 'Item list' });
     const leaf = grid.getByRole('row').filter({ hasText: 'Existing Task' }).first();
-    await leaf.getByRole('gridcell').first().click();
+    // A CONTENT cell, not `getByRole('gridcell').first()`: since #3026 the row's
+    // first gridcell is the row-controls lane (⇤ ⇥ ◆), and a click at its centre
+    // used to focus the row only because the centre of a two-button lane is the
+    // 2px gap between them. With three controls (#3257) the centre is the ⇥
+    // button, whose click indents the row instead of selecting it.
+    await leaf.getByRole('gridcell', { name: /^WBS/ }).click();
     await expect(leaf).toHaveAttribute('aria-selected', 'true');
 
     // The control states which act the next press performs, so the label is the

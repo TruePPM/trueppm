@@ -15,6 +15,7 @@ import {
   NUDGE_SIZE_FINE,
   NUDGE_SIZE_COARSE,
   NUDGE_GAP,
+  NUDGE_COUNT,
   resolveNudgeSize,
   resolveNudgeLaneWidth,
   resolveOutlineNudgeReserve,
@@ -428,12 +429,15 @@ describe('the structural-nudge lane (#3026)', () => {
     expect(NUDGE_SIZE_FINE).toBeLessThan(NUDGE_SIZE_COARSE);
   });
 
-  it('sizes the lane for BOTH targets — neither may reach the floor by covering the other', () => {
-    // #2997's finding, applied to a pair: a 44px target that only meets the
+  it('sizes the lane for EVERY target — none may reach the floor by covering another', () => {
+    // #2997's finding, applied to a cluster: a 44px target that only meets the
     // floor by swallowing its neighbour has moved the failure, not fixed it.
-    expect(resolveNudgeLaneWidth(true)).toBe(2 * NUDGE_SIZE_COARSE + NUDGE_GAP);
-    expect(resolveNudgeLaneWidth(true)).toBeGreaterThanOrEqual(2 * 44);
-    expect(resolveNudgeLaneWidth(false)).toBe(2 * NUDGE_SIZE_FINE + NUDGE_GAP);
+    // Three controls since the ◆ milestone toggle joined ⇤/⇥ (#3257) — the
+    // reserve widened rather than the third button sharing the pair's lane.
+    expect(NUDGE_COUNT).toBe(3);
+    expect(resolveNudgeLaneWidth(true)).toBe(NUDGE_COUNT * NUDGE_SIZE_COARSE + (NUDGE_COUNT - 1) * NUDGE_GAP);
+    expect(resolveNudgeLaneWidth(true)).toBeGreaterThanOrEqual(NUDGE_COUNT * 44);
+    expect(resolveNudgeLaneWidth(false)).toBe(NUDGE_COUNT * NUDGE_SIZE_FINE + (NUDGE_COUNT - 1) * NUDGE_GAP);
   });
 
   it('gives a VIEWER no lane at either pointer class — absence, not a reserved hole', () => {

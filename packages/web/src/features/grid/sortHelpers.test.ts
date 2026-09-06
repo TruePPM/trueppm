@@ -72,3 +72,61 @@ describe('sortTasks', () => {
     expect(tasks.map((t) => t.id)).toEqual(before);
   });
 });
+
+describe('sortTasks — float columns (#3344)', () => {
+  // `n` has no float: CPM has not run for it. That is not zero, and it is not
+  // the tightest row either.
+  const rows = [
+    makeTask({ id: 'slack', wbs: '1', totalFloat: 9, freeFloat: 0 }),
+    makeTask({ id: 'late', wbs: '2', totalFloat: -3, freeFloat: -3 }),
+    makeTask({ id: 'n', wbs: '3', totalFloat: null, freeFloat: null }),
+    makeTask({ id: 'tight', wbs: '4', totalFloat: 1, freeFloat: 1 }),
+  ];
+
+  it('orders total float ascending, tightest first', () => {
+    expect(sortTasks(rows, 'totalFloat', 'asc').map((t) => t.id)).toEqual([
+      'late',
+      'tight',
+      'slack',
+      'n',
+    ]);
+  });
+
+  it('orders total float descending, slackest first', () => {
+    expect(sortTasks(rows, 'totalFloat', 'desc').map((t) => t.id)).toEqual([
+      'slack',
+      'tight',
+      'late',
+      'n',
+    ]);
+  });
+
+  it('keeps a row with no computed float LAST in BOTH directions', () => {
+    // The trap: folding the null into the numeric comparison and letting the
+    // shared `dir === 'asc' ? cmp : -cmp` negate it puts the unanswered rows at
+    // the TOP of a descending sort — the position a reader reads as "the rows
+    // with the most slack", which is the one thing they are known not to be.
+    for (const dir of ['asc', 'desc'] as const) {
+      const ids = sortTasks(rows, 'totalFloat', dir).map((t) => t.id);
+      expect(ids[ids.length - 1]).toBe('n');
+    }
+  });
+
+  it('sorts free float independently of total float', () => {
+    // `slack` has the MOST total float and the LEAST free float — a task feeding
+    // straight into its successor. Sorting the two columns must not give the
+    // same order, or one of the columns is not being read.
+    expect(sortTasks(rows, 'freeFloat', 'asc').map((t) => t.id)).toEqual([
+      'late',
+      'slack',
+      'tight',
+      'n',
+    ]);
+  });
+
+  it('does not mutate the input when sorting by float', () => {
+    const before = rows.map((t) => t.id);
+    sortTasks(rows, 'totalFloat', 'desc');
+    expect(rows.map((t) => t.id)).toEqual(before);
+  });
+});

@@ -240,7 +240,7 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             raise serializers.ValidationError("Select a timezone for the workspace.")
         try:
             ZoneInfo(stripped)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
             raise serializers.ValidationError("Unknown IANA timezone.") from exc
         return stripped
 

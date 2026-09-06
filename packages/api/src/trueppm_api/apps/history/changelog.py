@@ -28,10 +28,11 @@ Permission model (ADR-0201): every source's live GET is ``IsProjectMember``
 (Viewer+), so membership is a sufficient row-inclusion gate — there is no
 per-user sub-project ACL on any source (TimeEntry and the Retrospective models
 carry per-user / team_visibility gates but have **no** ``HistoricalRecords``, so
-they cannot appear here). Field redaction reuses the history app's
-``_DIFF_EXCLUDED`` (which already drops ``blocked_reason`` per ADR-0124 and the
-CPM outputs); ``history_user`` is gated to Owner/Admin via the view's
-``hide_user`` context, and the ``user=`` filter is honored only for those callers.
+they cannot appear here). Field redaction is the shared ``history.diff_policy``
+(one vocabulary for every diff surface, #3435 — it drops ``blocked_reason`` per
+ADR-0124 and the CPM outputs at compute time); ``history_user`` is gated to
+Owner/Admin via the view's ``hide_user`` context, and the ``user=`` filter is
+honored only for those callers.
 """
 
 from __future__ import annotations
@@ -274,9 +275,11 @@ def build_project_changelog(
 
     Args:
         project: the project whose history is aggregated.
-        diff_fn: ``history.views._compute_diffs`` — injected to avoid an import
-            cycle. It already applies the ``_DIFF_EXCLUDED`` field-redaction set
-            (CPM outputs, sync internals, and ``blocked_reason`` per ADR-0124).
+        diff_fn: ``history.views._compute_diffs`` bound with ``object_scoped=False``
+            — injected to avoid an import cycle. It applies the shared
+            ``history.diff_policy`` (CPM outputs, sync internals, and
+            ``blocked_reason`` per ADR-0124 are never compared; noise is hidden
+            unless it is a record's only change) and keys rows by field name.
         cursor: keyset position; ``None`` starts at the newest row.
         since: inclusive lower bound on ``history_date``.
         object_types: restrict to these source ``object_type`` keys (default all).

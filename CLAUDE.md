@@ -192,6 +192,35 @@ The classification test: "Would a PM or program manager need this to run their p
 - Before opening an OSS issue with cross-program, portfolio, SAML/SCIM/LDAP identity-governance, audit-trail, approval-workflow, or cross-region HA/DR scope, run the `enterprise-check` skill (basic OIDC/OAuth login and single-cluster HA do not need this gate — they are OSS)
 - Enforced by CI: `boundary:check` runs on main pushes and on schedule; it fails the pipeline if any open OSS issue carries the `enterprise` or `portfolio` label. See `scripts/check-issue-boundary.sh`
 
+### Milestone commitment — every issue in a dated milestone carries one `release::` label
+
+A milestone with a date is a promise, and 474 issues against one date is not a plan
+(#3120). The tracker states the shape of that promise with one **scoped** label per
+issue — scoped labels (`key::value`) are mutually exclusive in GitLab, so an issue can
+hold exactly one of these and the tracker enforces it:
+
+| Label | Meaning |
+|---|---|
+| `release::committed` | Ships or the release slips. The **only** issues that appear as bullets in the roadmap's section for that milestone. |
+| `release::reserve` | A slot in the milestone's stated beta-inbound reserve. Fixed when a real user hits it. The reserve is a number written on the milestone, not a sentiment. |
+| `release::stretch` | Stays in the milestone and ships if there is time. Moves to the next milestone at feature freeze without discussion (`milestone=0.X label=release::stretch`, bulk move). Never a roadmap bullet. |
+
+- **When an issue moves into the current dated milestone — whether you file it there,
+  re-milestone it, or a script or `scripts/wt` places it — stop and ask the user which of
+  the three applies. Never infer it.** The commitment state is the user's call every
+  time; a guessed `release::committed` is a promise nobody made, and a guessed
+  `release::stretch` quietly drops work the user meant to ship. If the user's own
+  instruction already names the label, apply it without asking. If the user does not
+  answer, leave the issue unlabeled and say so — an unlabeled issue in a dated milestone
+  is a visible gap, a guessed label is an invisible one.
+- Changing an issue's commitment is applying the new value; the scoped key drops the old
+  one. Do not stack them.
+- `direction` remains the label for intended-but-unmilestoned work; it is not a fourth
+  value of this axis. `0.5-hardening` is a *reason* tag and coexists with any of the three.
+- The bucket rule that seeded the axis on 2026-09-05 (charter and hardening →
+  committed, other bugs → reserve, polish/hygiene/design/unclaimed features → stretch) is
+  a rule for a first pass, not a substitute for asking on each subsequent move.
+
 ## Migration discipline
 
 Django migrations are cheap to create and cheap to throw away while we are pre-1.0

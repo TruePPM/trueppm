@@ -561,7 +561,9 @@ class TestTaskAttachmentDelete:
             format="json",
         )
         r = member2_client.delete(_att_detail_url(project, task, create.data["id"]))
-        assert r.status_code == 400  # serializer raises ValidationError → 400
+        # An ownership refusal is a 403, and the code is a real body key (#3365).
+        assert r.status_code == 403
+        assert r.json()["code"] == "attachment_delete_forbidden"
 
     def test_owner_can_delete_anyones(
         self,
@@ -886,7 +888,9 @@ class TestTaskCommentEdit:
             {"body": "v2"},
             format="json",
         )
-        assert r.status_code == 400
+        # Not the author → 403 (#3365); the window-closed sibling below stays 400.
+        assert r.status_code == 403
+        assert r.json()["code"] == "comment_edit_not_author"
 
     def test_edit_after_window_rejected(
         self,
@@ -950,7 +954,8 @@ class TestTaskCommentDelete:
     ) -> None:
         c = member_client.post(_comment_list_url(project, task), {"body": "x"}, format="json")
         r = member2_client.delete(_comment_detail_url(project, task, c.data["id"]))
-        assert r.status_code == 400
+        assert r.status_code == 403
+        assert r.json()["code"] == "comment_delete_forbidden"
 
 
 # ---------------------------------------------------------------------------
@@ -1225,7 +1230,8 @@ class TestCommentReaction:
         # member tries to delete member2's reaction
         url = self._reactions_url(project, task, c.data["id"]) + f"{create.data['id']}/"
         r = member_client.delete(url)
-        assert r.status_code == 400
+        assert r.status_code == 403
+        assert r.json()["code"] == "reaction_delete_forbidden"
 
     def test_removing_own_reaction_broadcasts_removed_event(
         self,

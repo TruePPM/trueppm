@@ -320,13 +320,13 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("delete", "/api/v1/projects/{id}/"),
         ("delete", "/api/v1/projects/{project_pk}/members/{id}/"),
         ("delete", "/api/v1/projects/{project_pk}/phases/{id}/"),
-        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/"),
-        (
-            "delete",
-            "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{id}/",
-        ),
-        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/"),
-        ("delete", "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/"),
+        # The four task-collaboration deletes (attachments, comments, reactions,
+        # notes) LEFT this set in #3365. Their only refusal was an ownership guard
+        # that raised ValidationError, so the 400 declared here was a 400 in fact
+        # but a 403 in meaning; they now raise PermissionDenied and are pinned in
+        # _OWNERSHIP_REFUSAL_OPERATIONS below. The two membership deletes stay:
+        # their peer-role guard moved to 403 too, but the last-Owner guard is a
+        # genuine state refusal and still answers 400.
         ("delete", "/api/v1/sprints/{id}/"),
         ("delete", "/api/v1/workspace/"),
         ("delete", "/api/v1/workspace/members/{user_id}/"),
@@ -361,6 +361,76 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("post", "/api/v1/resources/{id}/restore/"),
     }
 )
+
+
+#: Every operation whose ownership guard answers 403, and the code it carries.
+#:
+#: Pinned for the same reason as the set above: a generated client needs a typed
+#: branch for the refusal, and the code is only a contract if the schema names
+#: it. ``None`` means the guard raises a bare-string ``PermissionDenied`` and the
+#: body is ``{"detail"}`` alone — the two membership deletes, where the peer-role
+#: guard shares its 403 with the base-role check and no code was ever promised.
+_OWNERSHIP_REFUSAL_OPERATIONS: dict[tuple[str, str], str | None] = {
+    ("delete", "/api/v1/programs/{program_pk}/members/{id}/"): None,
+    ("delete", "/api/v1/projects/{project_pk}/members/{id}/"): None,
+    (
+        "delete",
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/",
+    ): "attachment_delete_forbidden",
+    (
+        "delete",
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{id}/",
+    ): "reaction_delete_forbidden",
+    (
+        "delete",
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/",
+    ): "comment_delete_forbidden",
+    (
+        "patch",
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/",
+    ): "comment_edit_not_author",
+    (
+        "delete",
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/",
+    ): "note_delete_forbidden",
+    ("patch", "/api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/"): "note_edit_not_author",
+}
+
+
+def test_ownership_guards_declare_their_403_and_no_stray_400(schema: dict) -> None:
+    """The six guards #3365 moved off ``ValidationError`` are declared as 403s.
+
+    Two things are asserted per operation. The 403 exists and, where the handler
+    writes a code into the body, the schema enumerates exactly that code — a code
+    the schema does not name is not a contract, and a code it names but the
+    handler never writes is the #2550 defect in a new coat. And for the four
+    task-collaboration deletes, no 400 is declared at all any more: their only
+    refusal was the ownership guard, so a lingering 400 would advertise a branch
+    the endpoint can no longer take.
+    """
+    collaboration_deletes = {
+        (method, path)
+        for (method, path) in _OWNERSHIP_REFUSAL_OPERATIONS
+        if method == "delete" and "/tasks/" in path
+    }
+    for (method, path), code in sorted(_OWNERSHIP_REFUSAL_OPERATIONS.items(), key=str):
+        responses = schema["paths"][path][method]["responses"]
+        assert "403" in responses, f"{method.upper()} {path} lost its declared 403 (#3365)"
+        body = responses["403"]["content"]["application/json"]["schema"]
+        assert body["properties"]["detail"] == {"type": "string"}
+        if code is None:
+            assert "code" not in body["properties"], (
+                f"{method.upper()} {path} declares a code its handler never writes (#2550)"
+            )
+        else:
+            assert body["properties"]["code"]["enum"] == [code], (
+                f"{method.upper()} {path} must enumerate exactly {code!r} (#3365)"
+            )
+            assert "code" in body["required"]
+        if (method, path) in collaboration_deletes:
+            assert "400" not in responses, (
+                f"{method.upper()} {path} still declares a 400 it can no longer return (#3365)"
+            )
 
 
 def test_bodyless_writes_declaring_a_400_are_exactly_the_reviewed_set(schema: dict) -> None:

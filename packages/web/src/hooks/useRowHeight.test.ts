@@ -102,10 +102,11 @@ describe('useRowMetrics', () => {
       // The grip takes a lane of its own on touch rather than laying a 44px hit
       // area over the row's other controls.
       gripReserve: 44,
-      // …and so do the ⇤/⇥ nudges, which used to be 16px inside this 44px row
-      // and lived in a column the user could switch off (#3026).
+      // …and so do the ⇤/⇥/◆ nudges, which used to be 16px inside this 44px row
+      // and lived in a column the user could switch off (#3026). Three targets
+      // and two gaps since the ◆ milestone toggle joined the cluster (#3257).
       nudgeSize: 44,
-      nudgeLaneWidth: 90,
+      nudgeLaneWidth: 136,
       coarse: true,
     });
   });
@@ -122,7 +123,7 @@ describe('useRowMetrics', () => {
       // The nudges are in flow and always drawn, so their lane is real at both
       // pointer classes — it is simply narrow on a mouse (#3026).
       nudgeSize: 16,
-      nudgeLaneWidth: 34,
+      nudgeLaneWidth: 52,
       coarse: false,
     });
   });

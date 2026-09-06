@@ -103,6 +103,10 @@ function fullTasks(duration: number) {
       is_summary: false,
       assignees: [],
       total_float: 4,
+      // Deliberately different from `total_float` so the Float cell renders the
+      // `free 2d` chip (#3344) — the widest this cell ever gets, and therefore
+      // the case the strip's fit has to be measured against.
+      free_float: 2,
       predecessor_count: 0,
       is_blocked: false,
       linked_risks_count: 0,
@@ -752,3 +756,88 @@ test.describe('#3212 — a mouse keeps the compact picker', () => {
   });
 });
 
+
+/**
+ * The Float cell grew a second value (#3344), and web rule 366 says a control's
+ * width is a claim on a box somebody else owns — so the claim gets measured, in a
+ * browser, at every shell the strip renders in.
+ *
+ * `TaskDetailDrawer` renders its content TWICE: a `hidden md:flex` 540px slide-in
+ * and a `md:hidden` 85vh bottom sheet. The strip is `grid-cols-2 md:grid-cols-4`,
+ * which makes those two layouts a ~97px and a ~149px content box per cell, and the
+ * free-float chip rides inside the existing Float cell rather than becoming a
+ * fifth track precisely because a fifth track fits in neither.
+ *
+ * `toBeVisible()` cannot see the failure this guards: the grid item is `min-w-0`
+ * and the chips are `shrink-0`, so an overflowing cell neither clips nor scrolls —
+ * it paints over its neighbour, and both keep boxes and both stay "visible" (rule
+ * 366(c)). Assert NON-INTERSECTION of the boxes instead. jsdom resolves no
+ * lengths, so the vitest half of this can only pin the suppression logic.
+ */
+async function assertFloatCellFits(page: Page) {
+  const drawer = page.getByRole('dialog', { name: /Calibrate sensors/i });
+  const floatCell = drawer.getByRole('group', { name: 'Float' }).first();
+  await expect(floatCell).toBeVisible();
+  const floatBox = await floatCell.boundingBox();
+  expect(floatBox).not.toBeNull();
+
+  // The chip is inside its own cell, not spilling past the cell's right edge.
+  const chip = floatCell.getByText('free 2d');
+  await expect(chip).toBeVisible();
+  const chipBox = await chip.boundingBox();
+  expect(chipBox).not.toBeNull();
+  expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(floatBox!.x + floatBox!.width + 1);
+  expect(chipBox!.x).toBeGreaterThanOrEqual(floatBox!.x - 1);
+
+  // …and no two cells of the strip overlap. Taken from the grid itself rather
+  // than from two named cells, because the neighbour differs by layout: the
+  // Duration cell is a `<button>` in the editable strip and a plain `Cell` in the
+  // read-only one, and the two-up shell puts a different cell beside Float than
+  // the four-up one does. Comparing every same-row pair is the assertion that
+  // survives both.
+  const overlaps = await floatCell.evaluate((cell) => {
+    const grid = cell.parentElement?.parentElement;
+    if (!grid) return ['no grid'];
+    const boxes = Array.from(grid.children).map((el) => {
+      const r = el.getBoundingClientRect();
+      return { r, label: el.textContent?.slice(0, 16) ?? '' };
+    });
+    const bad: string[] = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const sameRow = Math.abs(a.r.top - b.r.top) < 4;
+        const xOverlap = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+        if (sameRow && xOverlap > 1) bad.push(`${a.label} / ${b.label} overlap ${xOverlap}px`);
+      }
+    }
+    return bad;
+  });
+  expect(overlaps).toEqual([]);
+}
+
+test.describe('#3344 — free float fits the Float cell in the 540px slide-in', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test('the free-float chip stays inside its cell at the four-up strip', async ({ page }) => {
+    await setup(page);
+    await page.goto(BASE_URL);
+    await openDrawer(page);
+    await assertFloatCellFits(page);
+  });
+});
+
+test.describe('#3344 — free float fits the Float cell in the phone bottom sheet', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test('the free-float chip stays inside its cell at the two-up strip', async ({ page }) => {
+    // The narrow shell, where rule 366 measured a 149px content box and where a
+    // fix that only fits the tablet would have moved the failure onto the device
+    // the touch floor exists for.
+    await setup(page);
+    await page.goto(BASE_URL);
+    await openDrawer(page);
+    await assertFloatCellFits(page);
+  });
+});
