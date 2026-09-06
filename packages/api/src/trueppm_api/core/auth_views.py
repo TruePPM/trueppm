@@ -35,7 +35,7 @@ import contextlib
 import hashlib
 import logging
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -43,7 +43,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -61,6 +61,11 @@ from trueppm_api.core.throttling import LoginAccountRateThrottle
 # named logger as the password-reset flow so all auth events land on one channel.
 logger = logging.getLogger("trueppm.auth")
 
+#: The active user model. Bound once at module scope so the login path's
+#: email resolution and its timing-equalizing dummy hash both go through the
+#: same class the authentication backend uses.
+User = get_user_model()
+
 
 def _client_ip(request: Request) -> str:
     """Best-effort client IP for the audit event.
@@ -76,17 +81,111 @@ def _client_ip(request: Request) -> str:
     return str(request.META.get("REMOTE_ADDR", "unknown"))
 
 
-def _emit_login_failure_event(request: Request) -> None:
+def _login_body(request_data: Any) -> dict[str, Any]:
+    """Return the login body as a dict, or an empty one.
+
+    A non-object JSON body (list/str/scalar) leaves ``request.data`` without a
+    ``.get``; every helper here goes through this guard so no path can turn a
+    malformed login into a 500 (#2126). Returning ``{}`` rather than ``None`` keeps
+    each caller's own logic single-branch.
+    """
+    return request_data if isinstance(request_data, dict) else {}
+
+
+def _submitted_identifier(request_data: Any) -> str | None:
+    """Return the trimmed ``username`` field from a login body, or None.
+
+    A non-string value is refused rather than coerced — ``str(...)`` on a dict or
+    list would mint an identifier nobody typed.
+    """
+    raw = _login_body(request_data).get("username")
+    return raw.strip() if isinstance(raw, str) else None
+
+
+def _looks_like_email(identifier: str | None) -> TypeGuard[str]:
+    """True when ``identifier`` is worth retrying as an email address.
+
+    Deliberately just an ``@`` test rather than validation. Two things it buys, and
+    the second is the load-bearing one:
+
+    * the ordinary username path never pays for the extra query, because a
+      username without an ``@`` never reaches the fallback at all; and
+    * the empty string can never reach ``email__iexact``. ``User.email`` is
+      ``blank=True`` on Django's default model — SSO- and admin-created accounts
+      routinely have ``""`` — so an ``email__iexact=""`` lookup would match every
+      account that has no email at all, and on an install with exactly one such
+      account it would hand an attacker a working identifier for it.
+    """
+    return identifier is not None and "@" in identifier
+
+
+def _resolve_email_identifier(identifier: str) -> str | None:
+    """Resolve an email address to the username of the one account holding it.
+
+    Returns ``None`` whenever the caller must NOT be retried under a different
+    identifier. Django's ``User.email`` carries no uniqueness constraint, so the
+    ambiguous case is the dangerous one and it fails closed — mirroring the
+    ``email__iexact`` branch in ``apps.sso.services.resolve_user``, which refuses
+    an ambiguous match for the same reason: silently picking one of two accounts
+    signs the caller in as an account they did not name.
+    """
+    matches = list(
+        User.objects.filter(email__iexact=identifier)
+        .order_by("pk")
+        .values_list("username", flat=True)[:2]
+    )
+    if len(matches) != 1:
+        # 0 → nothing to retry. 2+ → ambiguous, fail closed (see docstring).
+        return None
+    username = str(matches[0])
+    if username.lower() == identifier.lower():
+        # The account's username IS this string, so the first attempt already tried
+        # it against this exact account and it failed. Retrying would spend a second
+        # password comparison to reach the identical answer.
+        return None
+    return username
+
+
+def _burn_equivalent_password_hash(request_data: Any) -> None:
+    """Spend one password-hash's worth of work on the email-fallback miss path.
+
+    Without this the endpoint is an email-existence oracle. ``ModelBackend`` already
+    equalizes its own username miss (it runs ``UserModel().set_password(password)``
+    so a nonexistent user costs the same as a wrong password), but the email
+    fallback adds a *second* real comparison on the hit path only — so "this email
+    has an account" would measure as roughly twice the hash time of "it does not",
+    and the dominant term in a login response is the hasher, not the query.
+
+    Called on every ``@``-shaped identifier whose fallback did not run, so all
+    ``@``-shaped failures cost two hashes and are indistinguishable from each other.
+    This equalizes the dominant term, not every nanosecond — the extra ``email__iexact``
+    query on some paths is ~1ms against ~100ms of PBKDF2, well under the noise floor
+    of a network round trip. The cost is that a failed ``@``-shaped login burns two
+    hashes instead of one; both login throttles bound that, and it is the same trade
+    Django itself already makes for the username miss.
+    """
+    password = _login_body(request_data).get("password")
+    User().set_password(password if isinstance(password, str) else "")
+
+
+def _emit_login_failure_event(request: Request, canonical_identifier: str | None = None) -> None:
     """Emit an auth-failure audit event for a rejected login (#1717).
 
     The attempted username is hashed (never logged in the clear) so the event is
     correlatable across attempts — an operator can see that one account is being
     hammered from many IPs — without writing raw credentials/emails into logs.
+
+    ``canonical_identifier`` is the account's own username, passed when the attempt
+    arrived as an email and the view resolved it (#3468). Hashing the *resolved*
+    identifier is what keeps that correlation working: without it one account
+    produces two distinct hashes depending on which of its identifiers was typed,
+    and an operator alarming on "one account, many IPs" undercounts by exactly the
+    split.
     """
     # A non-object JSON body (list/str/scalar) leaves ``request.data`` without a
     # ``.get``; guard on the dict shape so audit emission can never turn a rejected
     # login into a 500 (#2126). A non-object body simply has no username → "unknown".
-    raw_username = request.data.get("username") if isinstance(request.data, dict) else None
+    raw_username = canonical_identifier or _submitted_identifier(request.data)
     username_hash = (
         hashlib.sha256(str(raw_username).strip().lower().encode("utf-8")).hexdigest()
         if raw_username
@@ -255,13 +354,23 @@ def _clear_refresh_cookie(response: Response) -> None:
 class _LoginRequestSerializer(serializers.Serializer):  # type: ignore[type-arg]
     """Login request body: credentials + the optional ``remember_me`` flag (#2246).
 
+    ``username`` accepts either identifier (#3468) — the field keeps its name for
+    wire compatibility with every existing client and with simplejwt's serializer.
+
     Declared for the OpenAPI schema only — the view validates credentials via
     simplejwt's ``TokenObtainPairSerializer`` and reads ``remember_me`` from the
     body separately, so this serializer documents the request shape (so API-first
     consumers see ``remember_me``) without being used to validate.
     """
 
-    username = serializers.CharField()
+    username = serializers.CharField(
+        help_text=(
+            "The account's username, or the email address on the account (#3468). "
+            "The username is matched first; the email is tried only if that fails, "
+            "and only when exactly one account carries it — an email shared by two "
+            "accounts is refused rather than resolved to either."
+        )
+    )
     password = serializers.CharField(write_only=True, style={"input_type": "password"})
     remember_me = serializers.BooleanField(
         required=False,
@@ -326,11 +435,70 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             raise InvalidToken(exc.args[0]) from exc
         except AuthenticationFailed:
             # Bad credentials (simplejwt raises AuthenticationFailed with code
-            # "no_active_account"). Emit an auth-failure audit event before
-            # re-raising so operators can alarm on credential-stuffing bursts, then
-            # let DRF return the normal 401 unchanged (no enumeration signal).
-            _emit_login_failure_event(request)
-            raise
+            # "no_active_account"). Before giving up, retry ONCE with the submitted
+            # identifier resolved as an email address (#3468): the sign-in form asks
+            # for an email, invited users choose a *username* at accept time, and
+            # ModelBackend matches on username only — so a user typing exactly what
+            # the label asked for was refused.
+            #
+            # Ordering is the security property, not a convenience. The username
+            # attempt runs FIRST and unchanged, so this can only ever ADD a way in:
+            # an existing username keeps working, and an account whose *username* is
+            # email-shaped is never shadowed by a different account that happens to
+            # carry that string as its *email*.
+            #
+            # This lives in the view rather than in an AUTHENTICATION_BACKENDS entry
+            # on purpose. A backend would widen every ``authenticate()`` caller in the
+            # process — the Django admin login among them — and would bypass this
+            # view's post-authentication policy seam below.
+            identifier = _submitted_identifier(request.data)
+            resolved = None
+            if _looks_like_email(identifier):
+                resolved = _resolve_email_identifier(identifier)
+                if resolved is None:
+                    _burn_equivalent_password_hash(request.data)
+            if resolved is None:
+                _emit_login_failure_event(request)
+                raise
+
+            # Charge AND enforce the resolved account's own throttle bucket. The
+            # per-account throttle keys on the identifier as submitted (it runs before
+            # this view), so an attacker alternating username and email would otherwise
+            # get two independent buckets against one account and double the guess
+            # allowance #1717 exists to bound.
+            #
+            # Recording alone is not enough, and is the shape that looks finished while
+            # being half-broken: the canonical bucket already accumulates every attempt
+            # in either form, but if nothing CHECKS it here, an attacker who spends the
+            # username budget first arrives at an untouched email bucket and gets a
+            # second full allowance. Only the email-first order would be capped. So the
+            # refusal happens here, before the second password comparison is spent.
+            wait = LoginAccountRateThrottle.consume(resolved)
+            if wait is not None:
+                _emit_login_failure_event(request, canonical_identifier=resolved)
+                raise Throttled(wait=wait) from None
+
+            # Re-validate through the SAME serializer so every downstream step —
+            # the enterprise password-login policy seam, remember_me, the refresh
+            # cookie, the OutstandingToken row — runs exactly as it does for a
+            # username login. A resolution that short-circuited any of them would
+            # be a second, weaker login path wearing the first one's name.
+            # Build the retry body from the guarded dict, not from ``request.data``:
+            # every other field the caller sent (``password``, ``remember_me``) rides
+            # through untouched, and only the identifier is rewritten.
+            serializer = TokenObtainPairSerializer(
+                data={**_login_body(request.data), "username": resolved}
+            )
+            try:
+                serializer.is_valid(raise_exception=True)
+            except TokenError as exc:
+                raise InvalidToken(exc.args[0]) from exc
+            except AuthenticationFailed:
+                # Right email, wrong password. Identical 401, identical body, and the
+                # same audit line as every other refusal — the caller must not be able
+                # to tell "no account with this email" from "wrong password".
+                _emit_login_failure_event(request, canonical_identifier=resolved)
+                raise
 
         # Password-login policy seam (ADR-0187 §4). OSS always allows password
         # login (the default returns True); trueppm-enterprise registers a policy
