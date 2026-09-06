@@ -1394,6 +1394,15 @@ function ActiveSprintPanels({
           )}
           {velocity.data ? (
             <VelocityPanel velocity={velocity.data} currentSprint={activeSprint} />
+          ) : velocity.isError ? (
+            // Rule 246: a dead request is not a slow one. Gating only on
+            // `velocity.data` left a failed fetch pulsing the skeleton forever,
+            // which reads as "still loading" and can never resolve.
+            <QueryErrorState
+              variant="inline"
+              message="Couldn't load velocity."
+              onRetry={() => void velocity.refetch()}
+            />
           ) : (
             <ChartSkeleton label="Velocity" />
           )}
@@ -1598,7 +1607,7 @@ function PlannedSprintSurface({
           sprintId={plannedSprint.id}
           currentSprintShortId={plannedSprint.short_id_display}
         />
-        {velocity.data && (
+        {(velocity.data !== undefined || velocity.isError) && (
           <details className="rounded-card border border-neutral-border bg-neutral-surface">
             <summary
               className="cursor-pointer px-4 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary
@@ -1607,7 +1616,18 @@ function PlannedSprintSurface({
               Velocity
             </summary>
             <div className="px-4 pb-4">
-              <VelocityPanel velocity={velocity.data} />
+              {velocity.data ? (
+                <VelocityPanel velocity={velocity.data} />
+              ) : (
+                // Rule 246: the collapsed disclosure previously vanished on a
+                // failed fetch, so the reader had no way to tell a dead request
+                // from a project with no velocity at all.
+                <QueryErrorState
+                  variant="inline"
+                  message="Couldn't load velocity."
+                  onRetry={() => void velocity.refetch()}
+                />
+              )}
             </div>
           </details>
         )}

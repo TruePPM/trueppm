@@ -1,5 +1,6 @@
 import type { ProjectVelocity } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { VelocityTeamPrivateNote } from './velocityPrivacy';
 
 interface Props {
   velocity: ProjectVelocity;
@@ -30,6 +31,15 @@ const LABEL_H = 30;
  */
 export function VelocityPanel({ velocity, currentSprint }: Props) {
   const itl = useIterationLabel();
+  // ADR-0104 §2.1 / web rule 301: the server nulls the series AND sets
+  // `velocity_suppressed` when the reader's tier is below the velocity
+  // audience. Read the verdict, never the nulled series — an empty `sprints`
+  // reached this component identically for "you may not see this" and "nothing
+  // has closed yet", and the neutral branch below states the second as fact.
+  // The suppressed branch says exactly what the Board says (one constant), and
+  // it returns before any chip, chart or footer that would describe a series
+  // this reader is not entitled to.
+  const suppressed = velocity.velocity_suppressed === true;
   const sprints = velocity.sprints;
   const max = Math.max(
     1,
@@ -51,6 +61,23 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
   // always sits inside the plot area (avg is a mean of completed points, so it
   // can never exceed the chart's `max`, but the guard keeps the math safe).
   const avgY = avg !== null && avg <= max ? CHART_H - (avg / max) * CHART_H : null;
+
+  if (suppressed) {
+    return (
+      <section
+        aria-labelledby="velocity-panel-heading"
+        className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
+      >
+        <h2
+          id="velocity-panel-heading"
+          className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+        >
+          Velocity
+        </h2>
+        <VelocityTeamPrivateNote />
+      </section>
+    );
+  }
 
   return (
     <section

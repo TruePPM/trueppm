@@ -223,7 +223,7 @@ BASELINE_TINY_TEXT=2
 # tolerance — see query_error_offenders for why the "is this a primary surface?"
 # question is not decidable here, and why counting the population is the part that was
 # actually missing.
-BASELINE_QUERY_ERROR=57
+BASELINE_QUERY_ERROR=56
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary
