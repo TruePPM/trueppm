@@ -49,31 +49,25 @@ describe('RolePicker', () => {
   // mounted — the defect renders a perfectly valid control saying the wrong thing.
   it('states an ungrantable current role instead of silently painting "Viewer"', () => {
     renderWithProviders(
-      <RolePicker
-        value={250}
-        onChange={vi.fn()}
-        scope="program"
-        valueLabel="Senior Scheduler"
-      />,
+      <RolePicker value={250} onChange={vi.fn()} scope="program" valueLabel="Senior Scheduler" />,
     );
-    const sel = screen.getByRole('combobox') as HTMLSelectElement;
+    const sel = screen.getByRole<HTMLSelectElement>('combobox');
     expect(sel.value).toBe('250');
     expect(sel.selectedOptions[0]?.textContent).toBe('Senior Scheduler');
     // It may be shown but never re-granted — this client does not know what an
     // Enterprise custom band means.
     expect(sel.selectedOptions[0]).toBeDisabled();
     // The grantable set is unchanged; nothing was consumed by the extra option.
-    expect(Array.from(sel.querySelectorAll('option:not(:disabled)')).map((o) => o.textContent)).toEqual([
-      'Viewer',
-      'Team Member',
-      'Resource Manager',
-      'Program Manager',
-    ]);
+    expect(
+      Array.from(sel.querySelectorAll('option:not(:disabled)')).map((o) => o.textContent),
+    ).toEqual(['Viewer', 'Team Member', 'Resource Manager', 'Program Manager']);
   });
 
   it('adds no extra option when the current role IS grantable', () => {
-    renderWithProviders(<RolePicker value={ROLE_MEMBER} onChange={vi.fn()} valueLabel="Team Member" />);
-    const sel = screen.getByRole('combobox') as HTMLSelectElement;
+    renderWithProviders(
+      <RolePicker value={ROLE_MEMBER} onChange={vi.fn()} valueLabel="Team Member" />,
+    );
+    const sel = screen.getByRole<HTMLSelectElement>('combobox');
     expect(sel.querySelectorAll('option')).toHaveLength(4);
     expect(sel.querySelectorAll('option:disabled')).toHaveLength(0);
   });
