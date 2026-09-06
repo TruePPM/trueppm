@@ -89,6 +89,8 @@ removes it.
 }
 ```
 
+![The schedule after a Monte Carlo run: the Forecast bar shows P50, P80 and P95 finish dates, the CPM date, and the top driver](../../../assets/screenshots/monte-carlo.webp)
+
 | Field | Meaning |
 |---|---|
 | `p50` | 50% of simulated runs finished on or before this date. Closest to the deterministic CPM date. |

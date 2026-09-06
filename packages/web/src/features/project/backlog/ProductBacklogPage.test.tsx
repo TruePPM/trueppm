@@ -47,6 +47,11 @@ const h = vi.hoisted(() => ({
   navigate: vi.fn(),
   closeIntent: vi.fn(),
   resetFilters: vi.fn(),
+  /** The caller's role ordinal (#3422) — drives the failure banner's retry gate. */
+  role: 300 as number | null,
+  /** `undefined` = the first poll has not resolved yet. */
+  applicationStatus: 'running' as string | undefined,
+  applyMutate: vi.fn(),
   // Captured DndContext callbacks — the drag machinery (reorder / reparent /
   // conflict) is unreachable via jsdom's pointer pipeline, so we mock the
   // context to capture its handlers and fire synthetic events directly.
@@ -139,6 +144,34 @@ vi.mock('@/hooks/useIterationLabel', () => ({
 
 vi.mock('@/hooks/useMyFacets', () => ({ useCanManageBacklog: () => h.canManage }));
 
+// #3422 — the `?templateApplication=` landing. `useCurrentUserRole` feeds the
+// failure banner's retry gate; `useTemplateApplication` is the polled application
+// whose REAL status now drives the seeding skeleton (and, on `failed`, the banner).
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: h.role, isLoading: false, isError: false }),
+}));
+vi.mock('@/hooks/useProjectTemplates', () => ({
+  useTemplateApplication: (applicationId: string | null) => ({
+    data: applicationId
+      ? {
+          id: applicationId,
+          template: 'tpl-1',
+          template_name: 'Agile delivery skeleton',
+          template_version: 1,
+          project: 'proj-1',
+          status: h.applicationStatus,
+          result_summary: {},
+          error_detail: 'Template structure is no longer valid.',
+          created_at: '2026-08-05T00:00:00Z',
+          completed_at: null,
+          undone_at: null,
+        }
+      : undefined,
+    isPending: applicationId !== null && h.applicationStatus === undefined,
+  }),
+  useApplyTemplate: () => ({ mutate: h.applyMutate, isPending: false }),
+}));
+
 vi.mock('@/hooks/useSprints', () => ({ useSprintsByState: () => ({ planned: h.planned }) }));
 
 vi.mock('@/stores/createIntentStore', () => ({
@@ -192,6 +225,11 @@ vi.mock('@/features/schedule/classification/ClassificationPopover', () => ({
 }));
 
 vi.mock('./hooks/useProductBacklog', () => ({
+  // Real key shape, not a stub — `useBacklogSeed`'s success invalidation is
+  // asserted against it (#3422).
+  productBacklogKeys: {
+    root: (projectId: string | undefined) => ['product-backlog', projectId] as const,
+  },
   useProductBacklog: () => h.backlog,
   useAutoRank: () => ({ mutate: h.autoRankMutate, isPending: h.autoRankPending }),
   useSetDor: () => ({ mutate: h.setDorMutate }),
@@ -386,6 +424,8 @@ beforeEach(() => {
   h.intent = null;
   h.autoRankPending = false;
   h.createEpicError = false;
+  h.role = 300;
+  h.applicationStatus = 'running';
   h.dnd = {};
   h.projectId = 'proj-1';
   h.labels = undefined;
@@ -489,7 +529,13 @@ describe('DesktopGroomingView data gates', () => {
   });
 });
 
-// ── Seeding state (#2734, ADR-0800) ─────────────────────────────────────────
+// ── Seeding state (#2734, ADR-0800; amended by #3422) ───────────────────────
+// The page used to gate the skeleton on a `?seeding=1` URL flag plus a 10s timer,
+// so it could not tell "still writing" from "failed" and pulsed the same skeleton
+// for both. It now consumes `?templateApplication=<id>` and reads the polled
+// application's real status — the same contract `ScheduleView` has.
+const SEED_URL = ['/?templateApplication=app-1'];
+
 describe('backlog seeding state', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -498,14 +544,24 @@ describe('backlog seeding state', () => {
     vi.useRealTimers();
   });
 
-  it('shows the seeding skeleton instead of the empty-backlog CTA while ?seeding=1 and empty', () => {
+  it('shows the seeding skeleton instead of the empty-backlog CTA while the apply is running', () => {
     setData(makeBacklog({ epics: [], ungrouped: [] }));
-    renderPage(['/?seeding=1']);
+    renderPage(SEED_URL);
     expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
     expect(screen.queryByText('No stories yet')).not.toBeInTheDocument();
   });
 
-  it('never shows the seeding skeleton without the query param', () => {
+  it('shows the skeleton before the first poll resolves, never a one-render empty CTA', () => {
+    // `applicationLoading` covers the window between mount and first byte. Without
+    // it the "No stories yet" CTA paints once, briefly enough to be unreproducible.
+    h.applicationStatus = undefined;
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(SEED_URL);
+    expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
+    expect(screen.queryByText('No stories yet')).not.toBeInTheDocument();
+  });
+
+  it('never shows the seeding skeleton without the application id', () => {
     setData(makeBacklog({ epics: [], ungrouped: [] }));
     renderPage(['/']);
     expect(
@@ -514,10 +570,21 @@ describe('backlog seeding state', () => {
     expect(screen.getByText('No stories yet')).toBeInTheDocument();
   });
 
-  it('falls back to the ordinary empty state on a WATERFALL project even with ?seeding=1', () => {
-    h.effectiveMethodology = 'WATERFALL';
+  it('ignores the retired ?seeding=1 flag (#3422)', () => {
+    // A stale emitter of the old flag must land on the honest empty state, not on
+    // a skeleton with no job behind it.
     setData(makeBacklog({ epics: [], ungrouped: [] }));
     renderPage(['/?seeding=1']);
+    expect(
+      screen.queryByRole('status', { name: 'Setting up your backlog' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('No stories yet')).toBeInTheDocument();
+  });
+
+  it('falls back to the ordinary empty state on a WATERFALL project even with an application', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(SEED_URL);
     expect(
       screen.queryByRole('status', { name: 'Setting up your backlog' }),
     ).not.toBeInTheDocument();
@@ -526,7 +593,7 @@ describe('backlog seeding state', () => {
 
   it('stops seeding once rows arrive, showing the populated backlog', () => {
     setData(makeBacklog({ epics: [], ungrouped: [] }));
-    const { rerender } = renderPage(['/?seeding=1']);
+    const { rerender } = renderPage(SEED_URL);
     expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
 
     setData(makeBacklog());
@@ -535,7 +602,7 @@ describe('backlog seeding state', () => {
     });
     rerender(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={['/?seeding=1']}>
+        <MemoryRouter initialEntries={SEED_URL}>
           <ProductBacklogPage />
         </MemoryRouter>
       </QueryClientProvider>,
@@ -546,19 +613,146 @@ describe('backlog seeding state', () => {
     expect(screen.getByText('Product backlog')).toBeInTheDocument();
   });
 
-  it('falls back to the ordinary empty state after the seeding timeout elapses', () => {
+  it('falls back to the ordinary empty state after the 60s bounded exit (rule 374(a))', () => {
+    // A worker that died without writing a terminal status keeps the query
+    // SUCCEEDING with `running`, so only the timer can end the skeleton.
     setData(makeBacklog({ epics: [], ungrouped: [] }));
-    renderPage(['/?seeding=1']);
+    renderPage(SEED_URL);
     expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
     });
 
     expect(
       screen.queryByRole('status', { name: 'Setting up your backlog' }),
     ).not.toBeInTheDocument();
     expect(screen.getByText('No stories yet')).toBeInTheDocument();
+  });
+
+  it('re-derives the backlog when the apply reports success', () => {
+    // Rule 374's corollary: `success` does NOT mean the rows are on screen. They
+    // ride WS invalidations, and a degraded socket would clear the skeleton on the
+    // 2s poll and hand the user an empty CTA with the rows still in flight.
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    try {
+      h.applicationStatus = 'success';
+      setData(makeBacklog({ epics: [], ungrouped: [] }));
+      renderPage(SEED_URL);
+      const keys = invalidate.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+      expect(keys).toContain(JSON.stringify(['product-backlog', 'proj-1']));
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+
+  it('does not re-derive while the apply is still running', () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    try {
+      setData(makeBacklog({ epics: [], ungrouped: [] }));
+      renderPage(SEED_URL);
+      // The skeleton is a real rendered signal that the effects have run.
+      expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
+      const keys = invalidate.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+      expect(keys).not.toContain(JSON.stringify(['product-backlog', 'proj-1']));
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+});
+
+// ── Failed apply (#3422, reusing #3348's banner) ─────────────────────────────
+describe('backlog seed failure', () => {
+  it('states a failed apply ABOVE the untouched empty state, with no skeleton', () => {
+    // The regression itself: a `failed` apply used to pulse the skeleton for 10s
+    // and then fall through to "No stories yet" with nothing said. The empty state
+    // is still correct (the apply rolled back in one transaction) — what was
+    // missing was anything SAYING the apply had failed.
+    h.applicationStatus = 'failed';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(SEED_URL);
+
+    const banner = screen.getByTestId('seed-failure-banner');
+    expect(banner).toHaveTextContent('Agile delivery skeleton');
+    expect(banner).toHaveTextContent('Nothing was written');
+    expect(screen.getByTestId('seed-failure-banner-reason')).toHaveTextContent(
+      'Reason: Template structure is no longer valid.',
+    );
+    // The ladder beneath is untouched (rule 381(b)): "continue with an empty
+    // project" IS the ordinary empty state, not something the banner offers.
+    expect(screen.getByText('No stories yet')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: 'Setting up your backlog' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers Admin+ a retry and withholds it below Admin', () => {
+    h.applicationStatus = 'failed';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    const first = renderPage(SEED_URL);
+    expect(screen.getByTestId('seed-failure-banner-retry')).toBeInTheDocument();
+    first.unmount();
+
+    h.role = 200;
+    renderPage(SEED_URL);
+    expect(screen.queryByTestId('seed-failure-banner-retry')).not.toBeInTheDocument();
+    expect(screen.getByTestId('seed-failure-banner-recovery')).toHaveTextContent(
+      'Ask a project admin to apply it again',
+    );
+  });
+
+  it('a retry swaps to the new application and hands the page back to the seeding state', async () => {
+    // Rule 381(d): the retry mints a NEW id, and every latch the first apply
+    // tripped must release with it — otherwise the retry looks like it worked and
+    // quietly lands back on the empty CTA.
+    const user = userEvent.setup();
+    h.applicationStatus = 'failed';
+    h.applyMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (d: { application: string }) => void }) => {
+        h.applicationStatus = 'running';
+        opts.onSuccess({ application: 'app-2' });
+      },
+    );
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(SEED_URL);
+
+    await user.click(screen.getByTestId('seed-failure-banner-retry'));
+    expect(h.applyMutate).toHaveBeenCalledWith(
+      { templateId: 'tpl-1', projectId: 'proj-1' },
+      expect.anything(),
+    );
+    expect(screen.queryByTestId('seed-failure-banner')).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
+  });
+
+  it('dismissing the banner leaves the empty state and never reopens it', async () => {
+    const user = userEvent.setup();
+    h.applicationStatus = 'failed';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(SEED_URL);
+
+    await user.click(screen.getByRole('button', { name: 'Dismiss seed failure banner' }));
+    expect(screen.queryByTestId('seed-failure-banner')).not.toBeInTheDocument();
+    expect(screen.getByText('No stories yet')).toBeInTheDocument();
+  });
+
+  it('shows no banner without an application id, whatever the cached status', () => {
+    h.applicationStatus = 'failed';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(['/']);
+    expect(screen.queryByTestId('seed-failure-banner')).not.toBeInTheDocument();
+  });
+
+  it('states a failed apply on the mobile surface too', () => {
+    // The banner mounts above the breakpoint split, so it annotates the mobile
+    // page's "The product backlog is empty" card — which otherwise reads as "the
+    // apply failed" without being able to confirm it. No Playwright project covers
+    // the mobile arm, so this is the only layer that pins it.
+    h.bp.value = 'sm';
+    h.applicationStatus = 'failed';
+    renderPage(SEED_URL);
+    expect(screen.getByTestId('seed-failure-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('mobile-grooming')).toBeInTheDocument();
   });
 });
 
@@ -620,7 +814,7 @@ describe('agile landing vocabulary absence', () => {
 
   it('never renders waterfall creation vocabulary while the backlog is seeding', () => {
     setData(makeBacklog({ epics: [], ungrouped: [] }));
-    renderPage(['/?seeding=1']);
+    renderPage(SEED_URL);
     const body = document.body.textContent ?? '';
     expect(body).not.toMatch(/\bProgram\b/);
     expect(body).not.toMatch(/\bSchedule\b/);

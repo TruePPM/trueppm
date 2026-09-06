@@ -25,8 +25,21 @@ export interface BoardSprintScope {
   /**
    * A COMPLETED sprint board is a retrospective read: drag-to-assign is disabled
    * board-wide so a card move never back-dates scope into a closed sprint.
+   *
+   * Positively known only — `false` while the sprint's state is still unknown
+   * (see `sprintStateUnknown`). The closed-sprint banner keys off this alone,
+   * because a banner is a disclosure and a disclosure defaults to silent.
    */
   sprintClosed: boolean;
+  /**
+   * The URL names a sprint whose state this hook cannot yet vouch for: the
+   * sprints query is still loading, or it failed and never delivered the list.
+   * The board's write-lock treats this exactly like `sprintClosed` — an
+   * unresolved read is "unknown", not "open", and a guard that reads it as
+   * open is skipped on timing alone (#3424, the #3313 class). `false` once the
+   * list resolves, and always `false` in Project view (no `?sprint=`).
+   */
+  sprintStateUnknown: boolean;
 }
 
 export function useBoardSprintScope(
@@ -37,12 +50,22 @@ export function useBoardSprintScope(
   const projectIdOrNull = projectId || null;
   const projectIdOrUndefined = projectId || undefined;
 
-  const { sprints } = useSprints(projectIdOrNull);
+  const { sprints, isLoading: sprintsLoading, error: sprintsError } = useSprints(projectIdOrNull);
   const selectedSprintId = searchParams.get('sprint');
   const selectedSprint = useMemo(
     () => sprints.find((s) => s.id === selectedSprintId) ?? null,
     [sprints, selectedSprintId],
   );
+  // `sprints` is `[]` both while the query is in flight and after it failed, so
+  // a scoped board on a cold mount resolves `selectedSprint` to null and would
+  // read as an open, editable sprint until the list lands — BoardView never
+  // calls `useSprints` itself, so this is a cold query on every mount. Only a
+  // list that resolved and still lacks the id counts as "not closed"; a stale
+  // list kept through a refetch error still answers, so it is not unknown.
+  const sprintStateUnknown =
+    selectedSprintId !== null &&
+    selectedSprint === null &&
+    (sprintsLoading || sprintsError != null);
 
   // Smart default board scope (#1141): the user's last explicit choice
   // (per-user-per-project, localStorage) or the single ACTIVE sprint. The URL
@@ -91,5 +114,6 @@ export function useBoardSprintScope(
     selectedSprintName: selectedSprint?.name,
     setSelectedSprintId,
     sprintClosed: selectedSprint?.state === 'COMPLETED',
+    sprintStateUnknown,
   };
 }
