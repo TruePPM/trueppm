@@ -282,7 +282,7 @@ def resolve_quiet_hours_timezone(project: Any, *, workspace: Any = None) -> tupl
     if project_name:
         try:
             return ZoneInfo(project_name), QUIET_HOURS_TZ_SOURCE_PROJECT
-        except (ZoneInfoNotFoundError, ValueError):
+        except (ZoneInfoNotFoundError, ValueError, OSError):
             # Log every skipped tier: relocating someone's quiet-hours window to a
             # different wall clock with no signal anywhere is the failure mode that
             # is impossible to debug from the outside. Project.timezone predates any
@@ -292,7 +292,7 @@ def resolve_quiet_hours_timezone(project: Any, *, workspace: Any = None) -> tupl
     if workspace_name:
         try:
             return ZoneInfo(workspace_name), QUIET_HOURS_TZ_SOURCE_WORKSPACE
-        except (ZoneInfoNotFoundError, ValueError):
+        except (ZoneInfoNotFoundError, ValueError, OSError):
             logger.warning(
                 "Unparseable Workspace.timezone %r — trying the server default", workspace_name
             )
@@ -300,7 +300,7 @@ def resolve_quiet_hours_timezone(project: Any, *, workspace: Any = None) -> tupl
     if server_name:
         try:
             return ZoneInfo(server_name), QUIET_HOURS_TZ_SOURCE_SERVER
-        except (ZoneInfoNotFoundError, ValueError):
+        except (ZoneInfoNotFoundError, ValueError, OSError):
             logger.warning("Unparseable settings.TIME_ZONE %r — falling back to UTC", server_name)
     return ZoneInfo("UTC"), QUIET_HOURS_TZ_SOURCE_FALLBACK
 

@@ -219,7 +219,9 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
 
     Distinct from ``MsProjectImportView``, which imports into an existing project.
     The project shell is created synchronously (named from the filename, dated
-    today, optionally assigned to a program); tasks import asynchronously via the
+    today, optionally assigned to a program, and seeded with the methodology a
+    New-project sheet would derive — the program's effective methodology, else
+    the workspace default, #3432); tasks import asynchronously via the
     ``ImportRequest`` outbox, and the worker overwrites the name/start_date from
     the file header once it parses.
 
@@ -253,6 +255,7 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
 
         from trueppm_api.apps.msproject.models import ImportRequest
         from trueppm_api.apps.msproject.services import enqueue_import
+        from trueppm_api.apps.projects.methodology import resolve_new_project_methodology
         from trueppm_api.apps.projects.serializers import ProjectSerializer
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -276,10 +279,25 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
         serializer = ProjectSerializer(data=project_payload, context={"request": request})
         serializer.is_valid(raise_exception=True)
 
+        # Seed the stored methodology the way the New-project sheet does: from the
+        # program's effective methodology when one is assigned, else the workspace
+        # default (#3432). Without this the shell lands on the model's HYBRID default
+        # regardless of the program it was imported into, and the program-settings
+        # hint ("new projects start with this methodology") is false for exactly the
+        # projects a migrating PM creates first. Passed through `save()` rather than
+        # the request body on purpose: `validate_methodology` refuses any explicit
+        # methodology on create while a workspace lock is active, but this value is
+        # the server's own resolution (which already honors the lock), not a caller
+        # override — a policy refusal against it would be wrong. `program` here is
+        # the instance the PrimaryKeyRelatedField already loaded and the ADR-0070
+        # gate already vetted, so the resolution adds no per-request query beyond
+        # the workspace singleton.
+        methodology = resolve_new_project_methodology(serializer.validated_data.get("program"))
+
         # Shell + Owner membership + outbox row commit atomically, so a broker
         # hiccup never leaves an ownerless project or an unreferenced import.
         with transaction.atomic():
-            project = serializer.save()
+            project = serializer.save(methodology=methodology)
             ProjectMembership.objects.create(
                 project=project,
                 user=request.user,  # type: ignore[misc]

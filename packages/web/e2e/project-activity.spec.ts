@@ -78,7 +78,8 @@ test.describe('Project Activity tab', () => {
     const list = page.getByTestId('changelog-list');
     await expect(list.getByText('Vendor slip')).toBeVisible();
     await expect(list.getByText('Design the API')).toBeVisible();
-    await expect(list.getByText('status')).toBeVisible();
+    // Field labels, not column names (#3435): `status` renders as "Status".
+    await expect(list.getByText('Status', { exact: true })).toBeVisible();
   });
 
   test('toggling an object-type chip re-queries with the object_type param', async ({ page }) => {
@@ -87,9 +88,7 @@ test.describe('Project Activity tab', () => {
     await expect(page.getByTestId('changelog-list')).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('checkbox', { name: 'Task' }).click();
-    await expect
-      .poll(() => requests.some((u) => /object_type=task/.test(u)))
-      .toBe(true);
+    await expect.poll(() => requests.some((u) => /object_type=task/.test(u))).toBe(true);
   });
 
   test('clicking a task row navigates to its detail route', async ({ page }) => {

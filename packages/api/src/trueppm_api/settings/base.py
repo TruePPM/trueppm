@@ -2250,6 +2250,20 @@ SPECTACULAR_SETTINGS = {
         # hash-disambiguate or rename existing components (same regression class as
         # ScopeChangeStatus above — project memory project_drf_enum_name_collision).
         "BlockerTypeEnum": "trueppm_api.apps.projects.models.BlockerType",
+        # #3416: annotating the four batch-undo actions adds a SECOND serializer
+        # exposing StructuralOperation.kind and TemplateApplication.status (the
+        # `*Undo` response wrappers subclass the ledger serializers). A second
+        # exposure of an already-resolved choice set is all it takes for
+        # drf-spectacular to stop deriving the stable name and emit a hashed
+        # `KindD4dEnum` / `StatusCf2Enum` instead — renaming the component on every
+        # *existing* endpoint that serves those rows, i.e. a Breaking change under
+        # `api/stability.md` for a purely additive response annotation. Exactly the
+        # TaskStatusEnum case above, and the same regression class as every pin in
+        # this block (project memory project_drf_enum_name_collision).
+        "StructuralOperationKindEnum": ("trueppm_api.apps.projects.models.StructuralOperationKind"),
+        "TemplateApplicationStatusEnum": (
+            "trueppm_api.apps.projects.models.TemplateApplicationStatus"
+        ),
         # ADR-0219 (#1266): ProjectExportJob.status introduces a second export-job
         # status choice set with the SAME members (pending|running|success|failed)
         # as workspace.ExportJobStatus. drf-spectacular unifies identical value-sets

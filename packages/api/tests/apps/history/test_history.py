@@ -576,24 +576,24 @@ class TestTaskHistoryAPI:
         tuple — a promotion that quietly does nothing, with no error and no failing
         behavioral test. Assert the set relations directly so the failure is loud.
         """
-        from trueppm_api.apps.projects.views import (
-            _HISTORY_DIFF_DISPLAY_EXCLUDED,
-            _HISTORY_DIFF_PRIVACY_GATED,
-            _HISTORY_DIFF_PROMOTED_WHEN_ALONE,
-            _history_promoted_diff_fields,
+        from trueppm_api.apps.history.diff_policy import (
+            HISTORY_DIFF_NOISE,
+            HISTORY_DIFF_PRIVACY_GATED,
+            HISTORY_DIFF_PROMOTED_WHEN_ALONE,
         )
+        from trueppm_api.apps.projects.views import _history_promoted_diff_fields
 
-        assert _HISTORY_DIFF_PROMOTED_WHEN_ALONE <= _HISTORY_DIFF_DISPLAY_EXCLUDED, (
-            "a promoted field that is not display-excluded is already in the routine "
+        assert HISTORY_DIFF_PROMOTED_WHEN_ALONE <= HISTORY_DIFF_NOISE, (
+            "a promoted field that is not noise-excluded is already in the routine "
             "tuple, so it would be diffed twice and rendered twice"
         )
-        assert _HISTORY_DIFF_PROMOTED_WHEN_ALONE.isdisjoint(_HISTORY_DIFF_PRIVACY_GATED), (
+        assert HISTORY_DIFF_PROMOTED_WHEN_ALONE.isdisjoint(HISTORY_DIFF_PRIVACY_GATED), (
             "promotion is an escape hatch out of the DISPLAY exclusions; a "
             "privacy-gated field must never take it"
         )
         # Every declared name resolves to a real field — the filters dropped none.
         assert {field.name for field in _history_promoted_diff_fields()} == set(
-            _HISTORY_DIFF_PROMOTED_WHEN_ALONE
+            HISTORY_DIFF_PROMOTED_WHEN_ALONE
         )
 
     def test_a_blocked_reason_only_change_is_dropped_not_promoted(
@@ -699,6 +699,29 @@ class TestHistorySummaryAPI:
         # History rows are capped per object type (#821); the flag tells the client
         # whether the summary is complete. A handful of rows is well under the cap.
         assert r.data["count_truncated"] is False
+
+    def test_by_field_is_keyed_by_field_name_like_the_diffs(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """``by_field`` speaks the same vocabulary as every diff row (#3435).
+
+        The summary used to count by column (``assignee_id``) while the drawer
+        keyed by field name — a client could not join the two. One policy, one
+        key: the field name, so the client label map applies to the summary too.
+        """
+        task.assignee = owner  # type: ignore[assignment]
+        task.sprint_rank = 3  # noise: hidden from diffs, so not counted either
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d")
+        counted = {row["field"] for row in r.data["by_field"]}
+        assert "assignee" in counted
+        assert "assignee_id" not in counted
+        assert "sprint_rank" not in counted
 
     def test_invalid_window_returns_400(
         self,

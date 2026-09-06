@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
+import { useEffect, useRef } from 'react';
 import { usePausableAutoDismiss } from './usePausableAutoDismiss';
 
 /**
@@ -224,6 +225,115 @@ describe('usePausableAutoDismiss', () => {
       vi.advanceTimersByTime(100);
     });
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  describe('runWithoutPausing (#3394)', () => {
+    /**
+     * A surface that focuses ITSELF on mount would otherwise read its own autofocus
+     * as engagement and never expire. `ConfirmDeleteStrip` is the only caller; these
+     * pin the mechanism, and `ConfirmDeleteStrip.test.tsx` pins its use of it.
+     */
+    function AutoFocusHarness({
+      onDismiss,
+      wrap,
+    }: {
+      onDismiss: () => void;
+      /** false reproduces the pre-#3394 bare `focus()` — the negative control. */
+      wrap: boolean;
+    }) {
+      const ref = useRef<HTMLButtonElement>(null);
+      const { paused, pauseHandlers, runWithoutPausing } = usePausableAutoDismiss({
+        active: true,
+        durationMs: 1000,
+        restartKey: 'a',
+        onDismiss: () => onDismiss(),
+      });
+      useEffect(() => {
+        if (wrap) runWithoutPausing(() => ref.current?.focus());
+        else ref.current?.focus();
+      }, [wrap, runWithoutPausing]);
+      return (
+        <div data-testid="surface" {...pauseHandlers}>
+          <span>{paused ? 'paused' : 'running'}</span>
+          <button ref={ref} type="button">
+            Confirm
+          </button>
+          <button type="button">Cancel</button>
+        </div>
+      );
+    }
+
+    it('keeps a mount-time autofocus outside the pause', () => {
+      const onDismiss = vi.fn();
+      render(<AutoFocusHarness onDismiss={onDismiss} wrap />);
+      expect(screen.getByRole('button', { name: 'Confirm' })).toHaveFocus();
+      expect(screen.getByText('running')).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('an UNWRAPPED autofocus pauses forever — the behavior the wrap exists to avoid', () => {
+      // The negative control for the test above, in the same file rather than in a
+      // reviewer's head: without it, "the timer fires" is indistinguishable from
+      // "jsdom never delivered the focus to React at all", and the wrap would be
+      // proving nothing. This asserts the unwrapped path really does arm the pause.
+      const onDismiss = vi.fn();
+      render(<AutoFocusHarness onDismiss={onDismiss} wrap={false} />);
+      expect(screen.getByText('paused')).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(onDismiss).not.toHaveBeenCalled();
+    });
+
+    it('still pauses on a focus the wrapper did not make', () => {
+      const onDismiss = vi.fn();
+      render(<AutoFocusHarness onDismiss={onDismiss} wrap />);
+      act(() => {
+        fireEvent.focus(screen.getByRole('button', { name: 'Cancel' }));
+      });
+      expect(screen.getByText('paused')).toBeInTheDocument();
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(onDismiss).not.toHaveBeenCalled();
+    });
+
+    it('clears the suppression flag even if the wrapped call throws', () => {
+      // Otherwise one throwing autofocus leaves the surface permanently unable to
+      // pause — a silent accessibility regression with no visible symptom.
+      const onDismiss = vi.fn();
+      function ThrowHarness() {
+        const { paused, pauseHandlers, runWithoutPausing } = usePausableAutoDismiss({
+          active: true,
+          durationMs: 1000,
+          restartKey: 'a',
+          onDismiss,
+        });
+        useEffect(() => {
+          try {
+            runWithoutPausing(() => {
+              throw new Error('boom');
+            });
+          } catch {
+            /* the caller's problem; the hook's job is to reset the flag */
+          }
+        }, [runWithoutPausing]);
+        return (
+          <div data-testid="surface" {...pauseHandlers}>
+            <span>{paused ? 'paused' : 'running'}</span>
+            <button type="button">Cancel</button>
+          </div>
+        );
+      }
+      render(<ThrowHarness />);
+      act(() => {
+        fireEvent.focus(screen.getByRole('button', { name: 'Cancel' }));
+      });
+      expect(screen.getByText('paused')).toBeInTheDocument();
+    });
   });
 
   it('arms no timer at all while inactive', () => {

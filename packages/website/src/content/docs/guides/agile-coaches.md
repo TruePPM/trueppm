@@ -23,7 +23,7 @@ Velocity is a planning tool for the team. The moment the PMO watches it as a pro
 
 ### Retros that don't die in a doc
 
-A retro action item that gets copy-pasted by whoever remembers is a retro action item that dies. In the retrospective panel, an action flagged **promote to backlog** becomes a real task in the next sprint's backlog automatically when the sprint closes, with a chip linking back to the retro that raised it. The pipeline is real, not a checkbox.
+A retro action item that gets copy-pasted by whoever remembers is a retro action item that dies. In the retrospective panel, **Promote to backlog** turns an action item into a real task in the project backlog on the spot, and the item keeps a `→ T-XXXXXX` chip that opens the task it became. The pipeline is real, not a checkbox.
 
 → See [Retrospective panel](/features/retrospective/)
 
@@ -52,7 +52,7 @@ The real test isn't what a feature does — it's what *each role can see and do*
 
 **First, as the team.** Sign in at `http://localhost:5173` as **`atlas-mei`** — Mei Tanaka, Senior Engineer, seeded with the **Member** role and working the active sprint:
 
-2. Open **Deliver → Sprints** in the left navigation rail (`/projects/:id/sprints`), select a closed sprint, and scroll to the **retrospective** panel below the timeline. Find an action item promoted to the backlog and confirm the pipeline actually carried it forward — it appears in the next sprint with a `→ T-XXXXXX` chip back to the retro.
+2. Open **Deliver → Sprints** in the left navigation rail (`/projects/:id/sprints`), select **Sprint 3** — the closed sprint whose retro the sample seeds — and scroll to the **retrospective** panel below the timeline. "Split stories larger than 8 points" was promoted to the backlog; follow its `→ T-XXXXXX` chip and confirm the pipeline actually carried it forward into a real task.
 3. Open **Deliver → Board** and walk to the WIP-overload column (amber or red). The team sees its own pressure without anyone reporting it.
 4. Open **Settings → Signal privacy** and note that velocity's audience is the team's own choice — it is not published upward by default.
 
