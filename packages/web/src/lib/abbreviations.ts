@@ -18,8 +18,20 @@
 export const ABBREVIATIONS = {
   WBS: 'Work Breakdown Structure — the outline number showing where this task sits in the project hierarchy',
   DURATION: 'Duration — working days this task takes, excluding non-working days on its calendar',
+  // These two say "row", not "task", and that is load-bearing rather than a
+  // stylistic preference. Both render on the Schedule outline's column headers,
+  // whose every string is swept by the row-vocabulary lock (#3027/#3031): a
+  // heading that calls a row a task is a type claim the row does not carry,
+  // because the same column also heads phases and milestones. The lock caught
+  // exactly this when the float headers first shipped with tooltips, and the
+  // right repair was the definition rather than the header — the word is equally
+  // wrong on the drawer and the table, where a phase's Float cell was already
+  // being explained in terms of a "task". Any entry that a locked surface renders
+  // must use `ROW_VOCABULARY`'s neutral noun.
   FLOAT:
-    'Float (slack) — working days this task can slip before it moves the project finish date',
+    'Float (slack) — working days this row can slip before it moves the project finish date',
+  FREE_FLOAT:
+    'Free float — working days this row can slip before it delays the row that follows it, which is usually less than its total float',
   CRITICAL:
     'On the critical path — this task has no float, so any slip moves the project finish date',
   EVM: 'Earned Value Management — progress measured in planned cost rather than percent complete',
