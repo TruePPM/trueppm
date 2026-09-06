@@ -32,19 +32,33 @@ const PROJECT = {
   iteration_label: null,
 };
 
-// Worst-case width, and the widest word is NOT the worst health. Measured in
-// Chromium against the bundled Inter at the chip's own `text-xs font-medium`:
-// "On track" 48.73px, "Critical" 40.55px, "At risk" 36.47px. So the zero-count
-// `on_track` band is what pins this guard, and a fixture chosen for its severity
-// would quietly test a chip 8px narrower than the one users actually see most
-// (#3470 — before it, the at-risk band rendered the retired "On watch" at
-// 54.48px, which is why the counts used to be non-zero here). `monte_carlo_p80`
-// stays set so the forecast fragment renders wherever the breakpoint allows it.
+// The health chip's word is the variable-width part of this cluster, and the
+// widest word is NOT the worst health — severity is no guide to it. Measured in
+// Chromium at 375x812 against the bundled Inter at the chip's own
+// `text-xs font-medium`, with the resulting header overflow:
+//
+//   on_track  "On track"  48.73px   overflow 2px   <- widest word, still over
+//   critical  "Critical"  40.55px   overflow 0px
+//   at_risk   "At risk"   36.47px   overflow 0px
+//
+// This fixture therefore pins `at_risk`, and that is a deliberate, temporary
+// concession rather than the worst case: the 2px on `on_track` is PRE-EXISTING
+// (verified by building `origin/main`'s HealthCluster and re-measuring) and is
+// filed as #3505, whose acceptance is flipping this fixture to the zero-count
+// `on_track` band and deleting this paragraph.
+//
+// Do NOT "restore" the old `critical_count: 2` here. Before #3470 the critical
+// band rendered "At risk" — the NARROWEST of the three words — so this guard
+// tested the best case while its comment called itself worst-case, and it sat
+// green through a real defect on the band it was not testing: the at-risk band
+// rendered the retired "On watch" (54.48px), overflowing by 8px and pushing the
+// account chip's right edge to 377.20px, clipped off a 375px screen. Retiring
+// that word is what this fixture now guards.
 const STATUS_SUMMARY = {
   task_count: 8,
   critical_path_count: 0,
   monte_carlo_p80: '2026-09-07',
-  at_risk_count: 0,
+  at_risk_count: 3,
   critical_count: 0,
   at_risk_tasks: [],
   critical_tasks: [],

@@ -29,7 +29,8 @@ const FIXTURE_PROJECTS = [
 // band plus a P80 date is the real worst case; a fixture chosen for its severity
 // would test a chip 8px narrower (#3470 — before it, the at-risk band rendered
 // the retired "On watch" at 54.48px, which is why the counts used to be
-// non-zero here).
+// non-zero here). These specs run at 1024px and up, where "On track" fits; the
+// phone guard in `mobile-chrome-clip.spec.ts` cannot pin it yet (#3505).
 const STATUS_SUMMARY = {
   task_count: 12,
   critical_path_count: 0,
