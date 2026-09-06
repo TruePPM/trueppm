@@ -37,11 +37,11 @@ describe('createdProjectDestination', () => {
   });
 
   it('does not mark a blank backlog as seeding', () => {
-    // `?seeding=1` tells ProductBacklogPage an empty backlog is still filling from
-    // a template apply. Nothing is being applied on a blank create, so the genuine
-    // empty state is the correct and only honest one.
+    // `?templateApplication=` tells ProductBacklogPage an empty backlog may still be
+    // filling from a template apply. Nothing is being applied on a blank create, so
+    // the genuine empty state is the correct and only honest one.
     expect(createdProjectDestination('p1', { blank: true, methodology: 'AGILE' })).not.toContain(
-      'seeding',
+      'templateApplication',
     );
   });
 
@@ -57,10 +57,39 @@ describe('createdProjectDestination', () => {
     );
   });
 
-  it('lands an AGILE template application on the seeding backlog (#2734)', () => {
+  it('lands an AGILE template application on the backlog with the application id (#3422)', () => {
+    // The id is what lets the backlog read the apply's REAL terminal status. The
+    // `?seeding=1` flag this replaced was fixed at navigation time and could not
+    // carry a failure the server wrote later, so a failed apply went silent.
     expect(
-      createdProjectDestination('p1', { templateApplied: true, methodology: 'AGILE' }),
-    ).toBe('/projects/p1/product-backlog?seeding=1');
+      createdProjectDestination('p1', {
+        templateApplied: true,
+        methodology: 'AGILE',
+        templateApplicationId: 'app-agile',
+      }),
+    ).toBe('/projects/p1/product-backlog?templateApplication=app-agile');
+  });
+
+  it('lands an AGILE template whose dispatch failed on the plain backlog, not a seeding one', () => {
+    // No id means the 202 never came — the sheet already toasted the refusal and
+    // there is nothing to poll. A skeleton here could only ever time out, so the
+    // genuinely empty backlog is the honest landing (same as `blank`).
+    const url = createdProjectDestination('p1', { templateApplied: true, methodology: 'AGILE' });
+    expect(url).toBe('/projects/p1/product-backlog');
+    expect(url).not.toContain('seeding');
+  });
+
+  it('never emits the retired ?seeding=1 flag (#3422)', () => {
+    // `ProductBacklogPage` no longer reads it; a stale emitter would land a user on
+    // a backlog that treats the flag as noise and shows no seeding state at all.
+    const intents = [
+      { templateApplied: true, methodology: 'AGILE' as const },
+      { templateApplied: true, methodology: 'AGILE' as const, templateApplicationId: 'x' },
+      { blank: true, methodology: 'AGILE' as const },
+    ];
+    for (const intent of intents) {
+      expect(createdProjectDestination('p1', intent)).not.toContain('seeding');
+    }
   });
 
   it('lands a WATERFALL template application on the seeded Schedule (#2731)', () => {
@@ -100,13 +129,11 @@ describe('createdProjectDestination', () => {
         methodology: 'AGILE',
         templateApplicationId: 'app-3',
       }),
-    ).toBe('/projects/p1/product-backlog?seeding=1');
+    ).toBe('/projects/p1/product-backlog?templateApplication=app-3');
   });
 
   it('does not route to the backlog when methodology is AGILE but no template was applied', () => {
-    expect(createdProjectDestination('p1', { methodology: 'AGILE' })).toBe(
-      '/projects/p1/overview',
-    );
+    expect(createdProjectDestination('p1', { methodology: 'AGILE' })).toBe('/projects/p1/overview');
   });
 
   it('prefers importCsv over a template-applied agile landing if both were somehow set', () => {
