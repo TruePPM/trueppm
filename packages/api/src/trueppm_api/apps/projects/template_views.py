@@ -13,7 +13,12 @@ from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Case, Count, IntegerField, Q, QuerySet, Value, When
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    inline_serializer,
+)
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -50,7 +55,7 @@ from trueppm_api.apps.projects.template_services import (
 )
 from trueppm_api.apps.workspace.models import AuditEventType
 from trueppm_api.apps.workspace.services import record_audit_event
-from trueppm_api.core.openapi import state_refusal_400
+from trueppm_api.core.openapi import state_refusal_400, undo_summary_schema
 from trueppm_api.core.request_body import object_body
 
 # Shared user-facing response details.
@@ -344,6 +349,43 @@ class TemplateApplicationSerializer(serializers.ModelSerializer[TemplateApplicat
             "undone_at",
         ]
         read_only_fields = fields
+
+
+class TemplateApplicationUndoSerializer(TemplateApplicationSerializer):
+    """The adoption record **plus** the ``undo`` summary the action returns (#3416).
+
+    The handler builds its body as ``data = self.get_serializer(application).data``
+    then ``data["undo"] = summary``, so the bare ``TemplateApplicationSerializer``
+    published as the ``200`` gave a typed client no field for the deleted/kept split
+    — and that split is the whole point of the call here, because undo deliberately
+    *keeps* rows a person has since edited (ADR-0786 §4). A client that cannot read
+    ``kept`` cannot tell a full reversal from a partial one.
+    """
+
+    undo = serializers.SerializerMethodField()
+
+    class Meta(TemplateApplicationSerializer.Meta):
+        fields = [*TemplateApplicationSerializer.Meta.fields, "undo"]  # noqa: RUF012
+
+    @extend_schema_field(
+        undo_summary_schema(
+            "What the undo did to the rows this application wrote.",
+            deleted="Rows removed — written by the application and untouched since.",
+            kept=(
+                "Rows left in place because someone has edited them since. A non-zero "
+                "value means the project still carries part of the template."
+            ),
+        )
+    )
+    def get_undo(self, obj: TemplateApplication) -> dict[str, int]:
+        """The persisted summary, for a caller that serializes a row outside the action.
+
+        Not what the action returns: ``undo_template_application`` short-circuits an
+        application that created no rows and returns ``{"deleted": 0, "kept": 0}``
+        without persisting a summary, so the action's live value is authoritative and
+        this is the best a later reader can do.
+        """
+        return dict((obj.result_summary or {}).get("undo") or {})
 
 
 class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[ProjectTemplate]):
@@ -704,7 +746,7 @@ class TemplateApplicationViewSet(
     @extend_schema(
         request=None,
         responses={
-            200: TemplateApplicationSerializer,
+            200: TemplateApplicationUndoSerializer,
             400: state_refusal_400(
                 "The application is not in a state that can be undone — it never "
                 "reached SUCCESS, or it has already been undone. Verified against "

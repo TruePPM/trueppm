@@ -255,7 +255,11 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
 )
-from trueppm_api.core.openapi import state_refusal_400, suppress_list_pagination
+from trueppm_api.core.openapi import (
+    ownership_refusal_403,
+    state_refusal_400,
+    suppress_list_pagination,
+)
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 from trueppm_api.core.request_body import object_body
 
@@ -11440,8 +11444,14 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         high_risk_count = risk_agg["high_risk_count"] or 0
 
         # ── Project owner (first Owner-role member) ───────────────────────
+        # ``live()`` (#3411, third site of that sweep): a revoked Owner keeps their row
+        # and their OWNER ordinal, so the unfloored read could name a departed person as
+        # the project's owner on the overview card — and, with both a revoked and a live
+        # Owner present, picked between them arbitrarily. The last-Owner guard keeps at
+        # least one live Owner, and ``owner_name`` already tolerates None regardless.
         owner_membership = (
-            ProjectMembership.objects.filter(project=project, role=Role.OWNER)
+            ProjectMembership.live()
+            .filter(project=project, role=Role.OWNER)
             .select_related("user")
             .first()
         )
@@ -17261,6 +17271,14 @@ class TaskSyncView(IdempotencyMixin, APIView):
     from trueppm_api.apps.projects.authentication import ProjectApiTokenAuthentication
     from trueppm_api.apps.projects.throttles import TaskSyncThrottle
 
+    # The route is `projects/<pk>/task-sync/`, so the project id is spelled `pk`
+    # and not the `project_pk` that `_project_pk_from_view` defaults to. Without
+    # this declaration `IsProjectNotArchived` below resolves *no* project and
+    # returns True — it would sit in `permission_classes` looking enforced while
+    # firing on nothing (the #2745 trap, and the reason #3413 was filed as a
+    # trap rather than a one-line append).
+    project_url_kwarg = "pk"
+
     authentication_classes = [ProjectApiTokenAuthentication]
     # IsTokenForProject enforces the IDOR check structurally (token.project_id
     # must match the URL pk) and raises AuthenticationFailed (401) on mismatch
@@ -17268,10 +17286,17 @@ class TaskSyncView(IdempotencyMixin, APIView):
     # TokenHasScope(legacy:full) rejects a read-only mcp:read token at this write
     # path (ADR-0186 §E): the scope system is fail-closed for writes — mcp:read
     # never satisfies legacy:full, so only a full-scope token can push tasks.
+    # IsProjectNotArchived is last on purpose: an archived project is a 403, but a
+    # token that does not authorize this project must still get IsTokenForProject's
+    # 401 first, or the archived refusal becomes an existence oracle for a URL the
+    # caller has no token for. It also means `pk` is a validated UUID by the time
+    # the archived lookup runs — IsTokenForProject rejects a malformed one with 401,
+    # which keeps `Project.objects.filter(pk=…)` off the #2785 500 path.
     permission_classes = [
         IsAuthenticated,
         IsTokenForProject,
         TokenHasScope(SCOPE_LEGACY_FULL),
+        IsProjectNotArchived,
     ]
     throttle_classes = [TaskSyncThrottle]
 
@@ -17285,6 +17310,21 @@ class TaskSyncView(IdempotencyMixin, APIView):
         responses={
             200: InboundTaskSyncResultSerializer,
             201: InboundTaskSyncResultSerializer,
+            # Two unrelated causes now share this status code, and the remediation
+            # for one is the opposite of the other — spelling them out is the
+            # difference between a client fixing it and a client retrying forever
+            # (the #3354 lesson, applied here).
+            403: OpenApiResponse(
+                description=(
+                    "Two causes, and a client must tell them apart. **The token lacks "
+                    "`legacy:full`** — an `mcp:read` token is read-only and can never "
+                    "push; re-mint at the right scope and the same request succeeds. "
+                    "**Or the project is archived** — that clears for no scope and no "
+                    "role, so re-minting will never help and neither will retrying; "
+                    "the project has to be unarchived, after which the identical push "
+                    "goes through (#3413)."
+                )
+            ),
         },
     )
     def post(self, request: Request, pk: str) -> Response:
@@ -18176,11 +18216,9 @@ class AttachmentSigningNotSupported(APIException):
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The caller is neither the uploader nor a project Admin+. Emitted as a "
-                "400 rather than a 403 because the check lives in ``perform_destroy`` "
-                "and raises ``ValidationError``; the declaration follows what reaches "
-                "the wire, not what the status arguably should be (#3319)."
+            403: ownership_refusal_403(
+                "The caller is neither the uploader nor a project Admin+ (#3365).",
+                codes=("attachment_delete_forbidden",),
             ),
         }
     )
@@ -18334,9 +18372,13 @@ class TaskAttachmentViewSet(
         is_uploader = instance.uploaded_by_id == user.pk
         is_admin = role is not None and role >= Role.ADMIN
         if not (is_uploader or is_admin):
-            raise serializers.ValidationError(
-                {"detail": "Only the uploader or a project admin can delete this."},
-                code="attachment_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request. A dict
+            # detail is the only way the code reaches the body (#2550, #3365).
+            raise PermissionDenied(
+                {
+                    "detail": "Only the uploader or a project admin can delete this.",
+                    "code": "attachment_delete_forbidden",
+                }
             )
 
         instance.soft_delete(actor=user)
@@ -18429,16 +18471,26 @@ class TaskAttachmentViewSet(
 
 
 @extend_schema_view(
+    partial_update=extend_schema(
+        # ``responses=`` REPLACES the discovered map — restate the 200 or it vanishes.
+        responses={
+            200: TaskCommentSerializer,
+            403: ownership_refusal_403(
+                "The caller is not the comment author (#3365). The edit window closing "
+                "is a state refusal and stays a 400.",
+                codes=("comment_edit_not_author",),
+            ),
+        }
+    ),
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The caller is neither the comment author nor a project Admin+. Emitted "
-                "as a 400 rather than a 403 because the check lives in "
-                "``perform_destroy`` and raises ``ValidationError`` (#3319)."
+            403: ownership_refusal_403(
+                "The caller is neither the comment author nor a project Admin+ (#3365).",
+                codes=("comment_delete_forbidden",),
             ),
         }
-    )
+    ),
 )
 class TaskCommentViewSet(
     ProjectScopedViewSet,
@@ -18658,9 +18710,10 @@ class TaskCommentViewSet(
 
         instance = cast(TaskComment, serializer.instance)
         if instance.author_id != self.request.user.pk:
-            raise serializers.ValidationError(
-                {"detail": "Only the author can edit a comment."},
-                code="comment_edit_not_author",
+            # 403, not 400: the actor is refused, the body is fine (#3365). The
+            # time window is a serializer ValidationError and stays a 400.
+            raise PermissionDenied(
+                {"detail": "Only the author can edit a comment.", "code": "comment_edit_not_author"}
             )
         serializer.save()
         # Snapshot plain values BEFORE the on_commit lambda — never dereference
@@ -18690,9 +18743,12 @@ class TaskCommentViewSet(
         is_author = instance.author_id == user.pk
         is_admin = role is not None and role >= Role.ADMIN
         if not (is_author or is_admin):
-            raise serializers.ValidationError(
-                {"detail": "Only the author or a project admin can delete a comment."},
-                code="comment_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request (#3365).
+            raise PermissionDenied(
+                {
+                    "detail": "Only the author or a project admin can delete a comment.",
+                    "code": "comment_delete_forbidden",
+                }
             )
         instance.soft_delete(actor=user)
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
@@ -18771,10 +18827,9 @@ class TaskCommentViewSet(
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The reaction belongs to another user. Emitted as a 400 rather than a "
-                "403 because the check lives in ``perform_destroy`` and raises "
-                "``ValidationError`` (#3319)."
+            403: ownership_refusal_403(
+                "The reaction belongs to another user (#3365).",
+                codes=("reaction_delete_forbidden",),
             ),
         }
     )
@@ -18866,9 +18921,12 @@ class CommentReactionViewSet(
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         if instance.user_id != self.request.user.pk:
-            raise serializers.ValidationError(
-                {"detail": "You can only remove your own reactions."},
-                code="reaction_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request (#3365).
+            raise PermissionDenied(
+                {
+                    "detail": "You can only remove your own reactions.",
+                    "code": "reaction_delete_forbidden",
+                }
             )
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
         reaction_id = str(instance.pk)
@@ -18886,16 +18944,26 @@ class CommentReactionViewSet(
 
 
 @extend_schema_view(
+    partial_update=extend_schema(
+        # ``responses=`` REPLACES the discovered map — restate the 200 or it vanishes.
+        responses={
+            200: TaskNoteSerializer,
+            403: ownership_refusal_403(
+                "The caller is not the note author (#3365). The edit window closing is "
+                "a state refusal and stays a 400.",
+                codes=("note_edit_not_author",),
+            ),
+        }
+    ),
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The caller is neither the note author nor a project Admin+. Emitted as "
-                "a 400 rather than a 403 because the check lives in ``perform_destroy`` "
-                "and raises ``ValidationError`` (#3319)."
+            403: ownership_refusal_403(
+                "The caller is neither the note author nor a project Admin+ (#3365).",
+                codes=("note_delete_forbidden",),
             ),
         }
-    )
+    ),
 )
 class TaskNoteViewSet(
     ProjectScopedViewSet,
@@ -18982,9 +19050,10 @@ class TaskNoteViewSet(
         # Author-only edit — the serializer enforces the time window; this guards
         # the actor. (Pin uses a separate action that bypasses both.)
         if instance.author_id != self.request.user.pk:
-            raise serializers.ValidationError(
-                {"detail": "Only the author can edit a note."},
-                code="note_edit_not_author",
+            # 403, not 400: the actor is refused, the body is fine (#3365). The
+            # time window is a serializer ValidationError and stays a 400.
+            raise PermissionDenied(
+                {"detail": "Only the author can edit a note.", "code": "note_edit_not_author"}
             )
         serializer.save()
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
@@ -19008,9 +19077,12 @@ class TaskNoteViewSet(
         is_author = instance.author_id == user.pk
         is_admin = role is not None and role >= Role.ADMIN
         if not (is_author or is_admin):
-            raise serializers.ValidationError(
-                {"detail": "Only the author or a project admin can delete a note."},
-                code="note_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request (#3365).
+            raise PermissionDenied(
+                {
+                    "detail": "Only the author or a project admin can delete a note.",
+                    "code": "note_delete_forbidden",
+                }
             )
         instance.soft_delete(actor=user)
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).

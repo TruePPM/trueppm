@@ -41,7 +41,6 @@ from .categories import CATEGORIES, CATEGORY_MENTIONS, event_types_for_category
 from .models import (
     DEFAULT_PREFERENCES,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
-    PROJECT_NOTIFICATION_DISPATCHED_EVENTS,
     SIGNAL_ONLY_EVENTS,
     EmailTransportMode,
     Notification,
@@ -51,10 +50,12 @@ from .models import (
     ProjectNotificationEventType,
     ProjectNotificationPreference,
     WorkspaceEmailSettings,
+    project_notification_event_delivery,
 )
 from .serializers import (
     NotificationPreferenceSerializer,
     NotificationSerializer,
+    ProjectNotificationPreferenceDocumentSerializer,
     ProjectNotificationPreferenceSerializer,
     UserNotificationSettingsSerializer,
     WorkspaceEmailSettingsSerializer,
@@ -516,18 +517,6 @@ def _merge_matrix(
     return merged
 
 
-def _event_delivery() -> dict[str, bool]:
-    """``{event_type: is a dispatcher wired}`` for every matrix row (#2904).
-
-    Derived from the model's classification rather than restated here, so the
-    coverage test that pins the classification also pins this response.
-    """
-    return {
-        event: event in PROJECT_NOTIFICATION_DISPATCHED_EVENTS
-        for event in PROJECT_NOTIFICATION_DEFAULT_MATRIX
-    }
-
-
 class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
     """GET/PATCH per-project notification preferences for the current user.
 
@@ -563,21 +552,27 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         pref.project = project
         return pref
 
+    @extend_schema(responses={200: ProjectNotificationPreferenceDocumentSerializer})
     def get(self, request: Request, pk: str) -> Response:
         project = self._get_project(request, pk)
         pref = self._get_or_create_pref(project, request.user)
         # Overlay defaults so a newly added event type renders even when the
         # stored matrix predates it.
         merged = _merge_matrix(pref.matrix or {}, {})
-        payload = ProjectNotificationPreferenceSerializer(pref).data
+        # The document serializer, not the plain one: it carries `event_delivery`,
+        # which is not a model field, and reading it from the same class the schema
+        # publishes is what keeps the two from drifting (#3396, #3399). See its
+        # docstring for why `responses={200: ProjectNotificationPreferenceSerializer}`
+        # would have been a self-consistent lie rather than a fix.
+        #
+        # `event_delivery` says which rows are actually wired to a dispatcher (#2904).
+        # Eight of the nine are not: the matrix rendered them, they defaulted ON
+        # across in-app, email and Slack, and toggling one had no effect in either
+        # direction. Reporting it as a server fact lets a client label those rows
+        # instead of implying a delivery that never happens — the alternative is
+        # every client hard-coding the same list and drifting from it (TODO(#3016)).
+        payload = ProjectNotificationPreferenceDocumentSerializer(pref).data
         payload["matrix"] = merged
-        # Which rows are actually wired to a dispatcher (#2904). Eight of the nine
-        # are not: the matrix rendered them, they defaulted ON across in-app, email
-        # and Slack, and toggling one had no effect in either direction. Reporting
-        # it as a server fact lets a client label those rows instead of implying a
-        # delivery that never happens — the alternative is every client
-        # hard-coding the same list and drifting from it (TODO(#3016)).
-        payload["event_delivery"] = _event_delivery()
         return Response(payload, status=status.HTTP_200_OK)
 
     # Declared, or the operation publishes no ``requestBody`` and a generated client
@@ -586,7 +581,10 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
     # nothing supplies this but the annotation — which is why the account-wide
     # sibling below (``MyNotificationSettingsView.patch``) was declared and this one,
     # the same shape one class up, was not.
-    @extend_schema(request=ProjectNotificationPreferenceSerializer)
+    @extend_schema(
+        request=ProjectNotificationPreferenceSerializer,
+        responses={200: ProjectNotificationPreferenceDocumentSerializer},
+    )
     def patch(self, request: Request, pk: str) -> Response:
         project = self._get_project(request, pk)
         pref = self._get_or_create_pref(project, request.user)
@@ -604,12 +602,17 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
                 setattr(pref, field, validated[field])
         pref.save()
 
+        # Built from the *bound* write serializer rather than re-reading through the
+        # document serializer, so the echo reflects what this request wrote. That is
+        # why `event_delivery` is added by hand here and not on GET — the two paths
+        # assemble differently but must publish the same document, which is what the
+        # response-conformance tests assert against the one declared component.
         payload = serializer.data
         payload["matrix"] = _merge_matrix(pref.matrix or {}, {})
         # Same shape as GET. The web hook maps the PATCH response through the same
         # deserializer and writes it to the query cache, so omitting this here would
         # drop the "not delivered yet" labels the moment a user toggled anything.
-        payload["event_delivery"] = _event_delivery()
+        payload["event_delivery"] = project_notification_event_delivery()
         return Response(payload, status=status.HTTP_200_OK)
 
 

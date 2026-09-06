@@ -218,6 +218,18 @@ def test_remove_other_member_requires_owner(
 
 
 @pytest.mark.django_db
+def test_owner_cannot_remove_a_peer_owner(program: Program, owner: object) -> None:
+    """The peer-role guard is an authorization decision → 403, not 400 (#3365)."""
+    peer = _make_user("prog-peer-owner")
+    peer_membership = ProgramMembership.objects.create(program=program, user=peer, role=Role.OWNER)
+    resp = _client(owner).delete(f"/api/v1/programs/{program.pk}/members/{peer_membership.pk}/")
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "You can only remove members with a role lower than your own."}
+    peer_membership.refresh_from_db()
+    assert peer_membership.is_deleted is False
+
+
+@pytest.mark.django_db
 def test_self_remove_allowed_for_non_owner(
     program: Program,
     owner: object,

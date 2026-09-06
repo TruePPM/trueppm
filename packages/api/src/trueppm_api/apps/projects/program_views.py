@@ -84,10 +84,10 @@ from trueppm_api.apps.projects.models import (
 from trueppm_api.apps.projects.serializers import (
     ProgramExportJobSerializer,
     ProgramImportJobSerializer,
+    ProgramProjectRowSerializer,
     ProgramRiskPolicySerializer,
     ProgramRollupConfigSerializer,
     ProgramSerializer,
-    ProjectSerializer,
     SeedImportRequestSerializer,
 )
 from trueppm_api.apps.projects.views import (
@@ -553,6 +553,18 @@ def _broadcast_projects_updated(project_ids: list[str]) -> None:
         broadcast_board_event(project_id, "project_updated", {"id": project_id})
 
 
+# ProgramViewSet configures SearchFilter + OrderingFilter for its own `list` route, and
+# drf-spectacular consequently publishes `search` and `ordering` on EVERY list-shaped
+# operation on the viewset — including custom @actions, which build their own querysets
+# and never call `self.filter_queryset()`. The parameters were accepted, documented, and
+# dropped on the floor: worse than a 400, because nothing signals that they did nothing
+# (#3420). An action either honors them (see `projects`) or undeclares them with this.
+_UNDECLARE_FILTER_PARAMS = [
+    OpenApiParameter("search", exclude=True),
+    OpenApiParameter("ordering", exclude=True),
+]
+
+
 class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[Program]):
     """CRUD for programs.
 
@@ -579,6 +591,54 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name", "code"]
     ordering_fields = ["name"]
+
+    def get_object(self) -> Program:
+        """Resolve the program by pk without the SEARCH/ORDERING backends (#3420).
+
+        ``GenericAPIView.get_object()`` resolves through
+        ``self.filter_queryset(self.get_queryset())``, so the SearchFilter configured
+        above for the ``list`` route also ran against the **parent lookup** on every
+        detail route. A ``?search=`` intended for a nested action's own queryset was
+        matched against the *program's* name and code instead, and a program whose name
+        did not happen to contain the term was filtered out of its own detail lookup and
+        returned **404** — on ``retrieve``, ``projects``, ``rollup``, ``schedule`` and
+        every other detail route here. That is worse than the silent drop #3420 was
+        filed about, and it is why the ``projects`` action could not simply start
+        calling ``filter_queryset()``: the request never reached the point of filtering
+        the project rows.
+
+        **Suppress the backends, not ``filter_queryset()``.** The obvious fix —
+        resolving with ``get_object_or_404(self.get_queryset(), ...)`` — is wrong.
+        ``McpReadableViewMixin`` enforces the
+        ADR-0678 team MCP opt-out in ``filter_queryset()`` *specifically because*
+        ``ProgramViewSet`` is one of the three viewsets that builds its queryset from
+        scratch instead of chaining to ``super().get_queryset()``, so the mixin's
+        ``get_queryset`` hook never runs here. Bypassing ``filter_queryset()`` on the
+        detail path therefore fails that opt-out **open** — an agent token reads the
+        export of a program that denied it. Emptying ``filter_backends`` for the
+        duration of the lookup keeps the mixin's override in the chain (it calls
+        ``super().filter_queryset()``, which iterates the reduced list) and drops only
+        the two backends that have no business resolving a pk.
+
+        Suppressed **by name**, not by emptying the list. ``filter_backends = []`` would
+        read as "drop whatever is configured", which fails open: a narrowing backend
+        added to this viewset later would be silently skipped on every detail route
+        while this docstring still claimed only the two cosmetic ones were in scope.
+
+        The MCP half is pinned by
+        ``test_program_detail_routes_honor_the_program_denial_for_an_agent``
+        (``tests/apps/access/test_mcp_team_opt_out.py``), which fails against the
+        ``get_object_or_404`` form above. Before this branch nothing covered it: the
+        existing opted-out detail test exercises ``ProjectViewSet``, which *does* chain
+        to ``super().get_queryset()`` and so stays safe by the other hook either way.
+        """
+        suppressed = (filters.SearchFilter, filters.OrderingFilter)
+        original = self.filter_backends
+        self.filter_backends = [b for b in original if b not in suppressed]
+        try:
+            return super().get_object()
+        finally:
+            self.filter_backends = original
 
     def get_permissions(self) -> list[BasePermission]:
         # ADR-0186 §E: append the read-only MCP token guards around the
@@ -1312,6 +1372,18 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     @extend_schema(
         summary="List this program's async export jobs",
         responses={200: ProgramExportJobSerializer(many=True)},
+        # #3420: the viewset's SearchFilter/OrderingFilter make drf-spectacular publish
+        # `search` and `ordering` on every list-shaped operation, this one included —
+        # and this action never runs them. Undeclare rather than honor: the backends are
+        # configured with `search_fields = ["name", "code"]` and
+        # `ordering_fields = ["name"]`, and ProgramExportJob has no `name` and no `code`
+        # column, so wiring `filter_queryset()` in here would turn `?search=x` from a
+        # silently-ignored parameter into a FieldError 500.
+        #
+        # `exclude=True` is the only form that removes an auto-generated parameter —
+        # `parameters=[]` reads as "no overrides" and drf-spectacular emits the filter
+        # backends' parameters anyway, which is the silent no-op this is fixing.
+        parameters=_UNDECLARE_FILTER_PARAMS,
     )
     @action(detail=True, methods=["get"], url_path="export/jobs")
     def export_jobs(self, request: Request, pk: str | None = None) -> Response:
@@ -1654,6 +1726,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     @extend_schema(
         summary="List bundled demo samples available to the loader",
         responses={200: SampleCatalogEntrySerializer(many=True)},
+        # #3420: same undeclaration as `export_jobs`, for a harder reason — this action
+        # returns a hand-built list of dicts over fixtures baked into the image, not a
+        # queryset, so `filter_queryset()` cannot be applied to it at all.
+        parameters=_UNDECLARE_FILTER_PARAMS,
     )
     # The catalog is a fixed-size list of the fixtures baked into the image — it is
     # returned as a bare array and is never paginated. ProgramViewSet does set a
@@ -2140,7 +2216,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
     @extend_schema(
         summary="List projects in this program",
-        responses={200: ProjectSerializer(many=True)},
+        responses={200: ProgramProjectRowSerializer(many=True)},
     )
     # This action returns a bare array, but ProgramViewSet sets pagination_class,
     # so the auto-schema would otherwise declare a PaginatedProjectList envelope
@@ -2155,6 +2231,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         Permission: IsProgramMember (any program role can see the project list,
         but the project itself only opens if the user also has project membership
         — that gate is enforced by the project's own viewset on click-through).
+
+        Because that gate is membership-*existence* only, a program **Viewer** reaches
+        this action, and the row set below is every non-draft project in the program
+        rather than the caller's own. Both halves are deliberate — a program member is
+        meant to see what is in the program — but together they mean the response shape
+        is the disclosure boundary, which is why this serializes
+        ``ProgramProjectRowSerializer`` and not ``ProjectSerializer`` (#3439). Read that
+        class's docstring before widening it; the fields it omits are governance
+        settings that belong on the membership-gated ``GET /projects/{id}/``.
         """
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
 
@@ -2168,15 +2253,46 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # ≤5-working-days-of-float rule (cf. ProjectViewSet.status_summary).
         today = timezone.localdate()
         incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
+        # ---------------------------------------------------------------------
+        # THIS ACTION BUILDS ITS OWN QUERYSET, and therefore inherits NOTHING from
+        # ProjectScopedViewSet.get_queryset — not its `pk__in=member_project_ids`
+        # membership filter, and not the per-caller annotations it adds on the way
+        # past. That bypass has now produced three separate defects: `is_pinned`
+        # silently false on every row (#2553), `my_role`/`can_author` silently null
+        # and false on every row (#3357), and the full 86-field ProjectSerializer
+        # reaching callers with no ProjectMembership (#3439). Each was repaired here
+        # by hand, below, because there is no shared path to inherit from.
+        #
+        # So: the row set is program-scoped, NOT membership-scoped — every non-draft
+        # project in the program, for any program role down to Viewer. That is
+        # intentional (a program member is meant to see what is in the program), and
+        # it is why the response serializer, not the filter, is what keeps a
+        # non-member row safe. If you add a per-caller field to ProjectSerializer,
+        # it does NOT arrive here; wire it explicitly, and decide whether it belongs
+        # on ProgramProjectRowSerializer at all.
+        #
+        # OPEN QUESTION, deliberately left open: `Project.visibility` is stored but not
+        # yet enforced (TODO(#2066) on the model). When it is, this route has to answer
+        # whether a PRIVATE project's row — its existence, name, code, start date, health
+        # and risk counts — still reaches every program Viewer. The paragraph above is a
+        # statement about the defect #3439 fixed, NOT a ruling on #2066; do not cite it
+        # as settling that. `visible_projects()` drops drafts and nothing else today.
+        # ---------------------------------------------------------------------
         qs = (
             visible_projects(Project.objects.filter(program=program, is_deleted=False))
-            # ADR-0441: ProjectSerializer.effective_calendar resolves project ?? program
-            # ?? workspace and reports holiday_count, so select_related the program-tier
-            # calendar and prefetch both tiers' exceptions to keep this list N+1-free.
-            # (The workspace-tier calendar is the shared singleton, resolved once via the
-            # serializer's cached workspace.)
-            .select_related("calendar", "program", "program__calendar")
-            .prefetch_related("calendar__exceptions", "program__calendar__exceptions")
+            # `program` is select_related because the three surviving inheritance reads
+            # — effective_methodology, inherited_methodology, effective_iteration_label
+            # — resolve project ?? program ?? workspace and would otherwise cost a query
+            # per row for the program tier. (The workspace tier is the shared singleton,
+            # loaded once by the serializer's cached workspace.)
+            #
+            # The calendar joins and the two `*__exceptions` prefetches that used to sit
+            # here are GONE with #3439: they existed solely for `effective_calendar` /
+            # `calendar_source`, and ProgramProjectRowSerializer does not serialize
+            # either. Keeping them cost two queries per request — each an unbounded read
+            # of calendar-exception rows — to build data nothing rendered. Re-add them
+            # only alongside a field that actually reads a calendar.
+            .select_related("program")
             .annotate(
                 overdue_count=Count(
                     "tasks",
@@ -2226,7 +2342,49 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     ).values("role")[:1]
                 )
             )
-        return Response(ProjectSerializer(qs, many=True).data)
+        # #3420: ProgramViewSet declares SearchFilter + OrderingFilter, so
+        # drf-spectacular publishes `search` and `ordering` on this operation — but the
+        # action never ran them, so both were accepted, documented, and dropped. Honor
+        # them: `search_fields = ["name", "code"]` and `ordering_fields = ["name"]` are
+        # all real Project columns, so they need no translation to apply here.
+        #
+        # Applied AFTER the `.order_by("start_date", "name")` above, deliberately.
+        # OrderingFilter is a no-op when the caller sends no `?ordering=` (the view sets
+        # no `ordering` default), so the roster's start-date order survives untouched;
+        # send one and it replaces that order, which is the whole point. Running it
+        # *before* the `order_by` — the obvious placement — would let the hardcoded
+        # order clobber the caller's every time, reintroducing the same silent-drop bug
+        # one line later.
+        #
+        # Second effect, deliberate: `McpReadableViewMixin.filter_queryset` is in this
+        # viewset's MRO, so this call ALSO runs the ADR-0678 opt-out over the Project
+        # queryset (it dispatches on the model, landing on the `Project` branch). That
+        # duplicates the explicit `mcp_excluded_project_ids` exclusion above — the two
+        # are idempotent and agree. Both are kept on purpose: the explicit exclude is the
+        # #2482 T1 enforcement and must not depend on this line's placement, and this
+        # line must not be reordered to "avoid" a filter it is not the authority for.
+        # For an agent token it also sets `request._mcp_scope_filtered`, so the T8 audit
+        # annotation now records the narrowing on this route as well.
+        qs = self.filter_queryset(qs)
+        # Serialized WITH context (#3439). Be precise about why, because the obvious
+        # reason is no longer the true one: of the 20 retained fields, the only two that
+        # ever read `self.context["request"]` were `can_author` and
+        # `can_undo_batch_operations`, and ProgramProjectRowSerializer overrides both to
+        # resolve from the `_my_role` annotation alone. So **no retained field needs the
+        # request today**. It is passed because a serializer rendering a response should
+        # be able to see the request that asked for it — the omission was a latent defect
+        # waiting on the first context-reading field anyone added — and passing it now
+        # means that field works instead of silently failing closed.
+        #
+        # The cost of passing it is bounded and checked: it activates the parent's
+        # `__init__` branch that re-scopes `copy_settings_from`, which exits without a
+        # query because that field is absent from `Meta.fields`. Add a write-only field
+        # to this serializer and that branch starts costing a membership query per
+        # request — and the two overridden getters are what keep the per-ROW cost at
+        # zero. See the query-count test before changing either.
+        return Response(
+            ProgramProjectRowSerializer(qs, many=True, context={"request": request}).data
+        )
 
     @extend_schema(
         summary="Get the program-scoped integrations summary",

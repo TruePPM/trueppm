@@ -3321,7 +3321,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/CascadeClassificationOperation"
+                                    "$ref": "#/components/schemas/CascadeClassificationOperationUndo"
                                 }
                             }
                         },
@@ -8456,7 +8456,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PasteManyOperation"
+                                    "$ref": "#/components/schemas/PasteManyOperationUndo"
                                 }
                             }
                         },
@@ -9790,15 +9790,6 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
@@ -9814,15 +9805,6 @@
                         "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
                         }
                     }
                 ],
@@ -10391,7 +10373,7 @@
         "/api/v1/programs/{id}/projects/": {
             "get": {
                 "operationId": "v1_programs_projects_list",
-                "description": "List projects in this program.\n\nURL: ``GET /api/v1/programs/{pk}/projects/``\n\nPermission: IsProgramMember (any program role can see the project list,\nbut the project itself only opens if the user also has project membership\n— that gate is enforced by the project's own viewset on click-through).",
+                "description": "List projects in this program.\n\nURL: ``GET /api/v1/programs/{pk}/projects/``\n\nPermission: IsProgramMember (any program role can see the project list,\nbut the project itself only opens if the user also has project membership\n— that gate is enforced by the project's own viewset on click-through).\n\nBecause that gate is membership-*existence* only, a program **Viewer** reaches\nthis action, and the row set below is every non-draft project in the program\nrather than the caller's own. Both halves are deliberate — a program member is\nmeant to see what is in the program — but together they mean the response shape\nis the disclosure boundary, which is why this serializes\n``ProgramProjectRowSerializer`` and not ``ProjectSerializer`` (#3439). Read that\nclass's docstring before widening it; the fields it omits are governance\nsettings that belong on the membership-gated ``GET /projects/{id}/``.",
                 "summary": "List projects in this program",
                 "parameters": [
                     {
@@ -10447,7 +10429,7 @@
                                 "schema": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/components/schemas/Project"
+                                        "$ref": "#/components/schemas/ProgramProjectRow"
                                     }
                                 }
                             }
@@ -14418,7 +14400,25 @@
                                 }
                             }
                         },
-                        "description": "Refused on the membership's own state: the target's role is at or above the caller's, or removing them would leave the program with no Owner. Verified against the peer-role and last-Owner guards in ``destroy`` (#3319)."
+                        "description": "Refused on the roster's own state: removing this member would leave the program with no Owner. Verified against the last-Owner guard in ``destroy`` (#3319)."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "detail"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not a member, is below Owner and removing someone else, or holds a role at or below the target's (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -16558,26 +16558,6 @@
                 "operationId": "v1_programs_samples_list",
                 "description": "List the bundled samples, with the provenance to audit them (#375, #2490).\n\nBeyond the loader's title/description, each entry carries what someone\ndeciding whether to trust the fixture actually needs: its size, a SHA-256\nof the exact bytes this instance will serve, the schema version, and the\nentity counts. The counts answer the question the demo loader otherwise\nforces on faith — *how much is this about to write into my database?*\n\nCounts, digest and size all come from one read of one file\n(``sample_metadata``), so a client that verifies the digest has verified\nthe same bytes the counts describe.\n\nA fixture that is present but unparseable reports ``null`` counts and\nstays downloadable: failing to summarize a file is no reason to withhold\nit from someone who wants to read it themselves.",
                 "summary": "List bundled demo samples available to the loader",
-                "parameters": [
-                    {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
                 "tags": [
                     "programs"
                 ],
@@ -20935,7 +20915,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectNotificationPreferenceDocument"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -21005,7 +20992,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectNotificationPreferenceDocument"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -22867,6 +22861,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart. **The token lacks `legacy:full`** — an `mcp:read` token is read-only and can never push; re-mint at the right scope and the same request succeeds. **Or the project is archived** — that clears for no scope and no role, so re-minting will never help and neither will retrying; the project has to be unarchived, after which the identical push goes through (#3413)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -28209,7 +28206,25 @@
                                 }
                             }
                         },
-                        "description": "Refused on the membership's own state: the target's role is at or above the caller's, or removing them would leave the project with no Owner. Verified against the peer-role and last-Owner guards in ``destroy`` (#3319)."
+                        "description": "Refused on the roster's own state: removing this member would leave the project with no Owner. Verified against the last-Owner guard in ``destroy`` (#3319)."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "detail"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not a member, is below Owner and removing someone else, or holds a role at or below the target's (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -32447,7 +32462,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -32455,12 +32470,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "attachment_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The caller is neither the uploader nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError``; the declaration follows what reaches the wire, not what the status arguably should be (#3319)."
+                        "description": "The caller is neither the uploader nor a project Admin+ (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -33030,7 +33056,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -33038,12 +33064,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "reaction_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The reaction belongs to another user. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
+                        "description": "The reaction belongs to another user (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -33218,6 +33255,32 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "comment_edit_not_author"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                        }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not the comment author (#3365). The edit window closing is a state refusal and stays a 400."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -33320,7 +33383,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -33328,12 +33391,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "comment_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The caller is neither the comment author nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
+                        "description": "The caller is neither the comment author nor a project Admin+ (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -35172,6 +35246,32 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "note_edit_not_author"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                        }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not the note author (#3365). The edit window closing is a state refusal and stays a 400."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -35274,7 +35374,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -35282,12 +35382,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "note_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The caller is neither the note author nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
+                        "description": "The caller is neither the note author nor a project Admin+ (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -36385,7 +36496,7 @@
         "/api/v1/projects/import/msproject/": {
             "post": {
                 "operationId": "v1_projects_import_msproject_create",
-                "description": "Create a NEW project by importing an MS Project file (ADR-0092, #797).\n\nDistinct from ``MsProjectImportView``, which imports into an existing project.\nThe project shell is created synchronously (named from the filename, dated\ntoday, optionally assigned to a program); tasks import asynchronously via the\n``ImportRequest`` outbox, and the worker overwrites the name/start_date from\nthe file header once it parses.\n\nRBAC: any authenticated user may create a standalone project (becomes Owner) —\nidentical to ``POST /projects/``. Assigning a ``program`` requires program\nAdmin, enforced by ``ProjectSerializer.validate_program`` (ADR-0070).",
+                "description": "Create a NEW project by importing an MS Project file (ADR-0092, #797).\n\nDistinct from ``MsProjectImportView``, which imports into an existing project.\nThe project shell is created synchronously (named from the filename, dated\ntoday, optionally assigned to a program, and seeded with the methodology a\nNew-project sheet would derive — the program's effective methodology, else\nthe workspace default, #3432); tasks import asynchronously via the\n``ImportRequest`` outbox, and the worker overwrites the name/start_date from\nthe file header once it parses.\n\nRBAC: any authenticated user may create a standalone project (becomes Owner) —\nidentical to ``POST /projects/``. Assigning a ``program`` requires program\nAdmin, enforced by ``ProjectSerializer.validate_program`` (ADR-0070).",
                 "summary": "Create a new project by importing an MS Project file",
                 "tags": [
                     "import-export"
@@ -43303,7 +43414,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/StructuralOperation"
+                                    "$ref": "#/components/schemas/StructuralOperationUndo"
                                 }
                             }
                         },
@@ -47497,7 +47608,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TemplateApplication"
+                                    "$ref": "#/components/schemas/TemplateApplicationUndo"
                                 }
                             }
                         },
@@ -52811,6 +52922,91 @@
                     "status",
                     "subtree_id",
                     "task_snapshots",
+                    "undone_at"
+                ]
+            },
+            "CascadeClassificationOperationUndo": {
+                "type": "object",
+                "description": "The ledger row **plus** the ``undo`` summary the action returns (#3416).\n\nSame defect and same fix as :class:`PasteManyOperationUndoSerializer`; the counts\ndiffer because a cascade undo writes prior values back rather than deleting rows.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "subtree_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "task_snapshots": {
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the undo did to the rows this cascade reclassified.",
+                        "properties": {
+                            "reverted": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows restored to their pre-cascade classification."
+                            },
+                            "kept": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows left as the cascade set them because someone has edited them since."
+                            }
+                        },
+                        "required": [
+                            "reverted",
+                            "kept"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "subtree_id",
+                    "task_snapshots",
+                    "undo",
                     "undone_at"
                 ]
             },
@@ -58406,6 +58602,85 @@
                     "undone_at"
                 ]
             },
+            "PasteManyOperationUndo": {
+                "type": "object",
+                "description": "The ledger row **plus** the ``undo`` summary the action returns (#3416).\n\nThe handler builds its body as ``data = serializer.data`` then ``data[\"undo\"] =\nsummary``, so declaring the bare ``PasteManyOperationSerializer`` as the ``200``\nwould publish a document with no ``undo`` field — the one value the endpoint\nexists to report, missing from every generated SDK. See\n:func:`undo_summary_schema` for why that is worse than declaring nothing.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "created_task_versions": {
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the undo did to the rows this paste created.",
+                        "properties": {
+                            "deleted": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows removed — created by the paste and untouched since."
+                            },
+                            "kept": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows left in place because someone has edited them since the paste."
+                            }
+                        },
+                        "required": [
+                            "deleted",
+                            "kept"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "created_task_versions",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "undo",
+                    "undone_at"
+                ]
+            },
             "PatchedAcceptanceCriterionRequest": {
                 "type": "object",
                 "description": "Read/write serializer for a story's acceptance criteria (ADR-0105 §2).\n\nThe review trail (``met_by``/``met_at``) is read-only and exposed as the criterion's\nstatus with attribution; it is never aggregated to a PMO surface and never rendered as\na per-person column (the VoC privacy guard). ``met`` is set by ticking the criterion;\nthe service layer stamps ``met_by``/``met_at`` when that happens.",
@@ -61665,6 +61940,143 @@
                     "is_pinned"
                 ]
             },
+            "ProgramProjectRow": {
+                "type": "object",
+                "description": "One row of a program's project roster — deliberately far narrower than its parent.\n\nServes ``GET /api/v1/programs/{pk}/projects/`` (#3439). That action is gated by\n``IsProgramMember``, which tests membership *existence* only, so a program **Viewer**\nreaches it — and the action lists every non-draft project in the program, including\nones the caller holds no ``ProjectMembership`` on. Serving ``ProjectSerializer``\nthere handed that Viewer 86 fields per row, among them the project lead's email\naddress (``lead_detail``), the team's agent-read consent decision (``mcp_enabled``\nand its resolutions, ADR-0678 §T7), the public-sharing and guest posture, the\nattachment policy, the MC forecast-history attribution audience, and the\nsurface-visibility map — all live governance decisions belonging to a project the\ncaller cannot open.\n\n**What this row is, and the rule for extending it.** A roster row answers *which\nprojects are in this program, and how are they doing* — identity, dates, health,\nlifecycle, and the rollup counts the Projects tab renders as standup chips. It\nanswers nothing about **who runs a project, who may reach it, or what it has\nconsented to**: no lead, no membership defaults, no sharing or guest posture, no\nagent-read consent, no attachment or retention policy. Before adding a field, ask\nwhich of those it is; the second kind belongs on ``GET /projects/{id}/``, which is\nmembership-gated by ``ProjectViewSet`` and is where the web already reads all of it.\n\n**The methodology/iteration fields are a deliberate, narrow exception to that rule,\nand worth naming as one** — they *are* project settings (``methodology`` is\nScheduler+-writable under ADR-0107, ``iteration_label`` is Admin+), so a reader\napplying the paragraph above strictly would remove them. They stay because they are\n**display chrome for the roster itself**: methodology decides which tabs a row links\nto and how its iteration container is labelled, so a roster that omits them renders\nwrong rather than rendering less. The line being drawn is *presentation policy* (in)\nversus *access and disclosure policy* (out) — not \"is it a setting\". A field that\ngoverns who can see or do something is out even when a client wants it.\n\nThe caller-scoped fields are the deliberate exception and are not a disclosure: each\nanswers only about *the requesting user*. ``is_pinned`` is bound positionally to\n``request.user`` by the viewset's ``Exists()`` annotation (#2553, ADR-0627 §D5), and\n``my_role`` / ``my_role_label`` / ``can_author`` / ``can_undo_batch_operations`` all\nride the ``_my_role`` Subquery (#3357). Dropping them here would silently re-open\nboth of those defects, which is why they are pinned by tests rather than left to\njudgement.\n\nNarrowing the *serializer* rather than the *row set* is the deliberate half of the\nfix. A program member is meant to see that a project exists — that is what a program\nis — and this mirrors the sibling ``program_schedule`` action, which likewise keeps\nnon-member rows and redacts them to the ADR-0120 §D5 minimal card instead of hiding\nthem.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "code": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "methodology": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MethodologyEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "effective_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_methodology": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "iteration_label": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "effective_iteration_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "health": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/HealthEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "lifecycle": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LifecycleEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
+                    },
+                    "is_archived": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "overdue_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks past their CPM ``early_finish`` (#560) — annotated\nonly on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
+                    "at_risk_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
+                        "readOnly": true
+                    },
+                    "is_pinned": {
+                        "type": "boolean",
+                        "description": "Whether **the requesting user** has pinned this (#2390, ADR-0627).\n\nBound positionally to ``request.user`` by the viewset's ``Exists()``\nannotation — there is no parameter, and no code path, by which a caller\ncan ask whether *someone else* pinned it. That is the whole privacy\ndesign: this field can answer \"did I pin it\", never \"who pinned it\" or\n\"how many pinned it\" (ADR-0627 §D5). ``pinned_at`` is deliberately absent\nhere and lives only on the owner's own ``GET /me/pinned/``, because a\nrecency timestamp on a shared payload is what would make \"she hasn't\npinned it in weeks\" expressible.\n\nNote this is the *opposite* privacy semantics from ``TaskNote.pinned`` /\n``TaskAttachment.is_pinned``, which are shared curation any project\nwriter may toggle (ADR-0627 §D1.1). Do not reason by analogy between them.\n\nDefaults to ``False`` rather than ``None`` when unannotated: a missing\nannotation should render an unpinned star, not a broken toggle.",
+                        "readOnly": true
+                    },
+                    "my_role": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Caller's role ordinal on this project (ADR-0186 §F, #504).\n\nBacked by the viewset's ``_my_role`` annotation (a Subquery over\nProjectMembership) so it costs one scalar per row, never an N+1. Falls\nback to ``None`` when the annotation is absent — e.g. a freshly-created\ninstance serialized before it is re-fetched through the annotated\nqueryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.",
+                        "readOnly": true
+                    },
+                    "my_role_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.\n\n``None`` **also** for an ordinal the ``Role`` enum does not define, and that\nbranch is not defensive padding: ADR-0072 reserves the 2-99, 101-199, 201-299\nand 301-399 bands for Enterprise custom roles, ``ProjectMembership.role`` is a\nplain ``IntegerField`` whose ``choices`` PostgreSQL does not enforce, and a bare\n``Role(350)`` raises ``ValueError`` — which DRF does not convert, so it 500s the\nWHOLE response, not this one field. Every *gate* in the tree is written as a\nband comparison and handles such a role correctly; the display path was the one\nplace that did not, which meant one Enterprise custom role made the project\nunreadable for whoever held it (#3419). Returning ``None`` is honest — the OSS\nedition genuinely has no name for that ordinal — and every consumer already\nrenders the nullable case.",
+                        "readOnly": true
+                    },
+                    "can_author": {
+                        "type": "boolean",
+                        "description": "Whether the requesting user may author this project's plan. Read-only; the same rule the plan-authoring endpoints enforce. `false` on a project the caller holds no membership on.",
+                        "readOnly": true
+                    },
+                    "can_undo_batch_operations": {
+                        "type": "boolean",
+                        "description": "Whether the requesting user may reverse a recorded batch write on this project — the classification cascade and paste-many undo endpoints. Read-only; the same rule those endpoints enforce. Clients use it to disclose, before an irreversible batch write, that the caller will not be able to undo it. Does not answer for structural operations, whose undo rule is actor-or-Admin.",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "at_risk_count",
+                    "can_author",
+                    "can_undo_batch_operations",
+                    "code",
+                    "effective_iteration_label",
+                    "effective_methodology",
+                    "health",
+                    "id",
+                    "inherited_methodology",
+                    "is_archived",
+                    "is_pinned",
+                    "iteration_label",
+                    "lifecycle",
+                    "methodology",
+                    "my_role",
+                    "my_role_label",
+                    "name",
+                    "overdue_count",
+                    "program",
+                    "start_date"
+                ]
+            },
             "ProgramRequest": {
                 "type": "object",
                 "description": "Read/write serializer for Program (ADR-0070).\n\n``my_role`` is the requesting user's role on this program — provided here\nso the list endpoint does not require a second per-program call to render\nthe role chip. ``project_count`` and ``member_count`` are computed in the\nviewset queryset via annotate() to avoid N+1.",
@@ -63651,6 +64063,271 @@
                     "user"
                 ]
             },
+            "ProjectNotificationPreferenceDocument": {
+                "type": "object",
+                "description": "What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).\n\nThe stored row's fields **plus** ``event_delivery``, which the view adds on both\nmethods and which is not a model field. Declaring the plain serializer as the\n``200`` would have been the obvious fix and a worse one: the schema would be\nself-consistent, ``api:schema-drift`` would pass, and a generated SDK would\nsilently drop the one key a client needs to label the rows nothing dispatches.\nA declared lie is more dangerous than a declared absence.\n\nSubclasses rather than restating the field list, so a field added to the parent\nreaches the published response without a second edit. Only ``event_delivery`` is\nnamed here, because only ``event_delivery`` is the difference.",
+                "properties": {
+                    "matrix": {
+                        "type": "object",
+                        "description": "Per-event, per-channel routing grid. Keys are event types; each value is an object of channel to boolean. A PATCH may send a partial grid — the supplied cells are merged onto the stored ones, so a single toggle need not repost the whole matrix. Any key outside these two enumerations, or any non-boolean leaf, is rejected with a 400.",
+                        "properties": {
+                            "budget_alert": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "comment_mention": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "milestone_reached": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "risk_created": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_end": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "sprint_start": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "status_change": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_assigned": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            "task_overdue": {
+                                "type": "object",
+                                "properties": {
+                                    "email": {
+                                        "type": "boolean"
+                                    },
+                                    "in_app": {
+                                        "type": "boolean"
+                                    },
+                                    "mobile_push": {
+                                        "type": "boolean"
+                                    },
+                                    "slack": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "schema_version": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Matrix shape version; upgraded on read via the migration registry (ADR-0086)."
+                    },
+                    "paused": {
+                        "type": "boolean"
+                    },
+                    "quiet_hours_enabled": {
+                        "type": "boolean"
+                    },
+                    "quiet_hours_from": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "quiet_hours_until": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "quiet_hours_timezone": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "quiet_hours_timezone_source": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/QuietHoursTimezoneSourceEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "event_delivery": {
+                        "type": "object",
+                        "description": "Which matrix rows are wired to a delivery path. `true` means toggling that event's channels changes what gets delivered; `false` means the row is rendered and stored but nothing dispatches it yet, so a client should label it rather than imply a delivery that never happens. Reported as a server fact so every client does not hard-code the same list and drift from it.",
+                        "properties": {
+                            "budget_alert": {
+                                "type": "boolean"
+                            },
+                            "comment_mention": {
+                                "type": "boolean"
+                            },
+                            "milestone_reached": {
+                                "type": "boolean"
+                            },
+                            "risk_created": {
+                                "type": "boolean"
+                            },
+                            "sprint_end": {
+                                "type": "boolean"
+                            },
+                            "sprint_start": {
+                                "type": "boolean"
+                            },
+                            "status_change": {
+                                "type": "boolean"
+                            },
+                            "task_assigned": {
+                                "type": "boolean"
+                            },
+                            "task_overdue": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "budget_alert",
+                            "comment_mention",
+                            "milestone_reached",
+                            "risk_created",
+                            "sprint_end",
+                            "sprint_start",
+                            "status_change",
+                            "task_assigned",
+                            "task_overdue"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "event_delivery",
+                    "matrix",
+                    "quiet_hours_timezone",
+                    "quiet_hours_timezone_source",
+                    "schema_version",
+                    "updated_at"
+                ]
+            },
             "ProjectPinResponse": {
                 "type": "object",
                 "properties": {
@@ -64342,6 +65019,16 @@
                 ],
                 "type": "string",
                 "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run"
+            },
+            "QuietHoursTimezoneSourceEnum": {
+                "enum": [
+                    "project",
+                    "workspace",
+                    "server",
+                    "fallback"
+                ],
+                "type": "string",
+                "description": "* `project` - project\n* `workspace` - workspace\n* `server` - server\n* `fallback` - fallback"
             },
             "RaiseCeilingRequest": {
                 "type": "object",
@@ -67606,6 +68293,137 @@
                 ],
                 "type": "string",
                 "description": "* `indent` - Indent\n* `outdent` - Outdent\n* `reparent` - Reparent\n* `reorder` - Reorder\n* `group` - Group\n* `ungroup` - Ungroup"
+            },
+            "StructuralOperationUndo": {
+                "type": "object",
+                "description": "The ledger row **plus** the ``undo`` summary the action returns (#3416).\n\n``undo`` handler builds its body as ``data = self.get_serializer(operation).data``\nthen ``data[\"undo\"] = summary``, so the bare ``StructuralOperationSerializer``\npublished as the ``200`` left a typed client with no field for the five counts\nthat say what the reversal actually did. Five, not two: a structural undo restores\nshape, un-mints containers, revives tombstoned rows and re-adds dependency edges,\nand it reports each separately because a caller acts on them differently — a\nnon-zero ``dependencies_skipped`` in particular means the graph came back\n*incomplete* and the user has edges to re-draw by hand.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undone_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructuralOperationKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "undoable": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_undoable": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "undo_blocked_reason": {
+                        "description": "Why this operation cannot be undone, from a closed set (#3037). The empty string means it can. `shape_changed` is evaluated only on the detail read — it is racy by construction, and the 409 on the write is authoritative either way.\n\n* `` - Undoable\n* `already_undone` - Already undone\n* `too_large` - Region too large to reverse\n* `not_top_of_stack` - Not top of stack\n* `shape_changed` - Outline changed since\n* `forbidden` - Forbidden",
+                        "readOnly": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/StructuralUndoBlockedReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the reversal restored, by kind. All-or-nothing: a refusal is a 409 with no summary at all, so every count here describes a completed undo.",
+                        "properties": {
+                            "restored": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows whose parent/order the undo put back."
+                            },
+                            "created_removed": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Containers the forward act minted and the undo un-minted."
+                            },
+                            "deleted_restored": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows the forward act soft-deleted and the undo revived."
+                            },
+                            "dependencies_restored": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Dependency edges the undo re-created."
+                            },
+                            "dependencies_skipped": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Edges NOT re-created because the other end no longer exists — a non-zero value means the restored graph is incomplete."
+                            }
+                        },
+                        "required": [
+                            "restored",
+                            "created_removed",
+                            "deleted_restored",
+                            "dependencies_restored",
+                            "dependencies_skipped"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "id",
+                    "is_undoable",
+                    "kind",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "undo",
+                    "undo_blocked_reason",
+                    "undoable",
+                    "undone_at",
+                    "undone_by"
+                ]
             },
             "StructuralUndoBlockedReasonEnum": {
                 "enum": [
@@ -71950,6 +72768,110 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `undone` - Undone"
+            },
+            "TemplateApplicationUndo": {
+                "type": "object",
+                "description": "The adoption record **plus** the ``undo`` summary the action returns (#3416).\n\nThe handler builds its body as ``data = self.get_serializer(application).data``\nthen ``data[\"undo\"] = summary``, so the bare ``TemplateApplicationSerializer``\npublished as the ``200`` gave a typed client no field for the deleted/kept split\n— and that split is the whole point of the call here, because undo deliberately\n*keeps* rows a person has since edited (ADR-0786 §4). A client that cannot read\n``kept`` cannot tell a full reversal from a partial one.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "template": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "template_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "template_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TemplateApplicationStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undo": {
+                        "type": "object",
+                        "description": "What the undo did to the rows this application wrote.",
+                        "properties": {
+                            "deleted": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows removed — written by the application and untouched since."
+                            },
+                            "kept": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "description": "Rows left in place because someone has edited them since. A non-zero value means the project still carries part of the template."
+                            }
+                        },
+                        "required": [
+                            "deleted",
+                            "kept"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "completed_at",
+                    "created_at",
+                    "error_detail",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "template",
+                    "template_name",
+                    "template_version",
+                    "undo",
+                    "undone_at"
+                ]
             },
             "TemplateDivergence": {
                 "type": "object",

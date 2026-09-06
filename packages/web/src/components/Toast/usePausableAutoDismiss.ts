@@ -44,6 +44,25 @@ export interface PausableAutoDismissResult {
   /** True while hovered or containing focus. Exposed for assertions and styling. */
   paused: boolean;
   pauseHandlers: PauseHandlers;
+  /**
+   * Runs `fn` with the focus pause suppressed, so a focus move the COMPONENT makes
+   * does not read as the user engaging with the surface (#3394).
+   *
+   * `ConfirmDeleteStrip` focuses its Confirm button on mount, and mount focus is not
+   * engagement: pausing on it would turn "auto-cancels in 5s" into "never
+   * auto-cancels" on a destructive-action guard whose timeout is deliberately the
+   * *safe* direction (it declines the delete). A `focusin` the user caused — tabbing
+   * to Cancel, shift-tabbing back — still pauses, which is the half WCAG 2.2.1 needs.
+   *
+   * Discriminating by origin rather than by a timing window is what makes this
+   * testable: the flag brackets the synchronous `focus()` dispatch, so `onFocus`
+   * runs inside it and nothing else can.
+   *
+   * **Opt-in by call, not by option.** A caller that never invokes this is byte-for-byte
+   * unchanged — the flag it reads can only be set here — which is why adding it did not
+   * touch `ToastHost`, `ScheduleView`, `GridView` or `RetroBoardSurface`.
+   */
+  runWithoutPausing: (fn: () => void) => void;
 }
 
 /**
@@ -70,6 +89,10 @@ export interface PausableAutoDismissResult {
  *
  * No hover-state seeding on mount, deliberately — see the note in `ToastPill`
  * about `:hover` reading `false` on a replacement pill.
+ *
+ * A surface that focuses ITSELF on mount wraps that call in `runWithoutPausing`, so
+ * the autofocus is not mistaken for engagement (#3394). Only `ConfirmDeleteStrip`
+ * needs it; see the field's own doc for why the opt-in is a call rather than an option.
  */
 export function usePausableAutoDismiss({
   active,
@@ -108,9 +131,26 @@ export function usePausableAutoDismiss({
     return () => window.clearTimeout(handle);
   }, [active, paused, durationMs, restartKey]);
 
+  // Set only for the duration of a `runWithoutPausing` call — see the doc on the
+  // result field. Default `false` means every existing caller reads it as a no-op.
+  const programmaticRef = useRef(false);
+  const runWithoutPausing = useCallback((fn: () => void) => {
+    programmaticRef.current = true;
+    try {
+      // `HTMLElement.focus()` dispatches `focus`/`focusin` SYNCHRONOUSLY, and React
+      // runs its root listener inside that dispatch — so `onFocus` below observes
+      // the flag. `try/finally` because a throwing `fn` must not leave the surface
+      // permanently unable to pause.
+      fn();
+    } finally {
+      programmaticRef.current = false;
+    }
+  }, []);
+
   const onMouseEnter = useCallback(() => setHovered(true), []);
   const onMouseLeave = useCallback(() => setHovered(false), []);
   const onFocus = useCallback(() => {
+    if (programmaticRef.current) return;
     setFocused(true);
     focusWithinRef.current?.(true);
   }, []);
@@ -124,5 +164,6 @@ export function usePausableAutoDismiss({
   return {
     paused,
     pauseHandlers: { onMouseEnter, onMouseLeave, onFocus, onBlur },
+    runWithoutPausing,
   };
 }

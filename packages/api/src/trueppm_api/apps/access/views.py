@@ -14,6 +14,7 @@ from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -58,7 +59,7 @@ from trueppm_api.apps.access.serializers import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
-from trueppm_api.core.openapi import state_refusal_400
+from trueppm_api.core.openapi import ownership_refusal_403, state_refusal_400
 from trueppm_api.core.request_body import object_body
 
 _PK = str | uuid.UUID
@@ -242,8 +243,6 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         """Return the actor's role, raising 403 if below minimum."""
         role = _membership_role(request, project_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -269,8 +268,6 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         # has_permission only checks authentication; enforce membership explicitly
         # because DRF only calls has_object_permission on retrieve/update/destroy.
         if _membership_role(request, project.pk) is None:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied("You must be a member of this project.")
         qs = self.get_queryset()
         # ?self=true: return only the requesting user's own membership row.
@@ -414,14 +411,10 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                     is_deleted=False,  # type: ignore[misc]
                 )
             except ProjectMembership.DoesNotExist:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this project.") from None
 
             actor_role = actor_membership.role
             if actor_role < Role.OWNER:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
 
             if new_role is not None:
@@ -461,10 +454,13 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         responses={
             204: None,
             400: state_refusal_400(
-                "Refused on the membership's own state: the target's role is at or "
-                "above the caller's, or removing them would leave the project with "
-                "no Owner. Verified against the peer-role and last-Owner guards in "
+                "Refused on the roster's own state: removing this member would leave "
+                "the project with no Owner. Verified against the last-Owner guard in "
                 "``destroy`` (#3319)."
+            ),
+            403: ownership_refusal_403(
+                "The caller is not a member, is below Owner and removing someone else, "
+                "or holds a role at or below the target's (#3365)."
             ),
         }
     )
@@ -478,16 +474,16 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             # Any member may remove themselves; require at least Viewer membership.
             actor_role = _membership_role(request, project.pk)
             if actor_role is None:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this project.")
         else:
             # Removing another member requires Owner.
             actor_role = self._require_actor_role(request, project.pk, Role.OWNER)
             # Owner may only remove members with a lower role than themselves.
             if instance.role >= actor_role:
-                raise drf_serializers.ValidationError(
-                    {"detail": "You can only remove members with a role lower than your own."}
+                # 403, not 400: a peer's role is a fact about the *caller's*
+                # authority over the target, not about the request (#3365).
+                raise PermissionDenied(
+                    "You can only remove members with a role lower than your own."
                 )
 
         # Last-Owner guard — atomic with select_for_update.
@@ -560,8 +556,6 @@ class UserDefinedMentionGroupViewSet(
     def _require_actor_role(self, request: Request, project_id: _PK, minimum: int) -> int:
         role = _membership_role(request, project_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -635,8 +629,6 @@ class UserDefinedMentionGroupViewSet(
         # other write action (create/update/add-member/…) is already blocked by the
         # permission because it is not in that bypass set.
         if project.is_archived:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(
                 "This project is archived and cannot be modified. Unarchive it first."
             )
@@ -821,8 +813,6 @@ class ProgramUserDefinedMentionGroupViewSet(
     def _require_actor_role(self, request: Request, program_id: _PK, minimum: int) -> int:
         role = _program_membership_role(request, program_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -917,8 +907,6 @@ class ProgramUserDefinedMentionGroupViewSet(
         # permission because it is not in that bypass set. Mirrors the project
         # sibling's archived re-assertion.
         if program.is_closed:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(
                 "This program is closed and cannot be modified. Reopen it first."
             )
@@ -1098,8 +1086,6 @@ class ExternalStakeholderViewSet(IdempotencyMixin, viewsets.ModelViewSet[Externa
         # blocked (they are not in the bypass set).
         program = self._get_program_or_404()
         if program.is_closed:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(
                 "This program is closed and cannot be modified. Reopen it first."
             )
@@ -1229,8 +1215,6 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         """Return the actor's program role, raising 403 if below minimum."""
         role = _program_membership_role(request, program_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -1256,8 +1240,6 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         # for nested routes; the queryset filters by program_id, so an authenticated
         # non-member would see an empty list. Enforce explicitly to return 403.
         if _program_membership_role(request, program.pk) is None:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied("You must be a member of this program.")
         qs = self.get_queryset()
         # ?self=true: only the caller's own membership row — used by the frontend
@@ -1356,14 +1338,10 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                     is_deleted=False,  # type: ignore[misc]
                 )
             except ProgramMembership.DoesNotExist:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this program.") from None
 
             actor_role = actor_membership.role
             if actor_role < required_role:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
 
             if new_role is not None:
@@ -1387,10 +1365,13 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         responses={
             204: None,
             400: state_refusal_400(
-                "Refused on the membership's own state: the target's role is at or "
-                "above the caller's, or removing them would leave the program with "
-                "no Owner. Verified against the peer-role and last-Owner guards in "
+                "Refused on the roster's own state: removing this member would leave "
+                "the program with no Owner. Verified against the last-Owner guard in "
                 "``destroy`` (#3319)."
+            ),
+            403: ownership_refusal_403(
+                "The caller is not a member, is below Owner and removing someone else, "
+                "or holds a role at or below the target's (#3365)."
             ),
         }
     )
@@ -1403,14 +1384,14 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         if is_self:
             actor_role = _program_membership_role(request, program.pk)
             if actor_role is None:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this program.")
         else:
             actor_role = self._require_actor_role(request, program.pk, Role.OWNER)
             if instance.role >= actor_role:
-                raise drf_serializers.ValidationError(
-                    {"detail": "You can only remove members with a role lower than your own."}
+                # 403, not 400: a peer's role is a fact about the *caller's*
+                # authority over the target, not about the request (#3365).
+                raise PermissionDenied(
+                    "You can only remove members with a role lower than your own."
                 )
 
         if instance.role == Role.OWNER:

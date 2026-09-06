@@ -657,6 +657,47 @@ def state_refusal_400(
     return OpenApiResponse(response=schema, description=description)
 
 
+def ownership_refusal_403(description: str, *, codes: tuple[str, ...] = ()) -> Any:
+    """Declare the 403 an object-ownership guard returns (#3365).
+
+    Six guards used to refuse with ``ValidationError`` and so answered ``400`` for
+    what is an authorization decision — "you are not the author / uploader / a
+    role above the target", not "the thing you sent is malformed". A client
+    branching on status could not tell the two apart, and retrying with a
+    corrected body could never succeed because the body was never the problem.
+    They now raise ``PermissionDenied``, and this declares what reaches the wire
+    so a generated client has a typed branch for it.
+
+    Args:
+        description: Who is refused and why, for *this* endpoint. Site-specific
+            for the same reason :func:`state_refusal_400` insists on it — a
+            generic string is decoration, not contract.
+        codes: Stable ``code`` values the refusal really puts in the response
+            body. A guard emits one only by raising ``PermissionDenied`` with a
+            **dict** detail (``{"detail": ..., "code": ...}``) — DRF serializes a
+            dict detail key-for-key, whereas a ``code=`` keyword never leaves the
+            ``ErrorDetail`` object (#2550). Declare only what the handler writes.
+
+    Returns:
+        The ``OpenApiResponse`` to hang off ``responses={403: ...}``.
+    """
+    from drf_spectacular.utils import OpenApiResponse
+
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {"detail": {"type": "string"}},
+        "required": ["detail"],
+    }
+    if codes:
+        schema["properties"]["code"] = {
+            "type": "string",
+            "enum": list(codes),
+            "description": "Stable refusal code — branch on this, not on ``detail``.",
+        }
+        schema["required"].append("code")
+    return OpenApiResponse(response=schema, description=description)
+
+
 _THROTTLE_RESPONSE = {
     "description": (
         "Rate limit exceeded. The client is issuing requests faster than the "
@@ -823,3 +864,39 @@ class TruePPMAutoSchema(AutoSchema):
                 return None
         # drf-spectacular's AutoSchema is untyped; the base return is a paginator or None.
         return super()._get_paginator()  # type: ignore[no-untyped-call]
+
+
+def undo_summary_schema(description: str, **counts: str) -> dict[str, Any]:
+    """Raw OpenAPI schema for the ``undo`` key a batch-undo action adds to its 200 (#3416).
+
+    All four undo actions build their body as ``data = serializer.data`` followed by
+    ``data["undo"] = summary``. Declaring the bare serializer as the ``200`` therefore
+    publishes a document missing the one value the endpoint exists to report — a
+    generated SDK has no ``undo`` field at all, so a typed client cannot read the
+    outcome of the call it just made. That is the #3399 trap pointed at a different
+    surface: the declaration is self-consistent, ``api:schema-drift`` passes on it,
+    and it is still false.
+
+    The counts differ per action (``deleted``/``kept`` for the two that remove rows,
+    ``reverted``/``kept`` for the cascade, five keys for the structural undo), so each
+    site passes its own. They are spelled out rather than left as an open
+    ``additionalProperties: {type: integer}`` map because the key set is closed and a
+    client branches on the individual names.
+
+    Args:
+        description: What this action's summary counts, in its own vocabulary.
+        **counts: ``field_name="what it counts"`` for every key the summary carries.
+
+    Returns:
+        A schema dict to hang off ``@extend_schema_field`` on the wrapper's field.
+    """
+    return {
+        "type": "object",
+        "description": description,
+        "properties": {
+            name: {"type": "integer", "minimum": 0, "description": text}
+            for name, text in counts.items()
+        },
+        "required": list(counts),
+        "additionalProperties": False,
+    }
