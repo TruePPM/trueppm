@@ -378,6 +378,7 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/programs/{id}/` | Update |
 | DELETE | `/api/v1/programs/{id}/` | Soft-delete |
+| GET | `/api/v1/programs/{id}/projects/` | The program's project roster — an unpaginated array of **roster rows**, not full project objects (see below). Any program member, Viewer included. Optional `?search=` (project name or code) and `?ordering=name` / `-name`; default order is start date, then name |
 | GET | `/api/v1/programs/samples/` | List the bundled samples available to the demo loader |
 | POST | `/api/v1/programs/load-sample/` | Load a bundled sample program (the in-app "Load demo data" action); body `{"sample": "<key>"}` |
 | POST | `/api/v1/programs/import/` | Import a JSON seed document as a new program (raw JSON body or multipart `file` upload); caller becomes Owner. Returns `202 Accepted` — the program shell is created synchronously, the subtree is built by a worker. Optional `replace` / `expected_program_id` fields confirm a replacement; `409` without them |
@@ -396,6 +397,41 @@ A program is a container for related projects (see [Programs](/features/programs
 
 Both write endpoints carry a `6/min` per-account scoped limit (see
 [Rate limiting](#rate-limiting) below).
+
+#### The program project roster is a narrow row
+
+:::note[Ships in 0.4]
+The narrowed roster row and the `search` / `ordering` parameters described in this
+section ship in **TruePPM 0.4** (#3439, #3420). In `v0.3.0-alpha.3` (the latest
+release) this endpoint returns the **full project object** — the same 86-field shape as
+`GET /api/v1/projects/{id}/`, for every project in the program including ones you hold
+no membership on — and it accepts `search` and `ordering` while ignoring both.
+:::
+
+`GET /api/v1/programs/{id}/projects/` is gated on **program** membership, and the
+lowest program role passes it. It therefore lists every non-draft project in the
+program — including projects you hold no project membership on — and each row is
+deliberately much narrower than a project object:
+
+```
+id  name  code  program  start_date
+methodology  effective_methodology  inherited_methodology
+iteration_label  effective_iteration_label
+health  lifecycle  is_archived
+overdue_count  at_risk_count
+is_pinned  my_role  my_role_label  can_author  can_undo_batch_operations
+```
+
+The row answers *which projects are in this program, and how are they doing*. It
+carries nothing about how a project is configured or who runs it — no project lead,
+no sharing or guest posture, no `mcp_enabled` consent state, no attachment policy, no
+surface-visibility map. Those are project settings, and they are served by
+`GET /api/v1/projects/{id}/`, which requires membership on that project.
+
+The last five fields answer only about **you**: your role on the row's project
+(`null` when you hold none), whether you may author its plan or reverse a batch write
+there, and whether you have pinned it. No field on this route reports another user's
+role, pin, or identity.
 
 #### Seed import is asynchronous
 

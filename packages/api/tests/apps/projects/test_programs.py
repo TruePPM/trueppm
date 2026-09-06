@@ -441,6 +441,382 @@ def test_projects_endpoint_resolves_roles_without_a_query_per_row(
 
 
 # ---------------------------------------------------------------------------
+# Response shape — the disclosure boundary (#3439)
+# ---------------------------------------------------------------------------
+
+# The exact read surface of ProgramProjectRowSerializer. Asserted as an equality, not a
+# subset: a superset assertion would pass while a future author widened the row back
+# toward ProjectSerializer, which is precisely the regression #3439 is about. If you are
+# here because this failed, do not append the new field — read the serializer's
+# docstring and decide whether it answers "what is in this program" or "how is this
+# project governed". Only the first belongs on this route.
+_EXPECTED_ROW_FIELDS = {
+    "id",
+    "name",
+    "code",
+    "program",
+    "start_date",
+    "methodology",
+    "effective_methodology",
+    "inherited_methodology",
+    "iteration_label",
+    "effective_iteration_label",
+    "health",
+    "lifecycle",
+    "is_archived",
+    "overdue_count",
+    "at_risk_count",
+    "is_pinned",
+    "my_role",
+    "my_role_label",
+    "can_author",
+    "can_undo_batch_operations",
+}
+
+# A named sample of what the full ProjectSerializer used to emit here, kept so the test
+# states the concrete defect: the lead's email, the agent-read consent decision, the
+# sharing and guest posture, the attachment policy, the MC attribution audience, the
+# surface-visibility map, the archiver's identity.
+#
+# It is only a *sample*. The binding assertion is derived from ProjectSerializer itself
+# (see _forbidden_fields below), so a sensitive field added to the parent tomorrow is
+# forbidden here automatically rather than waiting for someone to remember this list.
+_MUST_NOT_LEAK_SAMPLE = [
+    "lead",
+    "lead_detail",
+    "visibility",
+    "mcp_enabled",
+    "effective_mcp_enabled",
+    "inherited_mcp_enabled",
+    "public_sharing",
+    "allow_guests",
+    "effective_public_sharing",
+    "effective_allow_guests",
+    "attachments_enabled",
+    "allowed_attachment_types",
+    "mc_history_enabled",
+    "mc_history_attribution_audience",
+    "show_reporting",
+    "show_time_tracking",
+    "show_baselines",
+    "show_monte_carlo",
+    "effective_surface_visibility",
+    "default_member_role",
+    "estimation_mode",
+    "prioritization_model",
+    "archived_by",
+]
+
+
+def _forbidden_fields() -> set[str]:
+    """Every readable ProjectSerializer field the roster row must NOT carry.
+
+    Derived from the parent serializer rather than hand-listed, so this widens by itself
+    when ProjectSerializer grows. That is the point: #3439 was not "these 23 fields
+    leaked", it was "this route reaches for the only tier available", and a hand-copied
+    denial list would silently stop covering the class on the next field added upstream.
+    """
+    from trueppm_api.apps.projects.serializers import ProjectSerializer
+
+    readable = {name for name, f in ProjectSerializer().fields.items() if not f.write_only}
+    forbidden = readable - _EXPECTED_ROW_FIELDS
+    # Non-zero denominator: if the two sets ever coincide, every assertion below passes
+    # while testing nothing, which is exactly how this route regressed in the first place.
+    assert len(forbidden) > 50, (
+        f"only {len(forbidden)} fields separate the roster row from the full project "
+        "serializer — the row has been widened back toward it"
+    )
+    assert set(_MUST_NOT_LEAK_SAMPLE) <= forbidden, (
+        "the named sample has drifted out of ProjectSerializer; update it or the "
+        "documentation value of this test is gone"
+    )
+    return forbidden
+
+
+@pytest.mark.django_db
+def test_program_viewer_gets_no_governance_fields_for_a_project_they_cannot_open(
+    owner: object,
+    stranger: object,
+    calendar: Calendar,
+) -> None:
+    """A program VIEWER with no ProjectMembership must not read a project's settings.
+
+    The security half of #3439. ``IsProgramMember`` tests membership *existence* — it
+    has no ordinal comparison, unlike ``IsProgramScheduler`` — so ``Role.VIEWER`` passes
+    it, and the action lists every non-draft project in the program rather than the
+    caller's own. That combination is deliberate. What was not deliberate is that the
+    action then served ``ProjectSerializer``: 86 fields per row, including the project
+    lead's email address and the live governance decisions asserted absent below, for a
+    project the caller cannot open.
+
+    The fixture is the load-bearing part. ``stranger`` is given a program membership at
+    the **lowest** role and **no** ``ProjectMembership`` on either project — the default
+    state, not a granted one. A fixture that quietly handed them project membership
+    would make every assertion here pass against the unfixed code.
+    """
+    program = _create_program(_client(owner))
+    lead = User.objects.create_user(username="lead", password="pw", email="lead@example.com")
+    for name in ("Alpha", "Beta"):
+        Project.objects.create(
+            name=name,
+            start_date=date(2026, 4, 1),
+            calendar=calendar,
+            program=program,
+            lead=lead,
+        )
+    ProgramMembership.objects.create(program=program, user=stranger, role=Role.VIEWER)
+
+    resp = _client(stranger).get(f"/api/v1/programs/{program.pk}/projects/")
+
+    assert resp.status_code == 200, resp.content
+    assert len(resp.data) == 2, "the row set is program-scoped; only the shape narrowed"
+
+    forbidden = _forbidden_fields()
+    for row in resp.data:
+        assert set(row) == _EXPECTED_ROW_FIELDS, (
+            f"{row.get('name')} carries {sorted(set(row) - _EXPECTED_ROW_FIELDS)} beyond "
+            "the roster row"
+        )
+        leaked = sorted(forbidden & set(row))
+        assert not leaked, f"disclosed to a program Viewer: {leaked}"
+
+    # The lead's email is the concrete personal datum the old shape handed over, via
+    # lead_detail's _UserSummarySerializer. Assert on the serialized bytes as well as
+    # the key, so a future field that embeds it under another name also fails here.
+    assert "lead@example.com" not in str(resp.data)
+
+
+@pytest.mark.django_db
+def test_program_projects_row_is_narrow_for_a_project_member_too(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    """The narrowing is uniform — membership does not unlock the full serializer here.
+
+    Deliberately NOT per-row. A heterogeneous array (full shape for member rows, narrow
+    for the rest) would make the response body depend on the caller's project
+    memberships, which no single OpenAPI response schema can honestly describe and which
+    this repo has no polymorphic-serializer precedent for. The membership-gated full
+    project shape already has a route — ``GET /projects/{id}/`` — and that is where the
+    web reads every field omitted here.
+
+    The caller below is the program Owner AND holds ``Role.ADMIN`` on the project, i.e.
+    the most privileged caller this route can have. If any path still widened the row,
+    this is the caller it would widen for.
+    """
+    program = _create_program(_client(owner))
+    project = Project.objects.create(
+        name="Mine", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    ProjectMembership.objects.create(project=project, user=owner, role=Role.ADMIN)
+
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/projects/")
+
+    assert resp.status_code == 200, resp.content
+    (row,) = resp.data
+    assert set(row) == _EXPECTED_ROW_FIELDS
+    # The caller-scoped fields survive the narrowing — dropping them would silently
+    # revert #2553 (is_pinned) and #3357 (my_role / can_author).
+    assert row["my_role"] == Role.ADMIN
+    assert row["can_author"] is True
+    assert row["is_pinned"] is False
+
+
+# ---------------------------------------------------------------------------
+# search / ordering — declared, and now honored (#3420)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_program_projects_honors_the_search_parameter(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    """``?search=`` filters on name and code instead of being silently dropped.
+
+    ProgramViewSet declares SearchFilter with ``search_fields = ["name", "code"]``, so
+    drf-spectacular published ``search`` on this operation — but the action built its own
+    queryset and never called ``filter_queryset()``. The parameter was accepted,
+    documented, and ignored: a 200 with the full list, which is worse than a 400 because
+    nothing tells the caller it did nothing.
+    """
+    program = _create_program(_client(owner))
+    for name, code in (("Payments", "PAY"), ("Billing", "BIL"), ("Payroll", "PYR")):
+        Project.objects.create(
+            name=name,
+            code=code,
+            start_date=date(2026, 4, 1),
+            calendar=calendar,
+            program=program,
+        )
+    client = _client(owner)
+    url = f"/api/v1/programs/{program.pk}/projects/"
+
+    assert len(client.get(url).data) == 3, "no param — the whole roster, as before"
+
+    by_name = client.get(url, {"search": "Pay"})
+    assert by_name.status_code == 200
+    assert {r["name"] for r in by_name.data} == {"Payments", "Payroll"}
+
+    # `code` is the second search field, and the one that proves the backend ran rather
+    # than a name-substring coincidence: "BIL" appears in no project name.
+    by_code = client.get(url, {"search": "BIL"})
+    assert {r["name"] for r in by_code.data} == {"Billing"}
+
+    assert client.get(url, {"search": "nothing-matches-this"}).data == []
+
+
+@pytest.mark.django_db
+def test_program_projects_ordering_overrides_the_default_start_date_order(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    """``?ordering=name`` replaces the roster's default order; absent, the default holds.
+
+    Pins the placement of ``filter_queryset()`` relative to the action's hardcoded
+    ``.order_by("start_date", "name")``, which is the subtle half of #3420. Run the
+    filter *before* the ``order_by`` — the obvious reading — and the hardcoded order
+    clobbers the caller's ordering on the very next line, reinstating the silent drop
+    this fixes. The names below are deliberately in the opposite order to the start
+    dates, so the two orderings cannot agree by accident.
+    """
+    program = _create_program(_client(owner))
+    for name, start in (("Zulu", date(2026, 1, 1)), ("Alpha", date(2026, 6, 1))):
+        Project.objects.create(name=name, start_date=start, calendar=calendar, program=program)
+    client = _client(owner)
+    url = f"/api/v1/programs/{program.pk}/projects/"
+
+    assert [r["name"] for r in client.get(url).data] == ["Zulu", "Alpha"]
+    assert [r["name"] for r in client.get(url, {"ordering": "name"}).data] == [
+        "Alpha",
+        "Zulu",
+    ]
+    assert [r["name"] for r in client.get(url, {"ordering": "-name"}).data] == [
+        "Zulu",
+        "Alpha",
+    ]
+
+
+@pytest.mark.django_db
+def test_program_detail_routes_survive_a_search_param(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    """A ``?search=`` that matches no program must not 404 the program's own detail route.
+
+    ``GenericAPIView.get_object()`` resolves through ``filter_queryset()``, so the
+    SearchFilter configured for the ``list`` route also ran against the parent lookup on
+    every detail route. The program below is named "Phase 2"; searching for "payments"
+    filtered it out of its own lookup and returned 404 — not the silent no-op #3420
+    describes, but a hard failure, and the reason the ``projects`` action could not
+    simply start calling ``filter_queryset()``.
+
+    Covers ``retrieve`` as well as the nested action, because the defect was in the
+    shared object resolution rather than in any one action.
+
+    **Scope, stated honestly.** ``ProgramViewSet`` is one of eight viewsets that set
+    ``search_fields`` on top of the project-wide ``DEFAULT_FILTER_BACKENDS``; the other
+    seven — ``ProjectViewSet``, ``TaskViewSet``, ``CalendarViewSet``, ``RiskViewSet``,
+    ``LabelViewSet``, ``SkillViewSet``, ``ResourceViewSet`` — still 404 their own detail
+    routes on an unrelated ``?search=``. Only this one is fixed here, and this test only
+    proves this one. The class fix is #3451.
+    """
+    program = _create_program(_client(owner))
+    Project.objects.create(
+        name="Payments", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    client = _client(owner)
+    unrelated = {"search": "payments"}
+
+    assert client.get(f"/api/v1/programs/{program.pk}/", unrelated).status_code == 200
+    nested = client.get(f"/api/v1/programs/{program.pk}/projects/", unrelated)
+    assert nested.status_code == 200, nested.content
+    # …and the term is applied to the PROJECT rows, which is what it was always meant
+    # to filter.
+    assert [r["name"] for r in nested.data] == ["Payments"]
+
+
+def test_program_action_filter_params_are_declared_only_where_they_are_honored() -> None:
+    """ProgramViewSet's own sweep (#3420): declare the params, or honor them — never neither.
+
+    **Scope, stated honestly.** This sweeps ``ProgramViewSet`` only — the sweep #3420
+    asked for. It is NOT the whole class. ``SearchFilter`` and ``OrderingFilter`` are in
+    ``DEFAULT_FILTER_BACKENDS``, so every viewset that sets ``search_fields`` publishes
+    the same two parameters on its custom actions, and ~71 operations across the API
+    declare them; ``ProjectViewSet.export_jobs`` is a structural twin of the
+    ``export_jobs`` undeclared here and is untouched. That wider sweep is #3452 —
+    do not read a green run of this test as covering it.
+
+    ProgramViewSet's filter backends make drf-spectacular publish ``search`` and
+    ``ordering`` on every list-shaped operation, including custom ``@action``s that build
+    their own querysets. ``projects`` now honors them. ``export_jobs`` and ``samples``
+    cannot — ``ProgramExportJob`` has neither a ``name`` nor a ``code`` column, so
+    ``filter_queryset()`` there would turn a silently-ignored parameter into a FieldError
+    500, and ``samples`` returns a hand-built list of dicts rather than a queryset — so
+    both undeclare instead.
+
+    Asserted against the generated schema rather than the source, because the failure
+    mode is a *published* parameter.
+
+    Swept over the generated schema rather than the three paths this branch touched, so
+    an @action added to ProgramViewSet later is covered without anyone remembering to
+    come back here. The allowlist below is the whole maintenance burden: a new route that
+    genuinely runs ``filter_queryset()`` gets added to it, and one that does not fails
+    until it either honors the parameters or undeclares them.
+
+    It also pins the mechanism: ``parameters=[]`` reads to drf-spectacular as "no
+    overrides" and emits the backends' parameters anyway, so only the ``exclude=True``
+    form actually removes them.
+    """
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+
+    # Routes that DO run the filter backends and may therefore declare them:
+    # `list` (via DRF's ListModelMixin) and the `projects` roster (explicitly, #3420).
+    honors_them = {"/api/v1/programs/", "/api/v1/programs/{id}/projects/"}
+
+    # ProgramViewSet's own routes. Paths carrying `{program_pk}` belong to the separate
+    # nested viewsets (members, webhooks, backlog-items, …), which are ordinary
+    # ModelViewSets whose `list` honors the backends through DRF — not this viewset's
+    # actions, and not this test's subject.
+    own_routes = [
+        path
+        for path in schema["paths"]
+        if path.startswith("/api/v1/programs/")
+        and "{program_pk}" not in path
+        and "get" in schema["paths"][path]
+    ]
+    # Non-zero denominator: a path-matching bug here would otherwise sweep nothing and
+    # pass silently, which is the vacuous-guard failure this whole issue is an instance of.
+    assert len(own_routes) >= 10, f"swept only {len(own_routes)} ProgramViewSet GET routes"
+
+    def query_params(path: str) -> set[str]:
+        return {
+            p["name"]
+            for p in schema["paths"][path]["get"].get("parameters", [])
+            if p.get("in") == "query"
+        }
+
+    offenders = sorted(
+        path
+        for path in own_routes
+        if path not in honors_them and ({"search", "ordering"} & query_params(path))
+    )
+    assert not offenders, (
+        f"{offenders} declare `search`/`ordering` but never call filter_queryset() — "
+        "either honor them, or undeclare with OpenApiParameter(..., exclude=True)"
+    )
+
+    # The other direction: the two routes that DO honor them must keep declaring them,
+    # so an over-broad exclusion cannot pass this test by hiding a working parameter.
+    for path in sorted(honors_them):
+        assert {"search", "ordering"} <= query_params(path), (
+            f"{path} honors the filter backends but no longer declares them"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Project.program FK cross-permission (ADR-0070 §RBAC)
 # ---------------------------------------------------------------------------
 
