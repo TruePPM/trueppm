@@ -22,8 +22,10 @@ const FIXTURE_PROJECTS = [
   },
 ];
 
-// Worst-case health chip: an at-risk state word AND a P80 forecast date both
-// render, which is the widest single segment the cluster ever carries (#2533).
+// Worst-case health chip: `critical_count: 2` puts the chip on the `critical`
+// band, whose word ("Critical") is the widest of the three (#3470), AND a P80
+// forecast date both render — the widest single segment the cluster ever
+// carries (#2533).
 const STATUS_SUMMARY = {
   task_count: 12,
   critical_path_count: 3,

@@ -32,8 +32,9 @@ const PROJECT = {
   iteration_label: null,
 };
 
-// Worst-case width: an at-risk state word AND a P80 forecast date both want to
-// render in the health chip, immediately left of the sync badge.
+// Worst-case width: `critical_count: 2` puts the chip on the `critical` band,
+// whose word ("Critical") is the widest of the three (#3470), AND a P80 forecast
+// date both want to render in the health chip, immediately left of the sync badge.
 const STATUS_SUMMARY = {
   task_count: 8,
   critical_path_count: 2,

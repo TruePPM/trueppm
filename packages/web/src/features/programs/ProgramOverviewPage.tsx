@@ -7,12 +7,18 @@ import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
 import { ROLE_OWNER } from '@/lib/roles';
+import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
 // ---------------------------------------------------------------------------
 
-export type HealthBand = 'on_track' | 'at_risk' | 'critical' | 'unknown';
+/**
+ * A rollup band is the shared health vocabulary plus `unknown` — a program with
+ * no per-project source yet. The three real bands come from `lib/healthBand` so
+ * the words here can never drift from the ones the project surfaces print.
+ */
+export type HealthBand = SharedHealthBand | 'unknown';
 type AggregationPolicy = 'worst' | 'average' | 'weighted_by_budget' | 'task_weighted';
 
 /** A built KPI: value present (may be null when there is no data yet). */
@@ -59,9 +65,7 @@ const HEALTH_KPIS = new Set(['schedule_health', 'milestone_health']);
 const VARIANCE_KPIS = new Set(['baseline_variance', 'schedule_variance']);
 
 export const HEALTH_LABEL: Record<HealthBand, string> = {
-  on_track: 'On track',
-  at_risk: 'At risk',
-  critical: 'Critical',
+  ...HEALTH_BAND_LABEL,
   unknown: 'Unknown',
 };
 
