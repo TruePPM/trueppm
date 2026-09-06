@@ -216,8 +216,9 @@ describe('HealthCluster', () => {
 
   it('critical band reads "Critical", not the at-risk band word', () => {
     // The other half of #3470: the critical band used to print "At risk", so the
-    // top bar contradicted the page beneath it. `exact` matters — "At risk" is a
-    // substring of nothing here, but the popover header repeats the chip word.
+    // top bar contradicted the page beneath it. The absence assertion is scoped
+    // to the chip trigger — the popover is portaled out of it and repeats the
+    // same word from the same source.
     stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 1 };
     render();
     const chip = screen.getByTestId('health-cluster');

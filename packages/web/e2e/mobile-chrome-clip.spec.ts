@@ -32,15 +32,20 @@ const PROJECT = {
   iteration_label: null,
 };
 
-// Worst-case width: `critical_count: 2` puts the chip on the `critical` band,
-// whose word ("Critical") is the widest of the three (#3470), AND a P80 forecast
-// date both want to render in the health chip, immediately left of the sync badge.
+// Worst-case width, and the widest word is NOT the worst health. Measured in
+// Chromium against the bundled Inter at the chip's own `text-xs font-medium`:
+// "On track" 48.73px, "Critical" 40.55px, "At risk" 36.47px. So the zero-count
+// `on_track` band is what pins this guard, and a fixture chosen for its severity
+// would quietly test a chip 8px narrower than the one users actually see most
+// (#3470 — before it, the at-risk band rendered the retired "On watch" at
+// 54.48px, which is why the counts used to be non-zero here). `monte_carlo_p80`
+// stays set so the forecast fragment renders wherever the breakpoint allows it.
 const STATUS_SUMMARY = {
   task_count: 8,
-  critical_path_count: 2,
+  critical_path_count: 0,
   monte_carlo_p80: '2026-09-07',
-  at_risk_count: 3,
-  critical_count: 2,
+  at_risk_count: 0,
+  critical_count: 0,
   at_risk_tasks: [],
   critical_tasks: [],
   last_saved: null,

@@ -6,9 +6,21 @@
  * returns it as `health_band`, derived by `views.py::compute_band` — the manual
  * `Project.health` override when it is not AUTO, otherwise counts-first:
  * `critical_count > 0` → critical, else `at_risk_count > 0` → at_risk, else
- * on_track. Every surface that prints a band word reads `HEALTH_BAND_LABEL`
+ * on_track. A surface that prints a band word should read `HEALTH_BAND_LABEL`
  * rather than a literal, so the product cannot grow a fourth word for a
  * three-value vocabulary.
+ *
+ * Be honest about the coverage that claim currently has: the shell health chip,
+ * the program rollup (`ProgramOverviewPage`, which adds `unknown`) and the
+ * my-projects summary read this map. Seven surfaces still carry private literal
+ * maps over the same three bands — `features/today/SchedulePulse.tsx`,
+ * `features/project/ProjectOverviewPage.tsx` (twice in one file),
+ * `features/me/myWorkFocus.ts`, `features/programs/ProgramCard.tsx`,
+ * `features/programs/UngroupedProjectsSection.tsx`,
+ * `features/sprints/CapacityPreflight.tsx` and
+ * `features/project/projectHealth.ts` (which keys on the manual override enum
+ * and carries a "one source" docstring of its own). Nothing gates them, so
+ * converting them is a sweep, not a rule — #3502.
  *
  * That is not a style preference: the shell health chip used to map the same
  * three states onto its own private words ("At risk" for critical, "On watch"
