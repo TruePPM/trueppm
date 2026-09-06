@@ -21,6 +21,8 @@ let mockBoardCadence: BoardCadence = 'sprint';
 let mockUserRole = 300; // PM by default; tests override to flex permissions
 let mockResourcePool: Array<{ resource: { id: string; name: string }; roleTitle: string }> = [];
 let mockSprints: Array<{ id: string; name: string; state: string }> = [];
+let mockSprintsLoading = false;
+let mockSprintsError: Error | null = null;
 let mockHistory: Array<{ history_date: string; history_user: string | null; diff: unknown[] }> = [];
 let mockServerPredecessors: Array<{ id: string; predecessorId: string; successorId: string }> = [];
 let mockPredsResolved = true;
@@ -51,7 +53,11 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 }));
 
 vi.mock('@/hooks/useSprints', () => ({
-  useSprints: () => ({ sprints: mockSprints, isLoading: false, error: null }),
+  useSprints: () => ({
+    sprints: mockSprints,
+    isLoading: mockSprintsLoading,
+    error: mockSprintsError,
+  }),
 }));
 
 vi.mock('@/hooks/useProject', () => ({
@@ -169,6 +175,8 @@ describe('TaskFormModal (issue #305)', () => {
     mockUserRole = 300;
     mockResourcePool = [];
     mockSprints = [];
+    mockSprintsLoading = false;
+    mockSprintsError = null;
     mockHistory = [];
     mockServerPredecessors = [];
     mockPredsResolved = true;
@@ -233,6 +241,64 @@ describe('TaskFormModal (issue #305)', () => {
     renderModal();
     expect(screen.getByLabelText('Pts')).toBeInTheDocument();
     expect(screen.getByLabelText('Sprint')).toBeInTheDocument();
+  });
+
+  // ----- Committed points freeze cannot fail open on load timing (#3424) ----
+  //
+  // `useSprints` returns `[]` while loading and after a failure. The freeze
+  // used to read `selectedSprint?.state === 'ACTIVE'` on that empty list and
+  // collapse to "editable" for as long as the query took — on a task in the
+  // ACTIVE sprint, whose points are exactly what the rule says must not move.
+
+  describe('Pts freeze vs an unresolved sprints query (#3424)', () => {
+    const inSprint = () => baseTask({ sprintId: 'sprint-1' });
+    const staticPts = () => screen.queryByLabelText(/^Story points:/);
+
+    it('edit mode, task in a sprint, sprints LOADING: Pts is frozen, not editable', () => {
+      mockProjectAgile = true;
+      mockSprintsLoading = true;
+      renderModal({ task: inSprint() });
+      expect(screen.queryByLabelText('Pts')).not.toBeInTheDocument();
+      expect(staticPts()).toBeInTheDocument();
+    });
+
+    it('edit mode, task in a sprint, sprints FAILED: Pts stays frozen', () => {
+      mockProjectAgile = true;
+      mockSprintsError = new Error('503');
+      renderModal({ task: inSprint() });
+      expect(screen.queryByLabelText('Pts')).not.toBeInTheDocument();
+      expect(staticPts()).toBeInTheDocument();
+    });
+
+    it('edit mode, resolved ACTIVE sprint: frozen — the rule the loading case must match', () => {
+      mockProjectAgile = true;
+      mockSprints = [{ id: 'sprint-1', name: 'Sprint Alpha', state: 'ACTIVE' }];
+      renderModal({ task: inSprint() });
+      expect(screen.queryByLabelText('Pts')).not.toBeInTheDocument();
+      expect(staticPts()).toBeInTheDocument();
+    });
+
+    it('edit mode, resolved PLANNED sprint: editable — a resolved read is not unknown', () => {
+      mockProjectAgile = true;
+      mockSprints = [{ id: 'sprint-1', name: 'Sprint Alpha', state: 'PLANNED' }];
+      renderModal({ task: inSprint() });
+      expect(screen.getByLabelText('Pts')).toBeInTheDocument();
+      expect(staticPts()).not.toBeInTheDocument();
+    });
+
+    it('edit mode, task in NO sprint, sprints LOADING: editable — nothing to freeze against', () => {
+      mockProjectAgile = true;
+      mockSprintsLoading = true;
+      renderModal({ task: baseTask() });
+      expect(screen.getByLabelText('Pts')).toBeInTheDocument();
+    });
+
+    it('create mode, sprints LOADING: editable — the freeze is an edit-mode rule', () => {
+      mockProjectAgile = true;
+      mockSprintsLoading = true;
+      renderModal();
+      expect(screen.getByLabelText('Pts')).toBeInTheDocument();
+    });
   });
 
   // ----- Classification defaults follow project methodology (#2667) --------
@@ -1000,6 +1066,8 @@ describe('TaskFormModal 409 sync conflict (#2036)', () => {
     mockUserRole = 300;
     mockResourcePool = [];
     mockSprints = [];
+    mockSprintsLoading = false;
+    mockSprintsError = null;
     mockHistory = [];
     mockServerPredecessors = [];
     mockPredsResolved = true;

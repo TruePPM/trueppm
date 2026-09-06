@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { Task } from '@/types';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useScopeChangeActions, useScopeDecisionFeedback } from '@/hooks/useScopeChangeActions';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -32,8 +34,16 @@ interface PendingItem {
 interface Props {
   projectId: string;
   sprintId: string;
-  /** Active-sprint tasks; the panel derives its list from the pending ones. */
-  tasks: Task[];
+  /**
+   * Project tasks; the panel derives its list from the pending ones.
+   * `undefined` while the tasks query has not resolved — the panel then shows a
+   * skeleton (or, with `tasksError`, an error) rather than the all-clear, because
+   * "nothing pending" is a *resolved* empty list and this panel is a one-shot
+   * consent surface with nothing that re-prompts (#3424, the #3313 class).
+   */
+  tasks: Task[] | undefined;
+  /** The tasks query's error, if it failed. Only decisive while `tasks` is undefined. */
+  tasksError?: Error | null;
   /** Disable controls (offline) — chips still render, but no action queues. */
   offline?: boolean;
   onClose: () => void;
@@ -62,11 +72,15 @@ export function ScopePendingReviewPanel({
   projectId,
   sprintId,
   tasks,
+  tasksError = null,
   offline = false,
   onClose,
 }: Props) {
   const itl = useIterationLabel(projectId);
-  const items = derivePending(tasks);
+  // A failed refetch keeps the last good list, so a defined `tasks` still
+  // answers; only failure-with-nothing-loaded is the error state.
+  const resolved = tasks !== undefined;
+  const items = derivePending(tasks ?? []);
   const { acceptOne, rejectOne, acceptBulk, rejectBulk } = useScopeChangeActions(
     projectId,
     sprintId,
@@ -129,9 +143,9 @@ export function ScopePendingReviewPanel({
               Review pending scope
             </h2>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
-              <span className="tppm-mono">{items.length}</span> item
-              {items.length === 1 ? '' : 's'} added after the {itl.lower} started — not yet counted
-              in the commitment.
+              <span className="tppm-mono">{resolved ? items.length : '…'}</span> item
+              {resolved && items.length === 1 ? '' : 's'} added after the {itl.lower} started — not
+              yet counted in the commitment.
             </p>
           </div>
           <button
@@ -147,7 +161,21 @@ export function ScopePendingReviewPanel({
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {items.length === 0 ? (
+          {!resolved ? (
+            // An unresolved read is unknown, not "nothing pending": the all-clear
+            // below is a positive claim and must wait for the list (#3424).
+            // `useScheduleTasks` exposes no refetch, so the error falls back to
+            // the component's reload default (rule 246).
+            tasksError != null ? (
+              <QueryErrorState
+                variant="inline"
+                message="Couldn’t load the pending items."
+                className="m-4"
+              />
+            ) : (
+              <LoadingSkeleton label="Loading pending items…" rows={3} className="p-4" />
+            )
+          ) : items.length === 0 ? (
             <p
               role="status"
               className="px-4 py-8 text-center text-xs text-neutral-text-secondary"

@@ -736,15 +736,20 @@ describe('unresolved dependent queries', () => {
     expect(screen.getByLabelText('Search people to assign')).toBeInTheDocument();
   });
 
-  it('delete confirm claims no cascade when the schedule cache holds nothing', () => {
+  // Until #3424 this test pinned the opposite: "claims no cascade when the
+  // schedule cache holds nothing". An unresolved cache is not an empty one —
+  // the confirm now says the counts are unavailable instead of claiming zero.
+  it('delete confirm says the cascade counts are unavailable when the schedule cache holds nothing', () => {
     mockUserRole = 400;
     renderModal({ task: baseTask({ name: 'Orphan', wbs: '' }) });
     fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
     const dialog = screen.getByRole('alertdialog');
     expect(
-      within(dialog).getByText('“Orphan” will be permanently removed. This can’t be undone.'),
+      within(dialog).getByText(
+        '“Orphan” will be permanently removed, along with any subtasks and dependency links on it (counts unavailable). This can’t be undone.',
+      ),
     ).toBeInTheDocument();
-    expect(within(dialog).queryByText(/subtask|dependency link/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/\d+ (subtask|dependency link)/)).not.toBeInTheDocument();
   });
 });
 
@@ -909,6 +914,23 @@ describe('in-flight submit labels', () => {
     renderModal({ isMilestone: true });
     expect(screen.getByRole('button', { name: 'Creating…' })).toBeInTheDocument();
   });
+});
+
+// ----- Blast radius says "unavailable" while its source is unresolved (#3424)
+// `allLinks` comes from a separate query BoardView never waits on; `?? []`
+// there made the confirm silently drop the dependency clause mid-load.
+
+it('delete confirm names dependency links as uncounted while the dependency query is unresolved', () => {
+  mockUserRole = 400;
+  mockTasks = [{ id: 'edit-task-id', wbs: '1.1', name: 'Existing task' } as Partial<Task>];
+  mockLinks = undefined;
+  renderModal({ task: baseTask() });
+  fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+  const dialog = screen.getByRole('alertdialog');
+  expect(
+    within(dialog).getByText(/along with any dependency links on it \(count unavailable\)/),
+  ).toBeInTheDocument();
+  expect(within(dialog).queryByText(/\d+ dependency link/)).not.toBeInTheDocument();
 });
 
 // ----- Blast radius counts both edge directions ----------------------------
