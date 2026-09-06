@@ -2412,6 +2412,86 @@ class TestCreateProjectFromImport:
         project = Project.objects.get(pk=resp.json()["project_id"])
         assert project.program_id == program.id
 
+    # -- methodology seeding (#3432) -------------------------------------------
+    #
+    # The shell must land with the methodology a New-project sheet would derive
+    # for the same program — otherwise the program-settings hint ("new projects
+    # created in this program start with this methodology") is false for exactly
+    # the projects a migrating PM creates first. Every case below deliberately
+    # picks a value OFF the HYBRID model default so a passing assertion proves a
+    # real seed, not both-at-default.
+
+    def _program_admin_client(self, program_methodology: str) -> tuple[object, APIClient, object]:
+        from trueppm_api.apps.access.models import ProgramMembership
+        from trueppm_api.apps.projects.models import Program
+
+        user, client = self._auth_client()
+        program = Program.objects.create(name="Cloud Program", methodology=program_methodology)
+        ProgramMembership.objects.create(program=program, user=user, role=Role.ADMIN)
+        return user, client, program
+
+    def test_import_into_program_lands_with_program_methodology(self) -> None:
+        """An import into a WATERFALL program under a HYBRID workspace default is
+        WATERFALL — the program's value, not the model default."""
+        from trueppm_api.apps.projects.models import Methodology
+        from trueppm_api.apps.workspace.models import Workspace
+
+        assert Workspace.load().methodology == Methodology.HYBRID  # the premise
+        _user, client, program = self._program_admin_client(Methodology.WATERFALL)
+        resp = client.post(
+            self.URL,
+            {"file": _xml_upload(), "program": str(program.pk)},
+            format="multipart",
+        )
+        assert resp.status_code == 202, resp.content
+        project = Project.objects.get(pk=resp.json()["project_id"])
+        assert project.methodology == Methodology.WATERFALL
+
+    def test_standalone_import_lands_with_workspace_default(self) -> None:
+        """No program → the workspace default seeds the shell, same as the sheet.
+
+        Before #3432 a standalone import always stored HYBRID, so a workspace
+        that had set its default to WATERFALL still saw every imported plan land
+        Hybrid — the same one-scope-up gap the issue names."""
+        from trueppm_api.apps.projects.models import Methodology
+        from trueppm_api.apps.workspace.models import Workspace
+
+        ws = Workspace.load()
+        ws.methodology = Methodology.WATERFALL
+        ws.save()
+        _user, client = self._auth_client()
+        resp = client.post(self.URL, {"file": _xml_upload()}, format="multipart")
+        assert resp.status_code == 202, resp.content
+        project = Project.objects.get(pk=resp.json()["project_id"])
+        assert project.methodology == Methodology.WATERFALL
+
+    def test_import_into_program_under_inherit_lock_is_not_refused(self) -> None:
+        """Under a workspace INHERIT lock the seed is the workspace default and the
+        request still succeeds.
+
+        ``validate_methodology`` refuses an explicit methodology on create while a
+        lock is active (403). The seed is the server's own resolution, not a caller
+        override, so it must bypass that refusal — a regression here would surface
+        as every import into a locked workspace failing with 403."""
+        from trueppm_api.apps.projects.models import Methodology
+        from trueppm_api.apps.workspace.models import TermOverridePolicy, Workspace
+
+        ws = Workspace.load()
+        ws.methodology = Methodology.WATERFALL
+        ws.methodology_override_policy = TermOverridePolicy.INHERIT
+        ws.save()
+        _user, client, program = self._program_admin_client(Methodology.AGILE)
+        resp = client.post(
+            self.URL,
+            {"file": _xml_upload(), "program": str(program.pk)},
+            format="multipart",
+        )
+        assert resp.status_code == 202, resp.content
+        project = Project.objects.get(pk=resp.json()["project_id"])
+        # The lock makes the workspace default the effective value everywhere; the
+        # stored seed matches it so nothing flips if the lock is later lifted.
+        assert project.methodology == Methodology.WATERFALL
+
 
 @pytest.mark.django_db
 class TestCreateFromImportTaskBehavior:
