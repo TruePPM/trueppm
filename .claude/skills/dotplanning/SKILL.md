@@ -51,6 +51,11 @@ Resolution order:
      | python3 -c "import json,sys; ms=json.load(sys.stdin); print('\n'.join(m['title'] for m in sorted(ms, key=lambda m: [int(x) for x in m['title'].split('.') if x.isdigit()] or [0])))"
    ```
 4. Confirm in one line: "Planning the **$MILESTONE** dot release (last shipped: $SHIPPED). Proceed?" Wait for confirmation.
+5. Every issue this plan places in `$MILESTONE` carries exactly one `release::committed` /
+   `release::reserve` / `release::stretch` label (CLAUDE.md, "Milestone commitment"). The
+   plan's workstreams propose the value per issue; the **user confirms** before any label is
+   applied, and the roadmap section lists only the `release::committed` set. State the
+   reserve as a number in the report.
 
 Export `$MILESTONE` and `$SHIPPED`. Every query, the report, and any filed issue
 reference `$MILESTONE` — never a hardcoded string.

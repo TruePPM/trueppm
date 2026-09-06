@@ -178,6 +178,16 @@ const DEFAULT_USER: UserFixture = {
   // index redirects to Today and the rail keeps canonical band order; the
   // role-context spec overrides `user` to exercise the PM / Scrum Master lenses.
   role_context: 'unified',
+  // Admin+ in at least one project (ADR-0122). Declared on `MeSerializer`, so a
+  // payload omitting it was never representable — and since #3350
+  // `RequireAdminSettings` no longer admits on a verdict-less /auth/me, so a
+  // fixture without it renders `QueryErrorState` instead of the page on any route
+  // that guard wraps (`/programs/:id/settings`, `/settings/observability`,
+  // `/settings/health/*`). No spec on this default reaches one today; it is set
+  // here so the next one that does gets its page rather than a mysterious error
+  // state. A spec exercising the refusal sets `can_access_admin_settings: false`
+  // on its own `user` fixture, which wins.
+  can_access_admin_settings: true,
 };
 
 const DEFAULT_BOARD_CONFIG = {
