@@ -31,11 +31,12 @@ const LABEL_H = 30;
  */
 export function VelocityPanel({ velocity, currentSprint }: Props) {
   const itl = useIterationLabel();
-  // ADR-0104 §2.1 / web rule 301: the server nulls the series AND sets
-  // `velocity_suppressed` when the reader's tier is below the velocity
-  // audience. Read the verdict, never the nulled series — an empty `sprints`
-  // reached this component identically for "you may not see this" and "nothing
-  // has closed yet", and the neutral branch below states the second as fact.
+  // ADR-0104 §2.1: the server nulls the series AND sets `velocity_suppressed`
+  // when the reader's tier is below the velocity audience. Read the verdict,
+  // never the nulled series — an empty `sprints` reached this component
+  // identically for "you may not see this" and "nothing has closed yet", and the
+  // neutral branch below states the second as fact (rules 246/300, and 379(e) on
+  // why a fallback that makes a positive CLAIM is not a safe default).
   // The suppressed branch says exactly what the Board says (one constant), and
   // it returns before any chip, chart or footer that would describe a series
   // this reader is not entitled to.

@@ -36,7 +36,7 @@ describe('VelocityTeamPrivateNote', () => {
  * a different wording — `SprintForecastWidget` / `FlowAnalyticsPanel`. Making the
  * enforceable unit a shared `SignalPrivacyNote({ subject })` that every surface in
  * the family mounts is what would close that, and it is a wider refactor than this
- * bugfix: tracked, not implied. Do not read a green run here as evidence the
+ * bugfix: filed as #3507, not implied. Do not read a green run here as evidence the
  * family agrees.
  *
  * A source scan rather than a lint rule: what is forbidden is a *string*, and the
@@ -75,7 +75,11 @@ describe('the team-private velocity sentence has exactly one copy', () => {
   it('scanned a meaningful number of files (the scan itself cannot go vacuous)', () => {
     // Without this a broken path would make the assertion above pass by finding
     // nothing — the failure mode of every source-scanning test (rule 300(a)).
-    expect(FILES.length).toBeGreaterThan(200);
+    // Near the real count (1230 at the time of writing), not a token floor: a
+    // path bug that halved the tree would sail past `> 200`, which is the
+    // vacuity the guard exists to prevent. The two anchors below are the
+    // load-bearing half.
+    expect(FILES.length).toBeGreaterThan(1000);
     expect(FILES.some((f) => f.endsWith('features/board/SprintPanel.tsx'))).toBe(true);
     expect(FILES.some((f) => f.endsWith('features/sprints/VelocityPanel.tsx'))).toBe(true);
   });
