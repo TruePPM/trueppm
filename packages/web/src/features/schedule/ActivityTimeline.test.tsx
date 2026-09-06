@@ -898,7 +898,7 @@ describe('ActivityTimeline — value formatting and detail edges', () => {
     expect(screen.getByText('ARCHIVED')).toBeInTheDocument();
   });
 
-  it('renders the raw field name for a field without a friendly label', () => {
+  it('humanizes a field without a friendly label instead of leaking the column (#3435)', () => {
     const rec = field([{ field: 'custom_flag', old: 'a', new: 'b' }], {
       id: 44,
       actor: { id: 'u-bob', display_name: 'Bob' },
@@ -906,7 +906,8 @@ describe('ActivityTimeline — value formatting and detail edges', () => {
     });
     historySpy.mockReturnValue(makeHistory([rec]));
     renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
-    expect(screen.getByText('custom_flag')).toBeInTheDocument();
+    expect(screen.getByText('Custom flag')).toBeInTheDocument();
+    expect(screen.queryByText('custom_flag')).toBeNull();
   });
 
   it('renders "unlinked a risk" for a risk_unlinked event', () => {

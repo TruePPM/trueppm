@@ -34,7 +34,9 @@ Each row tells you, at a glance:
 
 - **What changed** — a verb (`created`, `updated`, `deleted`) paired with the
   object type and its name, e.g. *"updated Task · Design the API"*.
-- **Which fields** — for an update, the changed field names are listed beneath.
+- **Which fields** — for an update, the changed fields are listed beneath by the
+  same labels the task drawer's Activity tab uses (*Status*, *Assignee*, *Outline
+  position*), never as database column names.
 - **When** — a relative time ("5m ago", "2d ago").
 - **Who** — the actor's name, shown to **project admins and owners** only. Members
   and Viewers see the change itself but not the user, by design (the same rule as
@@ -65,9 +67,14 @@ cursor so nothing is ever skipped or shown twice.
 
 Activity aggregates the **project-scoped** history tables: tasks, sprints, risks,
 dependencies, task-recurrence rules, the project itself, and the guardrail,
-signal-privacy, and decisions policies. It inherits Change History's exclusions —
-**CPM-derived fields** (early/late dates, float, critical-path flag), **sync
-bookkeeping**, and the private **blocker reason** field are never shown.
+signal-privacy, and decisions policies. It shares one field policy with the
+task drawer's Activity tab, so a change hidden on one surface is hidden on the
+other: **CPM-derived fields** (early/late dates, float, critical-path flag), **sync
+bookkeeping**, low-signal housekeeping columns (sprint reorder ranks, derived
+timestamps), and the private **blocker reason** field are never shown. The one
+deliberate difference: a task's soft delete appears here as *updated Task ·
+Deleted*, because this stream is the only record of it — the drawer of a deleted
+task cannot be opened.
 
 **Program-level** changes (a program's own settings, ceremony templates) are **not**
 in a project's Activity feed — Activity is single-project by design. Per-user or
