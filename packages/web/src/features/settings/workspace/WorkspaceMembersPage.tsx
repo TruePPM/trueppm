@@ -40,12 +40,51 @@ const STATUS_DOT: Record<string, string> = {
   deactivated: 'bg-neutral-text-disabled',
 };
 
-/** Integer role values for the invite role selector. */
+/**
+ * The three grantable workspace roles (`WorkspaceRole`, a distinct enum from the
+ * project/program `Role` in `@/lib/roles` — do not reach for `roleLabels.ts`
+ * here). Used by the invite role selector and by each member row's role select.
+ *
+ * `WorkspaceRole`'s own docstring reserves the ADR-0072 100-unit bands for
+ * Enterprise (its example is a billing-admin at 250), so `role_value` is NOT
+ * closed over these three. A native `<select>` has no "no match" state — it
+ * paints the FIRST option — so an unrecognized value would render as "Member"
+ * and the next change would commit from that false baseline. See web rule 396;
+ * `renderRoleOptions` is what keeps the control honest.
+ */
 const ROLE_INT_OPTIONS = [
   { label: 'Member', value: 100 },
   { label: 'Admin', value: 300 },
   { label: 'Owner', value: 400 },
 ];
+
+const GRANTABLE_ROLE_VALUES = new Set(ROLE_INT_OPTIONS.map((o) => o.value));
+
+/**
+ * The grantable options, preceded by a `disabled` option naming `value` when it
+ * is not one of them. `fallbackLabel` is the server's own `role` string for that
+ * member (`WorkspaceRole(role_val).label`), so an Enterprise band role is shown
+ * under the name the server gave it rather than as a bare number — and cannot be
+ * silently re-granted, because this client does not know what that band means.
+ * If even that is missing the label degrades to plain copy, never the raw
+ * ordinal, which is an identifier and not user-facing text (web rule 301(c)).
+ */
+function renderRoleOptions(value: number, fallbackLabel?: string) {
+  return (
+    <>
+      {!GRANTABLE_ROLE_VALUES.has(value) && (
+        <option value={value} disabled>
+          {fallbackLabel || 'Unknown role'}
+        </option>
+      )}
+      {ROLE_INT_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </>
+  );
+}
 
 function RoleBadge({ role }: { role: string }) {
   const p = ROLE_PALETTE[role] ?? ROLE_PALETTE.Member;
@@ -129,11 +168,7 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
           onChange={(e) => onRoleChange(m.id, Number(e.target.value))}
           className="h-7 pl-1.5 pr-5 rounded-control border border-neutral-border text-[11px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
         >
-          {ROLE_INT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
+          {renderRoleOptions(m.roleValue, m.role)}
         </select>
       </span>
       {/* Groups */}
@@ -465,6 +500,9 @@ export function WorkspaceMembersPage() {
             onChange={(e) => setInviteRole(Number(e.target.value))}
             className="h-8 pl-2.5 pr-7 rounded-control border border-neutral-border text-[13px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
+            {/* Not renderRoleOptions: inviteRole is client-owned state seeded
+                from this same list, so it is in the set by construction — there
+                is no server value to be surprised by (web rule 396). */}
             {ROLE_INT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}

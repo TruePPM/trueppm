@@ -90,10 +90,15 @@ From a program's **Projects** tab, select **+ Add project**. The picker lists:
 2. **In another program** — projects that already belong to a different
    program. Selecting one will **move** it to this program.
 
-You need at least **Project Manager** role on both the project and the program
-you are adding it to. If you are moving a project from one program to another,
-you also need Project Manager role on the source program. This three-way gate
-prevents one side unilaterally reorganizing the other side's container.
+You need at least **Project Manager** role on the project and **Program Manager**
+role on the program you are adding it to. If you are moving a project from one
+program to another, you also need Program Manager role on the source program.
+This three-way gate prevents one side unilaterally reorganizing the other side's
+container.
+
+Those two names are one role ordinal labeled for its container: the program
+surfaces say "Program Manager" and "Program Admin" where the project surfaces
+say "Project Manager" and "Project Admin".
 
 A project can belong to at most one program. The same project cannot be in
 multiple programs at once.
@@ -148,7 +153,7 @@ task-duration-change policy — are **not** set at creation. A new project leave
 them on "inherit", so they continue to track the program's value automatically
 until you deliberately override one in project settings.
 
-You need at least **Project Manager** role on the program to create a project under
+You need at least **Program Manager** role on the program to create a project under
 it — the same gate that governs assigning a project to a program. From 0.4, it's
 also the gate that decides which programs the picker will offer: it will only ever
 list open programs where you hold that role or higher, so you can't pick one that
@@ -191,9 +196,11 @@ would be rejected when you submit.
   date shrinks toward as it nears completion — reporting progress does not
   make a person's allocation, or their contention with a sibling project,
   disappear.
-- **Members** — manage program-level membership. Roles use the same 5-role
-  model as projects: Viewer, Team Member, Resource Manager, Project Manager,
-  Project Admin (Owner).
+- **Members** — manage program-level membership. Roles use the same 5-role model
+  as projects, named for the program: Viewer, Team Member, Resource Manager,
+  Program Manager, Program Admin (Owner). Only the top two names differ, and only
+  in the first word — a Program Manager and a Project Manager hold the same rank,
+  each in its own container.
 - **Settings** — deeper program configuration (see below).
 
 In the sidebar, a searchable **program picker** scopes the project list to one
@@ -224,9 +231,9 @@ Deeper program configuration lives under **/programs/:id/settings**:
   (FS / SS / FF / SF), which risk fields are mandatory, and escalation thresholds.
 - **Lifecycle** — close or reopen the program, transfer sponsorship to another
   member, and split the program into sub-programs. Transfer sponsorship opens a
-  member picker: the chosen member becomes the program Owner, the current Owner is
-  demoted to Admin, and you can optionally rotate the program manager in the same
-  step. The new sponsor must already be a program member. **Split into sub-programs**
+  member picker: the chosen member becomes the Program Admin (Owner), the current
+  one is demoted to Program Manager, and you can optionally move the program's
+  lead — the "new program manager" picker — in the same step. The new sponsor must already be a program member. **Split into sub-programs**
   (Owner only) opens a dialog where you name one or more new sub-programs you'll own
   and assign each of the program's projects to one of them; any project you leave
   unassigned stays on the original program, which is closed (read-only) after the
@@ -254,8 +261,8 @@ Both are set under **General** settings (`/programs/:id/settings`):
 
 ## Deleting a program
 
-Only the Program Owner can delete a program. The delete dialog explicitly
-shows the impact:
+Only the **Program Admin** (Owner) can delete a program. The delete dialog
+explicitly shows the impact:
 
 - All program members are removed.
 - All projects in the program are detached (they become standalone — project
@@ -267,6 +274,12 @@ intermediate state where some memberships are removed but not others.
 
 ## Roles and permissions
 
+:::note[Ships in 0.4 — program role names]
+The program surfaces name the top two roles **Program Manager** and **Program
+Admin**. On 0.3 and earlier they read "Project Manager" and "Project Admin";
+the roles and the gates below are unchanged either way.
+:::
+
 | Action                              | Minimum program role  |
 |-------------------------------------|-----------------------|
 | View program shell and tabs         | Viewer                |
@@ -274,10 +287,10 @@ intermediate state where some memberships are removed but not others.
 | View resource contention (0.3)      | Resource Manager (Scheduler) |
 | Create / edit backlog items         | Team Member           |
 | Pull backlog item to project        | Team Member (on both program and target project) |
-| Add or remove projects              | Project Manager       |
-| Manage program membership           | Project Manager       |
-| Update program name / methodology   | Project Manager       |
-| Delete program                      | Project Admin (Owner) |
+| Add or remove projects              | Program Manager       |
+| Manage program membership           | Program Manager       |
+| Update program name / methodology   | Program Manager       |
+| Delete program                      | Program Admin (Owner) |
 
 For details on the OSS / Enterprise boundary around programs and portfolios,
 see [ADR-0070](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0070-program-entity-oss.md).
