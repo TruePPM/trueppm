@@ -43,6 +43,7 @@ from trueppm_api.apps.projects.serializers import (
     BacklogItemSerializer,
     BoardColumnConfigSerializer,
     BoardSavedViewSerializer,
+    CalendarSerializer,
     CeremonyTemplateSerializer,
     CrossProjectSlipConflictSerializer,
     InboundTaskSyncPayloadSerializer,
@@ -574,6 +575,37 @@ class TestBacklogItemValidation:
             BacklogItemSerializer().validate_status(BacklogItemStatus.ARCHIVED)
             == BacklogItemStatus.ARCHIVED
         )
+
+
+# --------------------------------------------------------------------------- #
+# Calendar (#3398) — the last timezone write path without a validator.
+# --------------------------------------------------------------------------- #
+
+
+class TestCalendarTimezoneValidation:
+    @pytest.mark.parametrize("bad", ["Pacific Time", "GMT+5", "Mars/Olympus", "not a zone"])
+    def test_a_non_iana_calendar_timezone_is_rejected(self, bad: str) -> None:
+        """No reader can raise on a bad calendar zone, so the write is the only signal."""
+        with pytest.raises(serializers.ValidationError, match="Unknown IANA timezone"):
+            CalendarSerializer().validate_timezone(bad)
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_a_blank_calendar_timezone_is_rejected(self, blank: str) -> None:
+        """Blank is NOT an inherit sentinel here — this is where Calendar DIVERGES from Project.
+
+        A calendar sits under nothing; its default is ``"UTC"`` and every reader
+        substitutes UTC for ``""``. Pinned so a later "harmonize the validators"
+        edit cannot import the project's blank-means-inherit rule onto a field
+        where blank would read back as one thing and behave as another.
+        """
+        with pytest.raises(serializers.ValidationError, match="Unknown IANA timezone"):
+            CalendarSerializer().validate_timezone(blank)
+
+    def test_a_known_calendar_timezone_is_accepted(self) -> None:
+        assert CalendarSerializer().validate_timezone("Europe/Berlin") == "Europe/Berlin"
+
+    def test_a_calendar_timezone_is_stripped(self) -> None:
+        assert CalendarSerializer().validate_timezone("  Asia/Tokyo  ") == "Asia/Tokyo"
 
 
 # --------------------------------------------------------------------------- #

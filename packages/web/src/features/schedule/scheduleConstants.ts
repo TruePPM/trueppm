@@ -413,26 +413,38 @@ export function resolveOutlineGripReserve(coarse: boolean, authorable: boolean):
  * surface whose stated reason to exist is that restructuring must not be
  * keyboard-only knowledge, for a user (tablet) who has no keyboard.
  *
- * The pair is two targets, so the lane is two of them plus the gap between —
- * 34px on a mouse, 90px on a finger. That width is the honest cost of the floor:
- * #2997 already recorded that a 44px target which only reaches the floor by
- * covering its neighbour has not met the floor, it has moved the failure
- * somewhere the tester will not look.
+ * The cluster is three targets — ⇤, ⇥ and the ◆ milestone toggle (#3257) — so
+ * the lane is three of them plus the gaps between: 52px on a mouse, 136px on a
+ * finger. That width is the honest cost of the floor: #2997 already recorded
+ * that a 44px target which only reaches the floor by covering its neighbour has
+ * not met the floor, it has moved the failure somewhere the tester will not
+ * look. The third button widened the reserve rather than sharing the pair's
+ * lane for the same reason: #3077 is an open overlap in the 4px between this
+ * lane and the insert `+`, and a control squeezed into that space would have
+ * been the same defect with a third participant.
  */
 export const NUDGE_SIZE_FINE = 16;
 export const NUDGE_SIZE_COARSE = ROW_HEIGHT_COARSE;
 
-/** Gap between the two nudges. `gap-0.5` in the markup this replaces. */
+/** Gap between adjacent nudges. `gap-0.5` in the markup this replaces. */
 export const NUDGE_GAP = 2;
+
+/**
+ * How many controls the row cluster holds: outdent, indent, milestone. The
+ * coach bar teaches the cluster as `+ ⇤ ⇥ ◆` and `scheduleTeachingChords`
+ * checks that every glyph it names resolves to a rendered control, so a fourth
+ * button changes this constant AND the bar's line, or the guard fails.
+ */
+export const NUDGE_COUNT = 3;
 
 /** Edge length of ONE nudge button. Square, so this is both width and height. */
 export function resolveNudgeSize(coarse: boolean): number {
   return coarse ? NUDGE_SIZE_COARSE : NUDGE_SIZE_FINE;
 }
 
-/** Width of the lane holding both nudges plus the gap between them. */
+/** Width of the lane holding every nudge plus the gaps between them. */
 export function resolveNudgeLaneWidth(coarse: boolean): number {
-  return 2 * resolveNudgeSize(coarse) + NUDGE_GAP;
+  return NUDGE_COUNT * resolveNudgeSize(coarse) + (NUDGE_COUNT - 1) * NUDGE_GAP;
 }
 
 /**

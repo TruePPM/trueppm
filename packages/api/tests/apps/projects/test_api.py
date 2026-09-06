@@ -84,6 +84,76 @@ class TestCalendarAPI:
         r = client.delete(f"/api/v1/calendars/{standalone.pk}/")
         assert r.status_code == 204
 
+    # --- timezone (#3398) — the last timezone write path without a validator ----
+
+    def test_create_rejects_a_non_iana_timezone(
+        self, client: APIClient, membership: ProjectMembership
+    ) -> None:
+        """The field validator must actually be reached from the endpoint.
+
+        A unit test on ``CalendarSerializer.validate_timezone`` proves the function
+        rejects; it does not prove the write path runs it.
+        """
+        r = client.post(
+            "/api/v1/calendars/",
+            {"name": "Bad zone", "working_days": 31, "timezone": "Pacific Time"},
+            format="json",
+        )
+        assert r.status_code == 400, r.content
+        assert "timezone" in r.data
+        assert not Calendar.objects.filter(name="Bad zone").exists()
+
+    def test_patch_rejects_a_non_iana_timezone(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/calendars/{calendar.pk}/",
+            {"timezone": "Mars/Olympus"},
+            format="json",
+        )
+        assert r.status_code == 400, r.content
+        assert "timezone" in r.data
+        calendar.refresh_from_db()
+        assert calendar.timezone == "UTC"
+
+    @pytest.mark.parametrize("empty", ["", "   ", None])
+    def test_patch_rejects_an_empty_timezone(
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        empty: str | None,
+    ) -> None:
+        """Blank/null is not an inherit sentinel on a calendar (unlike ``Project``).
+
+        The model default is ``"UTC"`` and every reader substitutes UTC for a blank,
+        so storing ``""`` would echo back a value that means nothing. Both the
+        DRF field (``allow_blank``/``allow_null`` off) and the validator refuse it;
+        this pins the endpoint outcome regardless of which layer fires first.
+        """
+        r = client.patch(
+            f"/api/v1/calendars/{calendar.pk}/",
+            {"timezone": empty},
+            format="json",
+        )
+        assert r.status_code == 400, r.content
+        assert "timezone" in r.data
+        calendar.refresh_from_db()
+        assert calendar.timezone == "UTC"
+
+    def test_patch_accepts_an_iana_timezone(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/calendars/{calendar.pk}/",
+            {"timezone": "  Europe/Berlin  "},
+            format="json",
+        )
+        assert r.status_code == 200, r.content
+        assert r.data["timezone"] == "Europe/Berlin"
+        calendar.refresh_from_db()
+        assert calendar.timezone == "Europe/Berlin"
+
 
 @pytest.mark.django_db
 class TestProjectAPI:

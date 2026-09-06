@@ -23,7 +23,7 @@
  *
  * On the issue-1436 geometry/theme/overlay foundation, this surface composes the
  * full **Layout A** one-page Gantt (issue 1437): the export-provenance masthead, the
- * 5-cell KPI strip, the full-timeline Gantt with FS dependency arrows, the
+ * 6-cell KPI strip, the full-timeline Gantt with FS dependency arrows, the
  * critical-path summary box (the ordered driving chain), and the sign-off +
  * content-fingerprint stamp. The 3-page Layout B is issue 1439; week-boundary banding
  * + dense-arrow routing is issue 1440.
@@ -287,6 +287,11 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
       kpis.forecastP80,
       kpis.progress,
       kpis.milestones,
+      // Float (#3344) sits last, beside Milestones: both answer "what is coming",
+      // where the four before them answer "where are we". Six tracks rather than
+      // five is a ~17% narrower cell; every value in this slot is at most five
+      // mono glyphs ("-999d"), so the strip stays on one line per cell.
+      kpis.float,
     ];
 
     return (
@@ -329,7 +334,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
         </header>
 
         {/* KPI strip */}
-        <div className="mb-4 grid grid-cols-5 gap-2">
+        <div className="mb-4 grid grid-cols-6 gap-2">
           {kpiCells.map((kpi) => (
             <div
               key={kpi.label}

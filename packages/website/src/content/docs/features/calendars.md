@@ -19,8 +19,12 @@ Calendars shipped in 0.1 and are part of the **Community (OSS)** edition.
 |---------|---------|
 | **Working days** | Which days of the week count as working (default Monday–Friday). |
 | **Hours per day** | Length of a working day. Accepts fractions — set `6.0` for a six-hour day. |
-| **Time zone** | The zone the calendar's dates are interpreted in (default UTC). |
+| **Time zone** | An IANA zone name such as `Europe/Berlin` (default UTC); a non-IANA value like `Pacific Time` is rejected on save, and the field cannot be blank. |
 | **Exceptions** | Date ranges that override the weekly pattern — public holidays, company shutdowns, or one-off non-working spans. |
+
+The time zone is recorded for API parity only — like hours per day, it round-trips on
+every read, but it is not consumed by CPM or Monte Carlo and never changes a computed
+date; see [Calendar arithmetic](/features/scheduler/#calendar-arithmetic).
 
 Because **hours per day** is a decimal, part-time and custom-hour teams are first-class:
 a calendar with a 6-hour day stretches the same task duration across more elapsed days

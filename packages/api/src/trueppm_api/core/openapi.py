@@ -657,6 +657,47 @@ def state_refusal_400(
     return OpenApiResponse(response=schema, description=description)
 
 
+def ownership_refusal_403(description: str, *, codes: tuple[str, ...] = ()) -> Any:
+    """Declare the 403 an object-ownership guard returns (#3365).
+
+    Six guards used to refuse with ``ValidationError`` and so answered ``400`` for
+    what is an authorization decision — "you are not the author / uploader / a
+    role above the target", not "the thing you sent is malformed". A client
+    branching on status could not tell the two apart, and retrying with a
+    corrected body could never succeed because the body was never the problem.
+    They now raise ``PermissionDenied``, and this declares what reaches the wire
+    so a generated client has a typed branch for it.
+
+    Args:
+        description: Who is refused and why, for *this* endpoint. Site-specific
+            for the same reason :func:`state_refusal_400` insists on it — a
+            generic string is decoration, not contract.
+        codes: Stable ``code`` values the refusal really puts in the response
+            body. A guard emits one only by raising ``PermissionDenied`` with a
+            **dict** detail (``{"detail": ..., "code": ...}``) — DRF serializes a
+            dict detail key-for-key, whereas a ``code=`` keyword never leaves the
+            ``ErrorDetail`` object (#2550). Declare only what the handler writes.
+
+    Returns:
+        The ``OpenApiResponse`` to hang off ``responses={403: ...}``.
+    """
+    from drf_spectacular.utils import OpenApiResponse
+
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {"detail": {"type": "string"}},
+        "required": ["detail"],
+    }
+    if codes:
+        schema["properties"]["code"] = {
+            "type": "string",
+            "enum": list(codes),
+            "description": "Stable refusal code — branch on this, not on ``detail``.",
+        }
+        schema["required"].append("code")
+    return OpenApiResponse(response=schema, description=description)
+
+
 _THROTTLE_RESPONSE = {
     "description": (
         "Rate limit exceeded. The client is issuing requests faster than the "

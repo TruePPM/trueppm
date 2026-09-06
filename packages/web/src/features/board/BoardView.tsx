@@ -1629,9 +1629,10 @@ export function BoardView() {
     selectedSprintName,
     setSelectedSprintId,
     sprintClosed,
+    sprintStateUnknown,
   } = useBoardSprintScope(projectId, searchParams, setSearchParams);
 
-  const readOnly = boardReadOnly(currentRole, sprintClosed);
+  const readOnly = boardReadOnly(currentRole, sprintClosed, sprintStateUnknown);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
@@ -3523,7 +3524,8 @@ export function BoardView() {
 
       <BoardSidePanels
         projectId={projectId}
-        tasks={allTasks}
+        tasks={tasks}
+        tasksError={error}
         isTaskOpenable={(taskId) => taskIndex.has(taskId)}
         onOpenTask={(taskId) => setSelectedTaskId(taskId)}
         activityOpen={activityOpen}

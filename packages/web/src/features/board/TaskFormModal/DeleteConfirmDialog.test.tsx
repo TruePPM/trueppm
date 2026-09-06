@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { DeleteConfirmDialog, describeCascade } from './DeleteConfirmDialog';
+import { DeleteConfirmDialog, describeBlastRadius, describeCascade } from './DeleteConfirmDialog';
 
 describe('describeCascade', () => {
   it('returns an empty string when every count is zero', () => {
@@ -47,6 +47,42 @@ describe('describeCascade', () => {
   });
 });
 
+describe('describeBlastRadius (#3424)', () => {
+  const sub = (count: number | null) => ({ count, singular: 'subtask', plural: 'subtasks' });
+  const dep = (count: number | null) => ({
+    count,
+    singular: 'dependency link',
+    plural: 'dependency links',
+  });
+
+  it('matches describeCascade, prefixed with "its", when every count is known', () => {
+    expect(describeBlastRadius([sub(3), dep(1)])).toBe('its 3 subtasks and 1 dependency link');
+    expect(describeBlastRadius([sub(0), dep(2)])).toBe('its 2 dependency links');
+  });
+
+  it('returns an empty string when every count is known and zero', () => {
+    expect(describeBlastRadius([sub(0), dep(0)])).toBe('');
+  });
+
+  it('names an unresolved count as unavailable instead of dropping it as zero', () => {
+    expect(describeBlastRadius([sub(0), dep(null)])).toBe(
+      'any dependency links on it (count unavailable)',
+    );
+  });
+
+  it('joins a known clause with an unknown one', () => {
+    expect(describeBlastRadius([sub(3), dep(null)])).toBe(
+      'its 3 subtasks and any dependency links on it (count unavailable)',
+    );
+  });
+
+  it('pluralizes "counts" when more than one list is unresolved', () => {
+    expect(describeBlastRadius([sub(null), dep(null)])).toBe(
+      'any subtasks and dependency links on it (counts unavailable)',
+    );
+  });
+});
+
 describe('DeleteConfirmDialog', () => {
   it('renders the task name in the body and the alertdialog role', () => {
     render(
@@ -89,6 +125,24 @@ describe('DeleteConfirmDialog', () => {
     );
     expect(
       screen.getByText(/along with its 3 subtasks and 1 dependency link\./),
+    ).toBeInTheDocument();
+  });
+
+  it('says the dependency count is unavailable when the links have not resolved (#3424)', () => {
+    render(
+      <DeleteConfirmDialog
+        taskName="Mid-load"
+        isPending={false}
+        subtaskCount={2}
+        dependencyCount={null}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(
+        /along with its 2 subtasks and any dependency links on it \(count unavailable\)\./,
+      ),
     ).toBeInTheDocument();
   });
 

@@ -339,21 +339,25 @@ test.describe('Schedule rows on a coarse pointer (#2997)', () => {
     // reason to have on-row structure buttons is that restructuring must not be
     // keyboard-only knowledge — for the user who has no keyboard.
     const row = outlineRow(page, 'Survey');
-    for (const name of [/^Indent Survey/, /^Outdent Survey/]) {
+    // The ◆ milestone toggle joined the cluster in #3257 on the same floor.
+    for (const name of [/^Indent Survey/, /^Outdent Survey/, /^Milestone — Survey/]) {
       const box = await boxOf(row.getByRole('button', { name }));
       expect(box.width, `${String(name)} width`).toBeGreaterThanOrEqual(44);
       expect(box.height, `${String(name)} height`).toBeGreaterThanOrEqual(44);
     }
   });
 
-  test('the two nudges do not overlap each other', async ({ page }) => {
+  test('the three nudges do not overlap each other', async ({ page }) => {
     // A 44px target that only reaches the floor by covering its neighbour has
     // not met the floor; it has moved the failure somewhere the tester will not
-    // look (#2997, applied to a pair).
+    // look (#2997, applied to a cluster). The ◆ widened the lane rather than
+    // sharing the pair's (#3257).
     const row = outlineRow(page, 'Survey');
     const outdent = await boxOf(row.getByRole('button', { name: /^Outdent Survey/ }));
     const indent = await boxOf(row.getByRole('button', { name: /^Indent Survey/ }));
+    const milestone = await boxOf(row.getByRole('button', { name: /^Milestone — Survey/ }));
     expect(outdent.x + outdent.width).toBeLessThanOrEqual(indent.x + 0.5);
+    expect(indent.x + indent.width).toBeLessThanOrEqual(milestone.x + 0.5);
   });
 
   test('a tap on indent actually restructures the row', async ({ page }) => {
@@ -385,7 +389,7 @@ test.describe('Schedule rows on a coarse pointer (#2997)', () => {
     // the row, or nothing at all — none of which is a failure. The `+` showing
     // up is the failure, and it is the only thing this needs to rule out.
     const row = outlineRow(page, 'Survey');
-    for (const name of [/^Outdent Survey/, /^Indent Survey/]) {
+    for (const name of [/^Outdent Survey/, /^Indent Survey/, /^Milestone — Survey/]) {
       const b = await boxOf(row.getByRole('button', { name }));
       const hits = await page.evaluate(
         ({ x, y, w, h }) => {
@@ -404,9 +408,10 @@ test.describe('Schedule rows on a coarse pointer (#2997)', () => {
         { x: b.x, y: b.y, w: b.width, h: b.height },
       );
       // The target must be reachable somewhere…
-      expect(hits.some((l) => /^(Outdent|Indent) Survey/.test(l)), `${String(name)} reachable`).toBe(
-        true,
-      );
+      expect(
+        hits.some((l) => /^(Outdent|Indent|Milestone —) Survey/.test(l)),
+        `${String(name)} reachable`,
+      ).toBe(true);
       // …and the insert affordance must never be what answers over it.
       expect(
         hits.filter((l) => /^Insert an item below/.test(l)),
@@ -415,13 +420,15 @@ test.describe('Schedule rows on a coarse pointer (#2997)', () => {
     }
   });
 
-  test('the row name survives BOTH lanes — 134px of chrome must not eat the label', async ({
+  test('the row name survives BOTH lanes — 180px of chrome must not eat the label', async ({
     page,
   }) => {
     // The coarse counterpart of the grip's own "does not eat the label" test.
-    // The pair costs 90px on top of the grip's 44, all of it ahead of the first
-    // column, so this is the assertion that says the honest cost was paid out of
-    // slack rather than out of the thing people came to read.
+    // The cluster costs 136px on top of the grip's 44 (three 44px targets and
+    // two gaps, since the ◆ milestone toggle joined ⇤/⇥ in #3257), all of it
+    // ahead of the first column, so this is the assertion that says the honest
+    // cost was paid out of slack rather than out of the thing people came to
+    // read.
     const label = outlineRow(page, 'Foundations').getByText('Foundations').first();
     const labelBox = await boxOf(label);
     const indent = await boxOf(
