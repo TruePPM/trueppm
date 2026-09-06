@@ -1070,6 +1070,45 @@ def test_program_own_denial_still_governs_under_allow(
 
 
 @pytest.mark.django_db
+def test_program_detail_routes_honor_the_program_denial_for_an_agent(
+    project: Project, program: Program, owner: Any
+) -> None:
+    """A denied program is withheld from an agent on its ORDINARY detail routes.
+
+    Not the export routes — those are governed by ``McpProgramExportConsent``, a
+    permission class, and are already covered above. This pins the *other* mechanism:
+    ``McpReadableViewMixin.filter_queryset`` narrowing the ``Program`` queryset via
+    ``exclude(mcp_enabled=False)``, which is what ``retrieve``, ``projects`` and the
+    other eighteen detail actions resolve through.
+
+    **Why it exists.** ``ProgramViewSet`` is one of the three MCP-readable viewsets that
+    build their queryset from scratch instead of chaining to ``super().get_queryset()``,
+    so the mixin's ``get_queryset`` hook is dead code there and ``filter_queryset()`` is
+    the *only* seam holding this. ``ProgramViewSet.get_object()`` overrides DRF's
+    resolution to drop the search/ordering backends (#3420); it does so by removing
+    those two backends by name rather than bypassing ``filter_queryset()``, precisely so
+    this narrowing survives. Nothing pinned that before — the existing opt-out detail
+    test covers ``ProjectViewSet``, which chains to super and would stay safe either
+    way. Rewrite ``get_object()`` as ``get_object_or_404(self.get_queryset(), …)`` and
+    this test is what fails.
+
+    The ``project`` fixture is required, not incidental — same reason as the test above:
+    with no child project, ``mcp_visible_project_ids`` returns ``None`` and the mixin
+    fast-paths out before reaching its ``Program`` branch (#3022), so the assertions
+    would pass vacuously against a bypassed filter.
+    """
+    program.mcp_enabled = False
+    program.save(update_fields=["mcp_enabled"])
+    agent = _agent(owner)
+
+    assert agent.get(f"/api/v1/programs/{program.pk}/").status_code in (403, 404)
+    assert agent.get(f"/api/v1/programs/{program.pk}/projects/").status_code in (403, 404)
+
+    # A human with the same membership is unaffected — ADR-0678 governs agents.
+    assert _human(owner).get(f"/api/v1/programs/{program.pk}/").status_code == 200
+
+
+@pytest.mark.django_db
 @override_settings(TRUEPPM_MCP_PROGRAM_EXPORT_POLICY="allwo")
 def test_an_unrecognized_policy_falls_back_to_withhold(
     project: Project, program: Program, owner: Any

@@ -22,6 +22,10 @@ const FIXTURE_ME = {
   display_name: 'Alice',
   initials: 'AL',
   email: 'alice@example.com',
+  // Admin+ in at least one project (ADR-0122). `RequireAdminSettings` no longer
+  // admits on a verdict-less /auth/me (#3350), and `can_access_admin_settings` is a
+  // declared MeSerializer field, so a payload omitting it was never representable.
+  can_access_admin_settings: true,
 };
 
 const FIXTURE_LEAD_DETAIL = {
@@ -459,5 +463,58 @@ test.describe('Program Settings → General', () => {
     await expect(
       access.getByRole('link', { name: 'Learn more about Access (opens in a new tab)' }),
     ).toHaveAttribute('href', 'https://docs.trueppm.com/administration/program-settings/#access');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3350 — the RequireAdminSettings gate on the third route group it wraps.
+//
+// The guard covers `/programs/:id/settings` as well as `/settings/observability`
+// and `/settings/health/*` (covered in `system-health-settings.spec.ts`). It used
+// to redirect only on a positively-resolved `can_access_admin_settings === false`
+// and fall through otherwise, so a /auth/me that was loading, had failed, or
+// omitted the field admitted a non-admin to the whole program settings page.
+//
+// A vitest that mocks the verdict hook cannot see whether a given route is
+// actually wrapped, so the wiring is asserted here per route group.
+// ---------------------------------------------------------------------------
+test.describe('Program Settings → admin-settings gate (#3350)', () => {
+  const pj = (data: unknown) => JSON.stringify(data);
+
+  test('redirects a non-admin off the program settings page', async ({ page }) => {
+    await setup(page);
+    // Registered after setup so it wins (last-registered route).
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...FIXTURE_ME, can_access_admin_settings: false }),
+      }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    await expect(page).toHaveURL(/\/me\/settings\/notifications/);
+    await expect(page.locator('[data-settings-section="general"]')).toHaveCount(0);
+  });
+
+  test('a payload omitting can_access_admin_settings is not a yes', async ({ page }) => {
+    await setup(page);
+    // The exact shape this spec itself mocked before this issue, and the one the
+    // old guard admitted on. `can_access_admin_settings` is a declared
+    // MeSerializer field, so the payload is unrepresentable in production — but
+    // the guard must not read an absent verdict as a positive one.
+    const meWithoutField: Record<string, unknown> = { ...FIXTURE_ME };
+    delete meWithoutField.can_access_admin_settings;
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(meWithoutField) }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    await expect(
+      page.getByRole('alert').filter({ hasText: "Couldn't confirm your settings access." }),
+    ).toBeVisible();
+    await expect(page.locator('[data-settings-section="general"]')).toHaveCount(0);
   });
 });

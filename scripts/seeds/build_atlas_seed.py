@@ -474,13 +474,14 @@ PC_SPRINT_LEN = 14  # 13-day window, contiguous cadence
 # committed > completed only via carryover (never the reverse):
 #   Sprint 1: committed 30, done 28 — the 2-pt "API key rotation" carried to s2.
 #   Sprint 3: committed 32, done 26 — two 3-pt stories carried to s4 (PARTIAL).
-# Sprint 5's committed 26 excludes the mid-sprint injected "Backfill tool" (8).
+# Sprint 5's committed 28 excludes the mid-sprint injected "Backfill tool" (8)
+# and includes Jordan's 2-pt "Dunning notice copy" (4.10) — see PC_STORIES.
 PC_SPRINTS = [
     ("COMPLETED", 30, 28, "Stand up identity and the tenant core."),
     ("COMPLETED", 31, 31, "Access control and the public API surface."),
     ("COMPLETED", 32, 26, "Data platform foundations and the billing catalog."),
     ("COMPLETED", 34, 34, "Billing pipeline end to end."),
-    ("ACTIVE", 26, None, "Audit trail, dunning, and the warehouse backfill."),
+    ("ACTIVE", 28, None, "Audit trail, dunning, and the warehouse backfill."),
     ("PLANNED", None, None, "Self-serve auth and data retention."),
     ("PLANNED", None, None, "Usage analytics and export depth."),
     ("PLANNED", None, None, "Partner surface and invoicing v2."),
@@ -534,6 +535,13 @@ PC_STORIES = [
     ("4.3", "Invoice render", 5, 4, "COMPLETE", "nadia", None, None),
     ("4.4", "Dunning flow", 5, 5, "REVIEW", "nadia", 85.0, None),
     ("4.5", "Tax engine", 8, 5, "NOT_STARTED", "tom", None, None),
+    # The Product Owner's own story in the ACTIVE sprint (#3393). Jordan also
+    # holds unfinished work in GTM Readiness's active sprint (gtm 2.9), which is
+    # what makes the multi-team "My Teams" lens render for one persona: the lens
+    # aggregates the active sprints the *caller* owns non-complete work in, and
+    # before this row no Atlas persona spanned both. Kept out of the Sprint-0
+    # baseline — launch-facing copy was not scoped on day zero.
+    ("4.10", "Dunning notice copy", 2, 5, "IN_PROGRESS", "jordan", 50.0, 1),
     # Committed in Sprint 3 (with 5.5 — the 6-pt shortfall behind its PARTIAL
     # verdict) but finished in Sprint 4.
     ("4.6", "Credit memo flow", 3, 4, "COMPLETE", "nadia", None, None),
@@ -1173,7 +1181,7 @@ GTM_SPRINTS = [
         "Enablement 2",
         "ACTIVE",
         84,
-        13,
+        14,
         None,
         "Onboarding and launch content.",
     ),
@@ -1190,7 +1198,8 @@ GTM_SPRINTS = [
 
 # (wbs minor, name, points, sprint 1-3, status, assignee, percent, remaining).
 # gtm-sprint-1 members: 5+3+5 = 13 (all COMPLETE = completed_points).
-# gtm-sprint-2 members: 13 committed, mixed statuses incl. a partial burn.
+# gtm-sprint-2 members: 14 committed (= the 14 capacity of a 1-2 person content
+# team), mixed statuses incl. a partial burn.
 GTM_ENABLEMENT = [
     (1, "Sales deck", 5, 1, "COMPLETE", "clara", None, None),
     (2, "Demo script", 3, 1, "COMPLETE", "clara", None, None),
@@ -1198,6 +1207,10 @@ GTM_ENABLEMENT = [
     (4, "Onboarding guide", 5, 2, "COMPLETE", "clara", None, None),
     (5, "Launch blog", 3, 2, "IN_PROGRESS", "clara", 40.0, 2),
     (6, "Webinar prep", 5, 2, "NOT_STARTED", "clara", None, None),
+    # Jordan's second active-sprint story — the other half of the multi-team lens
+    # persona (see PC_STORIES 4.10, #3393). One point, because the sprint's
+    # committed total must stay within the 14-point capacity.
+    (9, "Pricing page copy", 1, 2, "NOT_STARTED", "jordan", None, None),
     (7, "Support runbook", 5, 3, "BACKLOG", "clara", None, None),
     (8, "Release notes", 3, 3, "BACKLOG", "clara", None, None),
 ]

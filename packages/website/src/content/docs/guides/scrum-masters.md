@@ -31,7 +31,7 @@ Capacity preflight runs automatically at activation: it checks whether the sprin
 
 At the end of the sprint, use the **Close** action. TruePPM prompts you to choose what to do with unfinished stories: carry them over to the next sprint or return them to the backlog. Velocity is recorded from completed story points.
 
-The retrospective panel is attached to the sprint. Action items you mark with "promote to backlog" become real tasks in the next sprint automatically.
+The retrospective panel is attached to the sprint. Each action item carries a **Promote to backlog** button; promoting one creates a real task in the project backlog, ready to pull into the next sprint's plan.
 
 → See [Retrospective panel](/features/retrospective/)
 
@@ -103,9 +103,9 @@ If the forecast chip shows a date after the sprint end, the conversation to have
 The retrospective panel lives inside the sprint workspace. It has two sections:
 
 1. **Notes** — free-form text for the retro discussion (what went well, what didn't, puzzles)
-2. **Action items** — structured list with assignee, story points, and a "promote to backlog" checkbox
+2. **Action items** — structured list with assignee, story points, and a per-item **Promote to backlog** button
 
-Action items with the promote checkbox selected become real tasks in the project backlog when you close the sprint. They show up in the next sprint's planning session with `→ T-XXXXXX` chips linking back to the originating retro action.
+A promoted action item becomes a real task in the project backlog — `BACKLOG` status, no sprint yet — and the item grows a `→ T-XXXXXX` chip that opens the task it became. You pull it into a sprint at the next planning session like any other backlog story.
 
 → See [Retrospective panel](/features/retrospective/)
 
@@ -149,7 +149,7 @@ The test: you should never need to open the Gantt. Run these steps in order — 
 
 4. **Walk the board.** Open **Deliver → Board** and find the column that has turned amber or red. That's WIP overload, surfaced *before* it becomes a team-health problem — not after. For the guided version, use the **Standup** button in the sprint panel header and step through the team with the ← / → keys.
 
-5. **Open the retrospective.** Back on **Sprints**, select a closed sprint and scroll to the retrospective panel below the timeline. An action item flagged "promote to backlog" is already a real task waiting in the next sprint, carrying a `→ T-XXXXXX` chip back to the retro that raised it. No copy-paste out of Confluence.
+5. **Open the retrospective.** Back on **Sprints**, select **Sprint 3** — the closed sprint whose retro the sample seeds — and scroll to the retrospective panel below the timeline. Two action items came out of that retro; "Split stories larger than 8 points" was promoted and carries a `→ T-XXXXXX` chip that opens the real backlog task it became. No copy-paste out of Confluence.
 
 6. **Notice what you didn't touch.** No schedule, no milestone, no dependency — you never opened the **Plan** group in the rail. The velocity you just read is what feeds the PM's forecast automatically.
 

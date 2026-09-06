@@ -79,6 +79,14 @@ Assigning the new project to an existing **program** requires program **Admin**
 on that program (matches the standard "New project" rules).
 :::
 
+The imported project starts with the same **methodology** a project created through
+**New project** would: the program's methodology when you import into a program,
+otherwise the workspace default. The import dialog names it before you confirm. As
+with any new project this is a one-time seed, not a lock — change it afterward under
+the project's **Settings → Methodology**, and see
+[Methodology presets](/features/methodology-preset/) for how program and workspace
+defaults cascade.
+
 ### `.mpp` — what actually works
 
 Three surfaces used to give three different answers to "can I upload a `.mpp`?".

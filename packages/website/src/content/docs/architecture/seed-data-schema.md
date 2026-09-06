@@ -221,11 +221,12 @@ ones gets synthetic transitions, seeded reproducibly per program and task so
 re-import is stable.
 
 The implemented v2.0 action set covers status, assignment, estimate, points,
-comment, AC-met, sprint activate/close, scope inject/resolve, baseline capture,
-and risk status. `retro.*` and `time.log` are deferred — they need the retro and
-time-entry models respectively
-([#1109](https://gitlab.com/trueppm/trueppm/-/issues/1109),
-[#926](https://gitlab.com/trueppm/trueppm/-/issues/926)).
+comment, AC-met, block/unblock, sprint activate/close, scope inject/resolve,
+baseline capture, risk status and notes, and the retrospective pair
+`retro.action` / `retro.promote` — an action item on the target sprint's retro,
+and its promotion (matched by `body`) into a `BACKLOG` task with no sprint,
+exactly what the live promote endpoint produces. There is no `time.log` action:
+time entries are not part of the seed format.
 
 ## Authoring a new sample
 

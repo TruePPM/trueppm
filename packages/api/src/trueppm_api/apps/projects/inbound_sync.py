@@ -458,7 +458,32 @@ def upsert_inbound_task(
         the ScheduleRequest outbox)
 
     Writes an ApiTokenAuditEntry "used" row inside the same transaction.
+
+    Refuses an archived project with ``PermissionDenied`` before touching a row
+    (#3413). ``TaskSyncView`` carries ``IsProjectNotArchived`` as well, and this
+    repeats it on purpose: archived is *lifecycle state, not authority* — a
+    property of the plan rather than of the caller — so it does not belong to the
+    view layer alone (!2318 / #3354). This function takes its ``project`` by
+    argument and is reachable from anything that can construct one: a Celery task,
+    a management command, or a future ingest that resolves its project from a
+    webhook body rather than a URL kwarg, none of which DRF's permission stack
+    sees. The check re-reads the flag rather than trusting the passed instance,
+    which matters here because a deferred or retried ingest can hold a ``Project``
+    that was live when it was fetched and archived by the time it writes.
+
+    What the re-read does **not** close, deliberately: it is a read, not a lock.
+    Under READ COMMITTED an archive that commits after this ``SELECT`` is invisible
+    to the rest of the transaction, so a push already in flight when the PM archives
+    still lands. Closing that would mean taking a row lock on the project for every
+    inbound push, on an endpoint throttled at 1000 req/min during the backfill
+    window — the wrong trade for a race whose loser is one task on a plan that was
+    live when the request arrived. The stale-instance case above is the one this
+    guards; the concurrent-archive race is accepted.
     """
+    from trueppm_api.apps.access.permissions import assert_project_not_archived
+
+    assert_project_not_archived(project.pk)
+
     resolved = _resolve_payload(project, token, payload)
 
     link = (

@@ -1872,6 +1872,153 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         return attrs
 
 
+class ProgramProjectRowSerializer(ProjectSerializer):
+    """One row of a program's project roster — deliberately far narrower than its parent.
+
+    Serves ``GET /api/v1/programs/{pk}/projects/`` (#3439). That action is gated by
+    ``IsProgramMember``, which tests membership *existence* only, so a program **Viewer**
+    reaches it — and the action lists every non-draft project in the program, including
+    ones the caller holds no ``ProjectMembership`` on. Serving ``ProjectSerializer``
+    there handed that Viewer 86 fields per row, among them the project lead's email
+    address (``lead_detail``), the team's agent-read consent decision (``mcp_enabled``
+    and its resolutions, ADR-0678 §T7), the public-sharing and guest posture, the
+    attachment policy, the MC forecast-history attribution audience, and the
+    surface-visibility map — all live governance decisions belonging to a project the
+    caller cannot open.
+
+    **What this row is, and the rule for extending it.** A roster row answers *which
+    projects are in this program, and how are they doing* — identity, dates, health,
+    lifecycle, and the rollup counts the Projects tab renders as standup chips. It
+    answers nothing about **who runs a project, who may reach it, or what it has
+    consented to**: no lead, no membership defaults, no sharing or guest posture, no
+    agent-read consent, no attachment or retention policy. Before adding a field, ask
+    which of those it is; the second kind belongs on ``GET /projects/{id}/``, which is
+    membership-gated by ``ProjectViewSet`` and is where the web already reads all of it.
+
+    **The methodology/iteration fields are a deliberate, narrow exception to that rule,
+    and worth naming as one** — they *are* project settings (``methodology`` is
+    Scheduler+-writable under ADR-0107, ``iteration_label`` is Admin+), so a reader
+    applying the paragraph above strictly would remove them. They stay because they are
+    **display chrome for the roster itself**: methodology decides which tabs a row links
+    to and how its iteration container is labelled, so a roster that omits them renders
+    wrong rather than rendering less. The line being drawn is *presentation policy* (in)
+    versus *access and disclosure policy* (out) — not "is it a setting". A field that
+    governs who can see or do something is out even when a client wants it.
+
+    The caller-scoped fields are the deliberate exception and are not a disclosure: each
+    answers only about *the requesting user*. ``is_pinned`` is bound positionally to
+    ``request.user`` by the viewset's ``Exists()`` annotation (#2553, ADR-0627 §D5), and
+    ``my_role`` / ``my_role_label`` / ``can_author`` / ``can_undo_batch_operations`` all
+    ride the ``_my_role`` Subquery (#3357). Dropping them here would silently re-open
+    both of those defects, which is why they are pinned by tests rather than left to
+    judgement.
+
+    Narrowing the *serializer* rather than the *row set* is the deliberate half of the
+    fix. A program member is meant to see that a project exists — that is what a program
+    is — and this mirrors the sibling ``program_schedule`` action, which likewise keeps
+    non-member rows and redacts them to the ADR-0120 §D5 minimal card instead of hiding
+    them.
+    """
+
+    class Meta(ProjectSerializer.Meta):
+        # Every field is read-only: this serializer is only ever used to render a
+        # response. The program-projects action is GET-only and there is no write path
+        # that reaches this class.
+        fields = [
+            # Identity and placement.
+            "id",
+            "name",
+            "code",
+            "program",
+            # The roster's sort key. Project has no stored end date — a finish is a CPM
+            # output, not a column — so there is no companion field to expose here.
+            "start_date",
+            # Display chrome — see the exception named in the class docstring. The
+            # resolved `effective_` value is what a row renders; `inherited_methodology`
+            # additionally backs the settings matrix's deviation column, which is why it
+            # has an `inherited_` companion and `iteration_label` does not (the matrix
+            # diffs methodology only).
+            "methodology",
+            "effective_methodology",
+            "inherited_methodology",
+            "iteration_label",
+            "effective_iteration_label",
+            # Progress / state.
+            "health",
+            "lifecycle",
+            "is_archived",
+            # Per-project rollup counts annotated by the action itself (#560).
+            "overdue_count",
+            "at_risk_count",
+            # Caller-scoped — each answers only about the requesting user. See the
+            # class docstring; removing any of these reverts #2553 or #3357.
+            "is_pinned",
+            "my_role",
+            "my_role_label",
+            "can_author",
+            "can_undo_batch_operations",
+        ]
+        read_only_fields = fields
+
+    # Both overrides carry an explicit `help_text` for the same reason the parent's
+    # `can_undo_batch_operations` does: without one, drf-spectacular lifts the docstring
+    # into the published schema, and these docstrings are addressed to the next person
+    # editing this class — internal module names, an N+1 rationale and a Sphinx
+    # cross-reference — not to an API consumer. The text below is the parent's
+    # consumer-facing wording, kept identical so the two routes describe the same field
+    # the same way.
+    @extend_schema_field(
+        serializers.BooleanField(
+            help_text=(
+                "Whether the requesting user may author this project's plan. Read-only; "
+                "the same rule the plan-authoring endpoints enforce. `false` on a "
+                "project the caller holds no membership on."
+            )
+        )
+    )
+    def get_can_author(self, obj: Project) -> bool:
+        """Annotation-only override of the parent's resolution — never a per-row query.
+
+        The parent falls back to ``can_user_author_plan(request, obj)`` when ``_my_role``
+        is absent. On this route that fallback is not a safety net but an N+1 waiting to
+        fire: the action lists projects the caller is **not** a member of, and for every
+        such row ``_my_role`` annotates to SQL ``NULL`` — indistinguishable, to
+        ``getattr``, from "not annotated at all". The parent would therefore run one
+        membership query per non-member row, which is exactly what
+        ``test_projects_endpoint_resolves_roles_without_a_query_per_row`` exists to
+        forbid, and what previously made passing ``context`` unsafe here.
+
+        The annotation is unconditional on this route (the action is ``IsAuthenticated``,
+        and the ``_my_role`` Subquery is added for every authenticated caller), so there
+        is nothing for a fallback to rescue. ``NULL`` means no membership, which means
+        no authoring right — the same answer ``role_can_author_plan`` gives, reached
+        without the query.
+        """
+        from trueppm_api.apps.access.permissions import role_can_author_plan
+
+        role = getattr(obj, "_my_role", None)
+        return False if role is None else role_can_author_plan(role)
+
+    @extend_schema_field(
+        serializers.BooleanField(
+            help_text=(
+                "Whether the requesting user may reverse a recorded batch write on "
+                "this project — the classification cascade and paste-many undo "
+                "endpoints. Read-only; the same rule those endpoints enforce. Clients "
+                "use it to disclose, before an irreversible batch write, that the "
+                "caller will not be able to undo it. Does not answer for structural "
+                "operations, whose undo rule is actor-or-Admin."
+            )
+        )
+    )
+    def get_can_undo_batch_operations(self, obj: Project) -> bool:
+        """Annotation-only override, for the same reason as :meth:`get_can_author`."""
+        from trueppm_api.apps.access.permissions import role_can_undo_batch_operation
+
+        role = getattr(obj, "_my_role", None)
+        return False if role is None else role_can_undo_batch_operation(role)
+
+
 class ProjectExportJobSerializer(serializers.ModelSerializer[ProjectExportJob]):
     """Read serializer for an async project export job's status + download (ADR-0219).
 

@@ -120,6 +120,16 @@ async function setup(
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
   );
+  // The project DETAIL read (#3222). The collection glob above does not match
+  // it, so without this it fell through to the catch-all's 404 — which
+  // `ProjectShell` treats as "unavailable" and answers by swapping the whole
+  // route for `ProjectNotFound` once the query's single retry lands, about a
+  // second in. Every test in this file was racing that countdown: the heading
+  // gate passed off the list-seeded render, and any step still running a second
+  // later found the register gone and timed out with nothing naming the cause.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_PROJECT) }),
+  );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (r) =>
     r.fulfill({
       status: 200,

@@ -86,10 +86,6 @@ const CALLS_A_DISMISS = /setTimeout\(\s*on(?:Cancel|Dismiss|Close|Hide)\s*[,)]/;
  * be needed to keep it passing — which the last test in this file enforces.
  */
 const ALLOWLIST: Record<string, string> = {
-  // Focuses Confirm on mount, so a verbatim focus-within pause would turn
-  // "auto-cancels in 5s" into "never auto-cancels" on a destructive-action guard.
-  // The remedy is a design call — #3394.
-  'features/grid/ConfirmDeleteStrip.tsx': 'needs a design call — #3394',
   // Implements its own hover/focus pause inline (`pausedRef` + onFocusCapture),
   // predating the hook. Correct today; converting it is cosmetic, not a fix.
   'features/schedule/RecalcPercentChip.tsx': 'has an equivalent inline pause',
@@ -100,6 +96,87 @@ const ALLOWLIST: Record<string, string> = {
   'features/settings/program/ProgramRollupPage.tsx': 'message-only toast, no control',
   'features/settings/workspace/WorkspaceDangerPage.tsx': 'message-only toast, no control',
 };
+
+/**
+ * A `useEffect` that arms a `setTimeout` AND names a callback-shaped identifier in its
+ * dependency array (#3394).
+ *
+ * The caller passes an inline arrow — `onCancelDelete={() => setDeletePhase('idle')}`
+ * in `GridView`, `onDismiss={() => setRecalcPrompt(null)}` in both `RecalcPercentChip`
+ * call sites — so the identity changes on every parent render, the effect's cleanup
+ * fires, and the dwell restarts from zero. On a surface whose parent re-renders faster
+ * than the dwell (polling, a WS invalidation, a sibling's state) the timer never
+ * completes and the surface outstays its welcome.
+ *
+ * This one is worth a guard precisely because it does not look like a bug:
+ * `react-hooks/exhaustive-deps` **requires** the dependency that causes it, so the lint
+ * that would normally catch a stale closure here actively produces the defect. The
+ * remedy is the ref indirection `usePausableAutoDismiss` already has (`dismissRef`),
+ * not a lint suppression.
+ *
+ * Kept deliberately narrow — it reads only the dep array, which is decidable, and says
+ * nothing about whether the callback is actually unstable, which is not.
+ */
+const REARMABLE_TIMER =
+  /useEffect\(\(\)\s*=>\s*\{(?:(?!\}, \[)[\s\S])*?setTimeout(?:(?!\}, \[)[\s\S])*?\}, \[([^\]]*\b(?:on[A-Z]\w*|handle[A-Z]\w*|\w+Callback)\b[^\]]*)\]\)/;
+
+/** Same contract as ALLOWLIST above: a decision with a name, not an exemption. */
+const REARM_ALLOWLIST: Record<string, string> = {
+  // Two effects, both `[phase, onDismiss]`, both call sites passing an inline arrow.
+  // Same defect, tracked separately because the remedy is a conversion, not a one-liner.
+  'features/schedule/RecalcPercentChip.tsx': 'same defect, tracked in #3447',
+};
+
+describe('a dwell is not re-armable by an unrelated re-render (#3394)', () => {
+  it('leaves no NEW timer effect that a re-render can restart', () => {
+    const offenders = FILES.filter((f) => REARMABLE_TIMER.test(readFileSync(f, 'utf8')))
+      .map(rel)
+      .filter((f) => !(f in REARM_ALLOWLIST));
+    expect(offenders).toEqual([]);
+  });
+
+  it('still matches the shape it was written against, and nothing else', () => {
+    // Both-direction self-test (rule 300(a)). The first literal is the pre-#3394
+    // `ConfirmDeleteStrip` effect, verbatim — the guard was watched failing on it.
+    expect(
+      REARMABLE_TIMER.test(
+        'useEffect(() => {\n  if (isDeleting) return;\n  const timer = setTimeout(onCancel, 5000);\n  return () => clearTimeout(timer);\n}, [isDeleting, onCancel]);',
+      ),
+    ).toBe(true);
+    // A timer effect keyed only on plain state is fine — nothing re-arms it.
+    expect(
+      REARMABLE_TIMER.test(
+        'useEffect(() => {\n  const t = setTimeout(() => setCopied(false), 1500);\n  return () => clearTimeout(t);\n}, [copied]);',
+      ),
+    ).toBe(false);
+    // …and a callback dep on an effect with NO timer is not this defect.
+    expect(
+      REARMABLE_TIMER.test('useEffect(() => {\n  onReady();\n}, [onReady]);'),
+    ).toBe(false);
+    // The narrowing that matters, pinned so it cannot silently come undone. A first
+    // draft let the match run past the closing `}, [` and pick up the NEXT effect's
+    // dep array, which reported 5 files — `RiskDrawer`, `MonteCarloDetailPanel`,
+    // `ScheduleView`, `BoardCardPopover`, `AgentActionDrawer` — every one a
+    // focus-timer effect keyed on plain state sitting immediately above an unrelated
+    // effect that legitimately depends on `onClose`. That is the over-broad shape the
+    // file header says gets a guard disabled; both `(?!\}, \[)` bounds are load-bearing.
+    expect(
+      REARMABLE_TIMER.test(
+        'useEffect(() => {\n  const id = setTimeout(() => closeButtonRef.current?.focus(), 50);\n  return () => clearTimeout(id);\n}, [isOpen]);\n\nuseEffect(() => {\n  document.addEventListener("keydown", onKey);\n}, [isOpen, onClose]);',
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps every re-arm allowlist entry actually matching', () => {
+    for (const [file, why] of Object.entries(REARM_ALLOWLIST)) {
+      const source = readFileSync(resolve(SRC, file), 'utf8');
+      expect(
+        REARMABLE_TIMER.test(source),
+        `${file} (${why}) no longer matches — remove it from REARM_ALLOWLIST`,
+      ).toBe(true);
+    }
+  });
+});
 
 describe('pausable auto-dismiss has exactly one implementation (#3356)', () => {
   it('scans a real, non-empty slice of the tree', () => {
@@ -165,6 +242,12 @@ describe('pausable auto-dismiss has exactly one implementation (#3356)', () => {
       'features/schedule/ScheduleView.tsx',
       'features/grid/GridView.tsx',
       'features/sprints/RetroBoardSurface.tsx',
+      // The fifth member, converted in #3394 on an opt-in that keeps its mount
+      // autofocus outside the pause. It was the one ALLOWLIST entry naming a
+      // *pending decision* rather than a permanent exemption, so landing the
+      // decision had to move it to this list — an allowlist nobody ever empties is
+      // a backlog with a guard's name on it.
+      'features/grid/ConfirmDeleteStrip.tsx',
     ]) {
       expect(IMPORTS_HOOK.test(readFileSync(resolve(SRC, file), 'utf8')), file).toBe(true);
     }

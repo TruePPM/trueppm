@@ -1911,21 +1911,28 @@ def _retro_summary_block(sprint: Any, request: Any) -> dict[str, Any] | None:
 
     ADR-0071 §3: notes are readable at PROJECT visibility for any member, or to
     MEMBER+ when TEAM_ONLY. Counts are always visible.
+
+    The role comes from :func:`~trueppm_api.apps.access.permissions._membership_role`
+    (#3411), which is the request-cached seam every other gate on this payload already
+    uses — ``sprint_outcome_payload`` has resolved it once through ``can_read_signal``
+    before this runs, so this is now a cache hit rather than a second query. It replaces
+    a local ``ProjectMembership`` lookup that omitted ``is_deleted``: revocation
+    soft-deletes the row against an unconditional ``(project, user)`` constraint, so a
+    revoked Admin kept their ordinal and cleared the ``>= MEMBER`` arm below. That was
+    defense in depth rather than a live leak — ``SprintViewSet.outcome`` sits behind
+    ``IsProjectMember`` and a membership-scoped queryset, both floored, so a revoked
+    caller never reached this function — but resolving the caller's role two different
+    ways in one payload is exactly how the two drifted apart.
     """
-    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import _membership_role
     from trueppm_api.apps.projects.models import RetroVisibility, SprintRetro
 
     retro = SprintRetro.objects.filter(sprint=sprint).prefetch_related("action_items").first()
     if retro is None:
         return None
 
-    membership = None
-    user = getattr(request, "user", None)
-    if user is not None and getattr(user, "is_authenticated", False):
-        membership = ProjectMembership.objects.filter(
-            project_id=sprint.project_id, user=user
-        ).first()
-    caller_role = membership.role if membership else None
+    caller_role = _membership_role(request, sprint.project_id)
     can_read_notes = retro.team_visibility == RetroVisibility.PROJECT or (
         caller_role is not None and caller_role >= Role.MEMBER
     )

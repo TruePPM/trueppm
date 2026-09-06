@@ -163,6 +163,27 @@ async function setupRoutes(page: import('@playwright/test').Page, tasks: Record<
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
     }),
   );
+  // The project DETAIL read (#3222). The collection glob above does not match
+  // it, so without this it fell through to the catch-all's 404 — and
+  // `ProjectShell` treats a 404 on `['project', id]` as "unavailable" and swaps
+  // the whole route for `ProjectNotFound`. The query retries once after ~1 s,
+  // so every test in this file was running against a countdown: the treegrid
+  // gate passed off the list-seeded render, and any interaction that had not
+  // finished about a second later found the schedule gone and timed out on a
+  // `locator.click` — 17 of 22 on a loaded machine, 1 of 818 in CI, always as a
+  // 30 s timeout rather than as anything naming the cause. Raising timeouts
+  // cannot help: once the shell has swapped, the chip never comes back. Same
+  // class as #3054 in unscheduled-gutter-filter.spec.ts.
+  //
+  // Deliberately carries no `server_date`: the #3075 "stays silent" test below
+  // relies on the default fixture's server sending no date of its own.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_API_PROJECTS[0]),
+    }),
+  );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
@@ -443,7 +464,7 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
   });
 
   test('stays silent when the server sends no date of its own (#3075)', async ({ page }) => {
-    // The default fixture has no project-detail mock, so `server_date` is absent — the
+    // The default fixture's project-detail mock carries no `server_date` — the
     // older-server / not-yet-loaded case. The labels must read exactly as they did
     // before the disclosure existed rather than falling back to the browser clock,
     // and the exact-name locator below is what the rest of this spec relies on.
@@ -491,7 +512,9 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
           body: JSON.stringify({ id: 'unscheduled-1', status: 'NOT_STARTED' }),
         });
       } else {
-        await route.continue();
+        // Hand every other method back to the mocks registered before this one;
+        // `continue()` would send it to the network, where nothing is listening.
+        await route.fallback();
       }
     });
 
@@ -508,6 +531,15 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
   test('Esc closes overflow menu', async ({ page }) => {
     await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
     await expect(page.getByText('Or pick a date')).toBeVisible();
+    // Escape is handled by the menu container's own `onKeyDown`, so it only
+    // closes the menu once focus is INSIDE it — and opening moves focus to the
+    // first quick action on a `setTimeout(0)`, which under worker contention can
+    // land after the keypress. Gate on that focus (it is the #3064 contract
+    // anyway) rather than on the menu's visibility, or Escape hits the still-
+    // focused ··· button and the menu stays open — 2 of 10 at 6 workers. This
+    // used to pass regardless because the ProjectNotFound swap (#3222, see
+    // setupRoutes) tore the menu down about a second in, Escape or not.
+    await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(page.getByText('Or pick a date')).not.toBeVisible();
   });
@@ -721,7 +753,9 @@ test.describe('Unscheduled gutter — promote sends PATCH (#213)', () => {
           }),
         });
       } else {
-        await route.continue();
+        // Hand every other method back to the mocks registered before this one;
+        // `continue()` would send it to the network, where nothing is listening.
+        await route.fallback();
       }
     });
 
