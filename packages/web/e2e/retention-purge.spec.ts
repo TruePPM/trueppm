@@ -17,6 +17,10 @@ const FIXTURE_ME = {
   display_name: 'Admin',
   initials: 'AD',
   email: 'admin@example.com',
+  // Admin+ in at least one project (ADR-0122). `RequireAdminSettings` no longer
+  // admits on a verdict-less /auth/me (#3350), and `can_access_admin_settings` is a
+  // declared MeSerializer field, so a payload omitting it was never representable.
+  can_access_admin_settings: true,
 };
 
 const POLICY = (key: string, label: string, value: number, unit = 'days', enabled = true) => ({

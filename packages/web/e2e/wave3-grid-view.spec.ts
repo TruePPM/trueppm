@@ -258,6 +258,80 @@ test.describe('Grid view responsive layout (#1701)', () => {
   });
 });
 
+test.describe('bulk-delete confirm strip — pausable dwell (#3394)', () => {
+  /**
+   * The strip is `role="alertdialog"`, focuses Confirm on mount, and declines the
+   * delete after 5s. #3394 made that dwell pause on hover and on focus the USER
+   * moved into it, while deliberately leaving the mount autofocus outside the pause.
+   *
+   * **These assert the shrink-BAR, not just "still visible", and that is the whole
+   * point.** A first draft asserted only that the strip survived 6s of hover, and it
+   * passed against the pre-fix build — because the pre-fix effect listed the inline
+   * `onCancel` in its dependency array, so background polling re-armed the timer and
+   * the strip never expired for an unrelated reason. "Still there after the dwell" is
+   * exactly the trivially-passing shape rule 378(d) warns about, and here it really
+   * did pass on a broken build. The bar's computed `animation-play-state` cannot: the
+   * element does not exist before this change, and only the pause writes `paused` to it.
+   *
+   * Browser-only by necessity — jsdom has no layout for `:hover` and no CSS animation
+   * to read a play state from. The behavioral half lives in `ConfirmDeleteStrip.test.tsx`.
+   */
+  const playState = (bar: import('@playwright/test').Locator) =>
+    bar.evaluate((el) => getComputedStyle(el).animationPlayState);
+
+  async function armTheStrip(page: import('@playwright/test').Page) {
+    await setup(page);
+    await page.goto(`${BASE_URL}/grid`);
+    await page.getByRole('button', { name: 'Flat list' }).click();
+    await expect(page.getByRole('grid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
+    await page.getByLabel('Select all tasks').check();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    const strip = page.getByRole('alertdialog');
+    await expect(strip).toBeVisible();
+    return { strip, bar: page.getByTestId('confirm-delete-shrink-bar') };
+  }
+
+  test('auto-cancels after the dwell when left alone, despite focusing itself', async ({ page }) => {
+    const { strip, bar } = await armTheStrip(page);
+    // Confirm really does hold focus — so this also proves the mount autofocus is
+    // outside the pause, not merely that some timer somewhere fired.
+    await expect(page.getByRole('button', { name: 'Confirm delete', exact: true })).toBeFocused();
+    // Park the pointer well away: `click()` leaves it over the Delete button, which
+    // the strip then renders on top of, and hover alone would hold the pause.
+    await page.mouse.move(0, 0);
+    expect(await playState(bar)).toBe('running');
+    await expect(strip).toBeHidden({ timeout: 8_000 });
+  });
+
+  test('hovering suspends the countdown and stops the bar draining', async ({ page }) => {
+    const { strip, bar } = await armTheStrip(page);
+    await strip.hover();
+    expect(await playState(bar)).toBe('paused');
+    await page.waitForTimeout(6_000);
+    await expect(strip).toBeVisible();
+    expect(await playState(bar)).toBe('paused');
+
+    await page.mouse.move(0, 0);
+    expect(await playState(bar)).toBe('running');
+    await expect(strip).toBeHidden({ timeout: 8_000 });
+  });
+
+  test('focus the user moved into the strip suspends the countdown', async ({ page }) => {
+    const { strip, bar } = await armTheStrip(page);
+    // Pointer away first, or hover is what holds the pause and this asserts nothing.
+    await page.mouse.move(0, 0);
+    // Tab from the autofocused Confirm to Cancel — a focusin the component did not
+    // make, which is the whole discriminator.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+    expect(await playState(bar)).toBe('paused');
+    await page.waitForTimeout(6_000);
+    await expect(strip).toBeVisible();
+    // …and the control is still there to be used, which is the point of the pause.
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  });
+});
+
 // Data continuity across modes (acceptance criterion in #334) is covered by
 // GridView.test.tsx — its mock-data path verifies the same task names render
 // in Flat / Outline / Grouped without resorting to a deep multi-step e2e

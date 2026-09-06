@@ -823,3 +823,39 @@ class TruePPMAutoSchema(AutoSchema):
                 return None
         # drf-spectacular's AutoSchema is untyped; the base return is a paginator or None.
         return super()._get_paginator()  # type: ignore[no-untyped-call]
+
+
+def undo_summary_schema(description: str, **counts: str) -> dict[str, Any]:
+    """Raw OpenAPI schema for the ``undo`` key a batch-undo action adds to its 200 (#3416).
+
+    All four undo actions build their body as ``data = serializer.data`` followed by
+    ``data["undo"] = summary``. Declaring the bare serializer as the ``200`` therefore
+    publishes a document missing the one value the endpoint exists to report — a
+    generated SDK has no ``undo`` field at all, so a typed client cannot read the
+    outcome of the call it just made. That is the #3399 trap pointed at a different
+    surface: the declaration is self-consistent, ``api:schema-drift`` passes on it,
+    and it is still false.
+
+    The counts differ per action (``deleted``/``kept`` for the two that remove rows,
+    ``reverted``/``kept`` for the cascade, five keys for the structural undo), so each
+    site passes its own. They are spelled out rather than left as an open
+    ``additionalProperties: {type: integer}`` map because the key set is closed and a
+    client branches on the individual names.
+
+    Args:
+        description: What this action's summary counts, in its own vocabulary.
+        **counts: ``field_name="what it counts"`` for every key the summary carries.
+
+    Returns:
+        A schema dict to hang off ``@extend_schema_field`` on the wrapper's field.
+    """
+    return {
+        "type": "object",
+        "description": description,
+        "properties": {
+            name: {"type": "integer", "minimum": 0, "description": text}
+            for name, text in counts.items()
+        },
+        "required": list(counts),
+        "additionalProperties": False,
+    }

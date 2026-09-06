@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
+import { delayRoute } from './fixtures/cold-load';
 
 /**
  * Workspace Settings → System health E2E (#692 / #694, ADR-0086).
@@ -21,6 +22,10 @@ const FIXTURE_ME = {
   display_name: 'Admin',
   initials: 'AD',
   email: 'admin@example.com',
+  // Admin+ in at least one project (ADR-0122). `RequireAdminSettings` no longer
+  // admits on a verdict-less /auth/me (#3350), and `can_access_admin_settings` is a
+  // declared MeSerializer field, so a payload omitting it was never representable.
+  can_access_admin_settings: true,
 };
 
 const FIXTURE_HEALTH = {
@@ -559,5 +564,124 @@ test.describe('Workspace Settings → Observability (#2250)', () => {
     // Inapplicable scopes are hidden, not shown disabled with a false imperative.
     await expect(page.getByRole('button', { name: 'Program', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Project', exact: true })).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3350 — the RequireAdminSettings gate.
+//
+// The guard used to redirect only on a positively-resolved
+// `can_access_admin_settings === false` and fall through otherwise, so a
+// /auth/me that was loading, had failed, or omitted the field admitted a
+// non-admin to the System Health tools. It now renders the absence instead, and
+// the two halves of that absence render differently on purpose. Mirrors the
+// #3330 block in `workspace-settings.spec.ts` for the sibling guard.
+//
+// Every route in this file is `RequireAdminSettings`-wrapped, so these run
+// against the real guard rather than a stand-in.
+// ---------------------------------------------------------------------------
+test.describe('Workspace Settings → admin-settings gate (#3350)', () => {
+  const pj = (data: unknown) => JSON.stringify(data);
+
+  // The guard wraps THREE route groups, and a vitest that mocks the hook cannot
+  // see whether a given route is actually wrapped. So the two verdicts that prove
+  // the wiring — a positive refusal and a non-answer — are asserted per route,
+  // over the two this spec can reach. (`/programs/:id/settings`, the third, is
+  // covered in `program-general-settings.spec.ts`, which has the program mocks.)
+  // The render-state tests below are route-independent and run once.
+  const GUARDED_ROUTES = [
+    { path: '/settings/health', heading: 'System health' },
+    { path: '/settings/observability', heading: 'Observability' },
+  ] as const;
+  // Non-zero denominator: a loop over an emptied array passes silently.
+  expect(GUARDED_ROUTES).toHaveLength(2);
+
+  for (const { path, heading } of GUARDED_ROUTES) {
+    test(`redirects a non-admin off ${path}`, async ({ page }) => {
+      await setup(page);
+      // Registered after setup so it wins (last-registered route).
+      await page.route('**/api/v1/auth/me/', (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...FIXTURE_ME, can_access_admin_settings: false }),
+        }),
+      );
+
+      await page.goto(path);
+
+      await expect(page).toHaveURL(/\/me\/settings\/notifications/);
+      await expect(page.getByRole('heading', { name: heading })).toHaveCount(0);
+    });
+
+    test(`a payload omitting can_access_admin_settings is not a yes on ${path}`, async ({
+      page,
+    }) => {
+      await setup(page);
+      // The exact shape ~30 specs mocked before this issue, and the one the old
+      // guard admitted on. `can_access_admin_settings` is a declared MeSerializer
+      // field, so this payload is unrepresentable in production — but the guard
+      // must not treat an absent verdict as a positive one.
+      const meWithoutField: Record<string, unknown> = { ...FIXTURE_ME };
+      delete meWithoutField.can_access_admin_settings;
+      await page.route('**/api/v1/auth/me/', (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: pj(meWithoutField) }),
+      );
+
+      await page.goto(path);
+
+      await expect(
+        page.getByRole('alert').filter({ hasText: "Couldn't confirm your settings access." }),
+      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: heading })).toHaveCount(0);
+    });
+  }
+
+  test('a slow /auth/me holds a skeleton, then admits the admin — never a flash-redirect', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Registered after setup so it only defers the response, not its body.
+    await delayRoute(page, '**/api/v1/auth/me/');
+
+    await page.goto('/settings/health');
+
+    const skeleton = page.getByRole('status', { name: 'Loading settings…' });
+    await expect(skeleton).toBeVisible();
+    // The whole point of the decision: a slow read is not a verdict, so the real
+    // admin stays put and gets the page once the answer lands.
+    await expect(skeleton).toHaveCount(0, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/settings\/health$/);
+    await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible();
+  });
+
+  test('a failed /auth/me shows an error with a retry — not the tools, not a redirect, not an endless skeleton', async ({
+    page,
+  }) => {
+    await setup(page);
+    let meCalls = 0;
+    await page.route('**/api/v1/auth/me/', (r) => {
+      meCalls += 1;
+      return r.fulfill({ status: 500, contentType: 'application/json', body: pj({}) });
+    });
+
+    await page.goto('/settings/health');
+
+    const alert = page
+      .getByRole('alert')
+      .filter({ hasText: "Couldn't confirm your settings access." });
+    await expect(alert).toBeVisible();
+    // Fail closed: the tools never render behind the error.
+    await expect(page.getByRole('heading', { name: 'System health' })).toHaveCount(0);
+    // …and fail closed without locking a real admin out: no bounce off the route.
+    await expect(page).toHaveURL(/\/settings\/health$/);
+    // Rule 246 / #3298 — a terminal failure must not read as "still loading".
+    await expect(page.getByRole('status', { name: 'Loading settings…' })).toHaveCount(0);
+
+    // `retry: false` on the query makes one failure terminal, so Retry is the
+    // only way back short of a page reload. Assert it actually re-reads.
+    const before = meCalls;
+    await alert.getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect.poll(() => meCalls).toBeGreaterThan(before);
   });
 });
