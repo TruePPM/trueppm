@@ -409,7 +409,7 @@ export function LocationSegment({
                         </span>
                       </span>
                     ) : (
-                      <span className="flex-1 truncate">{opt.name}</span>
+                      <span className="flex-1 min-w-0 truncate">{opt.name}</span>
                     )}
                     {isCurrent && <CheckIcon />}
                   </button>
