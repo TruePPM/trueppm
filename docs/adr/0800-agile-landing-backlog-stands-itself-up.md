@@ -156,3 +156,40 @@ either the schedule surface (#2731's concern) or the backlog surface (this ADR's
 8. Dead-letter / failure handling: N/A — a failed template-apply dispatch is already
    surfaced via `NewProjectModal`'s existing `toast.error(...)`; the new seeding
    indicator's 10s timeout is a display-only fallback, not a retry or failure handler.
+
+## Amendment (#3422): the backlog polls the application after all
+
+Decision 4 chose a `?seeding=1` flag plus a 10s timeout over Alternative D ("poll
+`useTemplateApplication(applicationId)`"), and recorded D as "a documented future option
+if failure-visibility needs to be finer-grained than the existing create-time toast".
+#3348 was that need arriving, and it exposed why the flag could never be made to carry
+it: a boolean fixed at navigation time cannot encode a status the server writes later.
+The create-time toast covers a refused *dispatch* (no 202), not an apply that was
+accepted and then failed inside the worker — for that case the backlog pulsed its
+skeleton for 10s and fell through to "No stories yet" with nothing said, the exact
+silence #3348 removed from the Schedule.
+
+Superseded as of 2026-09-05:
+
+- `createdProjectDestination` routes an AGILE template application to
+  `/product-backlog?templateApplication=<id>`, the same contract the Schedule has had
+  since ADR-0799 §1. **`?seeding=1` is retired.** The no-id case (dispatch refused, so
+  nothing to poll) lands on the plain backlog, whose genuine empty state is the honest
+  one — the same landing as `blank`.
+- `ProductBacklogPage` consumes the id one-shot, polls the application through
+  `useBacklogSeed`, and derives the skeleton from its real status via
+  `resolveBacklogSeeding` — the backlog twin of `resolveScheduleSeeding`. The bounded
+  exit is 60s rather than 10s, because the timer is now the last resort for a worker
+  that died without writing a terminal status, not the primary exit.
+- A terminal `failed` renders `SeedFailureBanner` (from #3348) above the untouched empty
+  state, on desktop and mobile alike. The predicate itself still says "not seeding" for
+  `failed` — the apply is a total rollback, so the empty backlog is genuinely empty.
+- On terminal `success` the backlog query is invalidated once, so a degraded WebSocket
+  cannot leave the user on an empty CTA with the rows still in flight (web rule 374's
+  corollary). The WS invalidation this decision leaned on is still there; it is no
+  longer the only path.
+
+Alternative D's stated cost — one extra request and a polling lifecycle — is paid, and
+is the same request the failure banner needs anyway (shared query key). Durable
+Execution item 8 above is therefore no longer accurate for the *worker-side* failure:
+that case is surfaced on the landing surface itself, not only by the sheet's toast.

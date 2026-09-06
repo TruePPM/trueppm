@@ -7,14 +7,18 @@ export interface DeleteConfirmDialogProps {
   isPending: boolean;
   /**
    * Number of drawer-created subtasks that cascade-delete with this task
-   * (see `Task.soft_delete`). Zero hides the clause. Default 0.
+   * (see `Task.soft_delete`). Zero hides the clause. `null` means the task
+   * list has not resolved, so the count is unknown — the clause then names
+   * the cascade without a number rather than claiming zero (#3424). Default 0.
    */
-  subtaskCount?: number;
+  subtaskCount?: number | null;
   /**
    * Number of dependency links (predecessor or successor edges) that are
-   * soft-deleted with this task. Zero hides the clause. Default 0.
+   * soft-deleted with this task. Zero hides the clause. `null` means the
+   * dependency list has not resolved, so the count is unknown (#3424).
+   * Default 0.
    */
-  dependencyCount?: number;
+  dependencyCount?: number | null;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -33,13 +37,48 @@ interface CascadeItem {
  * else cascades, so the caller falls back to the plain single-item copy.
  */
 export function describeCascade(items: CascadeItem[]): string {
-  const parts = items
-    .filter((i) => i.count > 0)
-    .map((i) => `${i.count} ${i.count === 1 ? i.singular : i.plural}`);
+  return joinAnd(
+    items
+      .filter((i) => i.count > 0)
+      .map((i) => `${i.count} ${i.count === 1 ? i.singular : i.plural}`),
+  );
+}
+
+/** Oxford-join a list of phrases: `a`, `a and b`, `a, b, and c`. */
+function joinAnd(parts: string[]): string {
   if (parts.length === 0) return '';
   if (parts.length === 1) return parts[0];
   if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
   return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
+interface BlastRadiusItem extends Omit<CascadeItem, 'count'> {
+  /** `null` = the list this count is taken from has not resolved. */
+  count: number | null;
+}
+
+/**
+ * The "along with …" clause for the delete confirm, honest about what is and
+ * is not known (#3424). Known counts go through `describeCascade` exactly as
+ * before; an item whose count is `null` is named without a number and marked
+ * unavailable, so an unresolved dependency query reads as "we could not count
+ * these" rather than as "there are none" — the confirm's whole job is to
+ * quantify the blast radius (web-rule 219), and a silently dropped clause
+ * under-promises it. Returns '' when every count is known and zero.
+ */
+export function describeBlastRadius(items: BlastRadiusItem[]): string {
+  const known = describeCascade(
+    items.filter((i): i is CascadeItem => i.count !== null),
+  );
+  const unknown = items.filter((i) => i.count === null).map((i) => i.plural);
+  const clauses: string[] = [];
+  if (known) clauses.push(`its ${known}`);
+  if (unknown.length > 0) {
+    clauses.push(
+      `any ${joinAnd(unknown)} on it (${unknown.length === 1 ? 'count' : 'counts'} unavailable)`,
+    );
+  }
+  return joinAnd(clauses);
 }
 
 /**
@@ -66,14 +105,14 @@ export function DeleteConfirmDialog({
 }: DeleteConfirmDialogProps) {
   const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
-  const cascade = describeCascade([
+  const cascade = describeBlastRadius([
     { count: subtaskCount, singular: 'subtask', plural: 'subtasks' },
     { count: dependencyCount, singular: 'dependency link', plural: 'dependency links' },
   ]);
   // Assembled as a plain string (not literal JSX text) so the interpolated
   // clause never introduces stray whitespace around its comma.
   const body = cascade
-    ? `“${taskName}” will be permanently removed, along with its ${cascade}. This can’t be undone.`
+    ? `“${taskName}” will be permanently removed, along with ${cascade}. This can’t be undone.`
     : `“${taskName}” will be permanently removed. This can’t be undone.`;
 
   return (
