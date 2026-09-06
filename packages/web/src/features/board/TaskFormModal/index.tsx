@@ -537,7 +537,10 @@ export function TaskFormModal({
   // rejection (ADR-0293, #1753). Only meaningful in edit mode — a freshly
   // create-mode task has no children yet, so it can never already be a phase.
   const isEditingPhase = isEdit && task != null && isPhaseTask(task, allTasks ?? []);
-  const { sprints } = useSprints(projectId);
+  // `sprints` is `[]` while loading and after a failure, and the two write
+  // guards below (`pointsReadOnly`, the delete blast radius) must not read
+  // that as "no sprint" / "no links" — an unresolved read is unknown (#3424).
+  const { sprints, isLoading: sprintsLoading, error: sprintsError } = useSprints(projectId);
   const { data: projectDetail } = useProject(projectId);
   // Effective estimation scale drives the points picker/labels (ADR-0510, #2027).
   const estimationScale = projectDetail?.effective_estimation_scale ?? 'fibonacci';
@@ -602,16 +605,27 @@ export function TaskFormModal({
   // so a subtree prefix match reproduces the backend's `wbs_path__startswith`
   // rule exactly. Comments/attachments/time entries are NOT in the cascade, so
   // they are deliberately not claimed.
-  const deleteBlastRadius = useMemo(() => {
+  //
+  // A count is `null`, not `0`, while its source list is unresolved (#3424).
+  // `allLinks` comes from a separate `['dependencies', …]` query that BoardView
+  // triggers but never waits on, so on a large graph it can still be in flight
+  // when Delete is opened; `?? []` there made the confirm silently omit "…and
+  // its N dependency links". The dialog says the count is unavailable instead.
+  const deleteBlastRadius = useMemo((): {
+    subtaskCount: number | null;
+    dependencyCount: number | null;
+  } => {
     if (!task) return { subtaskCount: 0, dependencyCount: 0 };
-    const list = allTasks ?? [];
-    const selfWbs = list.find((t) => t.id === task.id)?.wbs ?? task.wbs;
-    const subtaskCount = selfWbs
-      ? list.filter((t) => t.isSubtask && t.wbs.startsWith(`${selfWbs}.`)).length
-      : 0;
-    const dependencyCount = (allLinks ?? []).filter(
-      (l) => l.sourceId === task.id || l.targetId === task.id,
-    ).length;
+    let subtaskCount: number | null = null;
+    if (allTasks) {
+      const selfWbs = allTasks.find((t) => t.id === task.id)?.wbs ?? task.wbs;
+      subtaskCount = selfWbs
+        ? allTasks.filter((t) => t.isSubtask && t.wbs.startsWith(`${selfWbs}.`)).length
+        : 0;
+    }
+    const dependencyCount = allLinks
+      ? allLinks.filter((l) => l.sourceId === task.id || l.targetId === task.id).length
+      : null;
     return { subtaskCount, dependencyCount };
   }, [task, allTasks, allLinks]);
 
@@ -1184,9 +1198,20 @@ export function TaskFormModal({
         {(() => {
           const showSprint = !!projectDetail?.agile_features;
           const selectedSprint = sprints.find((s) => s.id === form.sprintId);
-          // Commitment is frozen once a sprint goes ACTIVE — match EstimatesTab.
+          // The task names a sprint the list cannot yet vouch for: still loading,
+          // or failed and never delivered. `selectedSprint` is undefined in both
+          // cases, and reading that as "not ACTIVE" rendered committed points
+          // editable on an ACTIVE sprint for as long as the query took (#3424).
+          // A list that resolved and lacks the id is not unknown — that sprint
+          // simply is not on the page the hook returns.
+          const sprintStateUnknown =
+            !!form.sprintId && selectedSprint === undefined && (sprintsLoading || sprintsError != null);
+          // Commitment is frozen once a sprint goes ACTIVE — match EstimatesTab —
+          // and stays frozen while the sprint's state is unknown: the freeze is a
+          // withheld affordance, so its safe default is "withheld" (rule 379).
           // No sprint exists off agile, so points stay editable there.
-          const pointsReadOnly = isReadOnly || (isEdit && selectedSprint?.state === 'ACTIVE');
+          const pointsReadOnly =
+            isReadOnly || (isEdit && (sprintStateUnknown || selectedSprint?.state === 'ACTIVE'));
           return (
             <div
               className={`grid ${showSprint ? 'grid-cols-[1fr_auto]' : 'grid-cols-[auto]'} gap-3 items-end`}
