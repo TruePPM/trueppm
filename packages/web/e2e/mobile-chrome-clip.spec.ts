@@ -34,12 +34,20 @@ const PROJECT = {
 
 // The health chip's word is the variable-width part of this cluster, and the
 // widest word is NOT the worst health — severity is no guide to it. Measured in
-// Chromium at 375x812 against the bundled Inter at the chip's own
-// `text-xs font-medium`, with the resulting header overflow:
+// Chromium at 375x812, single-threaded, against the bundled Inter at the chip's
+// own `text-xs font-medium`:
 //
-//   on_track  "On track"  48.73px   overflow 2px   <- widest word, still over
-//   critical  "Critical"  40.55px   overflow 0px
-//   at_risk   "At risk"   36.47px   overflow 0px
+//   band       word        word w    chip w    header scrollW    overflow
+//   on_track   "On track"  48.73px   100.45    377               2px
+//   critical   "Critical"  40.55px    92.27    375               0px
+//   at_risk    "At risk"   36.47px    88.19    375               0px
+//
+// Read the last two columns together or the table looks self-contradictory: a
+// 12.26px wider word appears to cost only 2px. It does not — the header is
+// `flex-nowrap` with compressible neighbours, so it absorbs roughly the first
+// 10px and pins `scrollWidth` at exactly `clientWidth` (375) until it runs out.
+// on_track is the band that runs it out. So the slack, not the word width, is
+// what the margin here is made of, and it is ~10px.
 //
 // This fixture therefore pins `at_risk`, and that is a deliberate, temporary
 // concession rather than the worst case: the 2px on `on_track` is PRE-EXISTING

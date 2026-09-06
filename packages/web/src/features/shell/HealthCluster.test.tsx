@@ -6,11 +6,7 @@ import { FIXTURE_SHELL_STATS } from '@/fixtures/shellStats';
 import type { ShellStats, ApiSprint, Methodology, AddedTimeFacts } from '@/types';
 import { ADDED_TIME_FIXTURES } from '@/fixtures/addedTime';
 import type { ProjectVelocity } from '@/hooks/useSprints';
-import {
-  deriveHealthBand,
-  HEALTH_BAND_LABEL,
-  type HealthBand,
-} from '@/lib/healthBand';
+import { deriveHealthBand, type HealthBand } from '@/lib/healthBand';
 import { HealthCluster } from './HealthCluster';
 
 // Configurable per test: `null` models an off-project route (My Work,
@@ -189,20 +185,26 @@ describe('HealthCluster', () => {
 
   // (a) state-word mapping ---------------------------------------------------
 
-  // The chip prints the SERVER band word and nothing else (#3470). Each case
-  // asserts the word `HEALTH_BAND_LABEL` gives for the band the same counts
-  // produce on the server (`deriveHealthBand` mirrors `views.py::compute_band`),
-  // so a chip-private synonym cannot be reintroduced without failing here.
-  it.each<[string, number, number, HealthBand]>([
-    ['no at-risk or critical tasks', 0, 0, 'on_track'],
-    ['at-risk > 0 and critical = 0', 3, 0, 'at_risk'],
-    ['at least one critical task', 0, 1, 'critical'],
-  ])('chip word equals the %s band word', (_case, atRiskCount, criticalCount, band) => {
-    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount, criticalCount };
-    render();
-    expect(deriveHealthBand(criticalCount, atRiskCount)).toBe(band);
-    expect(screen.getByTestId('health-cluster')).toHaveTextContent(HEALTH_BAND_LABEL[band]);
-  });
+  // The chip prints the SERVER band word and nothing else (#3470). The expected
+  // word is written out as a LITERAL rather than read from `HEALTH_BAND_LABEL`:
+  // asserting `HEALTH_BAND_LABEL[band]` against a component that renders
+  // `HEALTH_BAND_LABEL[deriveHealthBand(...)]` puts the same constant on both
+  // sides, so editing a value in that map could not fail it. Each case also pins
+  // the band the counts produce, which is the half that mirrors the server
+  // (`deriveHealthBand` follows `views.py::compute_band`).
+  it.each<[number, number, HealthBand, string]>([
+    [0, 0, 'on_track', 'On track'],
+    [3, 0, 'at_risk', 'At risk'],
+    [0, 1, 'critical', 'Critical'],
+  ])(
+    'counts (at-risk %i, critical %i) give the %s band, and the chip reads "%s"',
+    (atRiskCount, criticalCount, band, word) => {
+      stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount, criticalCount };
+      render();
+      expect(deriveHealthBand(criticalCount, atRiskCount)).toBe(band);
+      expect(screen.getByTestId('health-cluster')).toHaveTextContent(word);
+    },
+  );
 
   it('chip never renders the retired "On watch" word for the at-risk band', () => {
     // The negative control for the #3470 regression: before the fix the at-risk
