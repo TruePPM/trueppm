@@ -98,6 +98,12 @@ interface SetupOptions {
   sprints?: unknown[];
   /** How a sprint-setting PATCH (`sprint != null`) resolves. */
   patch?: 'warn' | 'block' | 'clean';
+  /**
+   * Fail the sprints GET with a 500 (#3455). The list is `[]` on a failure
+   * exactly as on an empty project, so this is the only way to tell the error
+   * state apart from the empty-state nudge from the outside.
+   */
+  sprintsFail?: boolean;
 }
 
 function json(body: unknown, status = 200) {
@@ -108,7 +114,7 @@ function page200(results: unknown[]) {
 }
 
 async function setup(page: Page, opts: SetupOptions = {}) {
-  const { sprints = [SPRINT], patch = 'warn' } = opts;
+  const { sprints = [SPRINT], patch = 'warn', sprintsFail = false } = opts;
 
   await setupAuth(page);
   await setupCatchAll(page);
@@ -116,7 +122,7 @@ async function setup(page: Page, opts: SetupOptions = {}) {
 
   // Sprints — override the fixture default (empty) with our PLANNED sprint.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (r) =>
-    r.fulfill(page200(sprints)),
+    r.fulfill(sprintsFail ? json({ detail: 'boom' }, 500) : page200(sprints)),
   );
 
   // Tasks: GET returns the (stateful) list; PATCH resolves per `patch`. Assigning
@@ -249,6 +255,25 @@ test('empty state: a project with no planned or active sprints shows the nudge',
   const drawer = await openSprintSection(page);
 
   await expect(drawer.getByText(/No active or planned sprints/i)).toBeVisible();
+  await expect(drawer.getByLabel('Sprint assignment')).toHaveCount(0);
+});
+
+// #3455 — the polarity pair for the test above. Both render an empty `sprints`
+// list; only the read status tells them apart, and the empty-state nudge sends
+// the user to create a sprint that may already exist. The vitest suite pins the
+// branch; this proves it survives a real 500 through the real query layer.
+test('error state: a FAILED sprints read shows the error, not the create-a-sprint nudge', async ({
+  page,
+}) => {
+  await setup(page, { sprintsFail: true });
+  const drawer = await openSprintSection(page);
+  const sprint = drawer.getByRole('region', { name: 'Sprint' });
+
+  await expect(sprint.getByText(/Couldn't load sprints\./i)).toBeVisible();
+  await expect(sprint.getByRole('button', { name: 'Retry' })).toBeVisible();
+
+  // The two claims the failed read cannot support are both gone.
+  await expect(drawer.getByText(/No active or planned sprints/i)).toHaveCount(0);
   await expect(drawer.getByLabel('Sprint assignment')).toHaveCount(0);
 });
 
