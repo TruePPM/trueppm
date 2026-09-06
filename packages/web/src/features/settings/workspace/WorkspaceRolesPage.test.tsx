@@ -179,11 +179,6 @@ describe('WorkspaceRolesPage — gate reconciliation with the server matrix (#21
 });
 
 describe('WorkspaceRolesPage — read-only reference framing (#1649)', () => {
-  it('renders no stub preview banner', () => {
-    render(<WorkspaceRolesPage />);
-    expect(screen.queryByTestId('stub-page-banner')).toBeNull();
-  });
-
   it('shows no "changes will not be saved" preview copy', () => {
     render(<WorkspaceRolesPage />);
     expect(screen.queryByText(/changes will not be saved/i)).toBeNull();

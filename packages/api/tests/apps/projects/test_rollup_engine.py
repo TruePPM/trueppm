@@ -17,7 +17,6 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
-    Baseline,
     BaselineTask,
     Calendar,
     DeliveryMode,
@@ -183,64 +182,13 @@ def test_leaf_percent_write_is_allowed(client: APIClient, project: Project) -> N
 
 
 # ---------------------------------------------------------------------------
-# §3 — scope rollup + delta
+# §3 — scope rollup: the baseline snapshot that feeds it
+#
+# The HTTP surface (GET /api/v1/tasks/{id}/scope/) was removed in #3370; the
+# rollup itself is unchanged and is covered directly against
+# ``services.compute_scope_rollup`` in
+# tests/apps/projects/test_services_units.py::TestComputeScopeRollup.
 # ---------------------------------------------------------------------------
-
-
-def _scope(client: APIClient, task: Task) -> dict[str, object]:
-    resp = client.get(f"/api/v1/tasks/{task.pk}/scope/")
-    assert resp.status_code == 200, resp.data
-    return resp.data
-
-
-@pytest.mark.django_db
-def test_scope_sums_leaf_story_points_no_baseline(client: APIClient, project: Project) -> None:
-    parent = _task(project, "1")
-    _task(project, "1.1", story_points=5)
-    _task(project, "1.2", story_points=8)
-    body = _scope(client, parent)
-    assert body["current_scope"] == 13
-    # No active baseline → delta is null (not a misleading 0), and the UI can tell.
-    assert body["has_baseline"] is False
-    assert body["baselined_scope"] is None
-    assert body["scope_delta"] is None
-
-
-@pytest.mark.django_db
-def test_scope_delta_against_active_baseline(client: APIClient, project: Project) -> None:
-    parent = _task(project, "1")
-    leaf_a = _task(project, "1.1", story_points=5)
-    leaf_b = _task(project, "1.2", story_points=8)
-    baseline = Baseline.objects.create(project=project, name="B1", is_active=True)
-    BaselineTask.objects.create(
-        baseline=baseline, task_id=leaf_a.pk, task_name="1.1", duration=1, story_points=5
-    )
-    BaselineTask.objects.create(
-        baseline=baseline, task_id=leaf_b.pk, task_name="1.2", duration=1, story_points=8
-    )
-    # Scope grows: bump leaf A from 5 → 20 (current 28 vs baselined 13).
-    leaf_a.story_points = 20
-    leaf_a.save(update_fields=["story_points"])
-
-    body = _scope(client, parent)
-    assert body["current_scope"] == 28
-    assert body["baselined_scope"] == 13
-    assert body["scope_delta"] == 15
-    assert body["has_baseline"] is True
-
-
-@pytest.mark.django_db
-def test_scope_leaf_task_uses_own_points(client: APIClient, project: Project) -> None:
-    leaf = _task(project, "5", story_points=7)
-    assert _scope(client, leaf)["current_scope"] == 7
-
-
-@pytest.mark.django_db
-def test_scope_zero_when_no_points(client: APIClient, project: Project) -> None:
-    parent = _task(project, "1")
-    _task(project, "1.1")  # no story_points
-    _task(project, "1.2")
-    assert _scope(client, parent)["current_scope"] == 0
 
 
 @pytest.mark.django_db

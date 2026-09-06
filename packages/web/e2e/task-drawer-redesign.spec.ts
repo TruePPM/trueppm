@@ -715,6 +715,58 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     await expect(drawer.getByText(/edited a comment/i)).toBeVisible();
   });
 
+  test('an inherit-bit-only cascade reads as a governance-source change (#3306)', async ({
+    page,
+  }) => {
+    // The one classification write that used to leave no record on any surface: a
+    // cascade onto a subtree already at the requested governance class only breaks
+    // the root's inheritance, and `parent_governance_inherited` was display-excluded
+    // as bookkeeping while the renderer dropped any update whose visible diff was
+    // empty. The server now promotes the bit when it is a record's ONLY change; this
+    // asserts the promoted row is legible rather than a raw column name and boolean.
+    //
+    // Registered after `gotoSchedule` so it wins over the fixture route (Playwright
+    // matches LIFO) and before the drawer opens, which is what issues the read.
+    await page.route('**/tasks/*/history/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [
+            {
+              id: 1,
+              event_type: 'fields_changed',
+              actor: { id: 'u-alice', display_name: 'alice' },
+              timestamp: '2026-04-25T10:00:00Z',
+              history_date: '2026-04-25T10:00:00Z',
+              history_type: '~',
+              history_user: 'alice',
+              history_user_display: 'alice',
+              detail: {
+                diff: [
+                  { field: 'parent_governance_inherited', old: 'True', new: 'False' },
+                ],
+              },
+              diff: [{ field: 'parent_governance_inherited', old: 'True', new: 'False' }],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('tab', { name: 'Activity' }).click();
+    await drawer.getByRole('button', { name: 'All events' }).click();
+    await expect(drawer.getByText(/changed governance source/i)).toBeVisible({ timeout: 5_000 });
+    await expect(drawer.getByText('Inherited from parent')).toBeVisible();
+    await expect(drawer.getByText('Set on this task')).toBeVisible();
+    // The raw column name never reaches the reader.
+    await expect(drawer.getByText(/parent_governance_inherited/)).toHaveCount(0);
+  });
+
   test('the recalc row links into the schedule', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('tab', { name: 'Activity' }).click();

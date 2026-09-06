@@ -10,7 +10,18 @@ import type { TaskActivityEntry } from '@/hooks/useTaskHistory';
  * never drift on wording.
  */
 
-/** Human labels for the fields a `fields_changed` diff can name. */
+/**
+ * Human labels for the fields a history diff can name.
+ *
+ * One map for every history surface (#3435): the task drawer's Activity tab, the
+ * project Activity page (`ProjectActivityPage`), and anything else that renders a
+ * server field diff. The server keys every diff row by model **field name**
+ * (`assignee`, never `assignee_id`) precisely so this map can be the only one —
+ * the project page used to print `c.field` raw because it had no map of its own.
+ * Curated entries name the change rather than the column (`Outline position`, not
+ * `wbs_path`); anything unmapped falls through to `humanizeField`, so a newly
+ * tracked field is at worst rendered as prose, never as an identifier.
+ */
 const FIELD_LABEL: Record<string, string> = {
   name: 'Name',
   duration: 'Duration',
@@ -41,6 +52,12 @@ const FIELD_LABEL: Record<string, string> = {
   estimate_status: 'Estimate status',
   priority_rank: 'Priority',
   governance_class: 'Governance',
+  // #3306. The server surfaces this bit only when it is a record's ONLY change — a
+  // cascade onto a subtree already at the requested governance class, which breaks
+  // the root's inheritance and moves nothing else. "Governance source" rather than
+  // the column name: what changed is where the task's governance comes from, not a
+  // boolean the planner has ever seen named.
+  parent_governance_inherited: 'Governance source',
   delivery_mode: 'Delivery mode',
   business_value: 'Business value',
   time_criticality: 'Time criticality',
@@ -52,11 +69,37 @@ const FIELD_LABEL: Record<string, string> = {
   value: 'Value',
   effort: 'Effort',
   effort_estimate: 'Effort estimate',
+  planned_finish: 'Finish date',
+  // A soft delete is a `~` row whose only change is this flag; the project Activity
+  // page keeps it so the delete has a record (the drawer hides it — a deleted task
+  // has no drawer). "Deleted", so the row reads "updated Task · Deleted".
+  is_deleted: 'Deleted',
+  // Non-task sources of the project Activity page whose humanized column would
+  // mislead or read as jargon.
+  dep_type: 'Dependency type',
+  wip_limit: 'WIP limit',
+  mcp_enabled: 'MCP access',
+  mc_history_enabled: 'Monte Carlo history',
+  mc_history_retention_cap: 'Monte Carlo history retention',
+  mc_history_attribution_audience: 'Monte Carlo history attribution',
+  lead: 'Project lead',
+  code: 'Project code',
 };
 
-/** Display label for a diff field key (raw key when unmapped). */
+/**
+ * Fallback for a field with no curated label: `goal_outcome` → "Goal outcome".
+ * Sentence case (first word only) because labels sit mid-sentence in
+ * `changeVerb` ("changed governance class") and lower-casing a Title Case label
+ * would also flatten the acronyms the curated entries protect.
+ */
+export function humanizeField(field: string): string {
+  const words = field.replaceAll('_', ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : field;
+}
+
+/** Display label for a diff field key — curated when known, humanized otherwise. */
 export function fieldLabel(field: string): string {
-  return FIELD_LABEL[field] ?? field;
+  return FIELD_LABEL[field] ?? humanizeField(field);
 }
 
 /** A change record that conveys nothing the user can read — an empty `~` diff —

@@ -1911,21 +1911,28 @@ def _retro_summary_block(sprint: Any, request: Any) -> dict[str, Any] | None:
 
     ADR-0071 §3: notes are readable at PROJECT visibility for any member, or to
     MEMBER+ when TEAM_ONLY. Counts are always visible.
+
+    The role comes from :func:`~trueppm_api.apps.access.permissions._membership_role`
+    (#3411), which is the request-cached seam every other gate on this payload already
+    uses — ``sprint_outcome_payload`` has resolved it once through ``can_read_signal``
+    before this runs, so this is now a cache hit rather than a second query. It replaces
+    a local ``ProjectMembership`` lookup that omitted ``is_deleted``: revocation
+    soft-deletes the row against an unconditional ``(project, user)`` constraint, so a
+    revoked Admin kept their ordinal and cleared the ``>= MEMBER`` arm below. That was
+    defense in depth rather than a live leak — ``SprintViewSet.outcome`` sits behind
+    ``IsProjectMember`` and a membership-scoped queryset, both floored, so a revoked
+    caller never reached this function — but resolving the caller's role two different
+    ways in one payload is exactly how the two drifted apart.
     """
-    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import _membership_role
     from trueppm_api.apps.projects.models import RetroVisibility, SprintRetro
 
     retro = SprintRetro.objects.filter(sprint=sprint).prefetch_related("action_items").first()
     if retro is None:
         return None
 
-    membership = None
-    user = getattr(request, "user", None)
-    if user is not None and getattr(user, "is_authenticated", False):
-        membership = ProjectMembership.objects.filter(
-            project_id=sprint.project_id, user=user
-        ).first()
-    caller_role = membership.role if membership else None
+    caller_role = _membership_role(request, sprint.project_id)
     can_read_notes = retro.team_visibility == RetroVisibility.PROJECT or (
         caller_role is not None and caller_role >= Role.MEMBER
     )
@@ -3738,8 +3745,11 @@ def compute_scope_rollup(task: Any) -> dict[str, Any]:
     ``BaselineTask.story_points`` field and captured no scope (all rows null →
     ``Sum`` returns ``None``). The UI shows "no baseline" in that case.
 
-    Computed on read (no stored rollup state, per ADR-0024/0074); detail-scoped, so
-    the per-call queries are not an N+1 on list endpoints.
+    Computed on read (no stored rollup state, per ADR-0024/0074). **Call it once per
+    object, never from a list serializer**: each call costs its own ltree subtree scan
+    plus a correlated child-existence check, so a per-row call on a paginated response
+    is an N+1 by construction. That constraint used to be enforced by the fact that the
+    only caller was a detail route; the route is gone, so it is stated here instead.
     """
     from django.db.models import BooleanField, Sum
     from django.db.models.expressions import RawSQL
@@ -6297,6 +6307,17 @@ def apply_settings_template(validated_data: dict[str, Any], source: Any) -> dict
     (``allowed_attachment_types``) are copied by value so neither project aliases the
     other's list.
 
+    ``timezone`` is the one field that is **normalized** rather than copied verbatim.
+    This runs from ``ProjectSerializer.create()`` *after* field validation, so it is a
+    write path ``validate_timezone`` never sees: a source project holding a
+    pre-validator value such as ``"Pacific Time"`` would otherwise propagate it into
+    every project templated from it, re-opening a hole the serializer closed. An
+    unparseable stored zone is copied as ``""`` — the project's "inherit the
+    workspace" sentinel — which is what the quiet-hours resolver already does with
+    it at read time, so the new project behaves exactly as the source does, without
+    carrying the bad string forward. Raising here would 400 a *create* for a defect
+    on a *different* row the caller may not be able to edit.
+
     Args:
         validated_data: The create serializer's validated data, mutated in place.
         source: The source ``Project`` instance the settings are copied from.
@@ -6312,8 +6333,29 @@ def apply_settings_template(validated_data: dict[str, Any], source: Any) -> dict
         value = getattr(source, field)
         if isinstance(value, list):
             value = list(value)  # Defensive copy: don't alias the source's list.
+        elif field == "timezone":
+            value = _copyable_timezone(value)
         validated_data[field] = value
     return validated_data
+
+
+def _copyable_timezone(value: Any) -> str:
+    """Return ``value`` if it is an IANA zone the serializer would accept, else ``""``.
+
+    Same check as the ``validate_timezone`` serializer methods — ``ZoneInfo(value)`` in
+    a try/except, not ``available_timezones()`` membership — so the copy path accepts
+    exactly what the write path accepts. Blank stays blank: it is the inherit sentinel.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    stripped = (value or "").strip() if isinstance(value, str) else ""
+    if not stripped:
+        return ""
+    try:
+        ZoneInfo(stripped)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return ""
+    return stripped
 
 
 # ---------------------------------------------------------------------------

@@ -684,42 +684,59 @@ export function ProgramGeneralPage() {
             hint={
               methodologyLocked
                 ? 'The workspace requires every program to use its default methodology. A workspace admin can relax this on the workspace Methodology page.'
-                : 'Default methodology for projects in this program — unless a project sets its own. Inherits the workspace default until you choose one.'
+                : // Methodology is NOT-NULL at every scope, so a program's value never
+                  // reaches a project that already exists (methodology.py; #3293) — it is
+                  // what a NEW project starts from. Wording deliberately mirrors the
+                  // workspace scope's shipped register ("start with" / "pre-fill",
+                  // WorkspaceMethodologyPage) rather than inventing a third one, and the
+                  // destination is qualified because a program has two surfaces named
+                  // "Projects" and only the settings one can change an existing project.
+                  'New projects created in this program start with this methodology. Existing projects keep their own — change those under Settings → Projects.'
             }
             help={fieldHelp({
               label: 'Methodology',
-              body: "Sets the default planning model — Waterfall, Agile, or Hybrid — for this program's projects. A project can override it, and it inherits the workspace default until you choose one.",
+              body: "The planning model — Waterfall, Agile, or Hybrid — that new projects created in this program start with. Changing it does not re-shape projects already in the program: they keep the methodology they have, and a project started from a template starts with the template's. To change existing projects, use the bulk matrix under Settings → Projects.",
               docHref: 'features/methodology-preset/',
             })}
           >
-            <div className="flex gap-2" role="radiogroup" aria-label="Methodology">
-              {METHODOLOGY_OPTIONS.map((opt) => {
-                const isSelected = methodologyShown === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => {
-                      if (methodologyEditable) setMethodology(opt.id);
-                    }}
-                    disabled={!methodologyEditable}
-                    role="radio"
-                    aria-checked={isSelected}
-                    className={[
-                      'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                      !methodologyEditable ? 'cursor-not-allowed' : '',
-                      isSelected
-                        ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                        : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                      !methodologyEditable && !isSelected ? 'opacity-60' : '',
-                    ].join(' ')}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
+            {({ describedBy }) => (
+              <div
+                className="flex gap-2"
+                role="radiogroup"
+                aria-label="Methodology"
+                // The hint is the whole payload of #3293 — it says what setting this
+                // does and does not do. Adjacent text is not enough: without this the
+                // radiogroup announces only "Methodology, radio group".
+                aria-describedby={describedBy}
+              >
+                {METHODOLOGY_OPTIONS.map((opt) => {
+                  const isSelected = methodologyShown === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        if (methodologyEditable) setMethodology(opt.id);
+                      }}
+                      disabled={!methodologyEditable}
+                      role="radio"
+                      aria-checked={isSelected}
+                      className={[
+                        'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                        !methodologyEditable ? 'cursor-not-allowed' : '',
+                        isSelected
+                          ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                          : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                        !methodologyEditable && !isSelected ? 'opacity-60' : '',
+                      ].join(' ')}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </FieldRow>
 
           <FieldRow

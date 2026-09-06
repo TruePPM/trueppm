@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
   isTabVisibleForMethodology,
+  hiddenViewsForMethodology,
   groupedVisibleViews,
   groupedVisibleViewsForUser,
   surfaceHiddenViews,
@@ -401,5 +402,35 @@ describe('surfaceHiddenViews (ADR-0193, #956)', () => {
     // only accepts { reporting }, so passing extra props is the type-level guarantee.
     expect(surfaceHiddenViews({ reporting: true })).not.toContain('schedule');
     expect(surfaceHiddenViews({ reporting: true })).not.toContain('board');
+  });
+});
+
+/**
+ * The flip warning (#3294) names the views it is about to hide by reading this
+ * matrix, so the matrix and the copy can no longer drift apart — which is exactly
+ * what happened when #2619's dialog hard-coded "sprints" while WATERFALL was
+ * already hiding `product-backlog` beside it.
+ */
+describe('hiddenViewsForMethodology', () => {
+  it('returns exactly what the matrix hides, and nothing for HYBRID', () => {
+    expect(hiddenViewsForMethodology('WATERFALL')).toEqual(['sprints', 'product-backlog']);
+    expect(hiddenViewsForMethodology('AGILE')).toEqual(['schedule', 'calendar']);
+    expect(hiddenViewsForMethodology('HYBRID')).toEqual([]);
+  });
+
+  it('agrees with isTabVisibleForMethodology for every view in the taxonomy', () => {
+    const allViews = [...HIDEABLE_VIEW_KEYS, ...ALWAYS_ON_VIEW_KEYS];
+    for (const methodology of ['WATERFALL', 'AGILE', 'HYBRID'] as const) {
+      const hidden = new Set(hiddenViewsForMethodology(methodology));
+      for (const view of allViews) {
+        expect(hidden.has(view)).toBe(!isTabVisibleForMethodology(view, methodology));
+      }
+    }
+  });
+
+  it('hands back a copy — a caller cannot mutate the matrix', () => {
+    const hidden = hiddenViewsForMethodology('AGILE');
+    hidden.push('board');
+    expect(hiddenViewsForMethodology('AGILE')).toEqual(['schedule', 'calendar']);
   });
 });

@@ -20,6 +20,22 @@ export interface PasteReceiptState {
    * happen in practice; `undo` falls back to the raw client-side delete then).
    */
   operationId: string | null;
+  /**
+   * The server's verdict on whether THIS caller may reverse the paste (#3353,
+   * web rule 373). `false` for a Member: `tasks/bulk/` is `IsProjectPlanAuthor`
+   * but `/paste-many-operations/{id}/undo/` is Admin+, so the batch commits and
+   * the undo 403s.
+   *
+   * Held separately from `operationId` on purpose — that answers "is there
+   * anything to undo", this answers "may you", and the strip needs both. Folding
+   * them would make a null `operationId` mean either, and it already carries the
+   * client-side-delete fallback below.
+   *
+   * Carried tri-state (`boolean | undefined`) rather than normalized here, per rule
+   * 379: the strip reads it for an affordance AND for a disclosure, and those have
+   * opposite safe defaults. Collapsing it at this boundary would force one of them.
+   */
+  canUndo: boolean | undefined;
   needsDurationIds: Set<string>;
   parsedRows: ParsedPasteRow[];
   columns: PasteColumnMapping[];
@@ -94,6 +110,7 @@ export function usePasteMany({
             },
             createdIds,
             operationId: res.operation_id,
+            canUndo: res.can_undo,
             needsDurationIds,
             parsedRows,
             columns,
@@ -125,6 +142,14 @@ export function usePasteMany({
 
   const undo = useCallback(() => {
     if (!receipt) return;
+    // #3353: unless the server has affirmatively said this caller may reverse the
+    // batch, neither route below can be trusted — the ledger undo 403s, and the raw
+    // client-side delete is not the same act (it would discard rows a colleague
+    // has since edited, which the ledger undo deliberately keeps). The strip omits
+    // the control and ⌘Z is unbound, so this is defense in depth rather than the
+    // gate; keeping it means no future caller can reintroduce the false offer by
+    // wiring a new button straight to `undo`.
+    if (receipt.canUndo !== true) return;
     setIsUndoing(true);
     // ADR-0810 (#2756): the server-recorded ledger, not a raw client-side
     // bulk-delete — it skips any row a person has since touched (e.g. typed a
@@ -172,6 +197,12 @@ export function usePasteMany({
    * regardless. Routing it through the server undo would only add a request; the
    * old ledger row is left orphaned but harmless (its rows are gone, so undoing it
    * later is a no-op the purge job clears in time).
+   *
+   * Deliberately NOT gated on `receipt.canUndo` (#3353). That flag is the caller's
+   * authority over `/paste-many-operations/{id}/undo/`; this path never touches that
+   * endpoint, and deleting rows the caller just created is within the plan-authoring
+   * rights they already used to create them. Gating it would take "Map columns…"
+   * away from every Member, which is a capability they have.
    */
   const applyColumnMapping = useCallback(
     (newColumns: PasteColumnMapping[]) => {

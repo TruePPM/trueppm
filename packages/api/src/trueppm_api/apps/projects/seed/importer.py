@@ -828,8 +828,15 @@ class _SeedImporter:
             role = _ROLE_BY_NAME.get(account.get("role", ""))
             if user is None or role is None or user == self.owner:
                 continue  # owner already has OWNER from create_program
+            # is_deleted/deleted_version are in the defaults, not just role: on a
+            # re-import over a program where this account was previously removed,
+            # the tombstoned row still owns the (program, user) slot, so an update
+            # that touched only `role` would report success and confer nothing
+            # (#3410). A seed grant must always leave the member with access.
             ProgramMembership.objects.update_or_create(
-                program=program, user=user, defaults={"role": role}
+                program=program,
+                user=user,
+                defaults={"role": role, "is_deleted": False, "deleted_version": None},
             )
 
     def _grant_project_memberships(self, project: Project, data: dict[str, Any]) -> None:
@@ -871,8 +878,25 @@ class _SeedImporter:
             role = _ROLE_BY_NAME.get(role_name)
             if user is None or role is None or user == self.owner:
                 continue
+            # Un-tombstone alongside the role — see _grant_program_memberships
+            # (#3410). Defensive here rather than load-bearing: the project row
+            # this runs against was created moments ago in
+            # _create_project_structure, so no tombstone can exist yet. It is
+            # stated anyway so the invariant survives the day a project is reused,
+            # which is exactly how the program-side path acquired the defect.
+            # source_group is cleared for the same reason the members endpoint
+            # clears it: a seed grant is a direct grant, and leaving a revoked
+            # row's group provenance set would let a later workspace-group
+            # reconcile revoke access the seed just conferred.
             ProjectMembership.objects.update_or_create(
-                project=project, user=user, defaults={"role": role}
+                project=project,
+                user=user,
+                defaults={
+                    "role": role,
+                    "is_deleted": False,
+                    "deleted_version": None,
+                    "source_group": None,
+                },
             )
 
     # --- per-project structure (Pass A) ------------------------------------
@@ -914,7 +938,14 @@ class _SeedImporter:
                 project.save(update_fields=["lead"])
         self.projects[slug] = project
         ProjectMembership.objects.update_or_create(
-            project=project, user=self.owner, defaults={"role": Role.OWNER}
+            project=project,
+            user=self.owner,
+            defaults={
+                "role": Role.OWNER,
+                "is_deleted": False,
+                "deleted_version": None,
+                "source_group": None,
+            },
         )
         self._grant_project_memberships(project, data)
         self._create_board_config(project, data)

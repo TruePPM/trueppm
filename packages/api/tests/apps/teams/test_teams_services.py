@@ -23,8 +23,10 @@ from trueppm_api.apps.teams.services import (
     ensure_team_membership,
     facet_holder_user_ids,
     has_team_facet,
+    is_team_member,
     project_role_to_team_role,
     resolve_default_team,
+    team_member_user_ids,
     user_facets,
 )
 
@@ -349,3 +351,106 @@ def test_membership_signal_mirrors_to_default_team(
     team = resolve_default_team(project.pk)
     assert team is not None
     assert TeamMembership.objects.filter(team=team, user=user, is_deleted=False).exists()
+
+
+# ---------------------------------------------------------------------------
+# The voter roster (ADR-0104 Amendment C, #3387)
+# ---------------------------------------------------------------------------
+
+
+def test_voter_roster_excludes_a_revoked_project_member(
+    project: Project, default_team: Team
+) -> None:
+    """A live team row whose *project* membership was revoked is not an eligible voter.
+
+    This is the ghost the ADR-0078 §F create-only mirror leaves behind on every
+    offboarding. Before Amendment C it stayed in the roster forever, inflating the
+    ADR-0104 ratification denominator with someone ``IsProjectMember`` will 403 before
+    they can ever cast the vote the bar now requires.
+    """
+    stays = _project_member(project, "stays")
+    gone = _project_member(project, "gone")
+    TeamMembership.objects.create(team=default_team, user=stays, role=TeamRole.MEMBER)
+    TeamMembership.objects.create(team=default_team, user=gone, role=TeamRole.MEMBER)
+
+    assert team_member_user_ids(project.pk) == {stays.pk, gone.pk}
+    assert is_team_member(gone, project.pk) is True
+
+    ProjectMembership.objects.filter(project=project, user=gone).update(is_deleted=True)
+
+    # The precondition the defect depends on: the mirrored team row is still live.
+    assert TeamMembership.objects.filter(user=gone, is_deleted=False).exists()
+
+    assert team_member_user_ids(project.pk) == {stays.pk}
+    assert is_team_member(gone, project.pk) is False
+
+
+def test_voter_roster_still_excludes_a_non_team_project_admin(
+    project: Project, default_team: Team
+) -> None:
+    """ANTI-STUFFING: the intersection narrows the roster and never widens it (C.2).
+
+    ADR-0104 §A.2 scoped the roster to *team* membership precisely so a project
+    Admin/PM outside the team cannot vote on — or stuff — the team's signal-sharing
+    decision. Amendment C adds a second term; because it is an intersection, the
+    property is preserved by construction (``T ∩ M ⊆ T``). This pins that: an Admin
+    with a live ProjectMembership and no team row is in ``M`` and still not a voter.
+    """
+    member = _project_member(project, "on-team")
+    TeamMembership.objects.create(team=default_team, user=member, role=TeamRole.MEMBER)
+    # A project Admin — the strongest project role short of Owner — with NO team row.
+    admin = _project_member(project, "pmo", role=Role.ADMIN)
+    owner = _project_member(project, "boss", role=Role.OWNER)
+
+    assert team_member_user_ids(project.pk) == {member.pk}
+    assert is_team_member(admin, project.pk) is False
+    assert is_team_member(owner, project.pk) is False
+
+
+def test_voter_roster_opt_out_asks_the_raw_team_row_question(
+    project: Project, default_team: Team
+) -> None:
+    """``live_project_members_only=False`` is the pre-Amendment-C question, still available.
+
+    It has no eligibility meaning — it exists for a caller that has already read live
+    membership and will intersect itself. Pinned so the opt-out cannot silently become
+    the default again.
+    """
+    gone = _project_member(project, "ex")
+    TeamMembership.objects.create(team=default_team, user=gone, role=TeamRole.MEMBER)
+    ProjectMembership.objects.filter(project=project, user=gone).update(is_deleted=True)
+
+    assert team_member_user_ids(project.pk) == set()
+    assert team_member_user_ids(project.pk, live_project_members_only=False) == {gone.pk}
+    assert is_team_member(gone, project.pk, live_project_members_only=False) is True
+
+
+def test_the_two_voter_seams_agree_on_every_cohort(project: Project, default_team: Team) -> None:
+    """``is_team_member`` is the single-user twin of ``team_member_user_ids`` — they must agree.
+
+    One is the write gate on casting a ratification vote and the other is the
+    denominator that vote is measured against, so a floor on one seam and not the other
+    would let the tally count a roster the vote gate does not recognize — the #2897
+    shape. Asserted as an equality over every cohort rather than case by case, so a
+    future edit to one helper cannot drift from the other unnoticed.
+    """
+    live = _project_member(project, "live")
+    revoked = _project_member(project, "revoked")
+    non_team_admin = _project_member(project, "admin", role=Role.ADMIN)
+    for user in (live, revoked):
+        TeamMembership.objects.create(team=default_team, user=user, role=TeamRole.MEMBER)
+    ProjectMembership.objects.filter(project=project, user=revoked).update(is_deleted=True)
+    # A soft-deleted team row on a live project member — the other half of the matrix.
+    soft_deleted = _project_member(project, "left-team")
+    TeamMembership.objects.create(
+        team=default_team, user=soft_deleted, role=TeamRole.MEMBER, is_deleted=True
+    )
+
+    roster = team_member_user_ids(project.pk)
+    everyone = [live, revoked, non_team_admin, soft_deleted]
+    assert roster == {u.pk for u in everyone if is_team_member(u, project.pk)}
+    assert roster == {live.pk}
+
+
+def test_anonymous_is_never_a_team_member(project: Project, default_team: Team) -> None:
+    assert is_team_member(AnonymousUser(), project.pk) is False

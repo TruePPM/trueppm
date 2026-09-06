@@ -320,13 +320,14 @@ def can_user_undo_batch_operation(request: Request, project_id: Any) -> bool:
       a cascade can be replayed a stale ``can_undo: true`` inside the retention
       window. Harmless — the undo endpoint re-derives the role and still refuses —
       but the client's affordance is advisory, never the gate.
-    - **Two sibling modules disagree about the floor.**
-      ``csvimport.views._require_project_admin`` and
-      ``template_views`` still inline the same comparison, and
-      ``structural_operation_services`` deliberately implements *actor-or-Admin*
-      instead, on the argument that the undo skips rows touched since. Whether the
-      batch-undo floor should follow it is a real open question, not an oversight
-      here; see #3304's follow-ups.
+    - **One sibling still disagrees about the floor, deliberately.**
+      ``csvimport.views._require_project_admin`` and ``template_views``'s ``undo``
+      action inlined this same comparison until #3353; both now call
+      :func:`role_can_undo_batch_operation`, so every batch-undo enforcement site is a
+      caller rather than a copy. ``structural_operation_services`` remains the
+      exception and implements *actor-or-Admin* instead, on the argument that the undo
+      skips rows touched since. Whether the batch-undo floor should follow it is a real
+      open question, not an oversight here; see #3355.
     """
     if not (request.user and request.user.is_authenticated):
         return False

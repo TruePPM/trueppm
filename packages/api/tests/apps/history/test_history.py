@@ -531,6 +531,124 @@ class TestTaskHistoryAPI:
         assert all(record["history_type"] != "~" for record in results)
         assert not any(d["field"] == "sprint_rank" for record in results for d in record["diff"])
 
+    def test_inherit_bit_only_change_is_surfaced_rather_than_dropped(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A write that only flips ``parent_governance_inherited`` still leaves a
+        record (#3306).
+
+        The bit is display-excluded as bookkeeping, and the renderer drops any ``~``
+        record whose visible diff is empty — so a classification cascade that only
+        broke inheritance wrote a row, bumped ``server_version`` and broadcast, and
+        the Activity tab showed nothing at all. It is promoted into the diff exactly
+        when it is the only thing that changed.
+        """
+        task.governance_class = "gated"
+        task.parent_governance_inherited = True
+        task.save()
+
+        task.parent_governance_inherited = False
+        task.save()
+
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data["results"]
+        rows = [
+            d
+            for record in results
+            if record["history_type"] == "~"
+            for d in record["diff"]
+            if d["field"] == "parent_governance_inherited"
+        ]
+        assert rows, "the inherit-bit-only write left no visible record"
+        assert rows[0]["old"] == "True"
+        assert rows[0]["new"] == "False"
+
+    def test_every_promoted_field_survives_its_own_filters(self) -> None:
+        """The promotion filters DROP a bad entry rather than refusing it (#3306).
+
+        ``_history_promoted_diff_fields()`` enforces its three invariants by
+        filtering, so a name added to ``_HISTORY_DIFF_PROMOTED_WHEN_ALONE`` that is
+        privacy-gated, untracked, or not display-excluded silently produces an empty
+        tuple — a promotion that quietly does nothing, with no error and no failing
+        behavioral test. Assert the set relations directly so the failure is loud.
+        """
+        from trueppm_api.apps.history.diff_policy import (
+            HISTORY_DIFF_NOISE,
+            HISTORY_DIFF_PRIVACY_GATED,
+            HISTORY_DIFF_PROMOTED_WHEN_ALONE,
+        )
+        from trueppm_api.apps.projects.views import _history_promoted_diff_fields
+
+        assert HISTORY_DIFF_PROMOTED_WHEN_ALONE <= HISTORY_DIFF_NOISE, (
+            "a promoted field that is not noise-excluded is already in the routine "
+            "tuple, so it would be diffed twice and rendered twice"
+        )
+        assert HISTORY_DIFF_PROMOTED_WHEN_ALONE.isdisjoint(HISTORY_DIFF_PRIVACY_GATED), (
+            "promotion is an escape hatch out of the DISPLAY exclusions; a "
+            "privacy-gated field must never take it"
+        )
+        # Every declared name resolves to a real field — the filters dropped none.
+        assert {field.name for field in _history_promoted_diff_fields()} == set(
+            HISTORY_DIFF_PROMOTED_WHEN_ALONE
+        )
+
+    def test_a_blocked_reason_only_change_is_dropped_not_promoted(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Promotion is an escape hatch out of the *display* exclusions only (#3306).
+
+        ``blocked_reason`` sits in the same exclusion set as the inherit bit but for
+        an access-control reason — it is read-gated to the assignee and @-mentioned
+        users, while this endpoint is Viewer+ for every member — and it is not in
+        ``_HISTORY_EXCLUDED_TASK``, so the display exclusion is the only thing keeping
+        it out. A change to it alone is exactly the shape that triggers promotion, so
+        this is the case that proves the two exclusions were kept apart.
+        """
+        task.blocked_reason = "Waiting on the vendor — internal note"
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data["results"]
+        assert all(record["history_type"] != "~" for record in results)
+        assert not any(
+            "vendor" in (d.get("new") or "") for record in results for d in record["diff"]
+        )
+
+    def test_inherit_bit_stays_hidden_when_governance_class_also_changed(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """The promotion in the test above is narrow, deliberately (#3306).
+
+        Every ordinary governance write moves the bit alongside
+        ``governance_class``, and surfacing both would double the diff rows on the
+        common case and turn "changed governance" into "updated 2 fields". The bit
+        is only promoted when it is the record's *only* change.
+        """
+        task.governance_class = "agile"
+        task.parent_governance_inherited = True
+        task.save()
+
+        task.governance_class = "gated"
+        task.parent_governance_inherited = False
+        task.save()
+
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data["results"]
+        latest = next(record for record in results if record["history_type"] == "~")
+        fields = {d["field"] for d in latest["diff"]}
+        assert fields == {"governance_class"}
+
 
 # ---------------------------------------------------------------------------
 # Project history API
@@ -581,6 +699,29 @@ class TestHistorySummaryAPI:
         # History rows are capped per object type (#821); the flag tells the client
         # whether the summary is complete. A handful of rows is well under the cap.
         assert r.data["count_truncated"] is False
+
+    def test_by_field_is_keyed_by_field_name_like_the_diffs(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """``by_field`` speaks the same vocabulary as every diff row (#3435).
+
+        The summary used to count by column (``assignee_id``) while the drawer
+        keyed by field name — a client could not join the two. One policy, one
+        key: the field name, so the client label map applies to the summary too.
+        """
+        task.assignee = owner  # type: ignore[assignment]
+        task.sprint_rank = 3  # noise: hidden from diffs, so not counted either
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d")
+        counted = {row["field"] for row in r.data["by_field"]}
+        assert "assignee" in counted
+        assert "assignee_id" not in counted
+        assert "sprint_rank" not in counted
 
     def test_invalid_window_returns_400(
         self,

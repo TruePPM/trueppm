@@ -14,6 +14,9 @@ vi.mock('@/api/client', () => ({ apiClient: { patch: patchMock } }));
 const REPORT = {
   subtree: 'p',
   matched: 4,
+  // #3306: rows actually saved. Three, not the 5 the two `applied` tallies sum to —
+  // the governance and delivery writes overlap on the rows they touched.
+  rows_written: 3,
   governance: {
     requested: 'flow',
     applied: 2,

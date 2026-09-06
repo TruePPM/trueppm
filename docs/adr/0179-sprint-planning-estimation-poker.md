@@ -95,7 +95,12 @@ concurrent writers converge.
   facet, ADR-0078/0123) — *not* raw `Scheduler+`. This is the same gate that already
   guards sprint scope-injection accept/reject, so the PO and SM can run the ceremony
   without an Admin bump (Jordan's "let the PO commit", Alex's facilitator concern).
-- **Participant** = `is_team_member` (default-team membership) — the voter roster.
+- **Participant** = `is_team_member` (default-team membership) — the voter roster. Defined
+  **by reference** to the ADR-0104 §A.2 roster, so it resolves to whatever that roster
+  currently is: since ADR-0104 **Amendment C** (#3387) that means default-team membership
+  *intersected with live project membership*, and `participant_count` (the "N of M voted"
+  denominator on the card) follows. A member who has left the project no longer pins the
+  card below full participation.
 - **Privacy filter (serializer, state-driven):** while `open`, the session payload returns
   the **count** of votes cast + the caller's *own* vote, never other members' values and
   never who-hasn't-voted by name (Priya). On `revealed`/`committed`, it returns every

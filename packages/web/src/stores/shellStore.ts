@@ -1,13 +1,5 @@
 import { create } from 'zustand';
 
-/**
- * Selected program scope for the sidebar project list (issue #959, ADR — Direction C).
- * `'all'` shows every project, `'none'` shows projects with no program, any other
- * value is a program id. Held in the store (not local state) so the desktop sidebar
- * and the mobile drawer share one scope and stay in sync across remounts.
- */
-export type ProjectScope = 'all' | 'none' | (string & {});
-
 // Persisted rail prefs (v2 left rail, ADR-0126): expanded program ids (the
 // Programs tree). localStorage so a refresh keeps the user's nav shape. Read
 // defensively (private mode / SSR).
@@ -75,8 +67,6 @@ interface ShellState {
   sidebarUserControlled: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean, userControlled?: boolean) => void;
-  projectScope: ProjectScope;
-  setProjectScope: (scope: ProjectScope) => void;
   /** Expanded program ids — the rail Programs tree (v2). Persisted. */
   expandedProgramIds: string[];
   toggleProgram: (programId: string) => void;
@@ -106,8 +96,6 @@ export const useShellStore = create<ShellState>()((set) => ({
     if (userControlled) writeCollapsed(collapsed);
     set({ sidebarCollapsed: collapsed, sidebarUserControlled: userControlled });
   },
-  projectScope: 'all',
-  setProjectScope: (scope) => set({ projectScope: scope }),
   expandedProgramIds: readIds(EXPANDED_KEY),
   toggleProgram: (programId) =>
     set((s) => {

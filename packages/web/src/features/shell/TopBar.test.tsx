@@ -304,9 +304,8 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
       // Each segment keeps its natural width inside the viewport — without this
       // the flex items compress and the overflow never happens (#2208).
       expect(cls).toContain('[&>*]:shrink-0');
-      // Same scrollbar treatment as the shell's other horizontal scroller
-      // (`ShellNavScroller`, rule 174): no gutter is reserved, so overflow
-      // appearing shifts nothing.
+      // Rule 290's scrollbar treatment for a growable chrome strip: no gutter
+      // is reserved, so overflow appearing shifts nothing.
       expect(cls).toContain('[scrollbar-width:none]');
       expect(cls).toContain('[&::-webkit-scrollbar]:hidden');
       // The one animated affordance is gated (rule 70 — motion only, never

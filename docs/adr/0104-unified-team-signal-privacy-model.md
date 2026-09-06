@@ -281,3 +281,90 @@ The handler is a receiver in `notifications/receivers.py` connected to `team_sig
 - **Web**: `NotificationRow` deep-links the two event types to `/projects/:id/settings#signal-privacy` (the consolidated settings section, web-rule 195) instead of the board fallback — closing the discovery loop the VoC flagged.
 - **OSS or Enterprise**: **OSS** — single-team, team-owned (Programs/Projects layer); no cross-program governance.
 - **Testing** (pytest + vitest, same MR): opening notifies each eligible voter except the proposer (event=`opened`, in-app row created, `email_pending` follows preference); each terminal resolution (ratified / rejected / lazy-expiry) notifies voters ∪ proposer (event=`resolved`); **superseded notifies no one**; a **non-team project-Admin is never notified** (boundary); email defaults OFF and turns on only when the recipient opted in; the web row routes the two event types to the signal-privacy settings section.
+
+## Amendment C — The eligible-voter roster is team ∩ live project membership (#3387, 0.4)
+
+**Status**: Accepted (2026-09-05). Narrows the §A.2 eligible-voter roster. Additive: no new model, endpoint, migration, or setting; it changes one predicate and the two counts derived from it.
+
+### C.1 — The defect this closes
+
+The ADR-0078 §F mirror that creates a `TeamMembership` from a `ProjectMembership` is **create-only** — there is no `post_delete` receiver and no FK a cascade could travel over — so revoking someone's project access leaves their default-team row live indefinitely. §A.2 reads that raw team roster, so `eligible_count` counts people who are no longer on the project and `threshold = floor(eligible / 2) + 1` is computed from the inflated number.
+
+The consequence is not cosmetic. Those ghosts **cannot vote**: `_SignalPrivacyBase` sits behind `IsProjectMember`, which honors `is_deleted`, so a revoked member is `403`'d before the roster is ever consulted. They inflate the bar without being able to help clear it. A six-member team that offboards three still needs four approvals and can only ever cast three, so the proposal is **unratifiable** — and nothing in the UI explains why, because the pending indicator faithfully reports a threshold that is arithmetically unreachable. A wrong denominator changes governance outcomes silently, which is why this is an amendment and not a defect fix: §A.2 chose the team-scoped roster deliberately, and narrowing it is a decision, not a repair.
+
+### C.2 — The roster (amends §A.2)
+
+**Eligible voters** = non-deleted `TeamMembership` rows on the project's **default team**, **intersected with a non-soft-deleted `ProjectMembership` on the same project**.
+
+The team term is first and unchanged, which is what preserves the property §A.2 exists for. The intersection can only ever **remove** voters — `T ∩ M ⊆ T` — so anyone excluded before is still excluded:
+
+- A **non-team project Admin/PM still has no vote.** They have no `TeamMembership` row, and the second term cannot conjure one. The anti-stuffing guarantee (Morgan: management must not be able to vote on, or stuff, a team's signal-sharing decision) is untouched, and §A.5's rejection of a PMO/exec bypass stands unweakened.
+- A **team member who has left the project** is dropped. They are not a member of anything the vote governs.
+- SM/PO facets still carry no extra weight; one member, one vote.
+
+Everything else in §A.2 holds verbatim: eligibility and the bar are computed **server-side at every tally** so roster changes are reflected live, and the threshold formula is unchanged.
+
+The single-user twin `is_team_member()` — the write gate on casting a vote — carries the **same** floor. The two seams must agree: one is the gate on the vote and the other is the denominator that vote is measured against, and a floor on one alone would let the tally count a roster the vote gate does not recognize.
+
+### C.3 — The already-cast-vote rule (the open question, resolved)
+
+**A vote counts only while its caster is eligible. Eligibility is evaluated at tally time, not at vote time. The vote row is never deleted. Terminal proposal states are immutable.**
+
+Spelled out:
+
+1. **Both sides of the fraction move together.** A tally restricted to the current roster is computed against a denominator restricted to the same set. An offboarded member's approval stops counting at the exact instant they stop counting toward the bar. This is not new machinery — `_count_current_votes` has always dropped votes from users outside the current roster, because §A.2 already recomputes eligibility live; C only widens what "outside the roster" means. Keeping one side live and freezing the other is the one combination that produces an incoherent tally (`3 of 2 approved`), and it is what a naive fix would have shipped by writing the floor into the roster query and leaving the vote query alone.
+2. **A proposal can therefore never ratify on an absent member's vote.** The absent member's approval is disregarded before the bar is checked, so a raise that only clears the threshold with a departed member's help stays `OPEN` and expires unratified. Widening exposure requires the consent of people who are actually present — the same principle as §A.3's "silence is never consent".
+3. **A ratified proposal is never retroactively flipped.** This is the hazard the issue raised against live recomputation, and it does not arise: `_tally_and_maybe_apply` returns immediately once the proposal has left `OPEN`, and the ceiling raise is applied inside the `OPEN → RATIFIED` transition. Recomputation reaches only proposals that are still open — i.e. still being decided. A decision that has been made is a fact in the record, not a running total. An offboarding after ratification does not un-share a signal, and a team that wants the ceiling back lowers it, which §1.1 has always allowed unilaterally and immediately.
+4. **The vote survives as a record, and comes back with the member.** Disregarding is not deleting: the `SignalCeilingRaiseVote` row stays, so the proposal-plus-votes audit surface §A.6 promises is intact and a departure is never silently rewritten out of the history. Re-seating the member on the project restores their vote to the tally without asking them to cast it again.
+5. **The tally says when it has disregarded something.** A live roster means `eligible_count`, `threshold` and the approve/reject pair can all differ between two reads of the *same* open proposal. Four bare integers that shrink give a reader no way to tell "someone changed their mind" from "someone left the project", and give a member whose own vote stopped counting nothing to read at all. The tally therefore carries **`disregarded_vote_count`** — cast votes whose caster is no longer eligible, normally `0`. It makes the rule in 1–3 an observable server fact instead of an inference the client has to make from a number that moved. This is the one API-shape change in the amendment (C.8.5), and it is additive.
+
+**The residual risk, stated rather than hidden** (raised as a High by the `threat-model` gate on this amendment; recorded here with the reasoning that settled it). Because the denominator is live and a project Admin controls `ProjectMembership`, an Admin can in principle move the bar mid-proposal by offboarding members — and this amendment does create that lever, since before it an Admin could only ever *grow* the roster (team-membership delete is not exposed until #599). Four things bound it:
+
+- **The Admin cannot supply an approval.** Shrinking the roster lowers the bar; it never casts a vote. To force a ratification the Admin must remove *everyone who has not already approved*, not merely tip a margin.
+- **The act is not a governance manipulation, it is an offboarding.** The only lever is revoking project access outright, which the member notices immediately and which costs far more than the one signal vote it would buy.
+- **Removing a dissenter is partly self-cancelling.** Their `REJECT` disappears, but so does the denominator seat that `REJECT` was measured against.
+- **`disregarded_vote_count` (C.3.5) makes the vote-dropping half observable** to the whole team on a team-readable surface, rather than a number that quietly moved.
+
+None of that makes it impossible — an actor who controls the electorate defeats any vote-counting rule, which is a project-membership boundary problem and not one this ADR can solve. §A.5 rejects a *bypass* (deciding without the team); it does not claim to constrain who is on the team.
+
+**Rejected: freezing `eligible_count` / `threshold` at proposal-open while still disregarding an ineligible voter's vote.** This was the gate's suggested mitigation and it is the wrong trade, because it **reintroduces the defect C.1 exists to close** and in a strictly worse form. A member offboarded during the 72 h window would keep their seat in the frozen denominator while losing their vote from the numerator: the bar stays put and the achievable maximum falls, which is precisely the unratifiable-proposal failure — now with the numerator actively working against the team rather than merely the denominator being stale. It also contradicts §A.2's own standing commitment that "eligibility and the bar are computed server-side at every tally, so roster changes are reflected live". Amendment C changes *what* the roster is; it does not change *when* it is evaluated, and it should not, because a snapshot is the thing that could not self-correct.
+
+### C.4 — Notification audience (amends §B.2)
+
+`signal.ceiling_proposal_opened` fans out to the C.2 roster, so a revoked project member no longer receives an inbox row for a vote they cannot cast. The audience is defined as "the eligible voters" and reads the same helper, so it tracks C.2 automatically instead of restating it — the §B.2 invariant that recipients are *exactly* the people who may read and vote on the signal is what makes the rail incapable of becoming the §A.5 management back-door, and that invariant is now enforced by construction.
+
+`signal.ceiling_proposal_resolved` keeps its §B.2 union with **the proposer**, applied *after* the eligibility floor. §B.2 chose that union specifically so "a proposer who has since left the team learns their own proposal's fate"; a departed proposer is the case it was written for, and Amendment C keeps it rather than repealing it as a side effect. The copy is governance metadata the proposer authored (which signal, from→to ceiling, outcome) and never the gated signal value, so the carve-out costs nothing the §2 ladder protects.
+
+### C.5 — Known read-side property (not introduced here, not fixed here)
+
+`proposal_tally` recomputes against the current roster on **every** read, including reads of an already-resolved proposal. A `RATIFIED` proposal whose team has since shrunk therefore *displays* counts that no longer reach its own threshold. This predates the amendment — `_count_current_votes` has always been live — and C.3(3) is why it is only a display artifact: the authoritative record is the `status` plus the vote rows, and the raise has been applied. Snapshotting `eligible_count` / `threshold` onto the proposal at resolution would fix the display, and needs two fields and a migration; it is out of scope here and filed separately (#3431) rather than smuggled into a governance amendment.
+
+### C.6 — Not addressed here, and why
+
+- **`ProjectMembership` carries no `HistoricalRecords`**, so nothing timestamps *when* a voter fell out of eligibility. That limits after-the-fact forensics on the C.3 residual risk (an auditor cannot reconstruct a revoke-then-recount sequence from the governance record alone). It is a pre-existing property of the access app, not something this amendment worsens, and adding history to the membership table is a change to a different ADR's model with its own migration and retention questions. Named so it is a decision rather than an oversight.
+- **The `live_project_members_only=False` opt-out is guarded by a docstring, not by the type system.** Nothing structurally prevents a future authorization call site from passing `False` and reopening the ghost hole. This is the same exposure the two sibling helpers have carried since #3386 / #3334; the amendment matches the established pattern rather than inventing a fourth one, and no call site passes `False` today. If it ever needs a real guard, the guard belongs on all four seams at once.
+
+### C.7 — Blast radius outside this ADR
+
+`team_member_user_ids()` / `is_team_member()` are shared helpers, and the floor is defaulted **on** in the helper rather than applied at each call site — the #3386 / #3334 pattern, chosen because "every new cohort remembers to intersect" has now failed four times (#2897, #3291, #3334, #3387). Two consequences are deliberate and are recorded here rather than left to be discovered:
+
+- **ADR-0078 §F** previously carved `is_team_member()` / `team_member_user_ids()` *out* of its "every team seam requires live project membership" rule, deferring to this issue. That carve-out is now spent; §F is updated to record that all four seams in `apps/teams/services.py` carry the floor.
+- **ADR-0179** (estimation poker) defines its participant roster as `is_team_member`, and its `participant_count` — the "N of M voted" denominator on the poker card — is `len(team_member_user_ids(project))`. Both inherit the floor. This is the same defect in the same direction (a ghost member permanently pins the card below full participation) and the same fix; it needs no separate amendment because ADR-0179 defines its roster **by reference** to this one rather than restating it, so the reference simply resolves to the amended definition.
+
+### C.8 — Durable Execution (amendment)
+
+1. **Broker-down**: N/A — the change is one `Exists` predicate on a synchronous read; no dispatch.
+2. **Drain task**: none — no `.delay()`.
+3. **Orphan window**: N/A — no outbox.
+4. **Service layer**: no new function. `team_member_user_ids` / `is_team_member` gain a `live_project_members_only` keyword (default `True`) matching `user_facets` / `facet_holder_user_ids`; `_team_voter_ids` stays a plain delegation.
+5. **API response**: `eligible_count`, `threshold`, `can_vote` and the poker `participant_count` return corrected **values** on unchanged fields. One field is **added** to the proposal tally — `disregarded_vote_count` (C.3.5) — so `docs/api/openapi.json` is regenerated. Additive and non-breaking: an existing client that ignores it reads exactly what it read before.
+6. **Outbox cleanup**: N/A.
+7. **Idempotency**: unchanged — the tally still runs under `select_for_update` and the apply still sits behind the `status == OPEN` guard.
+8. **Dead-letter / failure**: N/A — synchronous read path.
+
+### C.9 — Implementation notes (amendment)
+
+- **Migration**: **no** — no model change. The liveness answer is derived at read time from `ProjectMembership.is_deleted`, which is exactly why no backfill or reconciliation job is needed: existing ghost rows stop counting the moment the predicate ships.
+- **Performance**: the intersection is a correlated `Exists` composed into the existing roster query, so it costs no extra round trip. It is correlated on `team__project_id` rather than on the `project_id` argument so the predicate stays correct if a caller ever widens the outer filter to `team__project_id__in=(...)` for a batched fan-out.
+- **OSS or Enterprise**: **OSS** — single-team, team-owned governance (Programs/Projects layer). Nothing here aggregates across programs.
+- **Testing** (pytest, same MR): the **anti-stuffing property is pinned** — a non-team project Admin is still not an eligible voter and still cannot vote; a revoked project member drops out of `eligible_count` and `threshold`; **a proposal that the old denominator would have made unratifiable after an offboarding now ratifies** on the remaining members' votes; an offboarded member's already-cast approval stops counting (and does not ratify on its own); a ratified proposal stays ratified after a subsequent offboarding; the ceiling-proposal `opened` notification skips a revoked project member; the `resolved` notification still reaches a departed proposer; the `live_project_members_only=False` opt-out still answers the raw team-row question.

@@ -86,8 +86,15 @@ from trueppm_api.apps.access.permissions import (
     TokenHasScope,
     can_user_edit_task,
     can_user_undo_batch_operation,
+    role_can_undo_batch_operation,
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
+from trueppm_api.apps.history.diff_policy import (
+    HISTORY_DIFF_NOISE,
+    HISTORY_DIFF_PROMOTED_WHEN_ALONE,
+    is_compared,
+    visible_changes,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
@@ -166,7 +173,6 @@ from trueppm_api.apps.projects.serializers import (
     BaselineDetailSerializer,
     BaselineSerializer,
     BoardColumnConfigSerializer,
-    BoardLanesSerializer,
     BoardSavedViewSerializer,
     CalendarExceptionSerializer,
     CalendarPreviewSerializer,
@@ -231,7 +237,6 @@ from trueppm_api.apps.projects.serializers import (
     TaskRecurrenceRuleSerializer,
     TaskRelationSerializer,
     TaskReorderSerializer,
-    TaskScopeRollupSerializer,
     TaskSerializer,
     TaskWriteResponseSerializer,
     ZeroDurationNotMilestoneError,
@@ -250,7 +255,11 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
 )
-from trueppm_api.core.openapi import state_refusal_400, suppress_list_pagination
+from trueppm_api.core.openapi import (
+    ownership_refusal_403,
+    state_refusal_400,
+    suppress_list_pagination,
+)
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 from trueppm_api.core.request_body import object_body
 
@@ -727,6 +736,24 @@ class TaskBulkResponseSerializer(serializers.Serializer[Any]):
             "ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates. Null when "
             "the batch created no rows — POST /paste-many-operations/{operation_id}/undo/."
         ),
+    )
+    can_undo = serializers.BooleanField(
+        help_text=(
+            "May THIS caller reverse this batch? (#3353) This endpoint is Member+ minus "
+            "the resource band, while POST /paste-many-operations/{operation_id}/undo/ is "
+            "Admin+ — so a `207` here says the caller cleared the write's gate and nothing "
+            "about the undo's. Independent of `operation_id`, which answers whether there "
+            "is anything to undo rather than whether you may; a client offering an Undo "
+            "needs both. **Authority only** — a `true` is not a promise the undo will "
+            "succeed: it additionally requires the project to be unarchived and the "
+            "ledger row to still be inside the batch-operation retention window "
+            "(`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS`, a deployment setting), after "
+            "which the undo is a `404`. This endpoint also carries the idempotency "
+            "mixin, whose request hash does not cover the caller's role — so a repeated "
+            "`Idempotency-Key` replays the stored body, and a caller demoted since can "
+            "be served a stale `true`. Harmless: the undo endpoint re-derives the role "
+            "and still refuses. Treat this field as advisory, never as the gate."
+        )
     )
 
 
@@ -6157,22 +6184,6 @@ class TaskViewSet(
 
         return Response({"deleted": deleted}, status=status.HTTP_200_OK)
 
-    @extend_schema(responses=TaskScopeRollupSerializer)
-    @action(detail=True, methods=["get"], url_path="scope")
-    def scope(self, request: Request, **kwargs: Any) -> Response:
-        """Scope rollup for a task's subtree (ADR-0108 §3, #408).
-
-        Returns the live story-point sum over leaf descendants, the active
-        baseline's snapshot of that scope, and the delta (null when no active
-        baseline). Detail-scoped so the per-call queries are not an N+1; any
-        project member may read (the default permission applies — no schedule or
-        backlog gate, this is a read-only computed view).
-        """
-        from trueppm_api.apps.projects.services import compute_scope_rollup
-
-        task = self.get_object()
-        return Response(compute_scope_rollup(task), status=status.HTTP_200_OK)
-
     @extend_schema(
         summary="Duration-change audit events for a task (ADR-0151, #414)",
         # Without this, drf-spectacular infers the viewset's default TaskSerializer
@@ -6185,8 +6196,12 @@ class TaskViewSet(
 
         Detail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new
         duration, the percent-complete policy applied, the actor, and the active
-        sprint (if any) at change time. Any project member may read (same gate as
-        ``scope``). IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the
+        sprint (if any) at change time. Any project member may read: this action
+        declares no ``permission_classes`` of its own, so it falls through to the
+        generic ``IsProjectMember`` branch at the end of ``_rbac_permissions()``
+        (Viewer+). The class-level ``permission_classes`` is *not* what applies —
+        ``get_permissions()`` replaces it wholesale.
+        IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the
         caller's projects, so ``get_object`` 404s on a foreign task. Paginated
         newest-first; ``select_related`` keeps actor-name rendering off the N+1 path.
         """
@@ -9288,6 +9303,29 @@ class TaskBulkView(IdempotencyMixin, APIView):
                 "capabilities_denied": (
                     [CAPABILITY_DEPENDENCIES] if edge_rows and caller_role < Role.SCHEDULER else []
                 ),
+                # #3353: same asymmetry #3304 fixed on the classification cascade.
+                # This endpoint is `IsProjectPlanAuthor` (Member+ minus the resource
+                # band) and `/paste-many-operations/{id}/undo/` is Admin+, so a
+                # Member pastes 38 rows successfully and is refused the Undo the
+                # receipt strip offered — a strip that persists until they act on it,
+                # with `⌘Z` bound and advertised in its own label.
+                #
+                # Computed by the predicate the undo endpoint itself enforces
+                # (ADR-0133's "one rule, called twice"), not a client-side ordinal:
+                # the floor is under revision at #3355, so a client copy is a second
+                # implementation of a rule the server has said it may change.
+                #
+                # Pure authority, deliberately independent of `operation_id`: that
+                # field answers "is there anything to undo", this one answers "may
+                # you". One boolean for both would make a `false` mean either.
+                #
+                # The predicate directly rather than the `can_user_undo_batch_operation`
+                # request wrapper, because `caller_role` is already resolved above —
+                # the same reason `batch_operation_views._require_admin` calls it
+                # directly. The wrapper would re-resolve membership for no new answer.
+                # `caller_role`'s `-1` no-membership default fails closed identically,
+                # and cannot collide with a real role: VIEWER is 1, never 0 (#2489).
+                "can_undo": role_can_undo_batch_operation(caller_role),
                 # ADR-0810 (#2756): null when the batch created no rows, so the
                 # client has nothing to key an Undo affordance off — never a
                 # placeholder id that would 404 on POST .../undo/.
@@ -11079,94 +11117,6 @@ def _project_spi_and_health(project: Project, today: datetime.date) -> tuple[flo
 
 
 @extend_schema(
-    summary="Board swimlanes",
-    description=(
-        "The board's swimlane grouping, as a server fact (#2953, ADR-0843).\n\n"
-        "Lanes are **real container ids plus the project node** — there is no "
-        "synthetic catch-all lane and no promotion of childless rows. Three "
-        "invariants, identical to the web client's:\n\n"
-        "1. A container is never a card, at any depth.\n"
-        "2. Every task appears exactly once, in the lane of its top-level "
-        "container ancestor; a nested container travels on the card as a crumb.\n"
-        "3. Root-level work belongs to the project node, whose lane carries the "
-        "project's name and is absent when it holds nothing.\n\n"
-        "This closes the #986 API-first gap: the grouping previously existed only "
-        "in the browser, so no agent, MCP client or integration could reproduce "
-        "the board a human sees."
-    ),
-    parameters=[
-        OpenApiParameter(
-            name="group_depth",
-            type=OpenApiTypes.INT,
-            location=OpenApiParameter.QUERY,
-            required=False,
-            description=(
-                "WBS depth at which lanes are cut. Defaults to 1. No UI exposes "
-                "this; it exists so a client may ask. Measured 2026-08-18, 94.9% "
-                "of leaf rows sit at depth <= 2 and carry no crumb at all."
-            ),
-        ),
-    ],
-    responses={200: BoardLanesSerializer},
-)
-class BoardLanesView(McpReadableViewMixin, APIView):
-    """GET the board's lane grouping for a project.
-
-    Read-only and open to any project member, matching ``BoardColumnConfigView``
-    — this is current board shape, not gated historical performance.
-    """
-
-    mcp_scope = McpScope.PATH
-
-    def get_permissions(self) -> list[BasePermission]:
-        # The mixin's get_permissions is replaced entirely here, so the MCP guards
-        # must be re-appended explicitly or the view is MCP-readable with no token
-        # guard at all — no team opt-out (ADR-0678), no scope/owner check, not even
-        # the kill switch (ADR-0497). Asserted by the conformance test in
-        # tests/apps/access/test_mcp_team_opt_out.py.
-        return [
-            IsAuthenticated(),
-            IsProjectMember(),
-            IsProjectNotArchived(),
-            *self.mcp_token_guards(),
-        ]
-
-    def get(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.projects.board_lanes import build_lanes
-
-        project = get_object_or_404(Project, pk=pk)
-        self.check_object_permissions(request, project)
-
-        try:
-            group_depth = max(1, int(request.query_params.get("group_depth", 1)))
-        except (TypeError, ValueError):
-            group_depth = 1
-
-        tasks = list(
-            Task.objects.filter(project_id=pk, is_deleted=False, is_subtask=False).only(
-                "id", "name", "wbs_path", "is_subtask"
-            )
-        )
-        lanes, crumbs = build_lanes(tasks, project_name=project.name, group_depth=group_depth)
-        return Response(
-            {
-                "group_depth": group_depth,
-                "lanes": [
-                    {
-                        "id": lane.id,
-                        "name": lane.name,
-                        "is_root": lane.is_root,
-                        "task_ids": lane.task_ids,
-                    }
-                    for lane in lanes
-                ],
-                "crumbs": crumbs,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-@extend_schema(
     summary="Commit the plan",
     description=(
         "Takes the project from `draft` to `active` and captures **baseline v1** "
@@ -11494,8 +11444,14 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         high_risk_count = risk_agg["high_risk_count"] or 0
 
         # ── Project owner (first Owner-role member) ───────────────────────
+        # ``live()`` (#3411, third site of that sweep): a revoked Owner keeps their row
+        # and their OWNER ordinal, so the unfloored read could name a departed person as
+        # the project's owner on the overview card — and, with both a revoked and a live
+        # Owner present, picked between them arbitrarily. The last-Owner guard keeps at
+        # least one live Owner, and ``owner_name`` already tolerates None regardless.
         owner_membership = (
-            ProjectMembership.objects.filter(project=project, role=Role.OWNER)
+            ProjectMembership.live()
+            .filter(project=project, role=Role.OWNER)
             .select_related("user")
             .first()
         )
@@ -11913,57 +11869,65 @@ class ProjectMyTasksView(APIView):
 # Task detail drawer — history and baseline endpoints (ADR-0032)
 # ---------------------------------------------------------------------------
 
-# Fields excluded from the user-facing history diff (ADR-0096 Part 1).
-#
-# CPM outputs and sync internals are already absent from the historical model
-# (``_HISTORY_EXCLUDED_TASK``). This set drops the few remaining low-signal
-# bookkeeping columns from the *display* diff; everything else that is tracked is
-# surfaced (allow-by-exclusion). The previous 11-field opt-in allow-list left every
-# edit to a tracked-but-unlisted field — a WBS reorder (``wbs_path``, the highest-
-# frequency case), reassignment, sprint move, story-point or priority change —
-# rendering a bare "Updated" pill with no diff rows. Allow-by-exclusion fixes that
-# and surfaces newly-tracked fields automatically rather than silently dropping them.
-_HISTORY_DIFF_DISPLAY_EXCLUDED = frozenset(
-    {
-        # blocked_reason is contributor-private (the "Morgan surveillance boundary"):
-        # the task serializer read-gates it to the assignee + @-mentioned users via
-        # can_read_blocker_reason(). The history endpoint is Viewer+ for every member,
-        # so surfacing the reason's old/new text here would bypass that gate — exclude
-        # it. The structured blocker_type signal (visible to all members) is kept.
-        "blocked_reason",
-        "is_deleted",  # deletion is conveyed by history_type, not a diff row
-        "short_id",  # immutable, system-assigned identifier
-        "status_changed_at",  # derived bookkeeping timestamp
-        "blocked_since",  # derived bookkeeping timestamp
-        "sprint_pending",  # transient ADR-0102 scope-injection flag
-        # sprint-backlog reorder bookkeeping: drag-reorder rewrites the team's
-        # within-sprint sequence on every affected sibling, so surfacing it would
-        # flood the timeline with integer noise — mirrors the other rank/bookkeeping
-        # exclusions (#1885). Deliberate ordering signals (priority_rank) stay visible.
-        "sprint_rank",
-        "parent_governance_inherited",  # internal inheritance bookkeeping
-        "recurrence_occurrence_date",  # system-set during recurrence expansion
-        "recurrence_rule",  # FK to the rule object; recurrence shown via is_recurring
-    }
-)
+# Which fields the drawer's history diff compares, hides, and promotes is decided
+# ONCE, in ``history.diff_policy`` — shared with the project Activity page's pipeline
+# in ``apps/history/views.py`` (#3435). Until then this module carried its own
+# ``_HISTORY_DIFF_DISPLAY_EXCLUDED`` / ``_HISTORY_DIFF_PRIVACY_GATED`` /
+# ``_HISTORY_DIFF_PROMOTED_WHEN_ALONE``, the history app carried a different
+# ``_DIFF_EXCLUDED``, and a fix verified on one surface read as done while the other
+# still disagreed. Do not reintroduce a local exclusion set here; extend the policy.
 
 
 @functools.lru_cache(maxsize=1)
 def _history_diff_fields() -> tuple[Any, ...]:
     """Concrete ``Task`` fields surfaced in the history diff (allow-by-exclusion).
 
-    Every tracked, non-PK field except the project link and the low-signal
-    bookkeeping columns in ``_HISTORY_DIFF_DISPLAY_EXCLUDED``. CPM/sync fields are
-    already absent from the historical model (``_HISTORY_EXCLUDED_TASK``). Cached:
-    the model field set is static for the process lifetime.
+    Every tracked, non-PK field except the project link and whatever the shared
+    ``diff_policy`` hides on an object-scoped surface. CPM/sync fields are already
+    absent from the historical model (``_HISTORY_EXCLUDED_TASK``). The previous
+    11-field opt-in allow-list left every edit to a tracked-but-unlisted field — a
+    WBS reorder (``wbs_path``, the highest-frequency case), reassignment, sprint
+    move, story-point or priority change — rendering a bare "Updated" pill with no
+    diff rows (#874); allow-by-exclusion surfaces newly-tracked fields automatically.
+    Cached: the model field set is static for the process lifetime.
     """
     return tuple(
         field
         for field in Task._meta.concrete_fields
         if not field.primary_key
         and field.name != "project"
-        and field.name not in _HISTORY_DIFF_DISPLAY_EXCLUDED
+        and field.name not in HISTORY_DIFF_PROMOTED_WHEN_ALONE
         and field.name not in _HISTORY_EXCLUDED_TASK
+        and is_compared(field.name, object_scoped=True)
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _history_promoted_diff_fields() -> tuple[Any, ...]:
+    """Concrete ``Task`` fields in ``HISTORY_DIFF_PROMOTED_WHEN_ALONE``.
+
+    Diffed alongside the routine fields, but rendered only when the record has no
+    routine change to show. Two filters, each closing a different way the promotion
+    could go wrong, and neither derivable from the other:
+
+    - not in ``_HISTORY_EXCLUDED_TASK`` — the historical model does not carry the
+      field at all, so promoting it would diff an attribute that is never set;
+    - ``is_compared`` — the policy compares a noise field only when it is promotable
+      and never compares a privacy-gated one, so a name that is not noise (already
+      in the routine tuple, would render twice) or that is access-controlled
+      (promotion is an escape hatch out of the *display* exclusions only) drops out.
+    Disjointness of the two tuples is what keeps the render split coherent, so it
+    is asserted by construction rather than left as a property the one current entry
+    happens to have.
+    """
+    return tuple(
+        field
+        for field in Task._meta.concrete_fields
+        if field.name in HISTORY_DIFF_PROMOTED_WHEN_ALONE
+        and not field.primary_key
+        and field.name not in _HISTORY_EXCLUDED_TASK
+        and field.name in HISTORY_DIFF_NOISE
+        and is_compared(field.name, object_scoped=True)
     )
 
 
@@ -12711,13 +12675,17 @@ def _render_history_items(
     ``include`` is set, so the legacy path pays nothing for the unified feed.
     Change (``~``) records whose entire diff was display-excluded are dropped;
     creation (``+``) and deletion (``-``) records are always kept.
+
+    A change in ``HISTORY_DIFF_PROMOTED_WHEN_ALONE`` is rendered only when the
+    record has no routine change to show (#3306) — the shared ``visible_changes``
+    rule, so the project Activity page rescues the same write the drawer does.
     """
     result: list[dict[str, Any]] = []
     merged: list[tuple[Any, dict[str, Any]]] = []
     for record, changes in zip(records, raw_changes, strict=True):
         diff = [
             _render_diff_row(field, old_val, new_val, fk_labels)
-            for field, old_val, new_val in changes
+            for field, old_val, new_val in visible_changes(changes, lambda c: str(c[0].name))
         ]
 
         if record.history_type == "~" and not diff:
@@ -12960,7 +12928,10 @@ class TaskHistoryView(APIView):
             return exc.response
 
         records, diff_seed, count_truncated = _fetch_history_window(task, until)
-        diff_fields = _history_diff_fields()
+        # Promoted fields are diffed with the rest and separated at render time —
+        # whether one is shown depends on what else the same record changed, which
+        # is not known until the routine rows for that record exist (#3306).
+        diff_fields = _history_diff_fields() + _history_promoted_diff_fields()
         raw_changes, fk_ids = _compute_raw_changes(records, diff_seed, diff_fields)
         fk_labels = _resolve_fk_labels(diff_fields, fk_ids)
         result, merged = _render_history_items(records, raw_changes, fk_labels, include)
@@ -17300,6 +17271,14 @@ class TaskSyncView(IdempotencyMixin, APIView):
     from trueppm_api.apps.projects.authentication import ProjectApiTokenAuthentication
     from trueppm_api.apps.projects.throttles import TaskSyncThrottle
 
+    # The route is `projects/<pk>/task-sync/`, so the project id is spelled `pk`
+    # and not the `project_pk` that `_project_pk_from_view` defaults to. Without
+    # this declaration `IsProjectNotArchived` below resolves *no* project and
+    # returns True — it would sit in `permission_classes` looking enforced while
+    # firing on nothing (the #2745 trap, and the reason #3413 was filed as a
+    # trap rather than a one-line append).
+    project_url_kwarg = "pk"
+
     authentication_classes = [ProjectApiTokenAuthentication]
     # IsTokenForProject enforces the IDOR check structurally (token.project_id
     # must match the URL pk) and raises AuthenticationFailed (401) on mismatch
@@ -17307,10 +17286,17 @@ class TaskSyncView(IdempotencyMixin, APIView):
     # TokenHasScope(legacy:full) rejects a read-only mcp:read token at this write
     # path (ADR-0186 §E): the scope system is fail-closed for writes — mcp:read
     # never satisfies legacy:full, so only a full-scope token can push tasks.
+    # IsProjectNotArchived is last on purpose: an archived project is a 403, but a
+    # token that does not authorize this project must still get IsTokenForProject's
+    # 401 first, or the archived refusal becomes an existence oracle for a URL the
+    # caller has no token for. It also means `pk` is a validated UUID by the time
+    # the archived lookup runs — IsTokenForProject rejects a malformed one with 401,
+    # which keeps `Project.objects.filter(pk=…)` off the #2785 500 path.
     permission_classes = [
         IsAuthenticated,
         IsTokenForProject,
         TokenHasScope(SCOPE_LEGACY_FULL),
+        IsProjectNotArchived,
     ]
     throttle_classes = [TaskSyncThrottle]
 
@@ -17324,6 +17310,21 @@ class TaskSyncView(IdempotencyMixin, APIView):
         responses={
             200: InboundTaskSyncResultSerializer,
             201: InboundTaskSyncResultSerializer,
+            # Two unrelated causes now share this status code, and the remediation
+            # for one is the opposite of the other — spelling them out is the
+            # difference between a client fixing it and a client retrying forever
+            # (the #3354 lesson, applied here).
+            403: OpenApiResponse(
+                description=(
+                    "Two causes, and a client must tell them apart. **The token lacks "
+                    "`legacy:full`** — an `mcp:read` token is read-only and can never "
+                    "push; re-mint at the right scope and the same request succeeds. "
+                    "**Or the project is archived** — that clears for no scope and no "
+                    "role, so re-minting will never help and neither will retrying; "
+                    "the project has to be unarchived, after which the identical push "
+                    "goes through (#3413)."
+                )
+            ),
         },
     )
     def post(self, request: Request, pk: str) -> Response:
@@ -18215,11 +18216,9 @@ class AttachmentSigningNotSupported(APIException):
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The caller is neither the uploader nor a project Admin+. Emitted as a "
-                "400 rather than a 403 because the check lives in ``perform_destroy`` "
-                "and raises ``ValidationError``; the declaration follows what reaches "
-                "the wire, not what the status arguably should be (#3319)."
+            403: ownership_refusal_403(
+                "The caller is neither the uploader nor a project Admin+ (#3365).",
+                codes=("attachment_delete_forbidden",),
             ),
         }
     )
@@ -18373,9 +18372,13 @@ class TaskAttachmentViewSet(
         is_uploader = instance.uploaded_by_id == user.pk
         is_admin = role is not None and role >= Role.ADMIN
         if not (is_uploader or is_admin):
-            raise serializers.ValidationError(
-                {"detail": "Only the uploader or a project admin can delete this."},
-                code="attachment_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request. A dict
+            # detail is the only way the code reaches the body (#2550, #3365).
+            raise PermissionDenied(
+                {
+                    "detail": "Only the uploader or a project admin can delete this.",
+                    "code": "attachment_delete_forbidden",
+                }
             )
 
         instance.soft_delete(actor=user)
@@ -18468,16 +18471,26 @@ class TaskAttachmentViewSet(
 
 
 @extend_schema_view(
+    partial_update=extend_schema(
+        # ``responses=`` REPLACES the discovered map — restate the 200 or it vanishes.
+        responses={
+            200: TaskCommentSerializer,
+            403: ownership_refusal_403(
+                "The caller is not the comment author (#3365). The edit window closing "
+                "is a state refusal and stays a 400.",
+                codes=("comment_edit_not_author",),
+            ),
+        }
+    ),
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The caller is neither the comment author nor a project Admin+. Emitted "
-                "as a 400 rather than a 403 because the check lives in "
-                "``perform_destroy`` and raises ``ValidationError`` (#3319)."
+            403: ownership_refusal_403(
+                "The caller is neither the comment author nor a project Admin+ (#3365).",
+                codes=("comment_delete_forbidden",),
             ),
         }
-    )
+    ),
 )
 class TaskCommentViewSet(
     ProjectScopedViewSet,
@@ -18697,9 +18710,10 @@ class TaskCommentViewSet(
 
         instance = cast(TaskComment, serializer.instance)
         if instance.author_id != self.request.user.pk:
-            raise serializers.ValidationError(
-                {"detail": "Only the author can edit a comment."},
-                code="comment_edit_not_author",
+            # 403, not 400: the actor is refused, the body is fine (#3365). The
+            # time window is a serializer ValidationError and stays a 400.
+            raise PermissionDenied(
+                {"detail": "Only the author can edit a comment.", "code": "comment_edit_not_author"}
             )
         serializer.save()
         # Snapshot plain values BEFORE the on_commit lambda — never dereference
@@ -18729,9 +18743,12 @@ class TaskCommentViewSet(
         is_author = instance.author_id == user.pk
         is_admin = role is not None and role >= Role.ADMIN
         if not (is_author or is_admin):
-            raise serializers.ValidationError(
-                {"detail": "Only the author or a project admin can delete a comment."},
-                code="comment_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request (#3365).
+            raise PermissionDenied(
+                {
+                    "detail": "Only the author or a project admin can delete a comment.",
+                    "code": "comment_delete_forbidden",
+                }
             )
         instance.soft_delete(actor=user)
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
@@ -18810,10 +18827,9 @@ class TaskCommentViewSet(
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The reaction belongs to another user. Emitted as a 400 rather than a "
-                "403 because the check lives in ``perform_destroy`` and raises "
-                "``ValidationError`` (#3319)."
+            403: ownership_refusal_403(
+                "The reaction belongs to another user (#3365).",
+                codes=("reaction_delete_forbidden",),
             ),
         }
     )
@@ -18905,9 +18921,12 @@ class CommentReactionViewSet(
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         if instance.user_id != self.request.user.pk:
-            raise serializers.ValidationError(
-                {"detail": "You can only remove your own reactions."},
-                code="reaction_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request (#3365).
+            raise PermissionDenied(
+                {
+                    "detail": "You can only remove your own reactions.",
+                    "code": "reaction_delete_forbidden",
+                }
             )
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
         reaction_id = str(instance.pk)
@@ -18925,16 +18944,26 @@ class CommentReactionViewSet(
 
 
 @extend_schema_view(
+    partial_update=extend_schema(
+        # ``responses=`` REPLACES the discovered map — restate the 200 or it vanishes.
+        responses={
+            200: TaskNoteSerializer,
+            403: ownership_refusal_403(
+                "The caller is not the note author (#3365). The edit window closing is "
+                "a state refusal and stays a 400.",
+                codes=("note_edit_not_author",),
+            ),
+        }
+    ),
     destroy=extend_schema(
         responses={
             204: None,
-            400: state_refusal_400(
-                "The caller is neither the note author nor a project Admin+. Emitted as "
-                "a 400 rather than a 403 because the check lives in ``perform_destroy`` "
-                "and raises ``ValidationError`` (#3319)."
+            403: ownership_refusal_403(
+                "The caller is neither the note author nor a project Admin+ (#3365).",
+                codes=("note_delete_forbidden",),
             ),
         }
-    )
+    ),
 )
 class TaskNoteViewSet(
     ProjectScopedViewSet,
@@ -19021,9 +19050,10 @@ class TaskNoteViewSet(
         # Author-only edit — the serializer enforces the time window; this guards
         # the actor. (Pin uses a separate action that bypasses both.)
         if instance.author_id != self.request.user.pk:
-            raise serializers.ValidationError(
-                {"detail": "Only the author can edit a note."},
-                code="note_edit_not_author",
+            # 403, not 400: the actor is refused, the body is fine (#3365). The
+            # time window is a serializer ValidationError and stays a 400.
+            raise PermissionDenied(
+                {"detail": "Only the author can edit a note.", "code": "note_edit_not_author"}
             )
         serializer.save()
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
@@ -19047,9 +19077,12 @@ class TaskNoteViewSet(
         is_author = instance.author_id == user.pk
         is_admin = role is not None and role >= Role.ADMIN
         if not (is_author or is_admin):
-            raise serializers.ValidationError(
-                {"detail": "Only the author or a project admin can delete a note."},
-                code="note_delete_forbidden",
+            # 403, not 400: this refuses the *caller*, not the request (#3365).
+            raise PermissionDenied(
+                {
+                    "detail": "Only the author or a project admin can delete a note.",
+                    "code": "note_delete_forbidden",
+                }
             )
         instance.soft_delete(actor=user)
         # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).

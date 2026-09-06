@@ -91,7 +91,6 @@ export function useCreateApiToken(scope: IntegrationScope) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: tokensKey(scope) });
-      void qc.invalidateQueries({ queryKey: [`${scope.kind}-integrations-summary`, scope.id] });
     },
   });
 }
@@ -105,7 +104,6 @@ export function useRevokeApiToken(scope: IntegrationScope) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: tokensKey(scope) });
-      void qc.invalidateQueries({ queryKey: [`${scope.kind}-integrations-summary`, scope.id] });
     },
   });
 }

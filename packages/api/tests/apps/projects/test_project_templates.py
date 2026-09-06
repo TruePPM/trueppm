@@ -23,6 +23,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.permissions import role_can_undo_batch_operation
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
@@ -44,7 +45,16 @@ from trueppm_api.apps.projects.project_templates import (
 from trueppm_api.apps.projects.template_services import undo_template_application
 from trueppm_api.apps.workspace.models import AuditEvent
 
+from ...test_openapi_response_conformance import (
+    assert_declared_properties_match_body,
+    assert_response_matches_schema,
+    load_committed_schema,
+)
+
 User = get_user_model()
+
+#: Templated OpenAPI path — the key `docs/api/openapi.json` is indexed by.
+TEMPLATE_UNDO_PATH = "/api/v1/template-applications/{id}/undo/"
 
 
 # ---------------------------------------------------------------------------
@@ -1270,6 +1280,41 @@ def test_undo_endpoint_still_works_when_the_project_is_not_archived(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "role",
+    [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN, Role.OWNER, 350],
+)
+def test_undo_endpoint_admits_exactly_the_shared_predicate_s_roles(
+    source_project: Project, target_project: Project, role: int
+) -> None:
+    """#3353 — the undo action now defers to ``role_can_undo_batch_operation``.
+
+    Asserted against the predicate rather than a hard-coded truth table, because the
+    point of the consolidation is that this endpoint and the paste-many / cascade /
+    CSV-import undos cannot drift: a change to the predicate must move all four or
+    fail here. Nothing covered this route's role floor before — the archived-project
+    tests above hold role constant on purpose.
+
+    ``350`` is the Enterprise project-lead band (ADR-0072). The predicate is a
+    threshold, so a custom role registered there inherits undo authority; the inline
+    ``role < Role.ADMIN`` this replaced agreed, and this pins that it still does.
+
+    ``_require_project_admin`` on the same viewset is deliberately NOT folded into the
+    predicate: it gates publishing and applying, a different rule that shares today's
+    ordinal.
+    """
+    _, application = _seeded_application(source_project, target_project)
+    user = User.objects.create_user(username=f"tmpl-undo-{role}", password="pw")
+    ProjectMembership.objects.create(project=target_project, user=user, role=role)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    resp = client.post(f"/api/v1/template-applications/{application.pk}/undo/", {}, format="json")
+
+    assert (resp.status_code != 403) is role_can_undo_batch_operation(role), resp.data
+
+
+@pytest.mark.django_db
 def test_polling_an_application_still_works_on_an_archived_project(
     admin_client: APIClient, source_project: Project, target_project: Project
 ) -> None:
@@ -1385,3 +1430,49 @@ def test_apply_answers_400_not_500_for_a_malformed_project_id(
 
     assert resp.status_code == 400, resp.data
     assert TemplateApplication.objects.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# The declared 200 vs. the body actually returned (#3416)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def committed_schema() -> dict:
+    """The published contract, parsed once — it is a multi-megabyte document."""
+    return load_committed_schema()
+
+
+@pytest.mark.django_db
+def test_undo_body_matches_its_declared_schema(
+    committed_schema: dict,
+    admin_client: APIClient,
+    source_project: Project,
+    target_project: Project,
+) -> None:
+    """`data["undo"] = summary` after `get_serializer(...).data` — the #3416 shape.
+
+    `deleted`/`kept` is the whole point of the call here, because undo deliberately
+    keeps rows a person has since edited (ADR-0786 §4). A typed client that cannot
+    read `kept` cannot tell a full reversal from a partial one — and the pre-fix
+    declaration gave it no field at all, while validating cleanly, because JSON
+    Schema ignores keys a document does not declare.
+    """
+    _, application = _seeded_application(source_project, target_project)
+
+    response = admin_client.post(
+        f"/api/v1/template-applications/{application.pk}/undo/", {}, format="json"
+    )
+
+    assert response.json()["undo"] == {"deleted": 2, "kept": 0}
+    assert_declared_properties_match_body(committed_schema, response, TEMPLATE_UNDO_PATH, "post")
+    assert_response_matches_schema(committed_schema, response, TEMPLATE_UNDO_PATH, "post")
+
+
+def test_the_declaration_names_the_deleted_kept_split(committed_schema: dict) -> None:
+    """Not an untyped object — a client branches on `kept` being non-zero."""
+    declared = committed_schema["components"]["schemas"]["TemplateApplicationUndo"]["properties"][
+        "undo"
+    ]["properties"]
+
+    assert set(declared) == {"deleted", "kept"}

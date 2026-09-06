@@ -104,11 +104,6 @@ interface GanttState {
   revealGutterSprint: { sprintId: string | null; nonce: number } | null;
   /** Set the continuous zoom; clamps and re-derives `zoomLevel` (#351). */
   setPxPerDay: (px: number) => void;
-  /**
-   * Select a discrete tier (#351). Snaps `pxPerDay` to the tier's canonical
-   * value so the readout and the engine stay consistent.
-   */
-  setZoomLevel: (zoom: ZoomLevel) => void;
   setSelectedTaskId: (id: string | null) => void;
   scrollToTask: (id: string | null) => void;
   setScheduleError: (msg: string | null) => void;
@@ -135,8 +130,6 @@ export const useScheduleStore = create<GanttState>()((set) => ({
     const pxPerDay = clampPxPerDay(px);
     set({ pxPerDay, zoomLevel: deriveTier(pxPerDay) });
   },
-  setZoomLevel: (zoomLevel) =>
-    set({ zoomLevel, pxPerDay: ZOOM_CONFIGS[zoomLevel].pxPerDay }),
   setSelectedTaskId: (selectedTaskId) => set({ selectedTaskId }),
   scrollToTask: (scrollToTaskId) => set({ scrollToTaskId }),
   setScheduleError: (scheduleError) => set({ scheduleError }),

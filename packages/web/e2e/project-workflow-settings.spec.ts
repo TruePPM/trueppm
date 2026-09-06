@@ -289,15 +289,6 @@ test.describe('Project Settings → Workflow (#521)', () => {
     const fieldsSection = page.getByRole('region', { name: 'Fields', exact: true });
     await expect(fieldsSection.getByText('Phase')).toBeVisible(); // built-in
     await expect(fieldsSection.getByText('Vendor')).toBeVisible(); // dynamic
-
-    // Stub banner must not render once this section is wired. Scope to the
-    // Workflow section: the consolidated page (ADR-0146) mounts every section,
-    // and unmocked sibling sections render their own stub banners.
-    await expect(
-      page
-        .locator('[data-settings-section="how-this-team-works"]')
-        .getByTestId('stub-page-banner'),
-    ).toHaveCount(0);
   });
 
   test('settings offers no way to manufacture an empty phase (#2952)', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import type { BulkFieldValue } from '@/hooks/useBulkProjectFields';
 import { toast } from '@/components/Toast/toast';
@@ -578,5 +578,292 @@ describe('BulkFieldsMatrix — control edge cases', () => {
     expect(all.checked).toBe(false);
     expect(all.indeterminate).toBe(false);
     expect(screen.getByTestId('bulk-fields-apply')).toBeDisabled();
+  });
+});
+
+/**
+ * Deviation-from-inherited rendering (#3295) — the flag `ProgramProjectsPage` has
+ * always computed and `ValueCell` has always discarded.
+ */
+describe('BulkFieldsMatrix — deviation markers (#3295)', () => {
+  /** `scope` mirrors what `resolve_inherited_methodology` re-parents to. */
+  function deviationFields(
+    opts: { scope?: string; comparable?: boolean; locked?: boolean } = {},
+  ): FieldDescriptor<Row>[] {
+    const { scope = 'program', comparable = true, locked } = opts;
+    return [
+      {
+        key: 'methodology',
+        label: 'Methodology',
+        kind: 'enum',
+        options: [
+          { value: 'AGILE', label: 'Agile' },
+          { value: 'WATERFALL', label: 'Waterfall' },
+          { value: 'HYBRID', label: 'Hybrid' },
+        ],
+        read: (r) => ({
+          effective: r.methodology,
+          overridden: false,
+          deviation: comparable
+            ? {
+                differs: r.methodology !== r.inheritedMethodology,
+                scope,
+                inherited: r.inheritedMethodology,
+                own: r.methodology,
+              }
+            : undefined,
+        }),
+        resettable: false,
+        locked,
+        minWidth: '220px',
+      },
+    ];
+  }
+
+  it('renders the marker as text plus ≠ — no dot, no fill, no row tint (D11)', () => {
+    renderMatrix({ fields: deviationFields() });
+    const marker = screen.getAllByTestId('deviation-marker-methodology')[0];
+    // Both rows deviate from HYBRID in the shared fixture.
+    expect(marker).toHaveTextContent('Agile ≠ program (Hybrid)');
+    // Non-color-only: the whole statement is words + a glyph, and the accessible
+    // name spells the comparison out rather than leaning on the glyph.
+    expect(marker).toHaveAttribute(
+      'aria-label',
+      'Methodology: Agile, differs from program default Hybrid',
+    );
+    expect(marker.className).not.toMatch(/bg-|rounded-full/);
+  });
+
+  it('names the scope actually compared against — workspace under a lock (D32/D37)', () => {
+    renderMatrix({ fields: deviationFields({ scope: 'workspace', locked: true }) });
+    expect(screen.getAllByTestId('deviation-marker-methodology')[0]).toHaveTextContent(
+      'Agile ≠ workspace (Hybrid)',
+    );
+  });
+
+  it('carries the tally in the column header as label text, constraint first (D10)', () => {
+    const { rerender } = renderMatrix({ fields: deviationFields() });
+    expect(screen.getByTestId('deviation-count')).toHaveTextContent('2 differ');
+    // The header is a label, never a control.
+    expect(within(screen.getByTestId('bulk-fields-header')).queryByRole('button')).toBeNull();
+
+    rerender(
+      <BulkFieldsMatrix<Row>
+        rows={ROWS}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={deviationFields({ scope: 'workspace', locked: true })}
+        canEdit
+        apply={apply}
+        isApplying={false}
+        entityNoun="projects"
+      />,
+    );
+    const header = screen.getByTestId('bulk-fields-header');
+    expect(header).toHaveTextContent('Methodology · read-only · 2 differ');
+    // A house SVG, never a Unicode emoji (rule 242) — and decorative, so "read-only"
+    // is what carries the constraint into the accessible name.
+    const glyph = header.querySelector('svg[aria-hidden="true"]');
+    expect(glyph).not.toBeNull();
+    expect(header.textContent).not.toContain('🔒');
+  });
+
+  it('reads "none differ", not "0 differ", when every row matches (§C)', () => {
+    const matching: Row[] = ROWS.map((r) => ({ ...r, methodology: r.inheritedMethodology }));
+    renderMatrix({ rows: matching, fields: deviationFields() });
+    expect(screen.getByTestId('deviation-count')).toHaveTextContent('none differ');
+    expect(screen.getByTestId('deviation-count')).not.toHaveTextContent('0 differ');
+    expect(screen.queryByTestId('deviation-marker-methodology')).toBeNull();
+  });
+
+  it('omits markers AND the header count when no row can be compared (D12)', () => {
+    renderMatrix({ fields: deviationFields({ comparable: false }) });
+    // Absent, not zeroed — a visible zero claims a check that never happened.
+    expect(screen.queryByTestId('deviation-count')).toBeNull();
+    expect(screen.queryByTestId('deviation-marker-methodology')).toBeNull();
+    // Degrades to exactly the pre-#3295 render: the plain effective value.
+    expect(screen.getByLabelText('Methodology: Agile')).toBeInTheDocument();
+  });
+
+  it('tallies over the unnarrowed set when the mount passes one (one denominator)', () => {
+    // Header "N differ" and a facet chip "N deviating" name the same fact; computing
+    // one over the filtered rows and the other over all rows makes them disagree.
+    renderMatrix({ rows: [ROWS[0]], tallyRows: ROWS, fields: deviationFields() });
+    expect(screen.getByTestId('deviation-count')).toHaveTextContent('2 differ');
+    expect(screen.getAllByTestId('deviation-marker-methodology')).toHaveLength(1);
+  });
+
+  it('suppresses the visible marker text from the accessible name (rule 171)', () => {
+    renderMatrix({ fields: deviationFields() });
+    const marker = screen.getAllByTestId('deviation-marker-methodology')[0];
+    // An aria-label on a non-widget container does not suppress descendants, so the
+    // visible run has to be hidden or a reader hears the sentence twice.
+    expect(marker.querySelector('[aria-hidden="true"]')).toHaveTextContent(
+      'Agile ≠ program (Hybrid)',
+    );
+  });
+
+  it('renders markers and the count for a read-only (non-admin) mount — they are reads (§F)', () => {
+    renderMatrix({ canEdit: false, fields: deviationFields() });
+    expect(screen.queryByTestId('bulk-fields-action-bar')).toBeNull();
+    expect(screen.getByTestId('deviation-count')).toHaveTextContent('2 differ');
+    expect(screen.getAllByTestId('deviation-marker-methodology')).toHaveLength(2);
+  });
+
+  it('widens the value column to the field minWidth so the marker is not clipped (D39)', () => {
+    renderMatrix({ fields: deviationFields() });
+    const header = screen.getByTestId('bulk-fields-header');
+    expect(header.style.gridTemplateColumns).toContain('minmax(220px, 1fr)');
+    // Fields that do not ask keep the 140px floor.
+    renderMatrix({ fields: makeFields() });
+    expect(screen.getAllByTestId('bulk-fields-header')[1].style.gridTemplateColumns).toContain(
+      'minmax(140px, 1fr)',
+    );
+  });
+
+  it('renders the opaque scopeNote in the action bar, and nothing when unset (D35)', () => {
+    const { rerender } = renderMatrix({ fields: deviationFields() });
+    expect(screen.queryByTestId('bulk-fields-scope-note')).toBeNull();
+    rerender(
+      <BulkFieldsMatrix<Row>
+        rows={ROWS}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={deviationFields()}
+        canEdit
+        apply={apply}
+        isApplying={false}
+        entityNoun="projects"
+        scopeNote={<>2 of 47 shown · Deviates from default</>}
+      />,
+    );
+    expect(screen.getByTestId('bulk-fields-scope-note')).toHaveTextContent(
+      '2 of 47 shown · Deviates from default',
+    );
+  });
+
+  it('clears the selection and announces it when the cohort key changes (D13)', () => {
+    const { container, rerender } = render(
+      <BulkFieldsMatrix<Row>
+        rows={ROWS}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={deviationFields()}
+        canEdit
+        apply={apply}
+        isApplying={false}
+        entityNoun="projects"
+        selectionResetKey="ALL"
+      />,
+    );
+    fireEvent.click(screen.getByLabelText<HTMLInputElement>('Select Apollo'));
+    expect(screen.getByLabelText<HTMLInputElement>('Select Apollo').checked).toBe(true);
+
+    rerender(
+      <BulkFieldsMatrix<Row>
+        rows={[ROWS[0]]}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={deviationFields()}
+        canEdit
+        apply={apply}
+        isApplying={false}
+        entityNoun="projects"
+        selectionResetKey="DEVIATES"
+      />,
+    );
+    expect(screen.getByLabelText<HTMLInputElement>('Select Apollo').checked).toBe(false);
+    expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
+      'Selection cleared. Showing 1 projects.',
+    );
+  });
+});
+
+/** Narrow viewport (< 768px): read layer intact, write affordances gone (D40). */
+describe('BulkFieldsMatrix — narrow viewport card list (#3295, D40)', () => {
+  beforeEach(() => {
+    // `useBreakpoint` reports `sm` only when the md media query does not match; the
+    // shared setup stub answers true to every `(min-width:` query.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function narrowFields(): FieldDescriptor<Row>[] {
+    return [
+      {
+        key: 'methodology',
+        label: 'Methodology',
+        kind: 'enum',
+        options: [{ value: 'AGILE', label: 'Agile' }],
+        read: (r) => ({
+          effective: r.methodology,
+          overridden: false,
+          deviation: {
+            differs: r.methodology !== r.inheritedMethodology,
+            scope: 'program',
+            inherited: r.inheritedMethodology,
+            own: r.methodology,
+          },
+        }),
+        resettable: false,
+      },
+    ];
+  }
+
+  it('keeps markers and the header count, drops the bar, checkboxes and select-all', () => {
+    renderMatrix({ fields: narrowFields(), narrowReadOnly: true });
+    // Read layer intact — checking a deviation count from a phone is a real errand.
+    expect(screen.getByTestId('deviation-count')).toHaveTextContent('2 differ');
+    expect(screen.getAllByTestId('deviation-marker-methodology')).toHaveLength(2);
+    // Write layer gone — bulk editing on a phone is not.
+    expect(screen.queryByTestId('bulk-fields-action-bar')).toBeNull();
+    expect(screen.queryByLabelText('Select Apollo')).toBeNull();
+    expect(screen.queryByLabelText('Select all rows')).toBeNull();
+  });
+
+  it('states one static wall sentence — no icon, no link', () => {
+    renderMatrix({ fields: narrowFields(), narrowReadOnly: true });
+    const wall = screen.getByTestId('bulk-fields-narrow-wall');
+    expect(wall).toHaveTextContent('Bulk edits need a wider screen.');
+    expect(wall.querySelector('a')).toBeNull();
+    expect(wall.querySelector('svg')).toBeNull();
+  });
+
+  it('drops the grid so the marker wraps rather than truncates', () => {
+    renderMatrix({ fields: narrowFields(), narrowReadOnly: true });
+    expect(screen.getByTestId('bulk-fields-header').style.gridTemplateColumns).toBe('');
+    expect(screen.getAllByTestId('deviation-marker-methodology')[0].className).toContain(
+      'break-words',
+    );
+  });
+
+  it('says nothing about bulk edits to a reader who could not make them anyway', () => {
+    renderMatrix({ canEdit: false, fields: narrowFields(), narrowReadOnly: true });
+    expect(screen.queryByTestId('bulk-fields-narrow-wall')).toBeNull();
+    expect(screen.getByTestId('deviation-count')).toHaveTextContent('2 differ');
+  });
+  it('leaves a mount that did not opt in fully editable at the same width', () => {
+    // The collapse is a ruling about one surface's errands, not a property of the
+    // matrix — `WorkspaceProgramsPage` never made that call and must not inherit it.
+    renderMatrix({ fields: narrowFields() });
+    expect(screen.getByTestId('bulk-fields-action-bar')).toBeInTheDocument();
+    expect(screen.getByLabelText('Select Apollo')).toBeInTheDocument();
+    expect(screen.getByLabelText('Select all rows')).toBeInTheDocument();
+    expect(screen.queryByTestId('bulk-fields-narrow-wall')).toBeNull();
   });
 });

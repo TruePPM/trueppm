@@ -13,7 +13,12 @@ from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Case, Count, IntegerField, Q, QuerySet, Value, When
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    inline_serializer,
+)
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -26,6 +31,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     _membership_role,
     assert_project_not_archived,
+    role_can_undo_batch_operation,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
@@ -49,7 +55,7 @@ from trueppm_api.apps.projects.template_services import (
 )
 from trueppm_api.apps.workspace.models import AuditEventType
 from trueppm_api.apps.workspace.services import record_audit_event
-from trueppm_api.core.openapi import state_refusal_400
+from trueppm_api.core.openapi import state_refusal_400, undo_summary_schema
 from trueppm_api.core.request_body import object_body
 
 # Shared user-facing response details.
@@ -343,6 +349,43 @@ class TemplateApplicationSerializer(serializers.ModelSerializer[TemplateApplicat
             "undone_at",
         ]
         read_only_fields = fields
+
+
+class TemplateApplicationUndoSerializer(TemplateApplicationSerializer):
+    """The adoption record **plus** the ``undo`` summary the action returns (#3416).
+
+    The handler builds its body as ``data = self.get_serializer(application).data``
+    then ``data["undo"] = summary``, so the bare ``TemplateApplicationSerializer``
+    published as the ``200`` gave a typed client no field for the deleted/kept split
+    — and that split is the whole point of the call here, because undo deliberately
+    *keeps* rows a person has since edited (ADR-0786 §4). A client that cannot read
+    ``kept`` cannot tell a full reversal from a partial one.
+    """
+
+    undo = serializers.SerializerMethodField()
+
+    class Meta(TemplateApplicationSerializer.Meta):
+        fields = [*TemplateApplicationSerializer.Meta.fields, "undo"]  # noqa: RUF012
+
+    @extend_schema_field(
+        undo_summary_schema(
+            "What the undo did to the rows this application wrote.",
+            deleted="Rows removed — written by the application and untouched since.",
+            kept=(
+                "Rows left in place because someone has edited them since. A non-zero "
+                "value means the project still carries part of the template."
+            ),
+        )
+    )
+    def get_undo(self, obj: TemplateApplication) -> dict[str, int]:
+        """The persisted summary, for a caller that serializes a row outside the action.
+
+        Not what the action returns: ``undo_template_application`` short-circuits an
+        application that created no rows and returns ``{"deleted": 0, "kept": 0}``
+        without persisting a summary, so the action's live value is authoritative and
+        this is the best a later reader can do.
+        """
+        return dict((obj.result_summary or {}).get("undo") or {})
 
 
 class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[ProjectTemplate]):
@@ -703,7 +746,7 @@ class TemplateApplicationViewSet(
     @extend_schema(
         request=None,
         responses={
-            200: TemplateApplicationSerializer,
+            200: TemplateApplicationUndoSerializer,
             400: state_refusal_400(
                 "The application is not in a state that can be undone — it never "
                 "reached SUCCESS, or it has already been undone. Verified against "
@@ -723,8 +766,24 @@ class TemplateApplicationViewSet(
         asked to reverse something and deserves to know it did not happen.
         """
         application = self.get_object()
+        # Defers to `role_can_undo_batch_operation` rather than testing the ordinal
+        # here: this is the same "may you reverse a recorded batch write" rule the
+        # paste-many, cascade and CSV-import undos enforce, and three apply endpoints
+        # now report it to the client as `can_undo`. An inline copy here is a second
+        # implementation of a rule that is itself under revision (#3355) — #3353.
+        #
+        # `_require_project_admin` above is deliberately NOT folded in: it gates
+        # PUBLISHING and APPLYING a template, a different rule that happens to share
+        # today's ordinal (ADR-0773). Merging them would make one edit move two floors.
+        #
+        # Be explicit about what this call DOES couple, so #3355 has to confront it:
+        # template apply/undo is the one SYMMETRIC member of the family (Admin+ both
+        # ways), so lowering the shared batch-undo floor would loosen undo here without
+        # touching apply — a Member could reverse an application they could not apply.
+        # Today's behavior is unchanged; the blast radius is not. Whoever resolves
+        # #3355 must decide whether this endpoint follows or gets its own predicate.
         role = _membership_role(request, cast("Any", application.project_id))
-        if role is None or role < Role.ADMIN:
+        if not role_can_undo_batch_operation(role):
             raise PermissionDenied("You need at least Project Manager role to undo a template.")
         if application.status != TemplateApplicationStatus.SUCCESS:
             raise ValidationError(

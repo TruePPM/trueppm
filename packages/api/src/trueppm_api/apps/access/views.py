@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -14,6 +14,7 @@ from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -58,7 +59,7 @@ from trueppm_api.apps.access.serializers import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
-from trueppm_api.core.openapi import state_refusal_400
+from trueppm_api.core.openapi import ownership_refusal_403, state_refusal_400
 from trueppm_api.core.request_body import object_body
 
 _PK = str | uuid.UUID
@@ -66,6 +67,56 @@ _PK = str | uuid.UUID
 _PERMISSION_DENIED_DETAIL = "You do not have permission to perform this action."
 _ROLE_NOT_BELOW_OWN_ERROR = "You cannot assign a role equal to or higher than your own."
 _PROGRAM_NOT_FOUND_DETAIL = "Program not found."
+
+
+def _revive_revoked_membership(
+    membership: ProjectMembership | ProgramMembership, *, new_role: int
+) -> None:
+    """Un-tombstone a revoked membership row in place, at ``new_role`` (#3410).
+
+    ``(project, user)`` / ``(program, user)`` uniqueness is declared
+    **unconditionally**, so a revoked (soft-deleted) row keeps occupying its slot.
+    Re-adding that member therefore has to reuse the row — an INSERT hits the
+    constraint. The group-cascade reconciler resurrects rather than inserts for the
+    same reason (``workspace.services._reconcile_pair``), and both paths depend on
+    at most one row existing per (scope, user): that reconciler keys its "does a
+    row already exist" lookup on it, so a second live row would make its decision
+    ambiguous.
+
+    Every field the write serializer accepts is stamped as it would be on a fresh
+    add; the server-owned identity survives — the primary key (which is what an
+    offline client holds) and ``joined_at``, because this is the same membership
+    resuming rather than a new one.
+
+    ``role_changed_at`` is stamped only when the role actually differs from the one
+    held at revocation, so re-adding someone at their old role does not fabricate a
+    role-change event. This is the rule ``partial_update`` uses and it is
+    deliberately **not** what ``_reconcile_pair`` does — that path stamps
+    unconditionally on resurrect. The difference is intentional: the reconciler
+    cannot see whether a human meant the role to change, whereas this endpoint was
+    handed one explicitly.
+
+    Known limitation (#3410): once revived, the row is indistinguishable from a
+    membership that never lapsed. ``deleted_version`` is cleared, neither model
+    carries ``HistoricalRecords``, and ``joined_at`` still reports the original
+    join date — so the access-evidence surface (#590/#878) cannot show the gap. A
+    dedicated reinstatement fact is #3436; until it lands, do not read
+    ``joined_at`` as proof of uninterrupted access.
+
+    The save draws a fresh ``sync_seq`` (ADR-0686), which is what makes the row
+    re-materialize on the next delta pull: the sync endpoint splits rows into
+    'updated' vs 'deleted' purely on the current ``is_deleted`` value, so a client
+    holding the tombstone sees an **update** to a row it already knows, never a
+    duplicate (ADR-0202).
+    """
+    membership.is_deleted = False
+    membership.deleted_version = None
+    if new_role != membership.role:
+        membership.role = new_role
+        membership.role_changed_at = timezone.now()
+    # The row was just SELECTed, so the UPDATE path is known — skip the exists()
+    # probe, exactly as ``soft_delete`` and ``restore`` do (#1527).
+    membership.save(known_exists=True)
 
 
 class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProjectMembership]):
@@ -192,8 +243,6 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         """Return the actor's role, raising 403 if below minimum."""
         role = _membership_role(request, project_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -219,8 +268,6 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         # has_permission only checks authentication; enforce membership explicitly
         # because DRF only calls has_object_permission on retrieve/update/destroy.
         if _membership_role(request, project.pk) is None:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied("You must be a member of this project.")
         qs = self.get_queryset()
         # ?self=true: return only the requesting user's own membership row.
@@ -268,18 +315,64 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         if actor_role is not None and new_role >= actor_role:
             raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
 
-        # Detect duplicate membership (unique_together enforces at DB level, but
-        # return a clean 409 rather than a 500 IntegrityError).
         user = serializer.validated_data["user"]
-        if ProjectMembership.objects.filter(project=project, user=user, is_deleted=False).exists():
-            return Response(
-                {"detail": "User is already a member of this project."},
-                status=status.HTTP_409_CONFLICT,
+        # The (project, user) unique constraint is unconditional, so the row a
+        # revoked member left behind still owns the slot. Deciding on the *live*
+        # rows only let a re-add sail past the guard straight into the constraint,
+        # which surfaced as a 500 (#3410); the decision has to be made on the row
+        # whatever its is_deleted state, and the row is locked so a concurrent add
+        # cannot slip between the read and the write. Under ATOMIC_REQUESTS that
+        # lock is held to the request's commit, not to the end of this block — so
+        # the 409 on a live duplicate now also holds it briefly. Accepted: the
+        # contention is confined to one (project, user) pair.
+        # ``of=("self",)`` keeps the lock on the membership row — a bare
+        # select_for_update alongside select_related would lock the joined auth_user
+        # row too, on every add. select_related is what stops the read serializer's
+        # ``user_detail`` from lazy-loading the user the caller already named.
+        with transaction.atomic():
+            existing = (
+                ProjectMembership.objects.select_for_update(of=("self",))
+                .select_related("user")
+                .filter(project=project, user=user)
+                .first()
             )
-
-        # Pass the resolved role explicitly — it may have come from the project
-        # default rather than the request payload, so it is not in validated_data.
-        instance = serializer.save(project=project, role=new_role)
+            if existing is not None and not existing.is_deleted:
+                return Response(
+                    {"detail": "User is already a member of this project."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if existing is not None:
+                # A direct re-add supersedes any group provenance the revoked row
+                # carried. Group reconciliation only revokes rows it owns
+                # (source_group IS NOT NULL) and never touches a direct grant, so
+                # leaving the FK set would let a later reconcile revoke a
+                # membership an Owner granted by hand.
+                existing.source_group = None
+                _revive_revoked_membership(existing, new_role=new_role)
+                instance = existing
+            else:
+                # Pass the resolved role explicitly — it may have come from the
+                # project default rather than the request payload, so it is not in
+                # validated_data.
+                try:
+                    # Savepoint so a lost INSERT race (no row existed to lock, two
+                    # requests both got here) leaves the outer transaction usable
+                    # and answers 409 instead of the 500 this guard exists to avoid.
+                    with transaction.atomic():
+                        instance = serializer.save(project=project, role=new_role)
+                except IntegrityError:
+                    # Narrow the 409 to the uniqueness race this branch exists for.
+                    # If a (project, user) row is present now, another request won
+                    # the INSERT. Anything else — an FK violation from a
+                    # concurrently hard-deleted user, or a constraint added to this
+                    # table later — must not be answered "already a member", so
+                    # re-raise it rather than masking it as a benign conflict.
+                    if not ProjectMembership.objects.filter(project=project, user=user).exists():
+                        raise
+                    return Response(
+                        {"detail": "User is already a member of this project."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
 
         project_id = str(project.pk)
         membership_id = str(instance.pk)
@@ -318,14 +411,10 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                     is_deleted=False,  # type: ignore[misc]
                 )
             except ProjectMembership.DoesNotExist:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this project.") from None
 
             actor_role = actor_membership.role
             if actor_role < Role.OWNER:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
 
             if new_role is not None:
@@ -365,10 +454,13 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         responses={
             204: None,
             400: state_refusal_400(
-                "Refused on the membership's own state: the target's role is at or "
-                "above the caller's, or removing them would leave the project with "
-                "no Owner. Verified against the peer-role and last-Owner guards in "
+                "Refused on the roster's own state: removing this member would leave "
+                "the project with no Owner. Verified against the last-Owner guard in "
                 "``destroy`` (#3319)."
+            ),
+            403: ownership_refusal_403(
+                "The caller is not a member, is below Owner and removing someone else, "
+                "or holds a role at or below the target's (#3365)."
             ),
         }
     )
@@ -382,16 +474,16 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             # Any member may remove themselves; require at least Viewer membership.
             actor_role = _membership_role(request, project.pk)
             if actor_role is None:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this project.")
         else:
             # Removing another member requires Owner.
             actor_role = self._require_actor_role(request, project.pk, Role.OWNER)
             # Owner may only remove members with a lower role than themselves.
             if instance.role >= actor_role:
-                raise drf_serializers.ValidationError(
-                    {"detail": "You can only remove members with a role lower than your own."}
+                # 403, not 400: a peer's role is a fact about the *caller's*
+                # authority over the target, not about the request (#3365).
+                raise PermissionDenied(
+                    "You can only remove members with a role lower than your own."
                 )
 
         # Last-Owner guard — atomic with select_for_update.
@@ -464,8 +556,6 @@ class UserDefinedMentionGroupViewSet(
     def _require_actor_role(self, request: Request, project_id: _PK, minimum: int) -> int:
         role = _membership_role(request, project_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -539,8 +629,6 @@ class UserDefinedMentionGroupViewSet(
         # other write action (create/update/add-member/…) is already blocked by the
         # permission because it is not in that bypass set.
         if project.is_archived:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(
                 "This project is archived and cannot be modified. Unarchive it first."
             )
@@ -725,8 +813,6 @@ class ProgramUserDefinedMentionGroupViewSet(
     def _require_actor_role(self, request: Request, program_id: _PK, minimum: int) -> int:
         role = _program_membership_role(request, program_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -821,8 +907,6 @@ class ProgramUserDefinedMentionGroupViewSet(
         # permission because it is not in that bypass set. Mirrors the project
         # sibling's archived re-assertion.
         if program.is_closed:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(
                 "This program is closed and cannot be modified. Reopen it first."
             )
@@ -1002,8 +1086,6 @@ class ExternalStakeholderViewSet(IdempotencyMixin, viewsets.ModelViewSet[Externa
         # blocked (they are not in the bypass set).
         program = self._get_program_or_404()
         if program.is_closed:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(
                 "This program is closed and cannot be modified. Reopen it first."
             )
@@ -1133,8 +1215,6 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         """Return the actor's program role, raising 403 if below minimum."""
         role = _program_membership_role(request, program_id)
         if role is None or role < minimum:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
         return role
 
@@ -1160,8 +1240,6 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         # for nested routes; the queryset filters by program_id, so an authenticated
         # non-member would see an empty list. Enforce explicitly to return 403.
         if _program_membership_role(request, program.pk) is None:
-            from rest_framework.exceptions import PermissionDenied
-
             raise PermissionDenied("You must be a member of this program.")
         qs = self.get_queryset()
         # ?self=true: only the caller's own membership row — used by the frontend
@@ -1191,13 +1269,43 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
 
         user = serializer.validated_data["user"]
-        if ProgramMembership.objects.filter(program=program, user=user, is_deleted=False).exists():
-            return Response(
-                {"detail": "User is already a member of this program."},
-                status=status.HTTP_409_CONFLICT,
+        # Mirrors ProjectMembershipViewSet.create exactly — ProgramMembership
+        # carries the same unconditional (program, user) constraint and therefore
+        # carried the same 500 on re-adding a revoked member (#3410). See
+        # ``_revive_revoked_membership`` for why the row is reused rather than
+        # re-inserted, and what an offline client sees.
+        with transaction.atomic():
+            existing = (
+                ProgramMembership.objects.select_for_update(of=("self",))
+                .select_related("user")
+                .filter(program=program, user=user)
+                .first()
             )
-
-        instance = serializer.save(program=program)
+            if existing is not None and not existing.is_deleted:
+                return Response(
+                    {"detail": "User is already a member of this program."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if existing is not None:
+                # Stamped as a fresh add would leave it: an omitted role_title
+                # means "unset", never "inherit whatever the revoked row carried".
+                existing.role_title = serializer.validated_data.get("role_title", "")
+                _revive_revoked_membership(existing, new_role=new_role)
+                instance = existing
+            else:
+                try:
+                    # Savepoint — see the project-side twin for why the INSERT
+                    # answers 409 rather than 500 when two adds race.
+                    with transaction.atomic():
+                        instance = serializer.save(program=program)
+                except IntegrityError:
+                    # Narrowed to the uniqueness race — see the project-side twin.
+                    if not ProgramMembership.objects.filter(program=program, user=user).exists():
+                        raise
+                    return Response(
+                        {"detail": "User is already a member of this program."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
         return Response(
             ProgramMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
@@ -1230,14 +1338,10 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                     is_deleted=False,  # type: ignore[misc]
                 )
             except ProgramMembership.DoesNotExist:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this program.") from None
 
             actor_role = actor_membership.role
             if actor_role < required_role:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
 
             if new_role is not None:
@@ -1261,10 +1365,13 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         responses={
             204: None,
             400: state_refusal_400(
-                "Refused on the membership's own state: the target's role is at or "
-                "above the caller's, or removing them would leave the program with "
-                "no Owner. Verified against the peer-role and last-Owner guards in "
+                "Refused on the roster's own state: removing this member would leave "
+                "the program with no Owner. Verified against the last-Owner guard in "
                 "``destroy`` (#3319)."
+            ),
+            403: ownership_refusal_403(
+                "The caller is not a member, is below Owner and removing someone else, "
+                "or holds a role at or below the target's (#3365)."
             ),
         }
     )
@@ -1277,14 +1384,14 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         if is_self:
             actor_role = _program_membership_role(request, program.pk)
             if actor_role is None:
-                from rest_framework.exceptions import PermissionDenied
-
                 raise PermissionDenied("You are not a member of this program.")
         else:
             actor_role = self._require_actor_role(request, program.pk, Role.OWNER)
             if instance.role >= actor_role:
-                raise drf_serializers.ValidationError(
-                    {"detail": "You can only remove members with a role lower than your own."}
+                # 403, not 400: a peer's role is a fact about the *caller's*
+                # authority over the target, not about the request (#3365).
+                raise PermissionDenied(
+                    "You can only remove members with a role lower than your own."
                 )
 
         if instance.role == Role.OWNER:

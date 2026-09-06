@@ -265,10 +265,23 @@ describe('useClassificationPopover — the Undo the server says you may use', ()
   });
 
   /** A 200 body as the cascade endpoint sends it, with the two undo fields varied. */
-  function report(overrides: { operation_id: string | null; can_undo: boolean }) {
+  function report(overrides: {
+    operation_id: string | null;
+    can_undo: boolean;
+    rows_written?: number;
+    matched?: number;
+    governance?: {
+      requested: string;
+      applied: number;
+      unchanged: number;
+      overrides_kept: number | null;
+      has_inherit_bit: boolean;
+    };
+  }) {
     return {
       subtree: 'p',
       matched: 3,
+      rows_written: 3,
       delivery_mode: {
         requested: 'scrum',
         applied: 3,
@@ -343,6 +356,66 @@ describe('useClassificationPopover — the Undo the server says you may use', ()
       report({ operation_id: null, can_undo: true }),
     );
     expect(announcement.action).toBeUndefined();
+  });
+
+  it('counts rows, not the axis-rows the two applied tallies sum to (#3306)', async () => {
+    // The shape the bug produced: a both-axes cascade over the same 3 rows. The old
+    // copy summed `applied` per axis and called the result fields — "6 fields
+    // written across 3 rows" for 3 rows and 9 model columns. Both numbers here are
+    // things the planner can count on the grid.
+    const { announcement } = await applyAndAnnounce(
+      report({
+        operation_id: 'op-1',
+        can_undo: true,
+        governance: {
+          requested: 'gated',
+          applied: 3,
+          unchanged: 0,
+          overrides_kept: 0,
+          has_inherit_bit: true,
+        },
+      }),
+    );
+    expect(announcement.message).toContain('3 rows reclassified');
+    expect(announcement.message).not.toContain('field');
+    expect(announcement.message).not.toContain('6');
+  });
+
+  it('names both counts when the cascade left some of the subtree alone', async () => {
+    const { announcement } = await applyAndAnnounce(
+      report({ operation_id: 'op-1', can_undo: true, matched: 10, rows_written: 9 }),
+    );
+    expect(announcement.message).toContain('9 of 10 rows reclassified');
+  });
+
+  it('says so out loud when a cascade wrote nothing', async () => {
+    // A whole-subtree no-op still raises a receipt, and "0 of 10" is the honest
+    // reading of it — the old copy said "0 fields written across 10 rows", which
+    // invited the planner to wonder which 10 rows had been touched.
+    const { announcement } = await applyAndAnnounce(
+      report({ operation_id: null, can_undo: true, matched: 10, rows_written: 0 }),
+    );
+    expect(announcement.message).toContain('0 of 10 rows reclassified');
+  });
+
+  it('keeps the grammar right on a single-row no-op', async () => {
+    // `cascade: false` resolves the root alone, so `matched: 1` is routine and
+    // `rows_written: 0` against it is what re-declaring a class the root already
+    // holds produces. The fallback branch pluralizes off `matched`, not off a
+    // "this can only happen above 2" assumption.
+    const { announcement } = await applyAndAnnounce(
+      report({ operation_id: null, can_undo: true, matched: 1, rows_written: 0 }),
+    );
+    expect(announcement.message).toContain('0 of 1 row reclassified');
+    expect(announcement.message).not.toContain('1 rows');
+  });
+
+  it('drops the redundant total when every matched row was written', async () => {
+    const { announcement } = await applyAndAnnounce(
+      report({ operation_id: 'op-1', can_undo: true, matched: 1, rows_written: 1 }),
+    );
+    expect(announcement.message).toContain('1 row reclassified');
+    expect(announcement.message).not.toContain('1 of 1');
   });
 
   it('clicking the offered Undo POSTs to the cascade operation route', async () => {

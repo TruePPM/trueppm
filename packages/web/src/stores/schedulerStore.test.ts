@@ -44,17 +44,4 @@ describe('useSchedulerStore', () => {
     expect(cpmError).toBeNull();
     expect(recalculatedAt).toBe('2026-06-15T10:00:00Z');
   });
-
-  it('clearCpmError drops the error but leaves the spinner untouched', () => {
-    useSchedulerStore.getState().setRecalculating(true);
-    useSchedulerStore.getState().setCpmError({ error: 'internal_error', cycle: [] });
-    // setCpmError cleared isRecalculating; raise it again to prove clearCpmError
-    // does not also touch the spinner.
-    useSchedulerStore.getState().setRecalculating(true);
-    useSchedulerStore.getState().clearCpmError();
-
-    const { cpmError, isRecalculating } = useSchedulerStore.getState();
-    expect(cpmError).toBeNull();
-    expect(isRecalculating).toBe(true);
-  });
 });

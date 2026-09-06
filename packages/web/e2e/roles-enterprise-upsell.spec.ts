@@ -99,6 +99,22 @@ test.describe('Roles matrix — Enterprise upsell (#541)', () => {
     ).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 
+  test('frames the matrix as an intentional read-only reference, not a stub (#1649)', async ({
+    page,
+  }) => {
+    await setup(page, 'community');
+    await page.goto('/settings/roles');
+
+    const roles = page.locator('[data-settings-section="roles"]');
+    await expect(roles.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
+    // Ported here from the retired settings-stub-banner.spec.ts (#3369). The
+    // five-role model is fixed in OSS and editing roles is Enterprise, so there
+    // is no OSS write path to wire: the page must say it is a read-only
+    // reference rather than promise wiring that never lands.
+    await expect(roles.getByText(/read-only reference/i)).toBeVisible();
+    await expect(roles.getByText(/changes will not be saved/i)).toHaveCount(0);
+  });
+
   test('hides the EE badges when running the Enterprise edition', async ({ page }) => {
     await setup(page, 'enterprise');
     await page.goto('/settings/roles');

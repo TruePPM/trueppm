@@ -144,6 +144,10 @@ const FIELD_TO_GROUP: Record<string, Group> = {
   is_subtask: 'description',
   is_recurring: 'description',
   governance_class: 'description',
+  // #3306: same chip as `governance_class`, because it is the same change from the
+  // planner's side. Without an entry the rescued record shows only under "All" and
+  // vanishes again the moment anyone filters — half a fix.
+  parent_governance_inherited: 'description',
   delivery_mode: 'description',
 };
 
@@ -162,9 +166,22 @@ const STATUS_LABELS: Record<string, string> = {
 
 const DATE_FIELDS = new Set(['planned_start', 'actual_start', 'actual_finish']);
 
+/**
+ * #3306. The server sends this bit through the generic `str(value)` path, so it
+ * arrives as Django's `"True"`/`"False"`. Rendered raw it would read
+ * `Governance source  True → False`, which states the column and not the change.
+ * The two states are "this task takes its parent's governance" and "this task
+ * declares its own", and that is what a cascade breaking inheritance did.
+ */
+const GOVERNANCE_SOURCE_LABELS: Record<string, string> = {
+  True: 'Inherited from parent',
+  False: 'Set on this task',
+};
+
 function fmtValue(field: string, val: string | null): string {
   if (val == null) return '—';
   if (field === 'status') return STATUS_LABELS[val] ?? val;
+  if (field === 'parent_governance_inherited') return GOVERNANCE_SOURCE_LABELS[val] ?? val;
   if (field === 'percent_complete') {
     const n = Number(val);
     return Number.isFinite(n) ? `${Math.round(n)}%` : val;

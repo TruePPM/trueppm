@@ -781,10 +781,38 @@ export interface TaskBulkResponse {
    */
   capabilities_denied: BulkCapability[];
   /**
+   * Per-edge results for the `dependencies` bucket. Always present on the wire (the
+   * server sends `{applied: [], rejected: []}` for a batch that carried no edges) and
+   * `required` in the schema — modelled here because a hand-maintained interface that
+   * omits a required field is drift, not brevity (#2609, #2633). No web caller sends
+   * edges today, so both arrays are always empty in practice.
+   */
+  dependencies: {
+    applied: Array<Record<string, unknown>>;
+    rejected: Array<Record<string, unknown>>;
+  };
+  /**
    * ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates — pass to
    * `useUndoPasteManyOperation`. Null when the batch created no rows.
    */
   operation_id: string | null;
+  /**
+   * May THIS caller reverse the batch? (#3353, web rule 373(a))
+   *
+   * A 207 here says the caller cleared *this* endpoint's gate — `IsProjectMemberWrite`
+   * + `IsProjectPlanAuthor` — and nothing about `/paste-many-operations/{id}/undo/`,
+   * which is Admin+. The server computes it with the same predicate that endpoint
+   * enforces, so it cannot drift the way a client-side `role >= ROLE_ADMIN` would.
+   *
+   * Deliberately independent of `operation_id`: that field says whether there is
+   * anything to undo, this one says whether you may. Both are required.
+   *
+   * An **authority** answer only. A `true` is not a promise the undo will succeed:
+   * the endpoint also refuses on an archived project, and the ledger row is purged
+   * after the deployment's retention window, after which it 404s. Neither is
+   * reachable from the browser at the moment the receipt renders.
+   */
+  can_undo: boolean;
 }
 
 /**

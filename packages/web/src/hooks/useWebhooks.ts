@@ -126,7 +126,6 @@ export function useCreateWebhook(scope: IntegrationScope) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: webhooksKey(scope) });
-      void qc.invalidateQueries({ queryKey: [`${scope.kind}-integrations-summary`, scope.id] });
     },
   });
 }
@@ -140,7 +139,6 @@ export function useUpdateWebhook(scope: IntegrationScope) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: webhooksKey(scope) });
-      void qc.invalidateQueries({ queryKey: [`${scope.kind}-integrations-summary`, scope.id] });
     },
   });
 }
@@ -153,7 +151,6 @@ export function useDeleteWebhook(scope: IntegrationScope) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: webhooksKey(scope) });
-      void qc.invalidateQueries({ queryKey: [`${scope.kind}-integrations-summary`, scope.id] });
     },
   });
 }

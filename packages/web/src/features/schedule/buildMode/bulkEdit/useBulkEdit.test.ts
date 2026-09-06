@@ -144,7 +144,11 @@ describe('useBulkEdit — apply', () => {
       rejected: [],
       skipped: [],
       capabilities_denied: [],
+      dependencies: { applied: [], rejected: [] },
       operation_id: null,
+      // Nothing was sent, so nothing was created and there is nothing to reverse —
+      // the same `false` the server would report on such a batch (#3353).
+      can_undo: false,
     });
     expect(result.current.skippedLocallyIds).toEqual(['sum']);
   });
@@ -173,7 +177,12 @@ describe('useBulkEdit — apply', () => {
       rejected: [{ index: 1, id: 't2', code: 'forbidden' as const, message: 'No edit access.' }],
       skipped: [],
       capabilities_denied: [],
+      dependencies: { applied: [], rejected: [] },
       operation_id: null,
+      // #3353: on the wire since the bulk endpoint started reporting the caller's
+      // authority over the undo. The sheet does not read it — paste-many and the
+      // CSV wizard do — but the fixture must carry what the server sends.
+      can_undo: true,
     };
     mutate.mockImplementation((_ops, opts) => {
       opts.onSuccess(body);

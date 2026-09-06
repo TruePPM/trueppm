@@ -3,6 +3,14 @@
 > **Decision record.** Moved out of `packages/web/CLAUDE.md` by #2433 (ADR-0653): precedent bound to one surface, not a general invariant. It is still binding for the surface it governs.
 >
 > Original section: *v2 unified shell bar — one bar, adaptive identity, scrollable nav (Issue #1204, ADR-0134)*
+>
+> **Amended 2026-09-05 (#3369).** `ShellNavScroller.tsx` was deleted as unreferenced —
+> `TopBar` no longer renders `ViewTabs`/`ProgramTabs`, and its two surviving parts are
+> `LocationSwitcher` (wayfinding) and `StatusClusterScroller` (the status half, which
+> carries the overflow contract as invariant rule 290). The scrollable-nav and adaptive-
+> identity clauses below therefore describe a shell composition that no longer exists;
+> they are kept verbatim as the record of the decision, not as a description of the
+> current bar. Retiring or restating the rule needs a design call, not a delete.
 
 **The v2 top region is ONE bar (`TopBar`, `h-14`), not two — it merges the former context row + view row; the nav tabs scroll, the right cluster is pinned, and wayfinding is adaptive to rail state.** ADR-0134 supersedes the two-row split of ADR-0127/0128. Reference: `features/shell/TopBar.tsx`, `ShellNavScroller.tsx`. There is no `ContextBar.tsx` (deleted). The bar is `flex items-center` (never wraps): a `shrink-0` left group (mobile hamburger / desktop rail-re-open ≡), the adaptive identity, the `flex-1 min-w-0` nav scroller, then the `ml-auto shrink-0` right cluster (`MethodWorkspaceLabel` · `HealthCluster` · `CreateMenu` · `TaskRunIndicator` · `PresenceAvatarStack` · `NotificationBell` · `UserMenu`).
  - **Adaptive identity.** The `Breadcrumb` renders in the bar ONLY when the rail is not persistently visible: always on mobile (the rail is a drawer), and on desktop only when `sidebarCollapsed` (where it is the sole wayfinding and the hidden rail freed the width). When the rail is open on desktop it is `md:hidden` — `display:none`, which removes it from the a11y tree; **never `aria-hidden` on a still-rendered nav, and never a base-`hidden` that would also strip it on mobile.** It duplicates the rail's highlighted program/project otherwise — do not render it always-on.

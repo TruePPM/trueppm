@@ -122,6 +122,37 @@ def resolve_effective_methodology(
     return program_value or workspace.methodology or DEFAULT_METHODOLOGY
 
 
+def resolve_new_project_methodology(
+    program: Program | None, *, workspace: Workspace | None = None
+) -> str:
+    """Methodology a *new* project starts with when the caller did not choose one.
+
+    The resolver above is computed-on-read, but a project's ``methodology`` column
+    is NOT-NULL with a HYBRID model default — so a project created without an
+    explicit value is *stored* as HYBRID and, under ``SUGGEST``, stays HYBRID at
+    read time no matter what its program or workspace says (the project's own
+    value wins the chain). The "workspace default pre-fills new projects" and
+    "new projects in this program start with its methodology" promises are
+    therefore only true if whoever creates the project seeds the stored value.
+    The interactive New-project sheet does that client-side
+    (``deriveStartSheetMethodology``: ``program.effective_methodology`` if a
+    program is selected, else the workspace default); this is the server-side
+    equivalent for every other door a project enters through — the MS Project
+    create-from-import endpoint today — so the delivery model a project lands
+    with cannot depend on which door it came through (#3432).
+
+    Under an active lock the answer is the workspace default either way, which is
+    also exactly what the effective resolver will report for the new project.
+    """
+    from trueppm_api.apps.workspace.models import Workspace
+
+    if workspace is None:
+        workspace = Workspace.load()
+    if program is not None:
+        return resolve_effective_methodology(program, workspace=workspace)
+    return workspace.methodology or DEFAULT_METHODOLOGY
+
+
 def resolve_inherited_methodology(
     obj: Program | Project, *, workspace: Workspace | None = None
 ) -> str:

@@ -243,10 +243,18 @@ until you act on it:
 
 | Action | What it does |
 |---|---|
-| `⌘ Z` / **Undo** | Removes the whole paste as one step, keeping any row you've already edited since |
+| `⌘ Z` / **Undo** | Removes the whole paste as one step, keeping any row you've already edited since. Needs the Project Manager role — see below |
 | **Keep** | Dismisses the strip; the rows stay |
 | **Map columns…** | Corrects a wrong column guess and re-applies the paste under the new mapping |
 | `F8` | Walks to the next row the paste couldn't infer a duration for |
+
+**Undoing a paste needs the Project Manager role — pasting does not.** Team Member and
+above can paste rows; reversing a paste in a single step is Project Manager and above.
+If your role is below that line the strip says so and shows no Undo, rather than
+offering an action the server would refuse — and `⌘ Z` is left alone, so it never
+promises an undo it cannot deliver. **Keep** and **Map columns…** are unaffected: they
+are not undos, and deleting rows you just created is within the rights that created
+them.
 
 Rows without a resolved duration are never treated as failures — they commit like every
 other pasted row, and `F8` is how you find and fix them afterward, on your schedule, not

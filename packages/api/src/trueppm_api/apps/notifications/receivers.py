@@ -39,14 +39,24 @@ def on_ceiling_proposal_changed(
     #639 rail (in-app row always, email only if the recipient opted in).
 
     Audience (the no-management-bypass boundary, ADR-0104 §A.2/§A.5): recipients are
-    the **team voter roster only** (``team_member_user_ids`` = default-team
-    membership), never a non-team project Admin/PM — the same roster that may read
-    and vote on the signal, so the rail can't become the management back-door.
+    the **team voter roster only** (``team_member_user_ids`` = default-team membership
+    intersected with live project membership, Amendment C), never a non-team project
+    Admin/PM — the same roster that may read and vote on the signal, so the rail can't
+    become the management back-door. The roster helper owns the liveness intersection
+    and defaults it on, so this cohort tracks the eligibility rule automatically rather
+    than restating it: the audience is exactly the people whose votes the tally counts,
+    which is the property that stopped offboarded members receiving an inbox row for a
+    vote they could not cast (#3387).
 
     - ``open``     → eligible voters **minus the proposer** (who already holds the
                      ``202 + proposal`` confirmation; self-notify is noise).
     - ``ratified`` / ``rejected`` / ``expired`` → eligible voters **plus the
-                     proposer** (the most interested party in the outcome).
+                     proposer** (the most interested party in the outcome). The
+                     proposer is added back **after** the eligibility floor on
+                     purpose: Amendment B.2 wants "a proposer who has since left the
+                     team learning their own proposal's fate", and Amendment C keeps
+                     that carve-out rather than silently repealing it — the copy is
+                     governance metadata they authored, never the gated signal value.
     - ``superseded`` → no notification: it is the §A.4 lower-then-raise internal
                      replacement, and the replacement proposal emits its own
                      ``open`` notice to the team.

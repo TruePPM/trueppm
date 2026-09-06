@@ -21,6 +21,10 @@ const FIXTURE_ME = {
   display_name: 'Alice',
   initials: 'AL',
   email: 'alice@example.com',
+  // Admin+ in at least one project (ADR-0122). `RequireAdminSettings` no longer
+  // admits on a verdict-less /auth/me (#3350), and `can_access_admin_settings` is a
+  // declared MeSerializer field, so a payload omitting it was never representable.
+  can_access_admin_settings: true,
 };
 
 const FIXTURE_PROGRAM = {
@@ -166,9 +170,6 @@ test.describe('Program Settings → Access', () => {
 
     // The hardcoded "Anika Krishnan" from the stub must be gone.
     await expect(page.getByText('Anika Krishnan')).toHaveCount(0);
-
-    // Stub banner must not render once wired.
-    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
 
     const addBtn = page.getByRole('button', { name: /Add member/i });
     await expect(addBtn).toBeVisible();
