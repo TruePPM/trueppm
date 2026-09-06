@@ -344,9 +344,11 @@ function rowControlGlyphClaims(container: HTMLElement): string[] {
 
 const ROW_WIDTHS: ColumnWidths['widths'] = {
   wbs: 48, task: 220, links: 76, dur: 60, start: 80, finish: 80, progress: 50, owner: 72,
+  totalFloat: 64, freeFloat: 64,
 };
 const ROW_VISIBLE: ColumnWidths['visible'] = {
   wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
+  totalFloat: true, freeFloat: true,
 };
 const AUTHORABLE_ROW: Task = {
   id: 't-glyph', wbs: '1.1', name: 'Permits', start: '2026-04-05', finish: '2026-04-09',
