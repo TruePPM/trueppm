@@ -22882,6 +22882,9 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "description": "Two causes, and a client must tell them apart. **The token lacks `legacy:full`** — an `mcp:read` token is read-only and can never push; re-mint at the right scope and the same request succeeds. **Or the project is archived** — that clears for no scope and no role, so re-minting will never help and neither will retrying; the project has to be unarchived, after which the identical push goes through (#3413)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {

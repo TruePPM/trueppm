@@ -38,12 +38,15 @@ def _live_project_membership_exists() -> Exists:
     ``team__project_id__in=(...)`` for a batched fan-out — the subquery then still
     pairs each team row with its *own* project's membership. Composed into an existing
     queryset so the liveness floor costs no extra round trip.
+
+    The soft-delete predicate itself comes from :meth:`ProjectMembership.live` rather
+    than being restated here (#3411), so this ``Exists`` and the direct membership reads
+    on the read paths cannot drift apart about what "live" means.
     """
     return Exists(
-        ProjectMembership.objects.filter(
+        ProjectMembership.live().filter(
             project_id=OuterRef("team__project_id"),
             user_id=OuterRef("user_id"),
-            is_deleted=False,
         )
     )
 
