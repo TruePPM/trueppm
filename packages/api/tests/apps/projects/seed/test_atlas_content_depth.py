@@ -18,14 +18,20 @@ from typing import Any
 import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from trueppm_api.apps.notifications.models import Mention, Notification
 from trueppm_api.apps.projects.models import (
     Project,
+    RetroActionItem,
     Risk,
     RiskComment,
+    Sprint,
+    SprintRetro,
+    SprintState,
     Task,
     TaskAttachment,
+    TaskStatus,
 )
 from trueppm_api.apps.projects.seed import import_seed
 from trueppm_api.apps.resources.models import TaskResource
@@ -169,3 +175,50 @@ def test_mentions_actually_notify_a_persona(atlas: Any) -> None:
     }
     assert mentioned, "mentions resolved to no user at all"
     assert all(u.startswith("atlas-") for u in mentioned)
+
+
+# --- the persona walkthroughs reach what they describe (#3393) ----------------
+
+
+def test_jordan_sees_two_cards_on_the_multi_team_lens(atlas: Any) -> None:
+    """``guides/pmo-directors.md`` step 3 flips the `My Teams` toggle as
+    ``atlas-jordan``. The toggle only renders at 2+ cards, and a card needs
+    non-complete work in an ACTIVE sprint plus live membership — checked here
+    end-to-end through the endpoint rather than inferred from the fixture."""
+    jordan = User.objects.get(username="atlas-jordan")
+    client = APIClient()
+    client.force_authenticate(user=jordan)
+    resp = client.get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    cards = {card["project_name"]: card for card in resp.json()}
+    assert set(cards) == {"Platform Core", "GTM Readiness"}, sorted(cards)
+    assert cards["Platform Core"]["sprint"]["name"] == "Sprint 5"
+    assert cards["GTM Readiness"]["sprint"]["name"] == "Enablement 2"
+
+
+def test_platform_core_sprint_3_carries_the_promoted_retro(atlas: Any) -> None:
+    """The scrum-master and agile-coach guides send the reader to *Sprint 3*'s
+    retrospective for a promoted action item. Only that closed sprint in Atlas
+    has a retro at all, so the instruction is locked to the sprint by name."""
+    sprint = Sprint.objects.get(
+        project__program=atlas, project__name="Platform Core", name="Sprint 3"
+    )
+    assert sprint.state == SprintState.COMPLETED
+    retro = SprintRetro.objects.get(sprint=sprint)
+    items = list(RetroActionItem.objects.filter(retro=retro))
+    assert len(items) >= 2
+    promoted = [i for i in items if i.promoted_task_id is not None]
+    assert len(promoted) == 1, "exactly one Sprint 3 action item is promoted"
+    task = Task.objects.get(pk=promoted[0].promoted_task_id)
+    assert task.name == promoted[0].text
+    # The live promote path lands in the project backlog with no sprint — the
+    # guides must not promise it "in the next sprint".
+    assert task.status == TaskStatus.BACKLOG
+    assert task.sprint_id is None
+    other_closed = Sprint.objects.filter(
+        project=sprint.project, state=SprintState.COMPLETED
+    ).exclude(pk=sprint.pk)
+    assert other_closed.exists()
+    assert not SprintRetro.objects.filter(sprint__in=other_closed).exists(), (
+        "another closed sprint grew a retro — update the guides' sprint name"
+    )

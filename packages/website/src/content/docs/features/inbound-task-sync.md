@@ -1,7 +1,20 @@
 ---
 title: Inbound Task Sync
 description: Push tasks into TruePPM from Jira, Linear, GitHub Issues, or any custom source via a project-scoped API token.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+One behavior on this page ships in **TruePPM 0.4**, the first beta, and is **not**
+in `v0.3.0-alpha.3`, the latest release: **an archived project refusing inbound
+pushes**. On 0.3 a push into an archived project still succeeds and creates or
+updates the task, so if you archive a plan while an integration is still pointed
+at it, archive is not what stops the writes — revoke the token.
+
+That is the only item this callout covers. The rest of the page was not audited
+for version accuracy when this declaration was added, so read it as undeclared
+rather than as verified-shipped.
+:::
 
 **Inbound Task Sync** is the lightweight authenticated webhook that lets external task tools push work into a TruePPM project — without TruePPM having to host an OAuth handshake or maintain a connector. You mint a token, your external system POSTs to `/projects/{id}/task-sync/`, and the task lands in the project's backlog ready for the PM to schedule.
 
@@ -167,7 +180,7 @@ A non-zero count usually means a new contributor still needs to be invited to th
 
 ## Audit log
 
-Every token mint, revoke, and use is recorded in an append-only audit log:
+Every token mint, revoke, and successful use is recorded in an append-only audit log:
 
 ```bash
 curl "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-token-audit/" \
@@ -177,6 +190,11 @@ curl "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-token-audit/" \
 - Every project member can read this log — sprint sovereignty matters, and the team should see when integration tokens are being used in their workspace.
 - Audit entries record the token prefix (first 8 hex chars), the actor (for `minted` / `revoked`), the source IP (for `used`), and a JSON `detail` blob describing what happened.
 - Audit rows are never deleted — compliance evidence has indefinite retention.
+- **A refused push writes no audit row.** From 0.4, a push into an archived project
+  is rejected before the `used` entry is written, so the log records pushes that
+  landed rather than pushes that were attempted. If you need to know whether an
+  integration is still aimed at an archived plan, look at the token's `last_used_at`
+  — which also stops advancing — or revoke the token outright.
 
 ## Reference integrations
 
@@ -277,6 +295,7 @@ hub remains Enterprise.
 - The token is project-scoped — an attacker who exfiltrates it cannot access other projects' data or any cross-project surface.
 - A revoked token is rejected immediately; revocation is not eventually consistent.
 - 401 responses do not leak whether the token is malformed, unknown, revoked, or scoped to a different project — all four return the same generic body.
+- From 0.4, **an archived project refuses every push with a `403` and writes nothing** — no task, no link row, no audit entry. Archiving makes a plan read-only, and that is a property of the plan rather than of the caller, so the refusal clears for no token and no scope: re-minting will not get past it and neither will retrying. Unarchive the project and the same push succeeds unchanged. The 401 above is checked first, so a token that does not authorize the project never learns whether it is archived.
 
 See [ADR-0068 §Risks](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0068-inbound-task-sync-protocol-project-api-tokens-audit-and-status-map.md) for the full STRIDE analysis.
 

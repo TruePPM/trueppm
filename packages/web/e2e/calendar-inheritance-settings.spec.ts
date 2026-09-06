@@ -114,9 +114,11 @@ async function baseSetup(page: Page) {
   await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
-    // Workspace admin (>= 300). `RequireWorkspaceAdmin` no longer admits on a
-    // verdict-less /auth/me (#3330), and `workspace_role` is a declared
-    // MeSerializer field, so a payload omitting it was never representable.
+    // Workspace admin (>= 300), and Admin+ in at least one project. Neither
+    // `RequireWorkspaceAdmin` (#3330) nor `RequireAdminSettings` (#3350) admits on
+    // a verdict-less /auth/me any more, and both `workspace_role` and
+    // `can_access_admin_settings` are declared MeSerializer fields, so a payload
+    // omitting either was never representable.
     r.fulfill(
       json({
         id: 'u1',
@@ -125,6 +127,7 @@ async function baseSetup(page: Page) {
         initials: 'AL',
         email: 'alice@truescope.io',
         workspace_role: 300,
+        can_access_admin_settings: true,
       }),
     ),
   );

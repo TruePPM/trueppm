@@ -358,9 +358,11 @@ Your evaluation is about autonomy, so check the artifacts that prove the sprint
 belongs to the team:
 
 1. Sign in as **`aurora-priya`** and open **Deliver → Sprints** in **Aurora**.
-   Select a closed sprint and scroll to the **retrospective** panel below the
-   timeline. Confirm a promoted action item carried into the next sprint's
-   backlog — the pipeline is real, not a checkbox.
+   Select **Sprint 3** — one of the two closed sprints (with Sprint 1) whose
+   retro the sample seeds — and scroll to the **retrospective** panel below the
+   timeline. Confirm a promoted action item carried into the project backlog
+   as a real task, reachable from its `→ T-XXXXXX` chip — the pipeline is real,
+   not a checkbox.
 2. On the board, open **"Widget gallery"** — the mid-sprint scope injection that
    was **accepted** and recorded in the scope audit, not slipped in silently.
 3. Switch to **Helios** as **`helios-jordan`** and open **"Search & filters"** —

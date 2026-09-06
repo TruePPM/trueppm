@@ -1080,6 +1080,20 @@
           ]
         },
         {
+          "wbs_path": "4.10",
+          "name": "Dunning notice copy",
+          "type": "story",
+          "status": "IN_PROGRESS",
+          "percent_complete": 50.0,
+          "story_points": 2,
+          "remaining_points": 1,
+          "parent_epic": "4",
+          "assignee": "jordan",
+          "sprint": "pc-sprint-5",
+          "delivery_mode": "scrum",
+          "governance_class": "flow"
+        },
+        {
           "wbs_path": "4.6",
           "name": "Credit memo flow",
           "type": "story",
@@ -1318,7 +1332,7 @@
           "start_date": "A-6",
           "finish_date": "A+7",
           "capacity_points": 34,
-          "committed_points": 26
+          "committed_points": 28
         },
         {
           "slug": "pc-sprint-6",
@@ -2672,6 +2686,17 @@
           "delivery_mode": "scrum"
         },
         {
+          "wbs_path": "2.9",
+          "name": "Pricing page copy",
+          "type": "story",
+          "status": "NOT_STARTED",
+          "story_points": 1,
+          "assignee": "jordan",
+          "sprint": "gtm-sprint-2",
+          "governance_class": "flow",
+          "delivery_mode": "scrum"
+        },
+        {
           "wbs_path": "2.7",
           "name": "Support runbook",
           "type": "story",
@@ -2762,7 +2787,7 @@
           "start_date": "A-6",
           "finish_date": "A+7",
           "capacity_points": 14,
-          "committed_points": 13
+          "committed_points": 14
         },
         {
           "slug": "gtm-sprint-3",
@@ -2821,6 +2846,10 @@
             {
               "task": "2.6",
               "story_points": 5
+            },
+            {
+              "task": "2.9",
+              "story_points": 1
             },
             {
               "task": "2.7",

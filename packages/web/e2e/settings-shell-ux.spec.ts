@@ -30,6 +30,10 @@ const FIXTURE_ME = {
   display_name: 'Alice',
   initials: 'AL',
   email: 'alice@example.com',
+  // Admin+ in at least one project (ADR-0122). `RequireAdminSettings` no longer
+  // admits on a verdict-less /auth/me (#3350), and `can_access_admin_settings` is a
+  // declared MeSerializer field, so a payload omitting it was never representable.
+  can_access_admin_settings: true,
 };
 
 type Page = import('@playwright/test').Page;
