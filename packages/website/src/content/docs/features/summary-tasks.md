@@ -6,6 +6,8 @@ documentedFor: "0.4"
 
 Summary tasks are parent nodes in the Work Breakdown Structure (WBS). Their duration, dates, and progress are computed by the scheduler from their children — a summary is never edited directly.
 
+![The Grid view of Migration Tooling in Outline mode: phases, owners, percent done, start and finish dates, durations, and predecessors, with critical-path rows highlighted](../../../assets/screenshots/grid.webp)
+
 Use summary tasks to group related work into phases, deliverables, or work packages.
 
 ## What rolls up
