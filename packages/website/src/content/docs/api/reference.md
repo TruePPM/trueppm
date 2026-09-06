@@ -145,6 +145,22 @@ task-sync with their normal credentials, so every inbound push is attributable
 to a minted token. A token whose project does not match the URL returns `401`
 (not `403`) so callers cannot enumerate project existence.
 
+:::note[Ships in 0.4]
+The archived-project refusal described next ships in **TruePPM 0.4**. In
+`v0.3.0-alpha.3` (the latest release) a push into an archived project still
+succeeds and creates or updates the task, so on 0.3 archiving a plan is not what
+stops an integration writing into it — revoke the token.
+:::
+
+**A push into an archived project is refused with a `403`, and writes nothing** —
+no task, no external-link row, no audit entry. Archiving makes a plan read-only,
+and that is a property of the plan rather than of the caller, so the refusal
+clears for no token and no scope: re-minting a `legacy:full` token will not get
+past it and neither will retrying. The project has to be unarchived, after which
+the same push succeeds unchanged. The `401` above is checked first, so a token
+that does not authorize the URL project never learns whether it is archived
+(#3413).
+
 The only scope this endpoint mints is **`legacy:full`**. Sending
 `{"scopes": ["mcp:read"]}` to `POST /api/v1/projects/{id}/api-tokens/` (or the
 program equivalent) is a `400`: a token minted at project or program scope has no
@@ -898,6 +914,26 @@ ordinals yourself.
 refusal (see [Undoing a cascade](#undoing-a-cascade) below), and it does not promise
 the ledger row still exists: batch operations are purged after the deployment's
 `TRUEPPM_BATCH_OPERATION_RETENTION_DAYS` window, after which the undo is a `404`.
+
+##### What an undo reports back
+
+Every `undo` action returns its ledger row **plus an `undo` object** carrying what
+the reversal actually did. Read it: an undo deliberately leaves behind rows a person
+has edited since the batch wrote them, so a non-zero "kept" count means the plan
+still carries part of what you asked to remove.
+
+| Endpoint | `undo` keys |
+|---|---|
+| `POST /api/v1/paste-many-operations/{id}/undo/` | `deleted`, `kept` |
+| `POST /api/v1/cascade-classification-operations/{id}/undo/` | `reverted`, `kept` |
+| `POST /api/v1/template-applications/{id}/undo/` | `deleted`, `kept` |
+| `POST /api/v1/structural-operations/{id}/undo/` | `restored`, `created_removed`, `deleted_restored`, `dependencies_restored`, `dependencies_skipped` |
+
+The structural undo is all-or-nothing, so its counts always describe a completed
+reversal — a refusal is a `409` with no summary at all. A non-zero
+`dependencies_skipped` there means an edge could not be re-created because its other
+end no longer exists, so the restored graph is **incomplete** and the user has links
+to redraw.
 
 ##### Client-minted ids
 
@@ -1914,11 +1950,13 @@ next. In normal operation only `project` and `workspace` occur — `server` mean
 workspace row exists yet, and `fallback` means no tier was usable at all. These two
 fields ship in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
 
-:::caution
-The OpenAPI schema does not yet describe this endpoint's response body — it declares
-`200: No response body` for both methods. The field list above is the contract until
-that annotation lands ([#3396](https://gitlab.com/trueppm/trueppm/-/issues/3396)).
-:::
+Both methods return the same document, published as the
+`ProjectNotificationPreferenceDocument` schema — the stored row plus one field the
+view adds:
+
+| Field | Type | Description |
+|---|---|---|
+| `event_delivery` | object of `event_type` → boolean | Whether a delivery path is wired for that matrix row. `false` means the row is stored and honored but nothing dispatches it yet, so render it as such rather than implying a delivery that never happens. |
 
 `apply-preset` takes a preset name, not a preference row:
 

@@ -1085,3 +1085,334 @@ def test_task_history_endpoint_surfaces_inbound_diff(project: Project, admin_use
     assert diff_by_field["name"]["new"] == "v2"
     assert diff_by_field["status"]["old"] == TaskStatus.NOT_STARTED.value
     assert diff_by_field["status"]["new"] == TaskStatus.IN_PROGRESS.value
+
+
+# ---------------------------------------------------------------------------
+# Archived projects take no inbound writes (#3413)
+# ---------------------------------------------------------------------------
+#
+# Every assertion here is a ROW COUNT, not a status code, and that is the point.
+# `TaskSyncView`'s route spells the project id `pk`, not the `project_pk` that
+# `_project_pk_from_view` defaults to, so before #3413 an `IsProjectNotArchived`
+# appended to `permission_classes` resolved no project and silently passed (the
+# #2745 trap). A test that asserted only "not 200" would then have gone green
+# against the unfixed view, because the endpoint answers 201 — not 200 — on the
+# create path it was supposed to be refusing. Counting rows is the only assertion
+# that can tell "refused" from "wrong success code".
+
+
+@pytest.mark.django_db
+def test_inbound_push_into_an_archived_project_writes_no_rows(
+    project: Project, admin_user: Any
+) -> None:
+    """Archived is hard read-only — the create path must be inert, not merely non-200."""
+    _token, raw = _mint_token(project, admin_user)
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+
+    tasks_before = Task.objects.filter(project=project).count()
+    links_before = InboundTaskLink.objects.filter(project=project).count()
+    used_before = ApiTokenAuditEntry.objects.filter(
+        project=project, action=ApiTokenAuditAction.USED.value
+    ).count()
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "ARCH-1", "name": "Should not land"},
+        format="json",
+    )
+
+    assert resp.status_code == 403
+    # Inertness, asserted three ways — the task, its link row, and the audit row
+    # the upsert writes inside the same transaction.
+    assert Task.objects.filter(project=project).count() == tasks_before
+    assert InboundTaskLink.objects.filter(project=project).count() == links_before
+    assert (
+        ApiTokenAuditEntry.objects.filter(
+            project=project, action=ApiTokenAuditAction.USED.value
+        ).count()
+        == used_before
+    )
+    assert not Task.objects.filter(project=project, name="Should not land").exists()
+
+
+@pytest.mark.django_db
+def test_inbound_push_into_a_live_project_still_writes(project: Project, admin_user: Any) -> None:
+    """Paired control — fails if the archived gate is applied unconditionally.
+
+    Without this, a fix that refused *every* push would satisfy the row-count test
+    above and look correct.
+    """
+    _token, raw = _mint_token(project, admin_user)
+    assert not Project.objects.get(pk=project.pk).is_archived
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "LIVE-1", "name": "Should land"},
+        format="json",
+    )
+
+    assert resp.status_code == 201
+    assert Task.objects.filter(project=project, name="Should land").count() == 1
+    assert InboundTaskLink.objects.filter(
+        project=project, source="jira", external_id="LIVE-1"
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_archiving_after_a_push_freezes_the_existing_task(
+    project: Project, admin_user: Any
+) -> None:
+    """The *update* half of the upsert is gated too.
+
+    The create path is the obvious hole, but an integration that has already
+    pushed once holds a live link row — a re-push takes the update branch and
+    would rewrite name and status on a plan the PM archived precisely to stop it.
+    """
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    first = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-7", "name": "v1", "status": "todo"},
+        format="json",
+    )
+    assert first.status_code == 201
+    task = Task.objects.get(pk=first.data["task_id"])
+    version_before = task.server_version
+
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-7", "name": "v2", "status": "in_progress"},
+        format="json",
+    )
+
+    assert resp.status_code == 403
+    task.refresh_from_db()
+    assert task.name == "v1"
+    assert task.status == TaskStatus.NOT_STARTED.value
+    assert task.server_version == version_before
+    assert Task.objects.filter(project=project).count() == 1
+
+
+@pytest.mark.django_db
+def test_unarchiving_restores_inbound_pushes(project: Project, admin_user: Any) -> None:
+    """The refusal tracks the flag, not the token — it clears when the project does."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+    assert (
+        client.post(
+            f"/api/v1/projects/{project.pk}/task-sync/",
+            {"source": "jira", "external_id": "U-1", "name": "later"},
+            format="json",
+        ).status_code
+        == 403
+    )
+
+    Project.objects.filter(pk=project.pk).update(is_archived=False)
+
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "U-1", "name": "later"},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert Task.objects.filter(project=project, name="later").count() == 1
+
+
+@pytest.mark.django_db
+def test_archived_refusal_does_not_outrank_the_idor_401(
+    project: Project, other_project: Project, admin_user: Any
+) -> None:
+    """Ordering matters: a token for another project must still see 401, not 403.
+
+    `IsProjectNotArchived` is declared last so the archived state of a project the
+    caller holds no token for never becomes an existence oracle.
+    """
+    _token, raw = _mint_token(other_project, admin_user)
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "IDOR-1", "name": "x"},
+        format="json",
+    )
+    assert resp.status_code == 401
+    assert not Task.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_upsert_inbound_task_refuses_an_archived_project_without_a_request(
+    project: Project, admin_user: Any
+) -> None:
+    """The floor underneath the view (#3413, mirroring !2318 / #3354).
+
+    Archived is lifecycle state, not authority, so a non-view caller — a Celery
+    task, a management command, a future webhook ingest that resolves its project
+    from the body — must not reintroduce the hole. Called with no request in hand,
+    which is exactly the shape DRF's permission stack cannot cover.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.projects.inbound_sync import upsert_inbound_task
+
+    token, _raw = _mint_token(project, admin_user)
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+    # Deliberately a STALE instance: `project` was fetched before the archive and
+    # still carries is_archived=False in memory. The assert re-reads the flag, so
+    # passing an instance of any age cannot opt out of the floor.
+    assert project.is_archived is False
+
+    with pytest.raises(PermissionDenied):
+        upsert_inbound_task(
+            project=project,
+            token=token,
+            payload={"source": "jira", "external_id": "SVC-1", "name": "direct"},
+            source_ip=None,
+        )
+
+    assert not Task.objects.filter(project=project).exists()
+    assert not InboundTaskLink.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_upsert_inbound_task_still_writes_for_a_live_project_without_a_request(
+    project: Project, admin_user: Any
+) -> None:
+    """Service-layer control — the floor refuses archived projects, not all of them."""
+    from trueppm_api.apps.projects.inbound_sync import upsert_inbound_task
+
+    token, _raw = _mint_token(project, admin_user)
+
+    result = upsert_inbound_task(
+        project=project,
+        token=token,
+        payload={"source": "jira", "external_id": "SVC-2", "name": "direct-live"},
+        source_ip=None,
+    )
+
+    assert result.created is True
+    assert Task.objects.filter(project=project, name="direct-live").count() == 1
+
+
+@pytest.mark.django_db
+def test_archived_gate_runs_at_the_view_layer_before_serializer_validation(
+    project: Project, admin_user: Any
+) -> None:
+    """Pins the *view* half of the fix, which the tests above cannot see.
+
+    `assert_project_not_archived()` inside `upsert_inbound_task` raises the same
+    `PermissionDenied`, with the same message, having written the same zero rows —
+    so every row-count assertion above is satisfied by the service floor alone.
+    Delete `project_url_kwarg = "pk"` (or `IsProjectNotArchived`) and they all stay
+    green, which would leave the #2745 un-firing-permission trap that #3413 was
+    actually filed about with no regression test at all.
+
+    The discriminator is *layer ordering*, not the outcome: DRF runs
+    `check_permissions` in `initial()`, before the view body deserializes anything.
+    So a body missing the required `external_id` is a 403 while the view gate is
+    armed, and a 400 the moment it is not — the serializer would get there first.
+    """
+    _token, raw = _mint_token(project, admin_user)
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira"},  # no external_id — a 400 if the serializer runs first
+        format="json",
+    )
+
+    assert resp.status_code == 403, (
+        "Expected the permission layer to refuse before deserialization. A 400 here "
+        "means IsProjectNotArchived did not fire and only the service floor is left."
+    )
+    assert not Task.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_both_layers_refuse_with_the_identical_message(project: Project, admin_user: Any) -> None:
+    """The two layers must be indistinguishable to a client (!2318's contract).
+
+    `assert_project_not_archived` reuses `IsProjectNotArchived.message` verbatim so
+    the refusal reads the same whether DRF's permission stack or the service floor
+    produced it. Nothing asserted that, so the two could drift apart and an
+    integrator would see the wording change depending on which caller reached it.
+    """
+    from rest_framework.exceptions import PermissionDenied
+
+    from trueppm_api.apps.access.permissions import IsProjectNotArchived
+    from trueppm_api.apps.projects.inbound_sync import upsert_inbound_task
+
+    token, raw = _mint_token(project, admin_user)
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+
+    view_resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "MSG-1", "name": "x"},
+        format="json",
+    )
+    assert view_resp.status_code == 403
+    assert str(view_resp.data["detail"]) == IsProjectNotArchived.message
+
+    with pytest.raises(PermissionDenied) as exc:
+        upsert_inbound_task(
+            project=project,
+            token=token,
+            payload={"source": "jira", "external_id": "MSG-1", "name": "x"},
+            source_ip=None,
+        )
+    assert str(exc.value.detail) == IsProjectNotArchived.message
+
+
+@pytest.mark.django_db
+def test_a_malformed_project_id_is_a_401_and_never_a_500(project: Project, admin_user: Any) -> None:
+    """Pins the mask that keeps the new archived lookup off the #2785 500 path.
+
+    The route is `projects/<pk>/task-sync/` with **no** `uuid:` converter, so `pk`
+    is any string. Declaring `project_url_kwarg = "pk"` newly routes that value
+    into `_project_pk_from_view` -> `_project_exists` -> `Project.objects.filter(
+    pk=<garbage>)`, which reaches `UUIDField.to_python` and raises Django's
+    `ValidationError` — not something DRF converts, so it would surface as a 500.
+
+    Nothing in the permission classes themselves prevents that. What prevents it is
+    *ordering*: `IsTokenForProject` parses the pk as a UUID and raises 401 first, so
+    the archived lookup only ever sees a validated id. That mask is load-bearing and
+    invisible in the source, which is exactly why it needs a test — reorder the list
+    and this goes 500 with no other signal.
+    """
+    _token, raw = _mint_token(project, admin_user)
+
+    resp = _bearer(APIClient(), raw).post(
+        "/api/v1/projects/not-a-uuid/task-sync/",
+        {"source": "jira", "external_id": "M-1", "name": "x"},
+        format="json",
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_a_soft_deleted_archived_project_still_answers_404_not_403(
+    project: Project, admin_user: Any
+) -> None:
+    """The new declaration must not silently reclassify a 404 as a 403.
+
+    Declaring `project_url_kwarg` routes this view into `_project_pk_from_view`'s
+    declared-kwarg branch, which calls `_project_exists(pk)` — and that filters
+    `is_deleted=False`. So for a soft-deleted project the resolver returns None and
+    `IsProjectNotArchived` stands *down*, leaving the view's own
+    `get_object_or_404(..., is_deleted=False)` to answer 404, exactly as before.
+    Worth pinning because the archived lookup itself does not filter `is_deleted`:
+    if `_project_exists` ever stopped being consulted, a soft-deleted-and-archived
+    project would start answering 403, changing a published status code as a side
+    effect of an internal resolver change.
+    """
+    _token, raw = _mint_token(project, admin_user)
+    Project.objects.filter(pk=project.pk).update(is_archived=True, is_deleted=True)
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "DEL-1", "name": "x"},
+        format="json",
+    )
+    assert resp.status_code == 404

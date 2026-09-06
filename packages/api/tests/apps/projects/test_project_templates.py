@@ -46,7 +46,16 @@ from trueppm_api.apps.projects.project_templates import (
 from trueppm_api.apps.projects.template_services import undo_template_application
 from trueppm_api.apps.workspace.models import AuditEvent
 
+from ...test_openapi_response_conformance import (
+    assert_declared_properties_match_body,
+    assert_response_matches_schema,
+    load_committed_schema,
+)
+
 User = get_user_model()
+
+#: Templated OpenAPI path — the key `docs/api/openapi.json` is indexed by.
+TEMPLATE_UNDO_PATH = "/api/v1/template-applications/{id}/undo/"
 
 
 # ---------------------------------------------------------------------------
@@ -1579,3 +1588,49 @@ def test_undo_of_an_application_that_wrote_nothing_is_silent(target_project: Pro
     assert summary == {"deleted": 0, "kept": 0}
     mock_broadcast.assert_not_called()
     mock_recalc.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# The declared 200 vs. the body actually returned (#3416)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def committed_schema() -> dict:
+    """The published contract, parsed once — it is a multi-megabyte document."""
+    return load_committed_schema()
+
+
+@pytest.mark.django_db
+def test_undo_body_matches_its_declared_schema(
+    committed_schema: dict,
+    admin_client: APIClient,
+    source_project: Project,
+    target_project: Project,
+) -> None:
+    """`data["undo"] = summary` after `get_serializer(...).data` — the #3416 shape.
+
+    `deleted`/`kept` is the whole point of the call here, because undo deliberately
+    keeps rows a person has since edited (ADR-0786 §4). A typed client that cannot
+    read `kept` cannot tell a full reversal from a partial one — and the pre-fix
+    declaration gave it no field at all, while validating cleanly, because JSON
+    Schema ignores keys a document does not declare.
+    """
+    _, application = _seeded_application(source_project, target_project)
+
+    response = admin_client.post(
+        f"/api/v1/template-applications/{application.pk}/undo/", {}, format="json"
+    )
+
+    assert response.json()["undo"] == {"deleted": 2, "kept": 0}
+    assert_declared_properties_match_body(committed_schema, response, TEMPLATE_UNDO_PATH, "post")
+    assert_response_matches_schema(committed_schema, response, TEMPLATE_UNDO_PATH, "post")
+
+
+def test_the_declaration_names_the_deleted_kept_split(committed_schema: dict) -> None:
+    """Not an untyped object — a client branches on `kept` being non-zero."""
+    declared = committed_schema["components"]["schemas"]["TemplateApplicationUndo"]["properties"][
+        "undo"
+    ]["properties"]
+
+    assert set(declared) == {"deleted", "kept"}

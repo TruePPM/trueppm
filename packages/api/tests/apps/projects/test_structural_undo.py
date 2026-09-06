@@ -32,9 +32,17 @@ from trueppm_api.apps.projects.structural_operation_services import (
     reduce_region_roots,
 )
 
+from ...test_openapi_response_conformance import (
+    assert_declared_properties_match_body,
+    assert_response_matches_schema,
+    load_committed_schema,
+)
+
 User = get_user_model()
 
 UNDO_URL = "/api/v1/structural-operations/{pk}/undo/"
+#: Templated OpenAPI path — the key `docs/api/openapi.json` is indexed by.
+STRUCTURAL_UNDO_PATH = "/api/v1/structural-operations/{id}/undo/"
 LIST_URL = "/api/v1/structural-operations/"
 INDENT_URL = "/api/v1/projects/{pk}/tasks/{task_id}/indent/"
 OUTDENT_URL = "/api/v1/projects/{pk}/tasks/{task_id}/outdent/"
@@ -957,3 +965,61 @@ def test_undo_broadcasts_tasks_restructured_and_recalculates(
     assert undone.status_code == 200
     mock_recalc.assert_called_once_with(str(project.pk))
     mock_broadcast.assert_called_once_with(str(project.pk), "tasks_restructured", {})
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# The declared 200 vs. the body actually returned (#3416)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def committed_schema() -> dict:
+    """The published contract, parsed once — it is a multi-megabyte document."""
+    return load_committed_schema()
+
+
+@pytest.mark.django_db
+def test_undo_body_matches_its_declared_schema(
+    committed_schema: dict, project: Project, owner_client: APIClient
+) -> None:
+    """`data["undo"] = summary` after `get_serializer(...).data` — the #3416 shape.
+
+    The bare `StructuralOperationSerializer` was declared as the 200, so the five
+    counts were missing from the contract entirely. JSON Schema accepts undeclared
+    keys, so the runtime validator below passed on the pre-fix declaration too; the
+    key-set assertion is the one that could see it.
+    """
+    tasks = make_tasks(project, ["1", "2", "3"])
+    response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
+    operation_id = response.json()["operation_id"]
+
+    undo_response = undo(owner_client, operation_id)
+
+    assert set(undo_response.json()["undo"]) == {
+        "restored",
+        "created_removed",
+        "deleted_restored",
+        "dependencies_restored",
+        "dependencies_skipped",
+    }
+    assert_declared_properties_match_body(
+        committed_schema, undo_response, STRUCTURAL_UNDO_PATH, "post"
+    )
+    assert_response_matches_schema(committed_schema, undo_response, STRUCTURAL_UNDO_PATH, "post")
+
+
+def test_the_declaration_names_all_five_counts(committed_schema: dict) -> None:
+    """Not an untyped object: a caller branches on `dependencies_skipped` in
+    particular, because non-zero means the restored graph is incomplete."""
+    declared = committed_schema["components"]["schemas"]["StructuralOperationUndo"]["properties"][
+        "undo"
+    ]["properties"]
+
+    assert set(declared) == {
+        "restored",
+        "created_removed",
+        "deleted_restored",
+        "dependencies_restored",
+        "dependencies_skipped",
+    }

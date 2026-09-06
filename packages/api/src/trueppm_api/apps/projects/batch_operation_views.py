@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.db.models import QuerySet
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -36,7 +36,7 @@ from trueppm_api.apps.projects.task_batch_services import (
     undo_cascade_classification_operation,
     undo_paste_many_operation,
 )
-from trueppm_api.core.openapi import state_refusal_400
+from trueppm_api.core.openapi import state_refusal_400, undo_summary_schema
 
 #: Both ``undo`` actions refuse for two unrelated reasons that share a status code.
 #: Spelling them out is the difference between a client retrying usefully and a
@@ -96,6 +96,37 @@ class PasteManyOperationSerializer(serializers.ModelSerializer[PasteManyOperatio
         read_only_fields = fields
 
 
+class PasteManyOperationUndoSerializer(PasteManyOperationSerializer):
+    """The ledger row **plus** the ``undo`` summary the action returns (#3416).
+
+    The handler builds its body as ``data = serializer.data`` then ``data["undo"] =
+    summary``, so declaring the bare ``PasteManyOperationSerializer`` as the ``200``
+    would publish a document with no ``undo`` field — the one value the endpoint
+    exists to report, missing from every generated SDK. See
+    :func:`undo_summary_schema` for why that is worse than declaring nothing.
+    """
+
+    undo = serializers.SerializerMethodField()
+
+    class Meta(PasteManyOperationSerializer.Meta):
+        fields = [*PasteManyOperationSerializer.Meta.fields, "undo"]  # noqa: RUF012
+
+    @extend_schema_field(
+        undo_summary_schema(
+            "What the undo did to the rows this paste created.",
+            deleted="Rows removed — created by the paste and untouched since.",
+            kept="Rows left in place because someone has edited them since the paste.",
+        )
+    )
+    def get_undo(self, obj: PasteManyOperation) -> dict[str, int]:
+        """The persisted summary, for a caller that serializes a row outside the action.
+
+        The action itself returns the summary the service just computed rather than
+        this — see its handler. They agree on every path that persists one.
+        """
+        return dict((obj.result_summary or {}).get("undo") or {})
+
+
 class PasteManyOperationViewSet(
     IdempotencyMixin, viewsets.ReadOnlyModelViewSet[PasteManyOperation]
 ):
@@ -123,7 +154,7 @@ class PasteManyOperationViewSet(
     @extend_schema(
         request=None,
         responses={
-            200: PasteManyOperationSerializer,
+            200: PasteManyOperationUndoSerializer,
             400: state_refusal_400(
                 "This batch has already been undone. Verified against the status "
                 "guard in ``undo`` (#3319)."
@@ -166,6 +197,30 @@ class CascadeClassificationOperationSerializer(
         read_only_fields = fields
 
 
+class CascadeClassificationOperationUndoSerializer(CascadeClassificationOperationSerializer):
+    """The ledger row **plus** the ``undo`` summary the action returns (#3416).
+
+    Same defect and same fix as :class:`PasteManyOperationUndoSerializer`; the counts
+    differ because a cascade undo writes prior values back rather than deleting rows.
+    """
+
+    undo = serializers.SerializerMethodField()
+
+    class Meta(CascadeClassificationOperationSerializer.Meta):
+        fields = [*CascadeClassificationOperationSerializer.Meta.fields, "undo"]  # noqa: RUF012
+
+    @extend_schema_field(
+        undo_summary_schema(
+            "What the undo did to the rows this cascade reclassified.",
+            reverted="Rows restored to their pre-cascade classification.",
+            kept="Rows left as the cascade set them because someone has edited them since.",
+        )
+    )
+    def get_undo(self, obj: CascadeClassificationOperation) -> dict[str, int]:
+        """The persisted summary — see :meth:`PasteManyOperationUndoSerializer.get_undo`."""
+        return dict((obj.result_summary or {}).get("undo") or {})
+
+
 class CascadeClassificationOperationViewSet(
     IdempotencyMixin, viewsets.ReadOnlyModelViewSet[CascadeClassificationOperation]
 ):
@@ -187,7 +242,7 @@ class CascadeClassificationOperationViewSet(
     @extend_schema(
         request=None,
         responses={
-            200: CascadeClassificationOperationSerializer,
+            200: CascadeClassificationOperationUndoSerializer,
             400: state_refusal_400(
                 "This cascade has already been undone. Verified against the status "
                 "guard in ``undo`` (#3319)."

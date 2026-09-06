@@ -185,6 +185,82 @@ def assert_response_matches_schema(
     )
 
 
+def declared_object_properties(
+    schema: dict[str, Any], path: str, method: str = "get", status_code: str = "200"
+) -> set[str]:
+    """The property names an operation's object-shaped response declares.
+
+    Follows a top-level ``$ref`` into ``components`` so a serializer-backed
+    declaration and an inline one are read the same way.
+    """
+    body = (
+        schema["paths"][path][method.lower()]
+        .get("responses", {})
+        .get(status_code, {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema")
+    )
+    assert body is not None, f"{method.upper()} {path} declares no {status_code} JSON schema"
+    seen: set[str] = set()
+    while "$ref" in body:
+        name = body["$ref"].rsplit("/", 1)[-1]
+        assert name not in seen, f"cyclic $ref chain at {name}"
+        seen.add(name)
+        body = schema["components"]["schemas"][name]
+    assert body.get("type") == "object", (
+        f"{method.upper()} {path} declares a {body.get('type')!r} response, not an object"
+    )
+    return set(body.get("properties", {}))
+
+
+def assert_declared_properties_match_body(
+    schema: dict[str, Any],
+    response: Any,
+    path: str,
+    method: str = "get",
+    status_code: str = "200",
+    *,
+    optional: frozenset[str] = frozenset(),
+) -> None:
+    """Every key the body carries is declared, and every declared key is carried.
+
+    :func:`assert_response_matches_schema` cannot do this, and that is the whole
+    reason this exists. JSON Schema validation is *permissive about extra keys*: a
+    response body carrying a key the schema never mentions validates cleanly, so a
+    declaration that simply omits a key the handler always returns passes both the
+    runtime validator and ``api:schema-drift``. That is exactly the #3396 / #3399 /
+    #3416 defect — ``event_delivery`` and ``undo`` are added to the body *after* the
+    serializer runs, so a serializer-shaped declaration is silently short one key and
+    a generated SDK has no field for it. Nothing in the pipeline could see it.
+
+    The reverse direction matters too: a declared property the body never carries is
+    the same lie pointing the other way, and it is the one a later refactor
+    introduces when it stops returning something.
+
+    Args:
+        optional: Properties the body may legitimately omit on this call — a field
+            whose presence depends on request state. Name them, do not widen the
+            check: an unnamed omission is what this assertion exists to catch.
+    """
+    declared = declared_object_properties(schema, path, method, status_code)
+    body = response.json()
+    assert isinstance(body, dict), f"{method.upper()} {path} returned {type(body).__name__}"
+    actual = set(body)
+
+    undeclared = actual - declared
+    assert not undeclared, (
+        f"{method.upper()} {path} returns {sorted(undeclared)}, which its 200 schema does "
+        "not declare. JSON Schema ignores extra keys, so this passes validation and "
+        "api:schema-drift while a generated SDK drops the field entirely (#3396, #3416)."
+    )
+    missing = declared - actual - optional
+    assert not missing, (
+        f"{method.upper()} {path} declares {sorted(missing)} but did not return them — "
+        "the schema promises a client a field the endpoint does not send."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Static rule: an @action must not inherit a serializer it never produces
 # ---------------------------------------------------------------------------
@@ -531,3 +607,60 @@ def test_the_runtime_check_rejects_the_pre_fix_body(
 
     assert errors, "the cursor envelope must NOT validate against the old `type: array`"
     assert "is not of type 'array'" in errors[0].message
+
+
+class _FakeResponse:
+    """Minimal stand-in — the key-set helper reads only ``json()``."""
+
+    def __init__(self, body: Any) -> None:
+        self._body = body
+
+    def json(self) -> Any:
+        return self._body
+
+
+def test_the_key_set_check_catches_what_jsonschema_cannot() -> None:
+    """The #3396 / #3416 defect must fail here and pass plain schema validation.
+
+    This is the negative control that makes every adopting test meaningful. The
+    body carries ``undo``; the schema declares only the serializer's ``id``. A
+    Draft-2020 validator accepts that without complaint — JSON Schema ignores
+    undeclared keys — which is precisely why the drift gate could not see the bug.
+    """
+    component: dict[str, Any] = {"type": "object", "properties": {"id": {"type": "string"}}}
+    components = {"schemas": {"Op": component}}
+    schema: dict[str, Any] = {
+        "paths": {
+            "/x/": {
+                "post": {
+                    "responses": {
+                        "200": {
+                            "content": {
+                                "application/json": {"schema": {"$ref": "#/components/schemas/Op"}}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": components,
+    }
+    body = {"id": "abc", "undo": {"deleted": 2, "kept": 1}}
+
+    # The permissiveness that hid the defect: the pre-fix declaration accepts it.
+    validator = Draft202012Validator(as_json_schema({**component, "components": components}))
+    assert not list(validator.iter_errors(body)), (
+        "JSON Schema must accept the undeclared key — otherwise this control proves nothing"
+    )
+
+    with pytest.raises(AssertionError, match=r"\['undo'\]"):
+        assert_declared_properties_match_body(schema, _FakeResponse(body), "/x/", "post")
+
+    # And the other direction: a declared property the body never sends.
+    with pytest.raises(AssertionError, match="declares"):
+        assert_declared_properties_match_body(schema, _FakeResponse({}), "/x/", "post")
+
+    # Naming it as optional is the documented escape hatch, and it works.
+    assert_declared_properties_match_body(
+        schema, _FakeResponse({}), "/x/", "post", optional=frozenset({"id"})
+    )
