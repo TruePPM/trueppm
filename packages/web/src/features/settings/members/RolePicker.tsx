@@ -86,9 +86,9 @@ export function RolePicker({
   valueLabel,
   variant = 'compact',
 }: RolePickerProps) {
-  // Never `.includes` a value the browser would silently swallow — see the
-  // module docstring. Rendering the extra option is what makes the control state
-  // the role the record actually holds.
+  // A value with no matching option is swallowed by the browser, not reported —
+  // see the module docstring. Rendering the extra option is what makes the
+  // control state the role the record actually holds.
   const isUngrantable = !GRANTABLE_ROLES.includes(value);
   return (
     <select

@@ -50,9 +50,10 @@ describe('roleLabel', () => {
     expect(roleLabel(250, 'project', 'Senior Scheduler')).toBe('Senior Scheduler');
   });
 
-  it('degrades to the bare ordinal when neither the map nor the server names it', () => {
-    expect(roleLabel(250, 'program')).toBe('Role 250');
-    expect(roleLabel(250, 'program', null)).toBe('Role 250');
+  it('degrades to plain copy when neither the map nor the server names it', () => {
+    // Never the raw ordinal: an identifier is not user-facing copy (web rule 301(c)).
+    expect(roleLabel(250, 'program')).toBe('Unknown role');
+    expect(roleLabel(250, 'program', null)).toBe('Unknown role');
   });
 
   it('never lets a known ordinal be overridden by a stale server label', () => {
