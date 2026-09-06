@@ -1,6 +1,6 @@
 import type { ProjectVelocity } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
-import { VelocityTeamPrivateNote } from './velocityPrivacy';
+import { VelocityTeamPrivateNote } from './VelocityTeamPrivateNote';
 
 interface Props {
   velocity: ProjectVelocity;
@@ -62,23 +62,10 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
   // can never exceed the chart's `max`, but the guard keeps the math safe).
   const avgY = avg !== null && avg <= max ? CHART_H - (avg / max) * CHART_H : null;
 
-  if (suppressed) {
-    return (
-      <section
-        aria-labelledby="velocity-panel-heading"
-        className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-3"
-      >
-        <h2
-          id="velocity-panel-heading"
-          className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-        >
-          Velocity
-        </h2>
-        <VelocityTeamPrivateNote />
-      </section>
-    );
-  }
-
+  // The gated state branches the BODY, never the shell: a second copy of the
+  // <section>/<h2> chrome (and of the hardcoded heading id `aria-labelledby`
+  // points at) is the drift this change exists to remove, reintroduced in the
+  // same function.
   return (
     <section
       aria-labelledby="velocity-panel-heading"
@@ -96,7 +83,7 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
               completed-of-committed points, so the panel shows where the team is
               right now alongside its closed-sprint history. Suppressed when there
               is no active sprint or it was never sized in points. */}
-          {currentSprint && currentSprint.committed_points != null && (
+          {!suppressed && currentSprint && currentSprint.committed_points != null && (
             <span
               className="tppm-mono text-xs px-2 py-0.5 rounded border border-brand-primary/30 bg-brand-primary/5 text-brand-primary"
               aria-label={`This ${itl.lower}: ${currentSprint.completed_points ?? 0} of ${currentSprint.committed_points} points completed`}
@@ -104,7 +91,7 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
               This {itl.lower} {currentSprint.completed_points ?? 0}/{currentSprint.committed_points}
             </span>
           )}
-          {excludedCount > 0 && (
+          {!suppressed && excludedCount > 0 && (
             <span
               className="tppm-mono text-xs px-2 py-0.5 rounded border border-dashed border-neutral-border bg-transparent text-neutral-text-secondary"
               title={`${excludedNames} excluded from this forecast — shown for history but not counted in the velocity average or band.`}
@@ -113,7 +100,7 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
               ⌀ {excludedCount} excluded
             </span>
           )}
-          {low !== null && high !== null && (
+          {!suppressed && low !== null && high !== null && (
             <span
               className="tppm-mono text-xs px-2 py-0.5 rounded border border-neutral-border bg-transparent text-neutral-text-secondary"
               aria-label={`Forecast range ${low} to ${high} points`}
@@ -124,6 +111,40 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
         </div>
       </div>
 
+      {suppressed ? (
+        <VelocityTeamPrivateNote />
+      ) : (
+        <VelocityBody
+          itl={itl}
+          sprints={sprints}
+          avg={avg}
+          stdev={stdev}
+          countedCount={countedCount}
+          max={max}
+          chartW={chartW}
+          avgY={avgY}
+        />
+      )}
+    </section>
+  );
+}
+
+interface BodyProps {
+  itl: ReturnType<typeof useIterationLabel>;
+  sprints: ProjectVelocity['sprints'];
+  avg: number | null;
+  stdev: number | null;
+  countedCount: number;
+  max: number;
+  chartW: number;
+  avgY: number | null;
+}
+
+/** The series, the chart and the ADR footer — everything derived from a velocity
+ *  band the reader is entitled to. Never rendered in the gated state. */
+function VelocityBody({ itl, sprints, avg, stdev, countedCount, max, chartW, avgY }: BodyProps) {
+  return (
+    <>
       <p className="text-sm font-medium text-neutral-text-primary">
         {avg !== null ? (
           <>
@@ -297,6 +318,6 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
           ADR-0036
         </a>
       </p>
-    </section>
+    </>
   );
 }

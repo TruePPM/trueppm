@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect } from 'vitest';
 import { VelocityPanel } from './VelocityPanel';
-import { VELOCITY_TEAM_PRIVATE_MESSAGE } from './velocityPrivacy';
+import { VELOCITY_TEAM_PRIVATE_MESSAGE } from './VelocityTeamPrivateNote';
 import type { ProjectVelocity, VelocitySprintEntry } from '@/hooks/useSprints';
 
 function makeSprint(overrides: Partial<VelocitySprintEntry>): VelocitySprintEntry {

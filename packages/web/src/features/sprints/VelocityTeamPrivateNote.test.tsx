@@ -5,7 +5,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { renderWithProviders as render } from '@/test/utils';
-import { VELOCITY_TEAM_PRIVATE_MESSAGE, VelocityTeamPrivateNote } from './velocityPrivacy';
+import { VELOCITY_TEAM_PRIVATE_MESSAGE, VelocityTeamPrivateNote } from './VelocityTeamPrivateNote';
 
 describe('VelocityTeamPrivateNote', () => {
   it('renders the shared sentence behind the standard suppressed testid', () => {
@@ -21,10 +21,23 @@ describe('VelocityTeamPrivateNote', () => {
 /**
  * #3472's acceptance is "Board and Sprints use ONE sentence for the suppressed
  * state", and a shared constant only holds that as long as the next surface
- * imports it rather than retyping the words. The Board and the Sprints panel each
- * had their own reading of the same server verdict before this change, which is
- * exactly how they came to disagree — so the invariant under test is *"there is
- * only one copy of the sentence"*, not "this copy is correct".
+ * imports it rather than retyping the words. So the invariant under test is
+ * *"the literal is written out once"*, not "this copy is correct" — the latter is
+ * the component test above.
+ *
+ * **State what this cannot see (rule 300).** It matches a STRING, so it catches
+ * re-typing and nothing else — and re-typing was never the failure mode here;
+ * divergence was. A surface stating the same ADR-0104 velocity verdict in
+ * different words passes this scan silently, and four already do:
+ * `MultiTeamLens` ("Team-private", a deliberately compact per-row chip),
+ * `HealthCluster`'s velocity-gated row ("Kept to the team"),
+ * `MilestoneBridgeForecast` ("Hidden by this team's signal settings", whose own
+ * docstring argues for that wording), and — with a different SUBJECT rather than
+ * a different wording — `SprintForecastWidget` / `FlowAnalyticsPanel`. Making the
+ * enforceable unit a shared `SignalPrivacyNote({ subject })` that every surface in
+ * the family mounts is what would close that, and it is a wider refactor than this
+ * bugfix: tracked, not implied. Do not read a green run here as evidence the
+ * family agrees.
  *
  * A source scan rather than a lint rule: what is forbidden is a *string*, and the
  * alternative — a hand-maintained list of surfaces to check — is the enumeration
@@ -32,7 +45,7 @@ describe('VelocityTeamPrivateNote', () => {
  */
 const here = dirname(fileURLToPath(import.meta.url)); // packages/web/src/features/sprints
 const SRC = resolve(here, '../..'); // packages/web/src
-const OWNER = resolve(SRC, 'features/sprints/velocityPrivacy.tsx');
+const OWNER = resolve(SRC, 'features/sprints/VelocityTeamPrivateNote.tsx');
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -52,7 +65,7 @@ function sourceFiles(dir: string): string[] {
 const FILES = sourceFiles(SRC).filter((f) => f !== OWNER);
 
 describe('the team-private velocity sentence has exactly one copy', () => {
-  it('is written out only in features/sprints/velocityPrivacy.tsx', () => {
+  it('is written out only in features/sprints/VelocityTeamPrivateNote.tsx', () => {
     const offenders = FILES.filter((f) =>
       readFileSync(f, 'utf8').includes(VELOCITY_TEAM_PRIVATE_MESSAGE),
     );

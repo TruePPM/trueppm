@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { SprintPanel } from './SprintPanel';
 import { makeSprint } from '@/features/sprints/sprintTestFixtures';
-import { VELOCITY_TEAM_PRIVATE_MESSAGE } from '@/features/sprints/velocityPrivacy';
+import { VELOCITY_TEAM_PRIVATE_MESSAGE } from '@/features/sprints/VelocityTeamPrivateNote';
 import { ROLE_MEMBER, ROLE_SCHEDULER, ROLE_VIEWER } from '@/lib/roles';
 import type { ApiSprint } from '@/types';
 

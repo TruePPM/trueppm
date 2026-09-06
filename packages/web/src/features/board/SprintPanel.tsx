@@ -9,7 +9,7 @@ import {
   sprintDayOf,
 } from '@/features/sprints/sprintMath';
 import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
-import { VelocityTeamPrivateNote } from '@/features/sprints/velocityPrivacy';
+import { VelocityTeamPrivateNote } from '@/features/sprints/VelocityTeamPrivateNote';
 import { VelocityForecastLine } from '@/features/sprints/VelocityForecastLine';
 import { SprintForecastChips } from '@/features/sprints/SprintForecastChips';
 import { PromoteMilestoneDialog } from '@/features/sprints/PromoteMilestoneDialog';
