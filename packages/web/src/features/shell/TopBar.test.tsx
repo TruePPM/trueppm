@@ -328,6 +328,22 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
       expect(region!.className).not.toContain('min-w-0');
     });
 
+    it('lets the region shrink at EVERY width — a `shrink-0` phone bar pushes instead of scrolling', () => {
+      const { getByTestId } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      const region = getByTestId('shell-status-cluster').closest('header > div');
+      expect(region).not.toBeNull();
+      // The region was `shrink-0 md:shrink-[9999]`, on the premise that the phone
+      // bar had been tuned to fit 375px rigidly. It had not: once the breadcrumb
+      // is squeezed to zero — which it is on any project route at that width — a
+      // rigid region simply grows past the bar, and rule 290's "it scrolls, it
+      // never pushes" was suspended on the one width where it mattered most
+      // (#3505). What the breakpoint changes now is the ORDER of sacrifice, not
+      // whether the region can give: `LocationSwitcher`'s phone branch carries the
+      // 9999 weight below md so the breadcrumb still goes first.
+      expect(region!.className).not.toContain('shrink-0');
+      expect(region!.className).toMatch(/(^|\s)shrink(\s|$)/);
+    });
+
     it('keeps the pinned chrome outside the scroll viewport — the account chip can never scroll out of reach', () => {
       healthSegmentCount = 7;
       const { getByTestId, getAllByRole } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
