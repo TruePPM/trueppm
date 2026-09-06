@@ -503,6 +503,16 @@ function StripFrame({
 }) {
   const hasSchedule = Boolean(task.start);
   const float = task.totalFloat;
+  const freeFloat = task.freeFloat;
+  // Free float is shown only when it is a DIFFERENT number from total float
+  // (#3344). For any task with no successor the two are equal by definition,
+  // which is the common case on a leaf row, and printing "3d · free 3d" there
+  // states one fact twice in one cell (web rule 284) while spending the width
+  // this cell has least of. When they differ, the gap is the whole point: it is
+  // the slack this row can spend before the NEXT row moves, as opposed to before
+  // the project moves.
+  const showFreeFloat =
+    typeof float === 'number' && typeof freeFloat === 'number' && freeFloat !== float;
   const dash = <span className="text-neutral-text-disabled font-normal">—</span>;
 
   return (
@@ -568,7 +578,7 @@ function StripFrame({
           {float === null || float === undefined ? (
             dash
           ) : (
-            <span className="inline-flex flex-wrap items-center gap-1">
+            <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               {/* `CP` was explained by a native `title` only — invisible to keyboard
                   focus and unreachable on touch, which is exactly the population
                   least likely to already know the term (#2389, rule 287). The
@@ -584,13 +594,36 @@ function StripFrame({
               ) : (
                 <span>{float}d</span>
               )}
+              {/* Free float rides INSIDE this cell rather than becoming a fifth
+                  strip track: web rule 366 measured the four-up strip at a 97px
+                  content box in the 540px drawer and the two-up at 149px in the
+                  356px sheet, and a fifth track fits in neither. The chip is
+                  neutral, not amber — a smaller free float than total float is
+                  the ordinary shape of a task with a successor, not a warning
+                  (the amber chip on the sibling Duration cell means something
+                  else, and reusing it here would teach the reader to discount
+                  it). `flex-wrap` + `gap-y-0.5` lets it drop to a second line at
+                  the narrow layout instead of overflowing into a neighbour. */}
+              {showFreeFloat && (
+                <span
+                  className="rounded-chip px-1 py-px text-xs leading-tight bg-neutral-surface-sunken text-neutral-text-secondary font-normal"
+                  aria-hidden="true"
+                  title={ABBREVIATIONS.FREE_FLOAT}
+                >
+                  free {freeFloat}d
+                </span>
+              )}
               <span
                 className="rounded-chip px-1 py-px text-xs uppercase bg-neutral-surface-sunken text-neutral-text-secondary font-normal"
                 aria-hidden="true"
               >
                 computed
               </span>
-              <span className="sr-only"> (computed)</span>
+              <span className="sr-only">
+                {showFreeFloat
+                  ? ` (free float ${freeFloat} working ${freeFloat === 1 ? 'day' : 'days'}, computed)`
+                  : ' (computed)'}
+              </span>
             </span>
           )}
         </Cell>

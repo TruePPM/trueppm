@@ -296,6 +296,14 @@ export interface Task {
   /** Total float in working days from CPM; negative = already late. Absent until CPM runs. */
   totalFloat?: number | null;
   /**
+   * Free float in working days from CPM — how far this task can slip before it
+   * delays its own successors, as opposed to {@link totalFloat}, which measures
+   * the slip the *project finish* absorbs. Free float is therefore ≤ total float
+   * for any task with a successor, and equal to it for a task with none.
+   * Absent until CPM runs.
+   */
+  freeFloat?: number | null;
+  /**
    * ISO date string — CPM late finish from the last server pass. Absent until
    * CPM runs. Surfaced (issue #1493) so the in-browser drag-preview worker can
    * compute the "CP-flip" critical-path badge against real float instead of a
