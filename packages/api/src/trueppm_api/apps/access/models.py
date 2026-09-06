@@ -134,6 +134,45 @@ class ProjectMembership(VersionedModel):
             models.Index(fields=["project", "sync_seq"], name="pm_proj_syncseq_idx"),
         ]
 
+    @classmethod
+    def live(cls) -> models.QuerySet[ProjectMembership]:
+        """Membership rows that have not been revoked — the soft-delete floor, in one place.
+
+        It floors the *membership* only. A row on a soft-deleted **project** passes this
+        and confers nothing, so a caller that does not already scope to a live project
+        needs ``project__is_deleted=False`` as well (as
+        ``notifications.digests.build_resource_overallocation_digest`` does). All current
+        callers supply their own project scope.
+
+        The uniqueness constraint above is **unconditional**: revoking access soft-deletes
+        the row rather than removing it, and re-adding the member revives that same row
+        (#3410). So a ``(project, user)`` lookup that omits ``is_deleted`` resolves a
+        *revoked* member to their old role and reads as if they were still present — the
+        defect class fixed on the write gates in #3386 and on the read paths in #3411.
+
+        **Scope, stated narrowly on purpose.** This is a convenience for a *direct*
+        ``ProjectMembership`` lookup; it is not, and does not claim to be, the only place
+        the predicate lives. Being a classmethod it cannot compose through a related
+        manager or a join, so the ~30 ``memberships__is_deleted=False`` join filters and
+        the ``obj.memberships.filter(is_deleted=False)`` reads elsewhere necessarily
+        restate it and are correct as they stand. Nothing enforces that a new direct read
+        starts here — no test, no CI gate — so treat this as a shared definition to
+        prefer, not an invariant to rely on. Making it a queryset method on a custom
+        manager would let ``project.memberships.live()`` and ``Prefetch`` compose too;
+        that is the natural next step and is deliberately not taken in this fix.
+
+        Some direct reads must see revoked rows and stay on ``objects`` by design: the
+        ``pre_save`` receiver in :mod:`~trueppm_api.apps.access.signals`, which reads the
+        prior row precisely to detect the revocation transition; the add-member path in
+        :mod:`~trueppm_api.apps.access.views`, which has to find a revoked row to revive
+        it against the unconditional constraint, and to narrow its ``IntegrityError``
+        against that same constraint; the sync delta, which ships tombstones by protocol
+        so a client can learn the membership went away; and the workspace group-cascade
+        reconciliation. Writes (``create``, ``get_or_create``, seeds, data migrations)
+        are not reads and are equally out of scope.
+        """
+        return cls.objects.filter(is_deleted=False)
+
     def __str__(self) -> str:
         return f"{self.user} — {self.project} ({Role(self.role).label})"
 

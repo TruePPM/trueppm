@@ -14,6 +14,8 @@ import {
   type SeedReplaceConflict,
 } from '@/hooks/useProgramSeedIo';
 import { XMarkIcon } from '@/components/Icons';
+import { METHODOLOGY_LABEL } from '@/features/programs/MethodologyFilter';
+import type { Methodology } from '@/types';
 import { ImportDropzone, type ImportRejectReason } from './ImportDropzone';
 import { FormatPicker, type ImportFormat } from './FormatPicker';
 import { SeedReplaceConfirmDialog } from './SeedReplaceConfirmDialog';
@@ -33,6 +35,14 @@ interface Props {
   programId?: string;
   /** Program name for the "Added to …" affordance (shown only with programId). */
   programName?: string;
+  /**
+   * The program's `effective_methodology` (ADR-0107). The server seeds the imported
+   * project with it (#3432) — the same value the New-project sheet's derived line
+   * shows — so the affordance names it at the point of import rather than leaving
+   * the importer to discover the delivery model from a settings hint later. Only
+   * read alongside `programId`; omit when the program has not resolved yet.
+   */
+  programMethodology?: Methodology;
 }
 
 /** Only `.xml` is offered for MS Project today; `.mpp`/`.mpx` are gated (#128/#120). */
@@ -88,6 +98,7 @@ export function ImportProjectModal({
   onProgramImported,
   programId,
   programName,
+  programMethodology,
 }: Props) {
   // A native TruePPM seed imports as a whole program, which cannot be nested
   // inside an existing program — so the tile is only a live choice in the
@@ -384,7 +395,22 @@ export function ImportProjectModal({
 
               {!isTruePpm && programId && programName && (
                 <p className="text-xs text-neutral-text-secondary">
-                  Will be added to the <strong>{programName}</strong> program.
+                  Will be added to the <strong>{programName}</strong> program
+                  {programMethodology ? (
+                    // Stated here because this is the one moment the importer is
+                    // looking: the server seeds the project with the program's
+                    // methodology (#3432), and a settings hint they never read is
+                    // the wrong place to learn what they just got.
+                    <>
+                      {' '}
+                      and start with its <strong>
+                        {METHODOLOGY_LABEL[programMethodology]}
+                      </strong>{' '}
+                      methodology.
+                    </>
+                  ) : (
+                    '.'
+                  )}
                 </p>
               )}
 

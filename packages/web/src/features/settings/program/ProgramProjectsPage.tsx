@@ -336,6 +336,7 @@ export function ProgramProjectsPage() {
         <ImportProjectModal
           programId={programId}
           programName={program?.name}
+          programMethodology={program?.effective_methodology}
           onClose={() => setShowImport(false)}
           onCreated={(projectId) => {
             setShowImport(false);
