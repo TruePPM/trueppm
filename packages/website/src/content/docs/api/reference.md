@@ -915,6 +915,26 @@ refusal (see [Undoing a cascade](#undoing-a-cascade) below), and it does not pro
 the ledger row still exists: batch operations are purged after the deployment's
 `TRUEPPM_BATCH_OPERATION_RETENTION_DAYS` window, after which the undo is a `404`.
 
+##### What an undo reports back
+
+Every `undo` action returns its ledger row **plus an `undo` object** carrying what
+the reversal actually did. Read it: an undo deliberately leaves behind rows a person
+has edited since the batch wrote them, so a non-zero "kept" count means the plan
+still carries part of what you asked to remove.
+
+| Endpoint | `undo` keys |
+|---|---|
+| `POST /api/v1/paste-many-operations/{id}/undo/` | `deleted`, `kept` |
+| `POST /api/v1/cascade-classification-operations/{id}/undo/` | `reverted`, `kept` |
+| `POST /api/v1/template-applications/{id}/undo/` | `deleted`, `kept` |
+| `POST /api/v1/structural-operations/{id}/undo/` | `restored`, `created_removed`, `deleted_restored`, `dependencies_restored`, `dependencies_skipped` |
+
+The structural undo is all-or-nothing, so its counts always describe a completed
+reversal — a refusal is a `409` with no summary at all. A non-zero
+`dependencies_skipped` there means an edge could not be re-created because its other
+end no longer exists, so the restored graph is **incomplete** and the user has links
+to redraw.
+
 ##### Client-minted ids
 
 A `create` may carry its own `id`, and the server takes that UUID as the primary
@@ -1930,11 +1950,13 @@ next. In normal operation only `project` and `workspace` occur — `server` mean
 workspace row exists yet, and `fallback` means no tier was usable at all. These two
 fields ship in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
 
-:::caution
-The OpenAPI schema does not yet describe this endpoint's response body — it declares
-`200: No response body` for both methods. The field list above is the contract until
-that annotation lands ([#3396](https://gitlab.com/trueppm/trueppm/-/issues/3396)).
-:::
+Both methods return the same document, published as the
+`ProjectNotificationPreferenceDocument` schema — the stored row plus one field the
+view adds:
+
+| Field | Type | Description |
+|---|---|---|
+| `event_delivery` | object of `event_type` → boolean | Whether a delivery path is wired for that matrix row. `false` means the row is stored and honored but nothing dispatches it yet, so render it as such rather than implying a delivery that never happens. |
 
 `apply-preset` takes a preset name, not a preference row:
 
