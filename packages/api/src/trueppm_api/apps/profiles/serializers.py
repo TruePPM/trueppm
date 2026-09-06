@@ -77,17 +77,16 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         # it accepts exactly the OS-tzdata strings the client's Intl…timeZone emits
         # and rejects an unknown zone with a DRF-standard 400 field error.
         #
-        # Peers carrying the same validator: TaskRecurrenceRule, Project, Workspace.
-        # This list used to name Calendar as well, which never had one and still does
-        # not (#3398) — and Project/Workspace only gained theirs in #3377, so it was
-        # describing an intent rather than the tree.
+        # Peers carrying the same validator: TaskRecurrenceRule, Project, Workspace,
+        # Calendar, and the notification digest timezone — every ``timezone``
+        # CharField with a serializer write path.
         if value == "auto":
             return value
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
         try:
             ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
             raise serializers.ValidationError("Unknown IANA timezone.") from exc
         return value
 

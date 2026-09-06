@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type { TaskActivityEntry } from '@/hooks/useTaskHistory';
-import { fieldLabel, changeVerb, summaryVerb, isEmptyChange } from './activityFormat';
+import {
+  fieldLabel,
+  humanizeField,
+  changeVerb,
+  summaryVerb,
+  isEmptyChange,
+} from './activityFormat';
 
 function entry(overrides: Partial<TaskActivityEntry>): TaskActivityEntry {
   return {
@@ -14,10 +20,25 @@ function entry(overrides: Partial<TaskActivityEntry>): TaskActivityEntry {
 
 describe('activityFormat', () => {
   describe('fieldLabel', () => {
-    it('maps known keys and passes through unknown ones', () => {
+    it('maps known keys and humanizes unknown ones instead of leaking the column', () => {
       expect(fieldLabel('percent_complete')).toBe('Progress');
       expect(fieldLabel('planned_start')).toBe('Start date');
-      expect(fieldLabel('some_unmapped_field')).toBe('some_unmapped_field');
+      // #3435: an unmapped key used to fall through raw. Every surface that shares
+      // this map — the drawer and the project Activity page — rendered
+      // `governance_class`-style identifiers for any field nobody had curated.
+      expect(fieldLabel('some_unmapped_field')).toBe('Some unmapped field');
+      expect(fieldLabel('some_unmapped_field')).not.toContain('_');
+    });
+    it('humanizeField sentence-cases and never returns an empty label', () => {
+      expect(humanizeField('governance_class')).toBe('Governance class');
+      expect(humanizeField('goal')).toBe('Goal');
+      expect(humanizeField('')).toBe('');
+      expect(humanizeField('___')).toBe('___');
+    });
+    it('keeps the curated wording where the humanized column would mislead', () => {
+      expect(fieldLabel('wbs_path')).toBe('Outline position');
+      expect(fieldLabel('dep_type')).toBe('Dependency type');
+      expect(fieldLabel('is_deleted')).toBe('Deleted');
     });
     it('names the inherit bit for what it says, not for its column (#3306)', () => {
       // The server surfaces this field only when it is a record's ONLY change — a
@@ -51,16 +72,18 @@ describe('activityFormat', () => {
   describe('summaryVerb', () => {
     it('renders fixed phrases per event type', () => {
       expect(summaryVerb(entry({ event_type: 'comment_added' }))).toBe('commented');
-      expect(summaryVerb(entry({ event_type: 'cpm_recalculated' }))).toBe('recalculated the schedule');
+      expect(summaryVerb(entry({ event_type: 'cpm_recalculated' }))).toBe(
+        'recalculated the schedule',
+      );
       expect(summaryVerb(entry({ event_type: 'risk_linked' }))).toBe('linked a risk');
     });
     it('varies the attachment verb by kind', () => {
-      expect(summaryVerb(entry({ event_type: 'attachment_uploaded', detail: { kind: 'url' } }))).toBe(
-        'attached a link',
-      );
-      expect(summaryVerb(entry({ event_type: 'attachment_uploaded', detail: { kind: 'file' } }))).toBe(
-        'attached a file',
-      );
+      expect(
+        summaryVerb(entry({ event_type: 'attachment_uploaded', detail: { kind: 'url' } })),
+      ).toBe('attached a link');
+      expect(
+        summaryVerb(entry({ event_type: 'attachment_uploaded', detail: { kind: 'file' } })),
+      ).toBe('attached a file');
     });
     it('delegates field-diff events to changeVerb', () => {
       expect(summaryVerb(entry({ diff: [{ field: 'name', old: 'a', new: 'b' }] }))).toBe(
@@ -75,7 +98,11 @@ describe('activityFormat', () => {
   describe('isEmptyChange', () => {
     it('flags a fields_changed with no diff, nothing else', () => {
       expect(isEmptyChange(entry({ event_type: 'fields_changed', diff: [] }))).toBe(true);
-      expect(isEmptyChange(entry({ event_type: 'fields_changed', diff: [{ field: 'x', old: '1', new: '2' }] }))).toBe(false);
+      expect(
+        isEmptyChange(
+          entry({ event_type: 'fields_changed', diff: [{ field: 'x', old: '1', new: '2' }] }),
+        ),
+      ).toBe(false);
       expect(isEmptyChange(entry({ event_type: 'comment_added' }))).toBe(false);
     });
   });

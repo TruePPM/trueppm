@@ -947,6 +947,31 @@ class TestApplySettingsTemplate:
         apply_settings_template(data, source)
         assert data["timezone"] == "UTC"
 
+    # --- timezone normalization (#3398) ---------------------------------------
+
+    @pytest.mark.parametrize("bad", ["Pacific Time", "GMT+5", "Mars/Olympus", "not a zone"])
+    def test_an_unparseable_source_timezone_is_not_seeded_into_the_new_project(
+        self, bad: str
+    ) -> None:
+        """The copy runs AFTER field validation, so it is a write path the serializer
+        never sees; a pre-validator stored value must not propagate to new rows."""
+        source = Project(name="Source", start_date=MONDAY, timezone=bad)
+        data: dict[str, Any] = {}
+        apply_settings_template(data, source)
+        assert data["timezone"] == ""
+
+    def test_a_blank_source_timezone_stays_the_inherit_sentinel(self) -> None:
+        source = Project(name="Source", start_date=MONDAY, timezone="")
+        data: dict[str, Any] = {}
+        apply_settings_template(data, source)
+        assert data["timezone"] == ""
+
+    def test_a_padded_source_timezone_is_copied_stripped(self) -> None:
+        source = Project(name="Source", start_date=MONDAY, timezone="  Asia/Tokyo  ")
+        data: dict[str, Any] = {}
+        apply_settings_template(data, source)
+        assert data["timezone"] == "Asia/Tokyo"
+
     def test_inheriting_none_override_is_copied_as_none(self) -> None:
         """Copying the STORED value preserves inheritance (ADR-0242 §3)."""
         source = Project(name="Source", start_date=MONDAY, iteration_label=None)

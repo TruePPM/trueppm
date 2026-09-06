@@ -49,6 +49,8 @@ const WIDTHS: ColumnWidths['widths'] = {
   finish: 74,
   progress: 60,
   owner: 72,
+  totalFloat: 64,
+  freeFloat: 64,
 };
 
 const ALL_VISIBLE: ColumnWidths['visible'] = {
@@ -60,6 +62,8 @@ const ALL_VISIBLE: ColumnWidths['visible'] = {
   finish: true,
   progress: true,
   owner: true,
+  totalFloat: true,
+  freeFloat: true,
 };
 
 /**

@@ -1312,6 +1312,15 @@ function TaskDataCells({
       {/* ── Owner column (#248) ─────────────────────────────────────────────── */}
       {/* Summary tasks: empty cell (assignees roll up implicitly, not authored). */}
       {!isEditing && visible.owner && <TaskOwnerCell task={task} widthPx={widths.owner} />}
+
+      {/* ── Float columns (#3344) ───────────────────────────────────────────── */}
+      {/* Rightmost, so rule 370's render clamp spends these before the dates. */}
+      {!isEditing && visible.totalFloat && (
+        <TaskFloatCell value={task.totalFloat} label="Total float" widthPx={widths.totalFloat} />
+      )}
+      {!isEditing && visible.freeFloat && (
+        <TaskFloatCell value={task.freeFloat} label="Free float" widthPx={widths.freeFloat} />
+      )}
     </>
   );
 }
@@ -1797,6 +1806,18 @@ function RowWbsCell({ wbs, widthPx }: { wbs: string; widthPx: number }) {
  * the full `size`: the row's own `border-b` is inside its border box, so a
  * centered or `inset-y-0` child measures `rowHeight - 1` — 43px, which has not
  * met a 44px floor however close it looks (the #2997 corollary).
+ *
+ * ## The third button (#3257)
+ *
+ * The coach bar's third line teaches the cluster as `+ ⇤ ⇥ ◆`, and #3115 unpinned
+ * the toolbar's Milestone button on the strength of the row's ◆ replacing it.
+ * Only the removal half shipped: the row rendered two buttons, so the act was
+ * taught here, demoted there, and reachable by pointer only from the row menu —
+ * on the one surface whose entire justification is teaching. The ◆ is now the
+ * cluster's third control, on the same reserved-space / resting-opacity /
+ * coarse-floor treatment as ⇤ and ⇥, and `resolveNudgeLaneWidth` widened to
+ * three targets rather than sharing the pair's lane (#3077 is an open overlap in
+ * the 4px beside it).
  */
 function RowStructureNudges({
   laneWidth,
@@ -1805,7 +1826,10 @@ function RowStructureNudges({
   coarse,
   onIndent,
   onOutdent,
+  onToggleMilestone,
   canOutdent,
+  isMilestone,
+  isSummary,
   taskName,
 }: {
   laneWidth: number;
@@ -1814,10 +1838,18 @@ function RowStructureNudges({
   coarse: boolean;
   onIndent?: () => void;
   onOutdent?: () => void;
+  /**
+   * The ◆ toggle (#3257). Flips the row between item and milestone through the
+   * same `convertToMilestone` / `convertToTask` pair the row menu uses, so the
+   * button can never write a row type the menu would not.
+   */
+  onToggleMilestone?: () => void;
   canOutdent: boolean;
+  isMilestone: boolean;
+  isSummary: boolean;
   taskName: string;
 }) {
-  const showControls = onIndent != null || onOutdent != null;
+  const showControls = onIndent != null || onOutdent != null || onToggleMilestone != null;
   const buttonClass = `flex items-center justify-center rounded-control text-neutral-text-secondary
     hover:text-brand-primary
     focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-primary`;
@@ -1831,7 +1863,7 @@ function RowStructureNudges({
       // the header, but an empty presentational box must not join the row's
       // gridcell set (#2204).
       role={showControls ? 'gridcell' : undefined}
-      aria-label={showControls ? 'Restructure' : undefined}
+      aria-label={showControls ? 'Row controls' : undefined}
       aria-hidden={showControls ? undefined : true}
       data-testid="row-structure-nudges"
       className="flex shrink-0 items-center justify-center self-start gap-0.5"
@@ -1864,6 +1896,7 @@ function RowStructureNudges({
             // own shortcut instead of needing a label.
             aria-label={`Outdent ${taskName} — move it out of its phase`}
             title={`Outdent (${formatChord('alt+ArrowLeft')})`}
+            data-glyph="⇤"
             style={{ width: size, height: size }}
             className={`${buttonClass} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
@@ -1878,10 +1911,61 @@ function RowStructureNudges({
             }}
             aria-label={`Indent ${taskName} — move it under the row above`}
             title={`Indent (${formatChord('alt+ArrowRight')})`}
+            data-glyph="⇥"
             style={{ width: size, height: size }}
             className={buttonClass}
           >
             ⇥
+          </button>
+          {/* The third glyph the coach bar teaches (#3257). #3115 unpinned the
+              toolbar's Milestone button on the strength of this control existing,
+              so until it did the act was taught here, demoted there, and present
+              nowhere a pointer could reach it but the row menu.
+
+              A toggle, so `aria-pressed` carries the state and the name stays
+              constant — a name that flips between "Make a milestone" and "Make
+              an item" would make the pressed state and the label disagree.
+
+              A phase is soft-disabled, not `disabled` (web rule 387): a native
+              `disabled` button can neither be hovered for its `title` in every
+              browser nor reached by AT, so the reason would exist only in the
+              markup. `aria-disabled` keeps it readable, and the click still
+              routes to `convertToMilestone`, which states the refusal as a toast
+              — one refusal sentence, owned by the act, spoken from every route
+              to it. The mark is the house diamond, not the `◆` codepoint (web
+              rule 242); `data-glyph` records which coach-bar glyph this button
+              answers to, so the teaching guard can resolve it. */}
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-pressed={isMilestone}
+            aria-disabled={isSummary || undefined}
+            data-glyph="◆"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMilestone?.();
+            }}
+            aria-label={`Milestone — ${taskName}`}
+            title={
+              isSummary
+                ? MILESTONE_REFUSES_SUMMARY
+                : isMilestone
+                  ? 'Milestone — press again to make it an item'
+                  : 'Make a milestone — a date, not a span'
+            }
+            style={{ width: size, height: size }}
+            className={`${buttonClass} ${
+              isSummary
+                ? 'cursor-not-allowed'
+                : isMilestone
+                  ? 'text-brand-primary'
+                  : ''
+            }`}
+          >
+            <MilestoneIcon
+              className={coarse ? 'h-4 w-4' : 'h-3 w-3'}
+              aria-hidden="true"
+            />
           </button>
         </span>
       )}
@@ -2762,6 +2846,9 @@ function TaskListRowInner({
               '--insert-tap-size': `${resolveInsertTapSize(coarse)}px`,
             } as React.CSSProperties
           }
+          // The first glyph in the coach bar's `+ ⇤ ⇥ ◆` line; the teaching
+          // guard resolves each glyph against a rendered control (#3257).
+          data-glyph="+"
         >
           +
         </button>
@@ -2782,9 +2869,19 @@ function TaskListRowInner({
           coarse={coarse}
           taskName={task.name}
           canOutdent={level > 1}
+          isMilestone={task.isMilestone}
+          isSummary={task.isSummary}
           // Absent, not disabled, without edit rights — web rule 302 (#2949).
           onIndent={authoring ? () => authoring.indent(task.id) : undefined}
           onOutdent={authoring ? () => authoring.outdent(task.id) : undefined}
+          onToggleMilestone={
+            authoring
+              ? () =>
+                  task.isMilestone
+                    ? authoring.convertToTask(task.id)
+                    : authoring.convertToMilestone(task.id)
+              : undefined
+          }
         />
       )}
 
@@ -3996,6 +4093,78 @@ function TaskFinishCell({ task, widthPx }: { task: Task; widthPx: number }) {
       ) : (
         <DateCellValue value={task.finish} entry={entry} widthPx={widthPx} />
       )}
+    </div>
+  );
+}
+
+/**
+ * The visible text of a float cell.
+ *
+ * Deliberately NOT the string `Nd float` that the drawer, the board card and the
+ * print KPI all use: several shipped E2E specs locate those by loose text
+ * (`getByText('5d float')`, a `getByText(/0d float/)` asserted to have count 0),
+ * and a per-row cell rendering the same phrase turns each of them into a
+ * strict-mode collision on an unrelated surface (#3344). A bare `5d` is also the
+ * right thing in a column whose header already says which float it is.
+ *
+ * `null`/`undefined` means CPM has not run for this row, which is not zero — an
+ * em-dash says "no answer yet" where `0d` would say "no slack", the opposite.
+ */
+export function formatFloatCell(days: number | null | undefined): string {
+  return days === null || days === undefined ? '\u2014' : `${days}d`;
+}
+
+/**
+ * Spoken form of a float cell. The sign is the non-colour carrier: a negative
+ * float is rendered in the critical colour AND states "already late" in words,
+ * because colour alone would make the one value that changes what the reader
+ * does next a WCAG 1.4.1 failure (web rules 12/120).
+ */
+export function floatCellAriaLabel(
+  label: 'Total float' | 'Free float',
+  days: number | null | undefined,
+): string {
+  if (days === null || days === undefined) return `${label}: not computed yet`;
+  if (days < 0) return `${label}: ${Math.abs(days)} working days late`;
+  return `${label}: ${days} working ${days === 1 ? 'day' : 'days'}`;
+}
+
+/**
+ * A read-only CPM float cell (#3344).
+ *
+ * Read-only on purpose, and therefore absent from `EDITABLE_COLUMNS`: float is
+ * derived from the whole dependency graph, so there is no single value a user
+ * could type here that the next CPM pass would honour. That also keeps ADR-0054's
+ * "a new column must be reconciled with the editable-cell registry" satisfied by
+ * a deliberate non-entry rather than by omission.
+ *
+ * Negative float turns the cell critical, matching the treatment the drawer's
+ * Float cell and the PDF's row model already give it (web rule 284(d)). Zero
+ * float does NOT: a great many rows sit at zero on a fully-constrained plan, and
+ * criticality is already carried by the row name's own weight and colour.
+ */
+function TaskFloatCell({
+  value,
+  label,
+  widthPx,
+}: {
+  value: number | null | undefined;
+  label: 'Total float' | 'Free float';
+  widthPx: number;
+}) {
+  const late = typeof value === 'number' && value < 0;
+  return (
+    <div
+      className={[
+        'flex items-center justify-end shrink-0 border-r border-neutral-border/20',
+        'text-right tabular-nums pr-2',
+        late ? 'text-semantic-critical font-semibold' : 'text-neutral-text-secondary',
+      ].join(' ')}
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={floatCellAriaLabel(label, value)}
+    >
+      {formatFloatCell(value)}
     </div>
   );
 }

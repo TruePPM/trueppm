@@ -224,6 +224,19 @@ DRF renders a validation detail through `ErrorDetail`, a `str` subclass.
 | Code | Meaning |
 |------|---------|
 | `scope_accept_forbidden` | The caller may not accept this scope-injection request |
+| `attachment_delete_forbidden` | The caller is neither the attachment's uploader nor a project Admin+ |
+| `comment_edit_not_author` | Only the comment's author may edit it (the edit *window* closing is a separate `400`) |
+| `comment_delete_forbidden` | The caller is neither the comment's author nor a project Admin+ |
+| `reaction_delete_forbidden` | The reaction belongs to another user |
+| `note_edit_not_author` | Only the note's author may edit it (the edit *window* closing is a separate `400`) |
+| `note_delete_forbidden` | The caller is neither the note's author nor a project Admin+ |
+
+The six task-collaboration codes answered `400` before 0.4 and carried no `code`
+key at all — see [API stability](/api/stability/#deprecation-window--notice) for
+the change record. Two membership refusals moved from `400` to `403` at the same
+time without gaining a code: removing a project or program member whose role is
+at or above your own now answers a bare `{"detail": "..."}` `403`, the same shape
+as the not-an-Owner refusal beside it.
 
 ### 404 / 409 — conflicts and protected references
 
@@ -318,8 +331,11 @@ The **general** rate limiter is different: it returns a bare `detail` with **no
 
 The codes on this page are the complete set that a client can actually branch
 on. A separate, larger family of `code="..."` values exists **only** as an
-internal annotation on a Django REST Framework `ErrorDetail` object — task
-comments, attachments, notes, reactions, signed download URLs, idempotency-key
+internal annotation on a Django REST Framework `ErrorDetail` object — the task
+comment, attachment, note and reaction *validation* refusals (size, MIME type,
+reply depth, edit window, count caps; the six ownership refusals in the
+[403 table](#403--refused-by-policy) above are the exception, having been rebuilt
+as real body keys), signed download URLs, idempotency-key
 reuse, the sync id-collision conflict, and the phase-rollup-lock family
 (`summary_rollup_locked`, `phase_status_rollup_locked`,
 `phase_estimate_rollup_locked`, `assignee_on_phase`, `time_log_on_phase`,

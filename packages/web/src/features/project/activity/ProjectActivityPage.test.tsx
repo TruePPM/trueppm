@@ -69,7 +69,34 @@ describe('ProjectActivityPage', () => {
     const list = within(screen.getByTestId('changelog-list'));
     expect(list.getByText('Design the API')).toBeInTheDocument();
     expect(list.getByText('updated')).toBeInTheDocument();
-    expect(list.getByText('status')).toBeInTheDocument();
+    expect(list.getByText('Status')).toBeInTheDocument();
+  });
+
+  it('labels changed fields like the task drawer does, never as raw column names (#3435)', () => {
+    // The changelog pipeline had no label map: `governance_class`, `wbs_path` and
+    // the rest printed as identifiers while the drawer rendered the same change as
+    // prose. Both surfaces now read `fieldLabel`, including its humanized fallback
+    // for a field nobody has curated yet.
+    useProjectChangelogMock.mockReturnValue(
+      ret({
+        data: pages([
+          {
+            ...sample,
+            changes: [
+              { field: 'governance_class', old: 'agile', new: 'gated' },
+              { field: 'wbs_path', old: '1.2', new: '1.3' },
+              { field: 'never_curated_field', old: 'a', new: 'b' },
+            ],
+          },
+        ]),
+      }),
+    );
+    renderWithProvidersAndRouter(<ProjectActivityPage />, {
+      initialEntries: ['/projects/proj-1/activity'],
+    });
+    const list = within(screen.getByTestId('changelog-list'));
+    expect(list.getByText('Governance, Outline position, Never curated field')).toBeInTheDocument();
+    expect(list.queryByText(/governance_class|wbs_path|never_curated_field/)).toBeNull();
   });
 
   it('shows the empty state when there is no activity', () => {
@@ -165,11 +192,7 @@ describe('ProjectActivityPage sub-views (#2481)', () => {
   it('stops fetching the changelog while the Agents sub-view is showing', () => {
     renderAt('/projects/proj-1/activity?view=agents');
     // Third arg is the `enabled` flag — an unwatched feed must not keep paging.
-    expect(useProjectChangelogMock).toHaveBeenCalledWith(
-      'proj-1',
-      expect.anything(),
-      false,
-    );
+    expect(useProjectChangelogMock).toHaveBeenCalledWith('proj-1', expect.anything(), false);
   });
 
   it('switches to Agents on click and back to Changes', async () => {
