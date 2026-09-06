@@ -45,6 +45,7 @@ from trueppm_api.apps.projects.structural_operation_services import (
 from trueppm_api.apps.projects.structural_operation_services import (
     may_undo as _may_undo,
 )
+from trueppm_api.core.openapi import undo_summary_schema
 
 
 class StructuralOperationSerializer(serializers.ModelSerializer[StructuralOperation]):
@@ -130,6 +131,47 @@ class StructuralOperationSerializer(serializers.ModelSerializer[StructuralOperat
         return self._reason(obj)
 
 
+class StructuralOperationUndoSerializer(StructuralOperationSerializer):
+    """The ledger row **plus** the ``undo`` summary the action returns (#3416).
+
+    ``undo`` handler builds its body as ``data = self.get_serializer(operation).data``
+    then ``data["undo"] = summary``, so the bare ``StructuralOperationSerializer``
+    published as the ``200`` left a typed client with no field for the five counts
+    that say what the reversal actually did. Five, not two: a structural undo restores
+    shape, un-mints containers, revives tombstoned rows and re-adds dependency edges,
+    and it reports each separately because a caller acts on them differently — a
+    non-zero ``dependencies_skipped`` in particular means the graph came back
+    *incomplete* and the user has edges to re-draw by hand.
+    """
+
+    undo = serializers.SerializerMethodField()
+
+    class Meta(StructuralOperationSerializer.Meta):
+        fields = [*StructuralOperationSerializer.Meta.fields, "undo"]  # noqa: RUF012
+
+    @extend_schema_field(
+        undo_summary_schema(
+            "What the reversal restored, by kind. All-or-nothing: a refusal is a 409 "
+            "with no summary at all, so every count here describes a completed undo.",
+            restored="Rows whose parent/order the undo put back.",
+            created_removed="Containers the forward act minted and the undo un-minted.",
+            deleted_restored="Rows the forward act soft-deleted and the undo revived.",
+            dependencies_restored="Dependency edges the undo re-created.",
+            dependencies_skipped=(
+                "Edges NOT re-created because the other end no longer exists — a "
+                "non-zero value means the restored graph is incomplete."
+            ),
+        )
+    )
+    def get_undo(self, obj: StructuralOperation) -> dict[str, int]:
+        """The persisted summary, for a caller that serializes a row outside the action.
+
+        The action returns the summary its service just computed rather than this;
+        they agree, because ``undo_structural_operation`` persists what it returns.
+        """
+        return dict((obj.result_summary or {}).get("undo") or {})
+
+
 class StructuralOperationViewSet(
     IdempotencyMixin, viewsets.ReadOnlyModelViewSet[StructuralOperation]
 ):
@@ -180,7 +222,7 @@ class StructuralOperationViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: StructuralOperationSerializer},
+        responses={200: StructuralOperationUndoSerializer},
         description=(
             "Reverse this structural act. All-or-nothing: if anything the undo would "
             "write has moved since, it refuses with 409 rather than reverting partially. "

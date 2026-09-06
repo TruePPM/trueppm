@@ -16,6 +16,7 @@ from trueppm_api.apps.projects.schema_migrations import migrate_payload
 from .categories import category_for
 from .delivery_limits import EMAIL_MAX_BATCH_SIZE
 from .models import (
+    PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS,
     EmailSecurity,
     EmailTransportMode,
     Mention,
@@ -26,6 +27,7 @@ from .models import (
     ProjectNotificationPreference,
     UserNotificationSettings,
     WorkspaceEmailSettings,
+    project_notification_event_delivery,
 )
 from .schema_migrations import SURFACE_PROJECT_NOTIFICATION_MATRIX
 from .services import (
@@ -546,6 +548,68 @@ class ProjectNotificationPreferenceSerializer(
             data["matrix"] = upgraded
             data["schema_version"] = version
         return data
+
+
+#: The published shape of ``event_delivery`` (#3396, #3399).
+#:
+#: Enumerated key-by-key rather than left as ``additionalProperties: {type: boolean}``
+#: because the key set is closed and derivable: it is exactly
+#: :data:`PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS`, the same tuple
+#: :func:`project_notification_event_delivery` iterates. Deriving it is the pin
+#: #3399 asked for — the declaration cannot report a different set of events than
+#: the classification does, because there is only one list. An open
+#: ``additionalProperties`` map would have typed the *values* and said nothing about
+#: which rows a client can expect, which is the half a client actually indexes into.
+#:
+#: The booleans themselves are deliberately NOT pinned to today's classification.
+#: Which rows are wired is runtime state that moves as dispatchers land
+#: (TODO(#3016)); baking ``comment_mention: true`` into the schema would turn the
+#: contract into a lie on the day the second dispatcher ships.
+#:
+#: ``propertyNames`` is JSON Schema and not OpenAPI 3.0 — see
+#: :data:`_PROJECT_NOTIFICATION_MATRIX_SCHEMA` for why this project cannot use it.
+_PROJECT_NOTIFICATION_EVENT_DELIVERY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Which matrix rows are wired to a delivery path. `true` means toggling that "
+        "event's channels changes what gets delivered; `false` means the row is "
+        "rendered and stored but nothing dispatches it yet, so a client should label "
+        "it rather than imply a delivery that never happens. Reported as a server "
+        "fact so every client does not hard-code the same list and drift from it."
+    ),
+    "properties": {
+        event_type: {"type": "boolean"}
+        for event_type in PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS
+    },
+    "required": list(PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS),
+    "additionalProperties": False,
+}
+
+
+class ProjectNotificationPreferenceDocumentSerializer(ProjectNotificationPreferenceSerializer):
+    """What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).
+
+    The stored row's fields **plus** ``event_delivery``, which the view adds on both
+    methods and which is not a model field. Declaring the plain serializer as the
+    ``200`` would have been the obvious fix and a worse one: the schema would be
+    self-consistent, ``api:schema-drift`` would pass, and a generated SDK would
+    silently drop the one key a client needs to label the rows nothing dispatches.
+    A declared lie is more dangerous than a declared absence.
+
+    Subclasses rather than restating the field list, so a field added to the parent
+    reaches the published response without a second edit. Only ``event_delivery`` is
+    named here, because only ``event_delivery`` is the difference.
+    """
+
+    event_delivery = serializers.SerializerMethodField()
+
+    class Meta(ProjectNotificationPreferenceSerializer.Meta):
+        fields = [*ProjectNotificationPreferenceSerializer.Meta.fields, "event_delivery"]
+
+    @extend_schema_field(_PROJECT_NOTIFICATION_EVENT_DELIVERY_SCHEMA)
+    def get_event_delivery(self, instance: ProjectNotificationPreference) -> dict[str, bool]:
+        """Row-independent: it reports server wiring, not this user's preferences."""
+        return project_notification_event_delivery()
 
 
 class UserNotificationSettingsSerializer(serializers.ModelSerializer[UserNotificationSettings]):

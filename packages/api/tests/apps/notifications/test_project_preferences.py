@@ -14,14 +14,32 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.notifications.backfill import _clean_matrix
 from trueppm_api.apps.notifications.models import (
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
+    PROJECT_NOTIFICATION_DISPATCHED_EVENTS,
     PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS,
     ProjectNotificationChannel,
     ProjectNotificationEventType,
     ProjectNotificationPreference,
+    project_notification_event_delivery,
 )
 from trueppm_api.apps.projects.models import Calendar, Project
 
+from ...test_openapi_response_conformance import (
+    assert_declared_properties_match_body,
+    assert_response_matches_schema,
+    declared_object_properties,
+    load_committed_schema,
+)
+
 User = get_user_model()
+
+#: Templated OpenAPI path — the key `docs/api/openapi.json` is indexed by.
+PREF_PATH = "/api/v1/projects/{id}/notification-preferences/"
+
+
+@pytest.fixture(scope="module")
+def committed_schema() -> dict:
+    """The published contract, parsed once — it is a multi-megabyte document."""
+    return load_committed_schema()
 
 
 @pytest.fixture
@@ -567,3 +585,120 @@ def test_get_reads_the_project_and_workspace_once_each(
         f"expected exactly the view's own project fetch, got {len(project_row_reads)} — "
         "pref.project is being lazy-loaded, so the view is no longer priming the FK cache"
     )
+
+
+# ---------------------------------------------------------------------------
+# The declared 200 vs. the body actually returned (#3396, #3399)
+# ---------------------------------------------------------------------------
+#
+# Both methods published `"200": {"description": "No response body"}` while
+# returning a full document — the view is a plain APIView with no
+# `serializer_class`, so drf-spectacular had nothing to infer from. The obvious
+# fix, `responses={200: ProjectNotificationPreferenceSerializer}`, would have been
+# worse than the hole: `event_delivery` is added by the view and is not a
+# serializer field, so the schema would have been self-consistent, drift-clean and
+# missing the one key a client needs to label the rows nothing dispatches.
+#
+# These tests therefore assert the declaration against the real body from both
+# ends: key-set equality (which catches the omission — JSON Schema ignores extra
+# keys and would not) and full validation (which catches a wrong type or a value
+# outside the four-member `quiet_hours_timezone_source` enum).
+
+
+def test_get_body_matches_its_declared_schema(
+    committed_schema: dict, alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    response = alice_client.get(_url(project))
+
+    assert_declared_properties_match_body(committed_schema, response, PREF_PATH, "get")
+    assert_response_matches_schema(committed_schema, response, PREF_PATH, "get")
+
+
+def test_patch_body_matches_its_declared_schema(
+    committed_schema: dict, alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """PATCH assembles its payload from the bound write serializer, not the document
+    serializer GET uses — the two must still publish the same document."""
+    response = alice_client.patch(
+        _url(project),
+        {"matrix": {ProjectNotificationEventType.COMMENT_MENTION: {"email": False}}},
+        format="json",
+    )
+
+    assert_declared_properties_match_body(committed_schema, response, PREF_PATH, "patch")
+    assert_response_matches_schema(committed_schema, response, PREF_PATH, "patch")
+
+
+def test_the_declared_document_names_event_delivery(
+    committed_schema: dict, alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """The pin, stated directly: the omission #3399 describes must not come back.
+
+    Key-set equality above would fail if `event_delivery` were dropped from either
+    side — but it would also pass if BOTH were dropped, which is how the endpoint
+    got here. Naming the key explicitly means the schema cannot go quiet again by
+    the view and the declaration agreeing on nothing.
+    """
+    declared = declared_object_properties(committed_schema, PREF_PATH, "get")
+
+    assert "event_delivery" in declared
+    assert "event_delivery" in alice_client.get(_url(project)).json()
+
+
+def test_declared_event_delivery_keys_are_the_classification_itself(
+    committed_schema: dict,
+) -> None:
+    """The declaration is derived from the classification, not restated beside it.
+
+    `project_notification_event_delivery` reports one boolean per
+    `PROJECT_NOTIFICATION_DEFAULT_MATRIX`
+    row, and the two halves of the classification must together cover the enum
+    (`test_project_notification_dispatch_coverage` pins that). So adding an event
+    type has to reach the published schema in the same edit — this is the #3399
+    "pin it against PROJECT_NOTIFICATION_DISPATCHED_EVENTS" checkbox.
+    """
+    declared = set(
+        committed_schema["components"]["schemas"]["ProjectNotificationPreferenceDocument"][
+            "properties"
+        ]["event_delivery"]["properties"]
+    )
+
+    assert declared == set(PROJECT_NOTIFICATION_DEFAULT_MATRIX)
+    assert declared == (
+        set(PROJECT_NOTIFICATION_DISPATCHED_EVENTS) | set(PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS)
+    )
+    assert declared == set(project_notification_event_delivery())
+
+
+def test_quiet_hours_timezone_source_is_published_as_a_closed_enum(
+    committed_schema: dict,
+) -> None:
+    """`stability.md` promises that a new value on a non-exhaustive field is Additive.
+
+    That guarantee is vacuous while the field is published as a bare string — a
+    client has nothing to be non-exhaustive *about*. Four members, from the
+    resolver's four tiers.
+    """
+    field = committed_schema["components"]["schemas"]["ProjectNotificationPreferenceDocument"][
+        "properties"
+    ]["quiet_hours_timezone_source"]
+    ref = field.get("$ref") or field["allOf"][0]["$ref"]
+
+    assert set(committed_schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["enum"]) == {
+        "project",
+        "workspace",
+        "server",
+        "fallback",
+    }
+
+
+def test_matrix_is_published_as_the_event_by_channel_grid(committed_schema: dict) -> None:
+    """Typed, not an untyped object — the #3396 checkbox. The response side inherits
+    the grid #3364 declared for the request side, from the same enums."""
+    document = committed_schema["components"]["schemas"]["ProjectNotificationPreferenceDocument"]
+    matrix = document["properties"]["matrix"]
+
+    assert set(matrix["properties"]) == set(PROJECT_NOTIFICATION_DEFAULT_MATRIX)
+    assert set(
+        matrix["properties"][ProjectNotificationEventType.COMMENT_MENTION]["properties"]
+    ) == {channel.value for channel in ProjectNotificationChannel}

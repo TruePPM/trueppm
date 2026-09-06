@@ -718,6 +718,35 @@ def _default_matrix() -> dict[str, dict[str, bool]]:
     return {evt: dict(chans) for evt, chans in PROJECT_NOTIFICATION_DEFAULT_MATRIX.items()}
 
 
+#: Every event type the ``event_delivery`` map reports on, as plain strings.
+#:
+#: The literal key set of :data:`PROJECT_NOTIFICATION_DEFAULT_MATRIX`, which is what
+#: :func:`project_notification_event_delivery` iterates. Named here so the published
+#: OpenAPI schema for ``event_delivery`` can enumerate the same keys from the same
+#: source rather than restating them — a new event type then reaches the declared
+#: contract in the edit that adds it, instead of leaving the schema quietly short a
+#: property (#3396, #3399).
+PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS: tuple[str, ...] = tuple(
+    sorted(str(event) for event in PROJECT_NOTIFICATION_DEFAULT_MATRIX)
+)
+
+
+def project_notification_event_delivery() -> dict[str, bool]:
+    """``{event_type: is a dispatcher wired}`` for every matrix row (#2904).
+
+    Derived from :data:`PROJECT_NOTIFICATION_DISPATCHED_EVENTS` rather than restating
+    the classification, so the coverage test that pins that set also pins this map.
+
+    Lives beside the two constants rather than in the view that returns it because
+    the serializer that *declares* the response shape needs the same key set, and a
+    second copy in the schema layer is exactly the drift #3399 asked to close.
+    """
+    return {
+        event: event in PROJECT_NOTIFICATION_DISPATCHED_EVENTS
+        for event in PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS
+    }
+
+
 class ProjectNotificationPreference(models.Model):
     """Per-(project, user) notification routing matrix and quiet-hours window.
 
