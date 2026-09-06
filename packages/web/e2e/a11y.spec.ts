@@ -356,7 +356,7 @@ const PROGRAM_MEMBERS = [
  * its REAL shape. Must run AFTER `setupShell`: that helper installs a broad
  * catch-all route on the programs prefix returning a paginated LIST envelope, and
  * `GET /programs/{id}/` is an OBJECT endpoint — served the list shape, `useProgram`
- * resolves to `{count, results}` , `my_role` is undefined, the editable branch never
+ * resolves to `{count, results}`, `my_role` is undefined, the editable branch never
  * renders, and the scan would pass against a page that shows nothing it was written
  * to check. Playwright matches last-registered first, so these win.
  */
