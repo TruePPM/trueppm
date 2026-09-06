@@ -11434,8 +11434,14 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         high_risk_count = risk_agg["high_risk_count"] or 0
 
         # ── Project owner (first Owner-role member) ───────────────────────
+        # ``live()`` (#3411, third site of that sweep): a revoked Owner keeps their row
+        # and their OWNER ordinal, so the unfloored read could name a departed person as
+        # the project's owner on the overview card — and, with both a revoked and a live
+        # Owner present, picked between them arbitrarily. The last-Owner guard keeps at
+        # least one live Owner, and ``owner_name`` already tolerates None regardless.
         owner_membership = (
-            ProjectMembership.objects.filter(project=project, role=Role.OWNER)
+            ProjectMembership.live()
+            .filter(project=project, role=Role.OWNER)
             .select_related("user")
             .first()
         )
