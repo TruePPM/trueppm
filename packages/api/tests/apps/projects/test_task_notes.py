@@ -378,9 +378,9 @@ class TestTaskNoteEdit:
             {"body": "v2"},
             format="json",
         )
-        # perform_update raises serializers.ValidationError → DRF renders 400
-        # (same pattern as the sibling TaskComment edit guard).
-        assert r.status_code == 400
+        # Not the author → 403 (#3365); the window-closed sibling below stays 400.
+        assert r.status_code == 403
+        assert r.json()["code"] == "note_edit_not_author"
 
     def test_author_cannot_edit_after_window(
         self,
@@ -524,9 +524,9 @@ class TestTaskNoteDelete:
     ) -> None:
         c = member_client.post(_notes_list_url(project, task), {"body": "x"}, format="json")
         r = member2_client.delete(_notes_detail_url(project, task, c.data["id"]))
-        # perform_destroy raises serializers.ValidationError → DRF renders 400
-        # (same pattern as the sibling TaskComment / TaskAttachment delete guard).
-        assert r.status_code == 400
+        # An ownership refusal is a 403, and the code is a real body key (#3365).
+        assert r.status_code == 403
+        assert r.json()["code"] == "note_delete_forbidden"
 
 
 # ---------------------------------------------------------------------------

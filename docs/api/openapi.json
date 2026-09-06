@@ -14400,7 +14400,25 @@
                                 }
                             }
                         },
-                        "description": "Refused on the membership's own state: the target's role is at or above the caller's, or removing them would leave the program with no Owner. Verified against the peer-role and last-Owner guards in ``destroy`` (#3319)."
+                        "description": "Refused on the roster's own state: removing this member would leave the program with no Owner. Verified against the last-Owner guard in ``destroy`` (#3319)."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "detail"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not a member, is below Owner and removing someone else, or holds a role at or below the target's (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -28188,7 +28206,25 @@
                                 }
                             }
                         },
-                        "description": "Refused on the membership's own state: the target's role is at or above the caller's, or removing them would leave the project with no Owner. Verified against the peer-role and last-Owner guards in ``destroy`` (#3319)."
+                        "description": "Refused on the roster's own state: removing this member would leave the project with no Owner. Verified against the last-Owner guard in ``destroy`` (#3319)."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "detail"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not a member, is below Owner and removing someone else, or holds a role at or below the target's (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -32426,7 +32462,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -32434,12 +32470,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "attachment_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The caller is neither the uploader nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError``; the declaration follows what reaches the wire, not what the status arguably should be (#3319)."
+                        "description": "The caller is neither the uploader nor a project Admin+ (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -33009,7 +33056,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -33017,12 +33064,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "reaction_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The reaction belongs to another user. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
+                        "description": "The reaction belongs to another user (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -33197,6 +33255,32 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "comment_edit_not_author"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                        }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not the comment author (#3365). The edit window closing is a state refusal and stays a 400."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -33299,7 +33383,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -33307,12 +33391,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "comment_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The caller is neither the comment author nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
+                        "description": "The caller is neither the comment author nor a project Admin+ (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -35151,6 +35246,32 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "note_edit_not_author"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                        }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller is not the note author (#3365). The edit window closing is a state refusal and stays a 400."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -35253,7 +35374,7 @@
                     "204": {
                         "description": "No response body"
                     },
-                    "400": {
+                    "403": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -35261,12 +35382,23 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "note_delete_forbidden"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``."
                                         }
-                                    }
+                                    },
+                                    "required": [
+                                        "detail",
+                                        "code"
+                                    ]
                                 }
                             }
                         },
-                        "description": "The caller is neither the note author nor a project Admin+. Emitted as a 400 rather than a 403 because the check lives in ``perform_destroy`` and raises ``ValidationError`` (#3319)."
+                        "description": "The caller is neither the note author nor a project Admin+ (#3365)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
