@@ -84,6 +84,16 @@ export interface SchedulePrintKpis {
   forecastP80: SchedulePrintKpi;
   progress: SchedulePrintKpi;
   milestones: SchedulePrintKpi;
+  /**
+   * Tightest total float among rows that are NOT on the critical path (#3344).
+   *
+   * Deliberately not a second reading of `criticalPath.sub`, which reports the
+   * minimum float over the CRITICAL rows and is therefore ~0 by construction —
+   * true, and useless as a warning. The number a steering pack is missing is how
+   * much slack the rest of the plan has left, because that is the one that tells
+   * you whether the critical path is about to acquire a second branch.
+   */
+  float: SchedulePrintKpi;
 }
 
 /** One task in the ordered critical-path driving chain (CP summary box). */
@@ -469,6 +479,17 @@ function buildKpis(
   const cpFloats = cp.map((r) => r.totalFloat ?? 0);
   const cpFloat = cpFloats.length ? Math.min(...cpFloats) : 0;
 
+  // Near-path slack: the tightest float OFF the critical path. A `min` rather
+  // than a count over a threshold — a threshold would be a second float-risk
+  // vocabulary beside the server's own (`total_float <= 5`, ADR-0088), owned by
+  // nobody and disagreeing with it silently. Phases are excluded because a
+  // summary row's float is its children's, so including them double-reports the
+  // tightest leaf under a name the reader cannot act on.
+  const offPathFloats = rows
+    .filter((r) => !r.isCritical && r.kind !== 'phase' && r.totalFloat !== null)
+    .map((r) => r.totalFloat as number);
+  const tightestOffPath = offPathFloats.length ? Math.min(...offPathFloats) : null;
+
   // Progress over leaf rows (phases roll up from their children, so excluding
   // them avoids double-counting).
   const leaves = rows.filter((r) => r.kind !== 'phase');
@@ -501,6 +522,21 @@ function buildKpis(
       label: 'Milestones',
       value: `${metCount} / ${milestones.length} met`,
       sub: nextMilestone ? `next ${fmtUtcShort(nextMilestone)}` : null,
+    },
+    float: {
+      label: 'Float',
+      // Two ways to have no number, and they are different sheets. An empty
+      // schedule (and a pre-CPM one) has nothing to measure; a plan where every
+      // remaining row is already critical has been measured and the answer is
+      // that there is no slack left anywhere — which is the more alarming of the
+      // two and must not print as the same em-dash.
+      value: tightestOffPath === null ? '—' : `${tightestOffPath}d`,
+      sub:
+        tightestOffPath === null
+          ? rows.some((r) => r.isCritical)
+            ? 'every row is critical'
+            : null
+          : `tightest of ${offPathFloats.length} off the critical path`,
     },
   };
 }
@@ -576,7 +612,16 @@ export function scheduleContentSha(
     )
     .join(';');
   const linkPart = links.map((l) => `${l.id}>${l.fromId}>${l.toId}>${l.hard ? 1 : 0}`).join(';');
-  const kpiPart = [kpis.window, kpis.criticalPath, kpis.forecastP80, kpis.progress, kpis.milestones]
+  const kpiPart = [
+    kpis.window,
+    kpis.criticalPath,
+    kpis.forecastP80,
+    kpis.progress,
+    kpis.milestones,
+    // Every KPI belongs in the stamp, or a sheet whose only change is the one
+    // this slot reports hashes identically to the sheet before it.
+    kpis.float,
+  ]
     .map((k) => `${k.value}/${k.sub ?? ''}`)
     .join(';');
   return fnv1aHex(`${rowPart}#${linkPart}#${kpiPart}`);

@@ -6307,6 +6307,17 @@ def apply_settings_template(validated_data: dict[str, Any], source: Any) -> dict
     (``allowed_attachment_types``) are copied by value so neither project aliases the
     other's list.
 
+    ``timezone`` is the one field that is **normalized** rather than copied verbatim.
+    This runs from ``ProjectSerializer.create()`` *after* field validation, so it is a
+    write path ``validate_timezone`` never sees: a source project holding a
+    pre-validator value such as ``"Pacific Time"`` would otherwise propagate it into
+    every project templated from it, re-opening a hole the serializer closed. An
+    unparseable stored zone is copied as ``""`` — the project's "inherit the
+    workspace" sentinel — which is what the quiet-hours resolver already does with
+    it at read time, so the new project behaves exactly as the source does, without
+    carrying the bad string forward. Raising here would 400 a *create* for a defect
+    on a *different* row the caller may not be able to edit.
+
     Args:
         validated_data: The create serializer's validated data, mutated in place.
         source: The source ``Project`` instance the settings are copied from.
@@ -6322,8 +6333,29 @@ def apply_settings_template(validated_data: dict[str, Any], source: Any) -> dict
         value = getattr(source, field)
         if isinstance(value, list):
             value = list(value)  # Defensive copy: don't alias the source's list.
+        elif field == "timezone":
+            value = _copyable_timezone(value)
         validated_data[field] = value
     return validated_data
+
+
+def _copyable_timezone(value: Any) -> str:
+    """Return ``value`` if it is an IANA zone the serializer would accept, else ``""``.
+
+    Same check as the ``validate_timezone`` serializer methods — ``ZoneInfo(value)`` in
+    a try/except, not ``available_timezones()`` membership — so the copy path accepts
+    exactly what the write path accepts. Blank stays blank: it is the inherit sentinel.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    stripped = (value or "").strip() if isinstance(value, str) else ""
+    if not stripped:
+        return ""
+    try:
+        ZoneInfo(stripped)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return ""
+    return stripped
 
 
 # ---------------------------------------------------------------------------

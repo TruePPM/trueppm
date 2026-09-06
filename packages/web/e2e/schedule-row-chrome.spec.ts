@@ -197,7 +197,7 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
   }) => {
     // The chip is `shrink-0` beside a `shrink truncate` name inside a fixed-width
     // `overflow-hidden` cell, so the name is what degrades — but the Timeline
-    // outline is ~268px of columns and now gives 34px of that to the nudge lane.
+    // outline is ~268px of columns and now gives 52px of that to the nudge lane.
     // `toBeVisible` on the narrow surface is the assertion rule 316(c) asks for;
     // a chip clipped to zero width would still pass `toHaveText`.
     await page
@@ -217,15 +217,17 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     // `resolveGripReserve(false)` is 0, so before #3026 the fine-pointer outline
     // reserved nothing at all and `resolveOutlineLeftReserve(false, true)` was a
     // constant zero. The nudges are in flow and always drawn, so the desktop
-    // outline is now 34px wider — asserted here because the coarse spec's
-    // equivalent cannot see a regression that only zeroes the fine branch.
+    // outline is now a lane wider — three 16px controls and two 2px gaps, 52px
+    // since the ◆ milestone toggle joined the cluster (#3257) — asserted here
+    // because the coarse spec's equivalent cannot see a regression that only
+    // zeroes the fine branch.
     const header = page.getByRole('row', { name: 'Item list columns' });
     const headerWbs = await header.getByRole('columnheader', { name: /Work breakdown/ }).boundingBox();
     const outlineBox = await page.getByRole('treegrid', { name: 'Item list' }).boundingBox();
     expect(headerWbs).not.toBeNull();
     expect(outlineBox).not.toBeNull();
     // The WBS column starts a full lane in from the panel's left edge.
-    expect((headerWbs?.x ?? 0) - (outlineBox?.x ?? 0)).toBeCloseTo(34, 0);
+    expect((headerWbs?.x ?? 0) - (outlineBox?.x ?? 0)).toBeCloseTo(52, 0);
 
     // …and the rows agree with the header, which is the thing the shared reserve
     // exists to guarantee.

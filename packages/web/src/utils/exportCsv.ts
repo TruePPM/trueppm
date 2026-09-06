@@ -1,7 +1,8 @@
 /**
  * exportTasksToCsv — convert a task list to a CSV Blob and trigger a download.
  *
- * Column order: WBS, Name, Start, Finish, Duration (days), Progress (%), Status, Critical.
+ * Column order: WBS, Name, Start, Finish, Duration (days), Progress (%), Status,
+ * Critical, Total float (days), Free float (days).
  * Fields containing commas, double-quotes, or newlines are RFC 4180–escaped. Fields that
  * could be interpreted as a spreadsheet formula are neutralized first (see `escapeField`).
  *
@@ -10,7 +11,33 @@
 
 import type { Task } from '@/types';
 
-const CSV_HEADERS = ['WBS', 'Name', 'Start', 'Finish', 'Duration (days)', 'Progress (%)', 'Status', 'Critical'];
+// The two float columns are APPENDED (#3344) rather than slotted beside
+// Duration, so an existing consumer indexing by position keeps working.
+const CSV_HEADERS = [
+  'WBS',
+  'Name',
+  'Start',
+  'Finish',
+  'Duration (days)',
+  'Progress (%)',
+  'Status',
+  'Critical',
+  'Total float (days)',
+  'Free float (days)',
+];
+
+/**
+ * A float cell. Pre-CPM rows carry `null`, which is not zero: an EMPTY cell says
+ * "no answer yet", where `0` would assert this row has no slack. Numbers go
+ * through `escapeField` like everything else even though a bare integer cannot
+ * need quoting — a NEGATIVE float renders as `-3`, whose leading `-` is one of
+ * the formula-trigger characters, so an unescaped one would ship a cell Excel
+ * evaluates. This is exactly why rule 306 says there is one escaper and callers
+ * do not decide when it applies.
+ */
+function floatCell(days: number | null | undefined): string {
+  return days === null || days === undefined ? '' : escapeField(String(days));
+}
 
 // A leading `=`, `+`, `-`, `@`, tab, or CR is how Excel/Sheets/LibreOffice decide a cell
 // is a formula rather than literal text. Task names are user-supplied (including via CSV
@@ -46,6 +73,8 @@ export function tasksToCsvString(tasks: Task[]): string {
       String(t.progress),
       escapeField(t.status),
       t.isCritical ? 'Yes' : 'No',
+      floatCell(t.totalFloat),
+      floatCell(t.freeFloat),
     ].join(','));
   }
   return rows.join('\r\n');

@@ -206,7 +206,7 @@ Once a row is a phase, its rollup behavior matches every other WBS summary task 
 
 ## Task-list columns
 
-The task list shows eight columns by default in **Grid**. All except Item can be hidden via the **Columns** popover — which offers exactly the columns the current layout draws, so in **Timeline** (WBS + Item) it offers WBS alone rather than six checkboxes that would change nothing. A column you hide in Grid stays hidden in Timeline; switching layout never brings one back.
+The task list shows ten columns in **Grid**, eight of them on every project and the two float columns on Waterfall and Hybrid ones (see below). All except Item can be hidden via the **Columns** popover — which offers exactly the columns the current layout draws, so in **Timeline** (WBS + Item) it offers WBS alone rather than six checkboxes that would change nothing. A column you hide in Grid stays hidden in Timeline; switching layout never brings one back.
 
 | Column | Width | Content |
 |---|---|---|
@@ -218,8 +218,32 @@ The task list shows eight columns by default in **Grid**. All except Item can be
 | Finish | 74 px | Computed early finish (read-only). |
 | % | 44 px | Percent complete. |
 | Owner | 72 px | Up to three 24 px assignee avatars overlapping; "+N" overflow chip. Each avatar's allocation is stated beside the cluster as a positional run — `100%` for one owner, `100/50%` for two, in avatar order. At two or more owners the run is wider than the default column and clips with an ellipsis; widen the column to read it in full. Screen readers get the same figures from the cell itself, which announces as `Owner: Alice Chen (100%), Bob Martinez (50%)`. |
+| Float | 56 px | Total float in working days (`8d`) — how long this row can slip before the project finish moves. Read-only. |
+| Free | 56 px | Free float in working days (`2d`) — how long it can slip before its own successor has to move. Read-only. |
 
 Column widths are persisted per-browser under `trueppm.schedule.columnWidths.v5`.
+
+### The float columns
+
+:::note[Ships in 0.4]
+**Float** and **Free** land in 0.4. Before then the outline has eight columns and
+the **Columns** popover offers seven toggles.
+:::
+
+The two float columns are the only ones whose *default* depends on the project:
+they will be on for **Waterfall** and **Hybrid** and off for **Agile**, because
+float is the number a phase-gated plan is read by and noise on a board-driven one.
+Both stay in the **Columns** popover on every project, so the default is a starting
+point rather than a restriction, and a choice you make there is remembered like any
+other column's.
+
+They are also the rightmost pair, which is what the clamp on a narrow window spends
+first — see [On a narrow desktop
+window](/features/schedule/#on-a-narrow-desktop-window). An em dash in either cell
+means the scheduler has not reached that row yet, which is not the same as zero
+slack; a negative value reads in the critical color. Neither column sorts here — the
+outline's order is the WBS — but both will be sortable on the
+[Table/Grid view](/features/grid/).
 
 ### The Links column
 

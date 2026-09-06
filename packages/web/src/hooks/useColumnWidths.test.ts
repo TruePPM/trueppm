@@ -24,6 +24,8 @@ const DEFAULT_WIDTHS: Record<ColumnKey, number> = {
   finish: 74,
   progress: 60,
   owner: 72,
+  totalFloat: 56,
+  freeFloat: 56,
 };
 const DEFAULT_TOTAL = Object.values(DEFAULT_WIDTHS).reduce((a, b) => a + b, 0);
 
@@ -171,5 +173,102 @@ describe('useColumnWidths — toggleColumn & totalWidth', () => {
       .filter((k) => k !== 'owner' && k !== 'wbs')
       .reduce((sum, k) => sum + DEFAULT_WIDTHS[k], 0);
     expect(result.current.totalWidth).toBe(expected);
+  });
+});
+
+describe('useColumnWidths — methodology-dependent float defaults (#3344)', () => {
+  it('shows both float columns by default on WATERFALL and HYBRID', () => {
+    for (const m of ['WATERFALL', 'HYBRID'] as const) {
+      const { result } = renderHook(() => useColumnWidths(m));
+      expect(result.current.visible.totalFloat).toBe(true);
+      expect(result.current.visible.freeFloat).toBe(true);
+    }
+  });
+
+  it('hides both float columns by default on AGILE', () => {
+    const { result } = renderHook(() => useColumnWidths('AGILE'));
+    expect(result.current.visible.totalFloat).toBe(false);
+    expect(result.current.visible.freeFloat).toBe(false);
+    // And the outline is narrower by exactly those two columns, so the bar
+    // track gets the room back rather than the panel keeping a reserved gap.
+    expect(result.current.totalWidth).toBe(DEFAULT_TOTAL - 112);
+  });
+
+  it('treats an UNRESOLVED methodology as non-Agile rather than latching a default', () => {
+    // `effective_methodology` arrives from a query, so it is undefined on first
+    // paint for every project. Visibility is DERIVED, not seeded into state, so
+    // the value that lands decides — a rerender with AGILE must flip the columns
+    // off even though the first render had no methodology at all. Seeding state
+    // from a lazy initializer would leave them on forever.
+    const { result, rerender } = renderHook(
+      ({ m }: { m: 'AGILE' | undefined }) => useColumnWidths(m),
+      { initialProps: { m: undefined as 'AGILE' | undefined } },
+    );
+    expect(result.current.visible.totalFloat).toBe(true);
+    rerender({ m: 'AGILE' });
+    expect(result.current.visible.totalFloat).toBe(false);
+  });
+
+  it('lets an explicit choice beat the default, in BOTH directions', () => {
+    const agile = renderHook(() => useColumnWidths('AGILE'));
+    act(() => agile.result.current.toggleColumn('totalFloat'));
+    expect(agile.result.current.visible.totalFloat).toBe(true);
+
+    localStorage.clear();
+    const waterfall = renderHook(() => useColumnWidths('WATERFALL'));
+    act(() => waterfall.result.current.toggleColumn('freeFloat'));
+    expect(waterfall.result.current.visible.freeFloat).toBe(false);
+  });
+
+  it('persists ONLY the explicit choice, so untouched columns keep following the default', () => {
+    // The stored payload is the whole point: a full record cannot express "no
+    // opinion", and without that a methodology-dependent default is impossible
+    // because a stored `false` and an unset key look identical.
+    const { result } = renderHook(() => useColumnWidths('WATERFALL'));
+    act(() => result.current.toggleColumn('owner'));
+    expect(JSON.parse(localStorage.getItem(VISIBILITY_KEY) as string)).toEqual({ owner: false });
+  });
+
+  it('an explicit AGILE choice survives a switch to WATERFALL', () => {
+    localStorage.setItem(VISIBILITY_KEY, JSON.stringify({ totalFloat: false }));
+    const { result } = renderHook(() => useColumnWidths('WATERFALL'));
+    expect(result.current.visible.totalFloat).toBe(false);
+    expect(result.current.visible.freeFloat).toBe(true);
+  });
+
+  it('reads a pre-#3344 full-record payload as eight explicit choices plus two defaults', () => {
+    // Back-compat without a key bump (the `links` precedent, #3023): everything
+    // the old payload names stays exactly as that user left it, and the two keys
+    // it structurally cannot contain fall through to the methodology.
+    localStorage.setItem(
+      VISIBILITY_KEY,
+      JSON.stringify({
+        wbs: false,
+        task: true,
+        links: true,
+        dur: true,
+        start: true,
+        finish: true,
+        progress: false,
+        owner: true,
+      }),
+    );
+    const { result } = renderHook(() => useColumnWidths('AGILE'));
+    expect(result.current.visible.wbs).toBe(false);
+    expect(result.current.visible.progress).toBe(false);
+    expect(result.current.visible.totalFloat).toBe(false);
+
+    const hybrid = renderHook(() => useColumnWidths('HYBRID'));
+    expect(hybrid.result.current.visible.wbs).toBe(false);
+    expect(hybrid.result.current.visible.totalFloat).toBe(true);
+  });
+
+  it('turning a DEFAULT-ON column off writes false, not a double negative', () => {
+    // The bug this pins: toggling against the sparse map reads `!undefined` for a
+    // column that is on by default and "turns it on" while it is already on, so
+    // the first click does nothing visible and the second one works.
+    const { result } = renderHook(() => useColumnWidths('WATERFALL'));
+    act(() => result.current.toggleColumn('totalFloat'));
+    expect(result.current.visible.totalFloat).toBe(false);
   });
 });

@@ -24,12 +24,28 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
   // `explain` is the plain-English reading for an abbreviated header (rule 287).
   // Only the abbreviated ones take it — a tooltip on "Name" would be noise.
-  const colHeader = (col: SortCol, label: string, className: string, explain?: string) => {
+  //
+  // `ariaLabel` overrides the name BOTH the header and its sort button expose,
+  // and only the float pair passes it (#3344). Every other heading here is a word
+  // that means one thing on its own: a screen-reader user hearing "Dur, column
+  // header" has the column. "Float" does not say WHICH float now that there are
+  // two of them, and "Free" on its own means nothing at all — so those two state
+  // their full names, matching what the Schedule outline's equivalent headers
+  // announce, and the abbreviation stays as the visible text (WCAG 2.5.3 holds
+  // either way: "Float" and "Free" are each a substring of their own name).
+  const colHeader = (
+    col: SortCol,
+    label: string,
+    className: string,
+    explain?: string,
+    ariaLabel?: string,
+  ) => {
     const button = (
       /* Sort column-header button: focus: (not focus-visible:) so the ring shows on
          pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7). */
       <button
         type="button"
+        aria-label={ariaLabel ? `Sort by ${ariaLabel.toLowerCase()}` : undefined}
         onClick={() => onSort(col)}
         onKeyDown={(e: KeyboardEvent) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -49,6 +65,7 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
     return (
       <span
         role="columnheader"
+        aria-label={ariaLabel}
         aria-sort={sortCol === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
         className={className}
       >
@@ -73,6 +90,26 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
       {colHeader('start', 'Start', 'w-20 flex-shrink-0 text-right pr-2')}
       {colHeader('finish', 'Finish', 'w-20 flex-shrink-0 text-right pr-2')}
       {colHeader('duration', 'Dur', 'w-12 flex-shrink-0 text-right pr-2', ABBREVIATIONS.DURATION)}
+      {/* Float pair (#3344) — beside the other schedule numbers, and `lg` rather
+          than `md` because these two add 128px to a fixed-width header whose only
+          flexible track is the Name. At `md` (768px) that would have taken the
+          Name from ~240px to ~112px, trading the column a reader scans by for two
+          they consult. The row cells carry the identical `hidden lg:block`, or
+          the header and the body disagree about how many columns there are. */}
+      {colHeader(
+        'totalFloat',
+        'Float',
+        'w-16 flex-shrink-0 text-right pr-2 hidden lg:block',
+        ABBREVIATIONS.FLOAT,
+        'Total float',
+      )}
+      {colHeader(
+        'freeFloat',
+        'Free',
+        'w-16 flex-shrink-0 text-right pr-2 hidden lg:block',
+        ABBREVIATIONS.FREE_FLOAT,
+        'Free float',
+      )}
       {colHeader('progress', 'Progress', 'w-28 flex-shrink-0')}
       <span role="columnheader" className="w-28 flex-shrink-0">
         Status

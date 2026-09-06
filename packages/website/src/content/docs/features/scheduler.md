@@ -98,6 +98,26 @@ an FS successor does. Two behaviors are worth knowing:
   nothing downstream for it to move, so its free float is its total float.
 :::
 
+### Which float answers which question
+
+The two are easy to conflate and they support different decisions, so it is worth
+naming them apart:
+
+- **`total_float`** is how long the task can slip before **the project finish**
+  moves. It is the number that defines the critical path: `is_critical` is exactly
+  `total_float == 0`.
+- **`free_float`** is how long it can slip before **its own successors** have to
+  move. It is bounded by the nearest downstream early start, not by the project
+  end.
+
+`free_float <= total_float` always holds, with equality only when the task has no
+live successor to bound it. The gap between them is where the practical answer
+lives: a task carrying eight days of total float and two of free float has eight
+days of room in the plan overall, and can only take two of them before the next
+task is pushed. Spending the other six is a decision about somebody else's start
+date, not a free one — which is why a schedule read on total float alone tends to
+under-count the disruption a slip causes.
+
 ### Calendar arithmetic
 
 Working-day arithmetic skips weekends and any dates listed in `Calendar.exceptions` (`DateRange` entries). It governs task duration expansion and float counting. Dependency lag is applied in calendar days and then snapped to a working day — see [Lag is in calendar days](#lag-is-in-calendar-days-durations-are-in-working-days) above.

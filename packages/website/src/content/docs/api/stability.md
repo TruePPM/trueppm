@@ -64,8 +64,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the four Breaking changes taken so far all
-bypassed it deliberately, and all four are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the five Breaking changes taken so far all
+bypassed it deliberately, and all five are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -169,6 +169,34 @@ deprecation window rather than being removed outright:
    removed path and schema, and the removal is declared in
    `scripts/schema-removal-allowlist.txt` so the schema gate treats it as reviewed rather
    than accidental.
+
+   **Bypassed a fifth time, in 0.4 (#3365).** Eight object-ownership refusals change
+   status from `400` to `403`, with no deprecation window. Changing an existing status
+   code is **Breaking** by the table above, so this is a policy exception and is recorded
+   as one rather than as routine. The operations: `DELETE` and `PATCH` on
+   `/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/` and
+   `.../notes/{id}/`, `DELETE .../attachments/{id}/`,
+   `DELETE .../comments/{comment_pk}/reactions/{id}/`, and — for the peer-role guard
+   only — `DELETE /api/v1/projects/{project_pk}/members/{id}/` and
+   `DELETE /api/v1/programs/{program_pk}/members/{id}/`.
+
+   The reasoning: each of these refusals answers "you may not do this" — the caller is
+   not the author, uploader, or reaction owner, or holds a role no higher than the
+   member they are removing — and the `400` was an accident of *how* the guard raised,
+   not a decision about *what* it meant. The check beside each one already answered
+   `403` for the same class of refusal, so a client branching on status had two status
+   classes for one kind of answer, and a `400` told it to fix a request that was never
+   at fault. A deprecation window would have meant publishing, for another release, a
+   status that instructs clients to retry a request that can never succeed. The six
+   task-collaboration refusals also now carry the stable `code` they had always named
+   in source but never put on the wire (see
+   [Errors and status codes](/api/errors/#403--refused-by-policy)); the two membership
+   refusals keep a bare `detail`. The last-Owner guard on the two membership deletes is
+   a refusal on the roster's *state* and stays a `400`.
+
+   A client that branched on `400` from these operations should treat `403` as the same
+   condition. Nothing else about the operations changes: success responses, paths and
+   request bodies are as before.
 
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for

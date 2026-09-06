@@ -408,6 +408,69 @@ describe('buildSchedulePrintData — KPIs', () => {
     expect(data.kpis.criticalPath.sub).toBe('0d float');
   });
 
+  describe('the Float KPI (#3344)', () => {
+    it('reports the tightest float OFF the critical path, not on it', () => {
+      // The distinction is the whole slot: `criticalPath.sub` already prints the
+      // minimum over the CRITICAL rows, which is ~0 by construction and warns
+      // nobody. What a steering pack is missing is how close the REST of the plan
+      // is to becoming critical too.
+      const data = build({
+        tasks: [
+          task('cp', { wbs: '1', isCritical: true, totalFloat: 0 }),
+          task('near', { wbs: '2', totalFloat: 2 }),
+          task('slack', { wbs: '3', totalFloat: 30 }),
+        ],
+      });
+      expect(data.kpis.criticalPath.sub).toBe('0d float');
+      expect(data.kpis.float.label).toBe('Float');
+      expect(data.kpis.float.value).toBe('2d');
+      expect(data.kpis.float.sub).toBe('tightest of 2 off the critical path');
+    });
+
+    it('reports a NEGATIVE off-path float rather than clamping it', () => {
+      const data = build({
+        tasks: [
+          task('cp', { wbs: '1', isCritical: true, totalFloat: 0 }),
+          task('late', { wbs: '2', totalFloat: -4 }),
+        ],
+      });
+      expect(data.kpis.float.value).toBe('-4d');
+    });
+
+    it('says "every row is critical" rather than printing a bare dash', () => {
+      // Measured, and the answer is that there is no slack left anywhere. That
+      // reads identically to "not measured" if both print an em-dash alone, and
+      // they are opposite sheets to be handed.
+      const data = build({ tasks: [task('a', { isCritical: true, totalFloat: 0 })] });
+      expect(data.kpis.float.value).toBe('—');
+      expect(data.kpis.float.sub).toBe('every row is critical');
+    });
+
+    it('prints a bare dash with NO sub for an empty schedule', () => {
+      const data = build({ tasks: [] });
+      expect(data.kpis.float.value).toBe('—');
+      expect(data.kpis.float.sub).toBeNull();
+    });
+
+    it('ignores a row whose float CPM has not computed', () => {
+      const data = build({
+        tasks: [task('n', { wbs: '1', totalFloat: null }), task('m', { wbs: '2', totalFloat: 7 })],
+      });
+      expect(data.kpis.float.value).toBe('7d');
+      expect(data.kpis.float.sub).toBe('tightest of 1 off the critical path');
+    });
+
+    it('moves the PDF integrity stamp when only the Float KPI changes', () => {
+      // Every KPI feeds `scheduleContentSha`. A slot left out of that list makes
+      // two materially different sheets hash the same, which is the one thing the
+      // stamp exists to prevent.
+      const a = build({ tasks: [task('x', { wbs: '1', totalFloat: 2 })] });
+      const b = build({ tasks: [task('x', { wbs: '1', totalFloat: 9 })] });
+      expect(a.kpis.float.value).not.toBe(b.kpis.float.value);
+      expect(a.footer.contentSha).not.toBe(b.footer.contentSha);
+    });
+  });
+
   it('computes the window duration from full ISO timestamps, not only date-only strings', () => {
     const data = build({
       tasks: [task('a', { start: '2026-04-01T09:00:00Z', finish: '2026-04-03T17:00:00Z' })],
