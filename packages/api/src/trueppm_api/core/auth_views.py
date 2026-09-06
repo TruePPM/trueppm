@@ -165,6 +165,10 @@ def _burn_equivalent_password_hash(request_data: Any) -> None:
     Django itself already makes for the username miss.
     """
     password = _login_body(request_data).get("password")
+    # The User() here is disposable — never saved, discarded on return — so there is
+    # no unvalidated credential being persisted; this mirrors ModelBackend's own
+    # UserModel().set_password(password) timing-equalization decoy.
+    # nosemgrep: unvalidated-password
     User().set_password(password if isinstance(password, str) else "")
 
 
