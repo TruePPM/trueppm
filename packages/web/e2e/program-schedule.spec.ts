@@ -213,6 +213,13 @@ test.describe('Program schedule view', () => {
       page.getByRole('button', { name: /Open Migration Tooling schedule/i }),
     ).toBeVisible();
     // Not a retryable failure — the generic Retry button must be absent.
-    await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+    // Scoped to the invalid-input empty state itself: a page-wide locator counts
+    // any other component's error-state Retry, so an unrelated query failure
+    // would fail a claim about this panel (the #3401 defect class).
+    const invalidInputPanel = page
+      .getByTestId('empty-state')
+      .filter({ hasText: "A project's task data can't be scheduled" });
+    await expect(invalidInputPanel).toBeVisible();
+    await expect(invalidInputPanel.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   });
 });
