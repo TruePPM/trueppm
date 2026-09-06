@@ -308,10 +308,18 @@ log "negative probe: api image without SECRET_KEY must refuse to start"
 # ALLOWED_HOSTS='*' is deliberate here, and only here: this throwaway pod must
 # fail on SECRET_KEY alone, so host validation is taken out of the picture. It
 # never serves a request (#3183).
+#
+# TRUEPPM_ALLOW_WILDCARD_HOSTS keeps that true. Since #3515 the wildcard has its
+# own boot guard, and it sits ABOVE the SECRET_KEY read in settings/prod.py — so
+# without the acknowledgment this probe refuses on the wildcard instead and the
+# grep below, which is the whole assertion, stops seeing "SECRET_KEY". Widening
+# that grep to accept any refusal is the wrong fix: it would let the probe pass
+# on a guard it was not written to test.
 kubectl run secret-guard-probe \
   --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
   --env=DJANGO_SETTINGS_MODULE=trueppm_api.settings.prod \
   --env=ALLOWED_HOSTS='*' \
+  --env=TRUEPPM_ALLOW_WILDCARD_HOSTS=true \
   --env=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
   --env=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true \
   --command -- python manage.py migrate --noinput
