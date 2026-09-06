@@ -41,9 +41,18 @@ from trueppm_api.apps.projects.task_batch_services import (
     undo_import_fix_operation,
 )
 
+from ...test_openapi_response_conformance import (
+    assert_declared_properties_match_body,
+    assert_response_matches_schema,
+    load_committed_schema,
+)
 from ..csvimport.fixtures import REFERENCE_CSV
 
 User = get_user_model()
+
+#: Templated OpenAPI paths — the keys `docs/api/openapi.json` is indexed by.
+PASTE_MANY_UNDO_PATH = "/api/v1/paste-many-operations/{id}/undo/"
+CASCADE_UNDO_PATH = "/api/v1/cascade-classification-operations/{id}/undo/"
 
 BULK_URL = "/api/v1/projects/{pk}/tasks/bulk/"
 CLASSIFY_URL = "/api/v1/projects/{pk}/tasks/classification/"
@@ -1591,3 +1600,87 @@ def test_assert_project_not_archived_re_reads_a_stale_instance(project: Project)
 
     with pytest.raises(PermissionDenied):
         assert_project_not_archived(project)
+
+
+# ---------------------------------------------------------------------------
+# The declared 200 vs. the body actually returned (#3416)
+# ---------------------------------------------------------------------------
+#
+# Both actions build their body as `data = self.get_serializer(op).data` followed
+# by `data["undo"] = summary`, and both declared the bare ledger serializer as the
+# 200 — so the published contract omitted the one value the endpoint exists to
+# report and a generated SDK had no field for it.
+#
+# The key-set assertion is the load-bearing half. `assert_response_matches_schema`
+# alone cannot catch this: JSON Schema ignores keys a document does not declare, so
+# the pre-fix declaration validated the real body cleanly and `api:schema-drift`
+# was green on it the whole time.
+
+
+@pytest.fixture(scope="module")
+def committed_schema() -> dict:
+    """The published contract, parsed once — it is a multi-megabyte document."""
+    return load_committed_schema()
+
+
+@pytest.mark.django_db
+def test_paste_many_undo_body_matches_its_declared_schema(
+    committed_schema: dict, owner_client: APIClient, project: Project
+) -> None:
+    ops = [{"op": "create", "data": {"name": f"Row {i}", "duration": 1}} for i in range(2)]
+    owner_client.post(bulk_url(project), {"operations": ops}, format="json")
+    operation_id = PasteManyOperation.objects.get(project=project).pk
+
+    response = owner_client.post(
+        f"/api/v1/paste-many-operations/{operation_id}/undo/", {}, format="json"
+    )
+
+    assert response.json()["undo"] == {"deleted": 2, "kept": 0}
+    assert_declared_properties_match_body(committed_schema, response, PASTE_MANY_UNDO_PATH, "post")
+    assert_response_matches_schema(committed_schema, response, PASTE_MANY_UNDO_PATH, "post")
+
+
+@pytest.mark.django_db
+def test_cascade_undo_body_matches_its_declared_schema(
+    committed_schema: dict, owner_client: APIClient, project: Project
+) -> None:
+    root = Task.objects.create(
+        project=project,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        governance_class=GovernanceClass.FLOW,
+    )
+    with _no_recalc():
+        owner_client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "gated"},
+            format="json",
+        )
+    operation = CascadeClassificationOperation.objects.get(project=project)
+
+    response = owner_client.post(
+        f"/api/v1/cascade-classification-operations/{operation.pk}/undo/", {}, format="json"
+    )
+
+    assert response.json()["undo"] == {"reverted": 1, "kept": 0}
+    assert_declared_properties_match_body(committed_schema, response, CASCADE_UNDO_PATH, "post")
+    assert_response_matches_schema(committed_schema, response, CASCADE_UNDO_PATH, "post")
+
+
+def test_both_undo_declarations_name_the_counts_they_return(committed_schema: dict) -> None:
+    """The counts differ per action, so a shared open map would say nothing useful.
+
+    Stated separately from the round-trips above because those would still pass if
+    `undo` were declared as an untyped object — a client could read the key and
+    still not know which integers are in it.
+    """
+    schemas = committed_schema["components"]["schemas"]
+
+    assert set(schemas["PasteManyOperationUndo"]["properties"]["undo"]["properties"]) == {
+        "deleted",
+        "kept",
+    }
+    assert set(
+        schemas["CascadeClassificationOperationUndo"]["properties"]["undo"]["properties"]
+    ) == {"reverted", "kept"}
