@@ -89,7 +89,10 @@ export function WorkspaceProgramsPage() {
       <SettingsPageTitle
         title="Programs"
         count={!isLoading && !error ? `${programCount} programs` : undefined}
-        subtitle="Set the delivery methodology, iteration label, and cross-project risk policy across programs in one step. Each program inherits the workspace methodology unless overridden."
+        // #3293: `Program.methodology` is NOT-NULL, so a program never inherits the
+        // workspace methodology at read time — the workspace value is what a NEW
+        // program starts from. This matrix is how an existing one is changed.
+        subtitle="Set the delivery methodology, iteration label, and cross-project risk policy across programs in one step. Every program carries its own methodology — it starts from the workspace default when the program is created, and this is where you change it afterward."
       />
 
       <div className="px-6 pb-8 max-w-[920px]">
@@ -104,7 +107,7 @@ export function WorkspaceProgramsPage() {
             options={[
               {
                 label: 'Methodology',
-                desc: 'Agile, Waterfall, or Hybrid delivery. Each program inherits the workspace methodology unless overridden here.',
+                desc: 'Agile, Waterfall, or Hybrid delivery. A program starts from the workspace methodology when it is created and keeps its own afterward — this column is how you change an existing one.',
               },
               {
                 label: 'Iteration label',

@@ -92,8 +92,10 @@ export interface ApiProjectDetail {
   effective_methodology: Methodology;
   /**
    * Methodology this project would show if its own override were ignored
-   * (program ?? workspace). Drives the settings "Inherited from workspace (X)"
-   * affordance and the policy-driven read-only treatment.
+   * (program ?? workspace). Drives the settings "Inherited from the
+   * {program|workspace} default (X)" affordance and the policy-driven read-only
+   * treatment. The scope noun follows `program`, not the value — a program's
+   * methodology is NOT-NULL, so a project with a program always reads it (#3293).
    */
   inherited_methodology: Methodology;
   /**

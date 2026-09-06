@@ -2,8 +2,8 @@
 
 The 0.3 slice is read + facet/role assignment only:
 
-* ``TeamViewSet`` — list a project's teams and retrieve one (no create/delete; the
-  default team is migration-created and multi-team management is #599).
+* ``TeamViewSet`` — list a project's teams (no create/delete; the default team is
+  migration-created and multi-team management is #599).
 * ``TeamMembershipViewSet`` — list the roster and PATCH a member's role/facets.
 """
 
@@ -31,7 +31,7 @@ from trueppm_api.apps.teams.services import FACET_FIELDS
 
 
 class TeamViewSet(viewsets.GenericViewSet[Team]):
-    """Read-only team access, nested under a project and as a top-level detail route."""
+    """Read-only team access, nested under a project."""
 
     permission_classes = [IsAuthenticated, IsTeamMember]
     serializer_class = TeamSerializer
@@ -54,10 +54,6 @@ class TeamViewSet(viewsets.GenericViewSet[Team]):
         if page is not None:
             return self.get_paginated_response(TeamSerializer(page, many=True).data)
         return Response(TeamSerializer(queryset, many=True).data)
-
-    def retrieve(self, request: Request, pk: object = None, **kwargs: object) -> Response:
-        team = self.get_object()
-        return Response(TeamSerializer(team).data)
 
 
 class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMembership]):

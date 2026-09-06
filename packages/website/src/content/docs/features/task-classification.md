@@ -133,6 +133,35 @@ are preserved. Three of those numbers are worth understanding:
 After the cascade lands, a receipt names what the **server** actually wrote — not what the
 preview predicted — including any rows it skipped.
 
+### The receipt counts rows
+
+The receipt counts in the unit you selected. You pointed at a subtree and the grid shows
+rows, so it reads *"3 rows reclassified"* — or *"9 of 10 rows reclassified"* when part of
+the subtree was left alone, which happens whenever a milestone was skipped, an explicit
+governance override was kept, or a row already held the value you asked for. A cascade
+that changed nothing says *"0 of 10 rows reclassified"* rather than going quiet.
+
+Which axes moved is stated separately, at the front of the same sentence
+(*"governance → gated, delivery → scrum"*). Nothing in the receipt counts fields or
+database columns: setting a task's governance class writes two columns rather than one
+(the class, plus whether the task still inherits it), so a column count would be a number
+you could not check against anything on screen.
+
+### An inherit-only cascade still leaves a record
+
+Declaring a governance class on a subtree that already holds it is not a no-op. The root
+of a subtree is the *declaration point*, so cascading `gated` onto a root already set to
+`gated` still changes one thing: that root stops inheriting its governance from its parent
+and starts asserting it. That is a real write — it counts toward the rows in the receipt,
+it is reversible with **Undo**, and it reaches every other client watching the project.
+
+It also appears on the task's **Activity** tab, as a **Governance source** entry reading
+*Inherited from parent → Set on this task*. Previously such a cascade left no entry
+anywhere, because the inherit flag was treated as internal bookkeeping and an entry with
+nothing else to show was dropped — it was the one classification write with no visible
+record. The flag is still hidden when it moves alongside a governance-class change, where
+it would only repeat what the *Governance* entry beside it already says.
+
 ### When the cascade is refused
 
 A cascade is all-or-nothing: if the server refuses it, nothing is written. The popover

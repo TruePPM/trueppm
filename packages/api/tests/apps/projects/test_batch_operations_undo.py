@@ -227,6 +227,93 @@ def test_paste_many_undo_twice_is_refused(owner_client: APIClient, project: Proj
     assert second.status_code == 400
 
 
+# ---------------------------------------------------------------------------
+# `can_undo` on the paste-many 207 (#3353)
+#
+# Same asymmetry #3304 fixed on the cascade, on a worse surface: the receipt strip
+# persists until the author acts rather than auto-dismissing after 8s, and ⌘Z is
+# bound to it and advertised in its own label. So a Member's false Undo offer sat
+# there indefinitely, teaching a chord that 403s.
+#
+# Both roles are asserted AT THE RESPONSE, not only at the undo endpoint. The
+# endpoint always refused correctly — a test on its 403 passes on the broken build.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.ADMIN, Role.OWNER])
+def test_bulk_can_undo_agrees_with_the_predicate_for_every_role_that_can_apply(
+    project: Project, role: int
+) -> None:
+    """The field and the predicate, asserted against each other rather than hard-coded.
+
+    Hard-coding ``is True`` / ``is False`` per role would let the field drift from
+    ``role_can_undo_batch_operation`` and only the enumerated roles would notice. This
+    says they are the same answer, which is the entire claim the client gates on.
+
+    Scoped to the roles that can reach a 207 at all: Viewer is refused outright, and
+    the Scheduler *band* is excluded from plan authoring by ADR-0773 — so there is no
+    response for the field to ride on for either.
+    """
+    client = _member(project, f"bulk-role-{role}", role)
+    r = client.post(
+        bulk_url(project),
+        {"operations": [{"op": "create", "data": {"name": "Row 1", "duration": 1}}]},
+        format="json",
+    )
+    assert r.status_code == 207, r.data
+    assert r.data["can_undo"] is role_can_undo_batch_operation(role)
+
+
+@pytest.mark.django_db
+def test_bulk_can_undo_is_false_for_a_member_whose_paste_really_landed(
+    project: Project,
+) -> None:
+    """The bug's exact shape: the paste commits, a real ledger row exists, and the
+    caller still may not undo it.
+
+    ``operation_id`` alone therefore cannot decide the affordance — which is why
+    ``can_undo`` is a second field rather than folded into it. The final assertion
+    keeps the field honest: the undo it withholds is genuinely refused.
+    """
+    member = _member(project, "pasting-member", Role.MEMBER)
+    r = member.post(
+        bulk_url(project),
+        {"operations": [{"op": "create", "data": {"name": "Row 1", "duration": 1}}]},
+        format="json",
+    )
+    assert r.status_code == 207, r.data
+    assert r.data["operation_id"] is not None
+    assert PasteManyOperation.objects.filter(project=project).count() == 1
+    assert r.data["can_undo"] is False
+
+    refusal = member.post(
+        f"/api/v1/paste-many-operations/{r.data['operation_id']}/undo/", {}, format="json"
+    )
+    assert refusal.status_code == 403
+
+
+@pytest.mark.django_db
+def test_bulk_can_undo_is_independent_of_operation_id(
+    owner_client: APIClient, project: Project
+) -> None:
+    """A batch that created nothing records no ledger row, but authority is unchanged.
+
+    Pinned because collapsing the two into one boolean is the obvious simplification,
+    and it would make a ``false`` mean either "nothing to undo" or "not your role"
+    with no way for a client to tell them apart.
+    """
+    task = Task.objects.create(project=project, name="Existing", duration=2)
+    r = owner_client.post(
+        bulk_url(project),
+        {"operations": [{"op": "update", "id": str(task.pk), "data": {"duration": 3}}]},
+        format="json",
+    )
+    assert r.status_code == 207, r.data
+    assert r.data["operation_id"] is None
+    assert r.data["can_undo"] is True
+
+
 @pytest.mark.django_db
 def test_bulk_batch_with_no_creates_records_no_paste_many_operation(
     owner_client: APIClient, project: Project
@@ -868,7 +955,138 @@ def test_import_fix_undo_endpoint_happy_path(owner_client: APIClient, project: P
 
 
 # ---------------------------------------------------------------------------
-# Purge (ADR-0810 §Durable Execution 6)
+# `can_undo` on the CSV import status payload (#3353)
+#
+# The widest gap in the family: committing an import is `IsProjectScheduler` (200)
+# and the undo is Admin+ (300), so a whole role band — Resource Manager — could run
+# an import and was offered an Undo it could never use. The wizard also claimed ⌘Z
+# on that offer, taking the chord away from `SeedBanner`, which gates correctly.
+#
+# Asserted at the STATUS payload the wizard actually reads. The undo endpoint's own
+# 403 is covered above and passes on the broken build.
+# ---------------------------------------------------------------------------
+
+
+def _status_url(project: Project, req: CsvImportRequest) -> str:
+    return f"/api/v1/projects/{project.pk}/import/csv/{req.pk}/"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [Role.SCHEDULER, Role.ADMIN, Role.OWNER])
+def test_import_status_can_undo_agrees_with_the_predicate(project: Project, role: int) -> None:
+    """Every role that can reach this endpoint, against the predicate the undo enforces.
+
+    Scheduler is the one that matters and the one no earlier test covered: it clears
+    the status endpoint's own `IsProjectScheduler` gate and sits a full band below the
+    undo floor. Member and Viewer are refused by the gate, so there is no payload for
+    the field to ride on.
+    """
+    req = _make_request(project, status=CsvImportStatus.DONE)
+    client = _member(project, f"import-role-{role}", role)
+    r = client.get(_status_url(project, req))
+    assert r.status_code == 200, r.data
+    assert r.data["can_undo"] is role_can_undo_batch_operation(role)
+
+
+@pytest.mark.django_db
+def test_import_status_can_undo_is_false_for_a_scheduler_whose_import_really_landed(
+    project: Project,
+) -> None:
+    """The bug's exact shape on the wizard, and the field kept honest against the 403."""
+    scheduler = _member(project, "importing-scheduler", Role.SCHEDULER)
+    parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+    summary = import_project(str(project.pk), parsed.project_data)
+    req = _make_request(project, status=CsvImportStatus.DONE)
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
+
+    r = scheduler.get(_status_url(project, req))
+    assert r.status_code == 200, r.data
+    # The import really is terminal and really did write rows — `status` says there
+    # is something to undo. Only `can_undo` says the caller may not.
+    assert r.data["status"] == CsvImportStatus.DONE
+    assert r.data["can_undo"] is False
+
+    refusal = scheduler.post(
+        f"/api/v1/projects/{project.pk}/import/csv/{req.pk}/undo/", {}, format="json"
+    )
+    assert refusal.status_code == 403
+
+
+@pytest.mark.django_db
+def test_import_status_can_undo_is_independent_of_status(
+    owner_client: APIClient, project: Project
+) -> None:
+    """An import still in flight has nothing to undo, but authority is unchanged.
+
+    The same orthogonality the bulk 207 keeps between `can_undo` and `operation_id`:
+    folding the caller's authority into the lifecycle field would make one value mean
+    two things, and every client would then state one of them as fact.
+    """
+    req = _make_request(project, status=CsvImportStatus.DISPATCHED)
+    r = owner_client.get(_status_url(project, req))
+    assert r.status_code == 200, r.data
+    assert r.data["status"] == CsvImportStatus.DISPATCHED
+    assert r.data["can_undo"] is True
+
+
+# ---------------------------------------------------------------------------
+# One rule, called N times — the consolidation (#3353)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "role",
+    [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN, Role.OWNER, 350],
+)
+def test_every_batch_undo_endpoint_admits_exactly_the_predicate_s_roles(
+    owner_client: APIClient, project: Project, role: int
+) -> None:
+    """Two of the family's four undo endpoints, asserted against the shared predicate.
+
+    **The denominator is four**: paste-many, cascade classification, CSV import, and
+    template application. This test covers paste-many and CSV import — the two whose
+    fixtures live in this file. The template application is pinned identically in
+    `test_project_templates.py`, and the cascade above. `structural_operations` is
+    deliberately NOT in the family: it implements actor-or-Admin (ADR-0880 §4, #3355).
+
+    #3353 replaced the last two inlined `role < Role.ADMIN` comparisons — CSV import's
+    `_require_project_admin` and the template-application `undo` action — with
+    `role_can_undo_batch_operation`. This proves the consolidation is
+    behavior-preserving *and* that the family moves together: a change to the predicate
+    must change every member or fail somewhere in that set of four.
+
+    `350` is the Enterprise project-lead band (ADR-0072). A threshold inherits it; a
+    band exclusion would not, and this is the only test that would notice.
+    """
+    client = _member(project, f"undo-family-{role}", role)
+    expected = role_can_undo_batch_operation(role)
+
+    # 1. Paste-many. Created by the owner so the ledger row exists regardless of role.
+    owner_client.post(
+        bulk_url(project),
+        {"operations": [{"op": "create", "data": {"name": "Solo", "duration": 1}}]},
+        format="json",
+    )
+    paste_op = PasteManyOperation.objects.get(project=project)
+    paste_resp = client.post(
+        f"/api/v1/paste-many-operations/{paste_op.pk}/undo/", {}, format="json"
+    )
+    assert (paste_resp.status_code != 403) is expected, paste_resp.data
+
+    # 2. CSV import. A DISPATCHED row 400s on the state guard for a caller who clears
+    #    the role floor, which is exactly the discrimination wanted: 403 means the
+    #    ROLE was refused, anything else means it was not.
+    req = _make_request(project, status=CsvImportStatus.DISPATCHED)
+    import_resp = client.post(
+        f"/api/v1/projects/{project.pk}/import/csv/{req.pk}/undo/", {}, format="json"
+    )
+    # Below the Scheduler floor the *status* endpoint's own gate fires first, so a
+    # Member/Viewer 403 here is over-determined. That is fine — both gates refuse,
+    # and the assertion only claims the caller does not get through.
+    assert (import_resp.status_code != 403) is expected, import_resp.data
+
+
 # ---------------------------------------------------------------------------
 
 

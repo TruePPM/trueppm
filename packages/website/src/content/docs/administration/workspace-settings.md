@@ -517,7 +517,8 @@ a selection of programs in one atomic call.
 1. Check the programs you want to change (or **select all**).
 2. Pick **one** field to set:
    - **Methodology** — the default delivery model new projects in each program inherit.
-     Under a workspace `inherit` methodology lock this column is read-only (display-only).
+     Under a workspace `inherit` methodology lock this column is read-only (display-only),
+     and its header says so: **Methodology · read-only**.
    - **Iteration label** — the program's iteration-container label; **Reset to inherited**
      clears the override so the program inherits the workspace default again.
    - **Slip propagation** — what each program does when a cross-project dependency slips:

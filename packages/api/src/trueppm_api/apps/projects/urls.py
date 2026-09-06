@@ -63,7 +63,6 @@ from trueppm_api.apps.projects.views import (
     BaselineActivateView,
     BaselineViewSet,
     BoardColumnConfigView,
-    BoardLanesView,
     BoardSavedViewDetailView,
     BoardSavedViewListView,
     CalendarExceptionViewSet,
@@ -239,11 +238,6 @@ urlpatterns = [
         "projects/<pk>/commit/",
         ProjectCommitView.as_view(),
         name="project-commit",
-    ),
-    path(
-        "projects/<pk>/board/lanes/",
-        BoardLanesView.as_view(),
-        name="project-board-lanes",
     ),
     path(
         "projects/<pk>/board-config/",

@@ -348,15 +348,19 @@ class TestSchemaBinding:
     """The commit endpoint declares its own responses (#2963).
 
     The #2455 orphaned-decorator trap bit this MR too: the view was first
-    inserted between `BoardLanesView`'s `@extend_schema` and its class, which
+    inserted between the preceding view's `@extend_schema` and its class, which
     silently reassigned that decorator — the commit endpoint took a schema it
-    never declared and BoardLanes lost the one it did.
+    never declared and its neighbor lost the one it did.
 
     A structural "is the decorator anchored to a class?" check does NOT catch
     this: decorator stacking is legal Python and looks identical. I wrote that
     check, it passed against the reintroduced bug, and I deleted it. What caught
     it — twice now — is asserting the GENERATED schema against what each
     endpoint declared, which is what this does.
+
+    The neighbor was `BoardLanesView` until #3370 removed that route; the
+    assertion below is re-pointed at the decorated view that now precedes
+    `ProjectCommitView` in `projects/views.py`, which is what the guard needs.
     """
 
     @staticmethod
@@ -376,9 +380,23 @@ class TestSchemaBinding:
         ref = post["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
         assert ref.endswith("/CommitProjectResult")
 
-    def test_board_lanes_still_owns_its_own(self) -> None:
-        """The endpoint this MR's misplacement silently stripped."""
-        get = self._schema()["paths"]["/api/v1/projects/{id}/board/lanes/"]["get"]
-        ref = get["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
-        assert ref.endswith("/BoardLanes")
-        assert "group_depth" in [q["name"] for q in get.get("parameters", [])]
+    def test_every_board_view_above_it_still_owns_its_own(self) -> None:
+        """The half a misplacement silently strips.
+
+        `BoardLanesView` was the immediate neighbor until #3370 removed it. What now
+        precedes `ProjectCommitView` is ~140 lines of undecorated helper functions,
+        then the three board views — so rather than pin the nearest one and lose the
+        adjacency the guard depended on, pin all three. A decorator that slides onto
+        the wrong class strips one of these, whichever way it slides.
+        """
+        schema = self._schema()
+        expected = {
+            ("/api/v1/projects/{id}/board-views/{view_pk}/", "patch"): "/BoardSavedView",
+            ("/api/v1/projects/{id}/board-views/", "post"): "/BoardSavedView",
+            ("/api/v1/projects/{id}/board-config/", "get"): "/BoardColumnConfigResponse",
+        }
+        for (path, method), suffix in expected.items():
+            op = schema["paths"][path][method]
+            code = "201" if method == "post" else "200"
+            ref = op["responses"][code]["content"]["application/json"]["schema"]["$ref"]
+            assert ref.endswith(suffix), f"{method.upper()} {path} lost its declared response"

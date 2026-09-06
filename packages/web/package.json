@@ -30,6 +30,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:coverage": "VITE_COVERAGE=true npm run build && playwright test && npm run coverage:e2e:merge",
     "coverage:e2e:merge": "node scripts/merge-e2e-coverage.mjs",
+    "//knip:strict": "Dead-export gate (#3375), run by the web:knip CI job. `--no-config-hints` because two of the `ignore` entries in knip.jsonc name gitignored build artifacts that are absent from a clean checkout, so knip hints to remove them on every CI run — the ignores exist for the working tree that HAS built. Note the name is not `knip --strict`: that flag means something else entirely (consider only direct dependencies, not devDependencies) and would report most of this package's imports as unlisted.",
+    "knip:strict": "knip --no-progress --no-config-hints",
     "screenshots": "playwright test --config=playwright.marketing.config.ts",
     "generate:types": "openapi-typescript http://localhost:8000/api/schema/ -o src/api/types.ts"
   },
@@ -52,6 +54,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@eslint/js": "^9.0.0",
     "@playwright/test": "1.62.1",
     "@tanstack/react-query-devtools": "^5.0.0",
     "@testing-library/jest-dom": "^6.6.0",
@@ -72,7 +75,11 @@
     "eslint-plugin-react": "^7.37.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "globals": "^17.4.0",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
     "jsdom": "^29.0.0",
+    "knip": "^6.34.0",
     "openapi-typescript": "^7.4.0",
     "postcss": "^8.5.18",
     "prettier": "^3.3.0",

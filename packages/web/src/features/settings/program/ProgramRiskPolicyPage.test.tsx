@@ -98,7 +98,6 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     // Block radio is selected (its sr-only input is checked).
     expect(screen.getByRole('radio', { name: /Block & escalate/i })).toBeChecked();
     expect(screen.getByRole('spinbutton')).toHaveValue(7);
-    expect(screen.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
   });
 
   it('re-seeds when the program in the route changes (no remount)', () => {

@@ -132,6 +132,9 @@ async function setup(
       body: JSON.stringify({
         subtree: 'S1',
         matched: 1,
+        // #3306: the receipt counts rows saved, not the per-axis `applied` tallies
+        // (which count row-per-axis and cannot be summed into a row count).
+        rows_written: 1,
         governance: {
           requested: 'gated',
           applied: 1,
@@ -296,6 +299,12 @@ test.describe('Classification undo from the product backlog (#3304, #3357)', () 
     const toast = page.getByRole('status').filter({ hasText: 'Classified' });
     await expect(toast).toBeVisible();
     await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
+    // #3306: the receipt counts rows, the unit the planner selected. It used to
+    // report `governance.applied + delivery_mode.applied` as "fields written" —
+    // axis-rows, which is neither rows nor the columns actually written. Both
+    // axes applied to this one row, so the old copy said "2 fields written".
+    await expect(toast).toContainText('1 row reclassified');
+    await expect(toast).not.toContainText('field');
   });
 
   test('a Product Owner below Admin gets the same toast with no Undo action', async ({ page }) => {

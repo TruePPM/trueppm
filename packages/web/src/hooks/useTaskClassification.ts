@@ -48,6 +48,16 @@ export interface ClassificationSkip {
 export interface ClassificationReport {
   subtree: string;
   matched: number;
+  /**
+   * Rows the cascade actually saved (#3306) — the receipt's unit.
+   *
+   * Not derivable here, which is why the server sends it. `applied` increments once
+   * per row PER AXIS, so summing the two axes double-counts every row a both-axes
+   * cascade touched; and a milestone withheld on one axis but written on the other
+   * appears in exactly one of the two totals. The governance branch also writes two
+   * model columns per increment, so the sum is neither rows nor columns.
+   */
+  rows_written: number;
   governance?: ClassificationAxisReport;
   delivery_mode?: ClassificationAxisReport;
   skipped: ClassificationSkip[];

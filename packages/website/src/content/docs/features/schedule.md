@@ -102,8 +102,10 @@ Two consequences worth knowing:
   work positions inside its sprint window instead of sliding back to the
   project origin. That floor is engine input only — nothing is written to the
   task, and the task still reads as having no committed start.
-- Committing a start is not the same as setting a deadline. Constraints on the
-  finish side are a separate mechanism; see
+- Committing a start is not the same as setting a deadline. There is no
+  finish-side constraint yet — `planned_finish` is reserved and the engine does not
+  read it. The constraint set TruePPM intends to adopt is recorded in
+  [ADR-1049](/architecture/decisions/) (proposed); see
   [Scheduling before the project start](#scheduling-before-the-project-start)
   for the related project-boundary behavior.
 

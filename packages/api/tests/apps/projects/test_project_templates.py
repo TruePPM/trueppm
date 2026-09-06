@@ -23,6 +23,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.permissions import role_can_undo_batch_operation
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
@@ -1267,6 +1268,41 @@ def test_undo_endpoint_still_works_when_the_project_is_not_archived(
 
     assert resp.status_code == 200, resp.data
     assert Task.objects.filter(project=target_project, is_deleted=False).count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "role",
+    [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN, Role.OWNER, 350],
+)
+def test_undo_endpoint_admits_exactly_the_shared_predicate_s_roles(
+    source_project: Project, target_project: Project, role: int
+) -> None:
+    """#3353 — the undo action now defers to ``role_can_undo_batch_operation``.
+
+    Asserted against the predicate rather than a hard-coded truth table, because the
+    point of the consolidation is that this endpoint and the paste-many / cascade /
+    CSV-import undos cannot drift: a change to the predicate must move all four or
+    fail here. Nothing covered this route's role floor before — the archived-project
+    tests above hold role constant on purpose.
+
+    ``350`` is the Enterprise project-lead band (ADR-0072). The predicate is a
+    threshold, so a custom role registered there inherits undo authority; the inline
+    ``role < Role.ADMIN`` this replaced agreed, and this pins that it still does.
+
+    ``_require_project_admin`` on the same viewset is deliberately NOT folded into the
+    predicate: it gates publishing and applying, a different rule that shares today's
+    ordinal.
+    """
+    _, application = _seeded_application(source_project, target_project)
+    user = User.objects.create_user(username=f"tmpl-undo-{role}", password="pw")
+    ProjectMembership.objects.create(project=target_project, user=user, role=role)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    resp = client.post(f"/api/v1/template-applications/{application.pk}/undo/", {}, format="json")
+
+    assert (resp.status_code != 403) is role_can_undo_batch_operation(role), resp.data
 
 
 @pytest.mark.django_db

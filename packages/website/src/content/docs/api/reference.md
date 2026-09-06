@@ -837,7 +837,9 @@ reported in exactly one of three buckets:
   "rejected": [{ "index": 7, "id": null, "code": "malformed_id", "message": "…" }],
   "skipped":  [{ "index": 9, "id": "…", "code": "tombstoned", "message": "…" }],
   "dependencies": { "applied": [], "rejected": [] },
-  "capabilities_denied": []
+  "capabilities_denied": [],
+  "operation_id": "7c2e…9f",
+  "can_undo": true
 }
 ```
 
@@ -873,6 +875,29 @@ The structural-undo surface publishes its own separate set as
 are `already_undone`, `too_large`, `not_top_of_stack`, `shape_changed`,
 `forbidden` — plus the **empty string**, which means the operation *is* undoable
 and is the value you will see most often.
+
+##### Undoing a batch
+
+Two fields govern the undo, and they answer different questions — read **both**
+before offering an Undo control. This is the same pair the classification cascade
+publishes, and it works the same way.
+
+| Field | Answers | `null` / `false` means |
+|---|---|---|
+| `operation_id` | Is there a ledger row to reverse? | The batch created no rows, so nothing was recorded |
+| `can_undo` | May **this caller** reverse it? | Your role is below Project Manager on this project |
+
+`POST /api/v1/paste-many-operations/{operation_id}/undo/` reverses the batch's
+creates, and it requires **Project Manager or above** — a strictly higher floor than
+this endpoint admits. So a Team Member can receive a `207` here, with a real
+`operation_id`, and still be refused the undo. `can_undo` is that answer, computed
+from the same rule the undo endpoint enforces; read it rather than comparing role
+ordinals yourself.
+
+`can_undo` is an **authority** answer only. It does not report the archived-project
+refusal (see [Undoing a cascade](#undoing-a-cascade) below), and it does not promise
+the ledger row still exists: batch operations are purged after the deployment's
+`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS` window, after which the undo is a `404`.
 
 ##### Client-minted ids
 
@@ -1038,6 +1063,7 @@ The response is `200`, and it reports each axis separately:
 {
   "subtree": "3f1c…a1",
   "matched": 24,
+  "rows_written": 21,
   "governance":    { "requested": "gated", "applied": 21, "unchanged": 0,
                      "overrides_kept": 1,    "has_inherit_bit": true },
   "delivery_mode": { "requested": "scrum", "applied": 21, "unchanged": 0,
@@ -1055,6 +1081,16 @@ The response is `200`, and it reports each axis separately:
 `governance_class` carries an inherit bit, so only it can have an override; zero
 would claim the data had none, where the truth is that the axis cannot have one.
 An axis you did not send is absent from the response entirely.
+
+**Three counts, three different questions — do not derive one from another.**
+`matched` is how many rows the subtree resolved; `rows_written` is how many of
+them were saved; each axis's `applied` is how many rows that *axis* changed.
+Summing the two `applied` values does not give you `rows_written`: a row changed
+on both axes is counted twice, and a milestone withheld on one axis but written on
+the other appears in only one of the two totals. `applied` also says nothing about
+columns — a governance write sets `governance_class` and
+`parent_governance_inherited` together. If you want "how many tasks did this
+change", read `rows_written`.
 
 ##### What survives a cascade
 
@@ -1606,7 +1642,6 @@ pointer here.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/projects/{project_id}/teams/` | List a project's teams |
-| GET | `/api/v1/teams/{id}/` | Retrieve a team |
 | GET | `/api/v1/teams/{team_id}/members/` | List a team's roster |
 | PATCH | `/api/v1/teams/{team_id}/members/{id}/` | Change a member's role/facets |
 

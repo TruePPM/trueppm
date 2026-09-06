@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { ZOOM_CONFIGS } from '@/features/schedule/engine';
+import { ZOOM_CONFIGS, MIN_PX_PER_DAY } from '@/features/schedule/engine';
 import { useScheduleStore } from './scheduleStore';
 
 describe('useScheduleStore', () => {
@@ -28,9 +28,24 @@ describe('useScheduleStore', () => {
     expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
 
-  it('setZoomLevel updates zoom', () => {
-    useScheduleStore.getState().setZoomLevel('month');
-    expect(useScheduleStore.getState().zoomLevel).toBe('month');
+  // `setPxPerDay` is the store's only zoom mutation since `setZoomLevel` was
+  // deleted unreferenced (#3369). It is the half that survived, so the
+  // pxPerDay-is-truth / zoomLevel-is-derived invariant is asserted here rather
+  // than only through ZoomControl.
+  it('setPxPerDay re-derives zoomLevel from the new scale', () => {
+    useScheduleStore.getState().setPxPerDay(ZOOM_CONFIGS.month.pxPerDay);
+    const { pxPerDay, zoomLevel } = useScheduleStore.getState();
+    expect(pxPerDay).toBe(ZOOM_CONFIGS.month.pxPerDay);
+    expect(zoomLevel).toBe('month');
+  });
+
+  it('setPxPerDay clamps a below-range scale to the floor and derives the coarsest tier', () => {
+    useScheduleStore.getState().setPxPerDay(-1000);
+    const { pxPerDay, zoomLevel } = useScheduleStore.getState();
+    // Concrete expectations, not clampPxPerDay/deriveTier re-applied — asserting
+    // against the same helpers the store calls would pass even if both regressed.
+    expect(pxPerDay).toBe(MIN_PX_PER_DAY);
+    expect(zoomLevel).toBe('year');
   });
 
   it('setSelectedTaskId selects a task', () => {

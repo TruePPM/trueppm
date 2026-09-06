@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -602,3 +604,381 @@ def test_names_empty_when_requester_owns_no_shared_projects(
     row = _row_for(member_client.get(_url(project)), owner)
     assert row["other_active_project_count"] == 1
     assert row["other_active_project_names"] == []
+
+
+# ---------------------------------------------------------------------------
+# Re-adding a revoked member (#3410)
+#
+# (project, user) uniqueness is unconditional, so the row a revoked member leaves
+# behind still owns the slot. The add path therefore has to revive that row; an
+# INSERT hits the constraint and used to surface as a 500.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_revives_the_original_row(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    original_pk = member_membership.pk
+    original_joined_at = member_membership.joined_at
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    assert resp.data["id"] == str(original_pk)
+    revived = ProjectMembership.objects.get(pk=original_pk)
+    assert revived.is_deleted is False
+    assert revived.deleted_version is None
+    # Same membership resuming — the identity an offline client holds, and the
+    # access-evidence "since when", both survive.
+    assert revived.joined_at == original_joined_at
+    assert ProjectMembership.objects.filter(project=project, user=member_user).count() == 1
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_at_a_different_role_stamps_the_new_role(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.SCHEDULER})
+
+    assert resp.status_code == 201, resp.data
+    assert resp.data["role"] == Role.SCHEDULER
+    revived = ProjectMembership.objects.get(pk=member_membership.pk)
+    assert revived.role == Role.SCHEDULER
+    assert revived.role_changed_at is not None
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_at_the_same_role_does_not_stamp_role_changed_at(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """Same rule partial_update uses — no role change, no role-change event (#590)."""
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    assert ProjectMembership.objects.get(pk=member_membership.pk).role_changed_at is None
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_restores_api_access(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """The point of the fix: the member can reach the project again afterwards."""
+    member_membership.soft_delete()
+    revoked_client = APIClient()
+    revoked_client.force_authenticate(user=member_user)
+    assert revoked_client.get(_url(project)).status_code == 403
+
+    owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert revoked_client.get(_url(project)).status_code == 200
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_cannot_exceed_the_callers_own_role(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """Revive is not a way around the strictly-below-your-own-role guard."""
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.OWNER})
+
+    assert resp.status_code == 400
+    assert ProjectMembership.objects.get(pk=member_membership.pk).is_deleted is True
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_group_derived_member_becomes_a_direct_grant(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """A hand-granted membership must not stay revocable by group reconciliation.
+
+    ``workspace.services._reconcile_pair`` only revokes rows it owns
+    (``source_group IS NOT NULL``); leaving the FK set on a revived row would let a
+    later reconcile take away access an Owner granted directly.
+    """
+    from trueppm_api.apps.workspace.models import Group, Workspace
+
+    group = Group.objects.create(workspace=Workspace.load(), name="Propulsion")
+    member_membership.source_group = group
+    member_membership.save(update_fields=["source_group"])
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    assert ProjectMembership.objects.get(pk=member_membership.pk).source_group_id is None
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_broadcasts_member_added(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    member_membership.soft_delete()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as spy,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    added = [call for call in spy.call_args_list if call.args[1] == "member_added"]
+    assert added, spy.call_args_list
+    # The payload carries the ORIGINAL row id — a client reconciling its roster
+    # upserts the membership it already knows rather than appending a second one.
+    assert added[0].args[2]["membership_id"] == str(member_membership.pk)
+    assert added[0].args[2]["role"] == Role.MEMBER
+
+
+@pytest.mark.django_db
+def test_live_duplicate_409_leaves_the_existing_row_untouched(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """The 409 must stay a refusal, not a silent role change on the live row."""
+    before = ProjectMembership.objects.get(pk=member_membership.pk)
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.VIEWER})
+
+    assert resp.status_code == 409
+    after = ProjectMembership.objects.get(pk=member_membership.pk)
+    assert after.role == before.role
+    assert after.server_version == before.server_version
+
+
+@pytest.mark.django_db
+def test_insert_race_answers_409_not_500(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """No row exists to lock, so two concurrent adds can both reach the INSERT.
+
+    Simulates the real condition rather than the symptom: a live row is already
+    present and the *lookup* is stubbed blind to it, so the view takes the INSERT
+    branch and the database raises a genuine IntegrityError. That is what makes
+    the savepoint load-bearing — the connection is really poisoned, and without it
+    the 409 response could not be written and ATOMIC_REQUESTS could not commit.
+    """
+    racer = User.objects.create_user(username="racer", password="pw")
+    ProjectMembership.objects.create(project=project, user=racer, role=Role.MEMBER)
+
+    with patch.object(
+        ProjectMembership.objects,
+        "select_for_update",
+        return_value=ProjectMembership.objects.none(),
+    ):
+        resp = owner_client.post(_url(project), {"user": str(racer.pk), "role": Role.VIEWER})
+
+    assert resp.status_code == 409
+    # The transaction survived the caught IntegrityError — a poisoned connection
+    # would raise TransactionManagementError here instead.
+    assert ProjectMembership.objects.filter(project=project, user=racer).count() == 1
+
+
+@pytest.mark.django_db
+def test_an_unexpected_integrity_error_is_not_masked_as_409(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """Only the (project, user) uniqueness race becomes a 409.
+
+    A blanket ``except IntegrityError`` would report an FK violation, or any
+    constraint added to this table later, as "user is already a member" — a wrong
+    answer to the client and a silent swallow of a future integrity control.
+    """
+    from django.db import IntegrityError
+
+    new_user = User.objects.create_user(username="not_a_dup", password="pw")
+    with (
+        patch(
+            "trueppm_api.apps.access.views.ProjectMembershipWriteSerializer.save",
+            side_effect=IntegrityError("some other constraint"),
+        ),
+        pytest.raises(IntegrityError),
+    ):
+        owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.MEMBER})
+
+
+@pytest.mark.django_db
+def test_revived_membership_syncs_as_an_update_not_a_tombstone(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """The sync-protocol consequence, asserted end to end (ADR-0202, ADR-0686).
+
+    A client that pulled the tombstone holds the row as deleted. The revive draws a
+    fresh ``sync_seq``, and the delta splits purely on the current ``is_deleted``,
+    so the next pull returns the *same id* in ``updated`` — an upsert over the
+    tombstoned record, never a second row.
+    """
+    sync_url = f"/api/v1/projects/{project.pk}/sync/"
+    member_membership.soft_delete()
+    tombstone = owner_client.get(sync_url, {"since": "0"}).data
+    assert str(member_membership.pk) in tombstone["changes"]["memberships"]["deleted"]
+    since = tombstone["timestamp"]
+
+    owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.SCHEDULER})
+
+    delta = owner_client.get(sync_url, {"since": str(since)}).data["changes"]["memberships"]
+    assert [row["id"] for row in delta["updated"]] == [str(member_membership.pk)]
+    assert delta["deleted"] == []
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_without_a_role_uses_the_project_default(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """The ADR-0363 fallback decides the revived role, not just the inserted one.
+
+    Pinned to a default that differs from the revoked role, so the assertion fails
+    if the fallback is ever wired only into the INSERT branch.
+    """
+    project.default_member_role = Role.SCHEDULER
+    project.save(update_fields=["default_member_role"])
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk)})  # no role
+
+    assert resp.status_code == 201, resp.data
+    assert resp.data["role"] == Role.SCHEDULER
+    revived = ProjectMembership.objects.get(pk=member_membership.pk)
+    assert revived.role == Role.SCHEDULER
+    assert revived.role_changed_at is not None
+
+
+@pytest.mark.django_db
+def test_re_add_is_refused_on_an_archived_project(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """IsProjectNotArchived still gates the revive branch.
+
+    The revive is exactly where a future "the row already exists, just resurrect
+    it" shortcut would bypass the archive gate, so pin the refusal behaviorally
+    rather than relying on the declared-permission-class sweep.
+    """
+    member_membership.soft_delete()
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 403
+    assert ProjectMembership.objects.get(pk=member_membership.pk).is_deleted is True
+
+
+@pytest.mark.django_db
+def test_re_add_below_member_still_schedules_the_eviction(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """Documents a real quirk of the revive path rather than asserting it is absent.
+
+    ``access.signals._evict_on_revocation`` is a pre_save receiver that compares
+    the stored role against the incoming one without consulting ``is_deleted``, so
+    reviving a revoked MEMBER at VIEWER trips its ``demoted_below_member`` branch
+    and queues an evict during an *add*. It is harmless (a revoked user holds no
+    live socket, and a Viewer cannot open one) and corrective if the revoke-time
+    evict was ever lost, so it is pinned, not suppressed.
+    """
+    member_membership.soft_delete()
+    with (
+        patch("trueppm_api.apps.access.signals.evict_project_connection") as evict,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.VIEWER})
+
+    assert resp.status_code == 201, resp.data
+    assert evict.called
+    assert ProjectMembership.objects.get(pk=member_membership.pk).role == Role.VIEWER
+
+
+@pytest.mark.django_db
+def test_re_add_restores_the_team_facets_the_revocation_floored(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """The reason #3410 was load-bearing rather than merely a stale-data 500.
+
+    #3386 put a live-``ProjectMembership`` floor under ``user_facets``, so revoking
+    someone drops their Scrum Master / Product Owner facet even though the mirrored
+    ``TeamMembership`` row survives untouched (the ADR-0078 mirror is create-only).
+    Re-adding them is therefore the *only* way to restore a floored facet — which is
+    precisely what used to 500. This is the largest access-restoring side effect of
+    the revive, so it is pinned rather than left implied.
+    """
+    from trueppm_api.apps.teams.models import TeamMembership
+    from trueppm_api.apps.teams.services import ensure_team_membership, user_facets
+
+    ensure_team_membership(project_id=project.pk, user_id=member_user.pk, project_role=Role.MEMBER)
+    TeamMembership.objects.filter(
+        team__project_id=project.pk, user_id=member_user.pk, is_deleted=False
+    ).update(is_scrum_master=True)
+    assert user_facets(member_user, project.pk)["is_scrum_master"] is True
+
+    member_membership.soft_delete()
+    # Floored by the revocation even though the team row still says True.
+    assert user_facets(member_user, project.pk)["is_scrum_master"] is False
+    assert (
+        user_facets(member_user, project.pk, live_project_members_only=False)["is_scrum_master"]
+        is True
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    assert user_facets(member_user, project.pk)["is_scrum_master"] is True

@@ -542,6 +542,14 @@ def cascade_task_classification(
     report: dict[str, Any] = {
         "subtree": str(spec.subtree_id),
         "matched": len(rows),
+        # Rows actually saved (#3306). Not derivable from the per-axis tallies and
+        # not the same number: ``applied`` increments once per row PER AXIS, so a
+        # both-axes cascade counts the same row twice, and a milestone withheld on
+        # one axis but written on the other is one row appearing in one total only.
+        # The governance branch also writes two model columns per increment, so the
+        # sum is neither rows nor fields. This is the one count the caller can hold
+        # against what they selected and check against the grid.
+        "rows_written": len(written),
         "skipped": skipped,
     }
     governance_block = _axis_report(spec.governance_class, governance, has_inherit_bit=True)

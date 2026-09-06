@@ -167,9 +167,6 @@ test.describe('Program Settings → Access', () => {
     // The hardcoded "Anika Krishnan" from the stub must be gone.
     await expect(page.getByText('Anika Krishnan')).toHaveCount(0);
 
-    // Stub banner must not render once wired.
-    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
-
     const addBtn = page.getByRole('button', { name: /Add member/i });
     await expect(addBtn).toBeVisible();
     await addBtn.click();

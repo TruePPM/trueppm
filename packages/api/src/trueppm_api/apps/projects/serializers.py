@@ -154,42 +154,6 @@ class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
     )
 
 
-class BoardLaneSerializer(serializers.Serializer[dict[str, Any]]):
-    """One board swimlane (#2953)."""
-
-    id = serializers.CharField(help_text="Container task id, or `root` for the project node.")
-    name = serializers.CharField(
-        help_text="The container's name, or the project's own name for the root lane."
-    )
-    is_root = serializers.BooleanField(
-        help_text="True for the project-node lane. Says WHICH object it is, not that it lacks one."
-    )
-    task_ids = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Cards in this lane, in WBS order. A container is never among them.",
-    )
-
-
-class BoardLanesSerializer(serializers.Serializer[dict[str, Any]]):
-    """The board's lane grouping (#2953, ADR-0843).
-
-    Declared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the
-    shape is visible to anyone diffing the schema — see #2942 for what OBJECT
-    costs.
-    """
-
-    group_depth = serializers.IntegerField(help_text="Depth the lanes were cut at.")
-    lanes = BoardLaneSerializer(many=True)
-    crumbs = serializers.DictField(
-        child=serializers.CharField(),
-        help_text=(
-            "task id → the name of the nested container it actually sits in, when "
-            "that differs from its lane. Absent for a card sitting directly in its "
-            "lane, which is the overwhelming majority."
-        ),
-    )
-
-
 class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
     """The body of the ``409`` a contradicted ``structure_role`` returns (#2976).
 
@@ -1164,10 +1128,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         **Scope it exactly — the plural in the name is a family, not "all undo".**
         This answers for the ledgers under ``batch_operation_views``, whose refusal
         resolves through the same predicate: the classification cascade and paste-many.
-        The CSV-import fix (``csvimport.views._require_project_admin``) and template
-        apply (``template_views``) hold their own inline copies of the identical
-        Admin+ comparison, so the answer is currently the same for them — but they are
-        copies, not callers, and only a rebind would make that a guarantee.
+        The CSV-import fix (``csvimport.views._require_project_admin``) and the
+        template-application undo (``template_views``) held their own inline copies of
+        the identical Admin+ comparison until #3353; both are now callers of
+        :func:`role_can_undo_batch_operation`, so the answer is the same for them by
+        construction rather than by coincidence. (``template_views``'s separate
+        ``_require_project_admin``, which gates *publishing and applying* a template,
+        is a different rule that merely shares today's ordinal and is not in the
+        family.)
         **Structural operations are a different rule and this field does not answer for
         them**: ``structural_operation_services`` deliberately implements
         *actor-or-Admin* (ADR-0880 §4), so an actor below Admin may reverse their own
@@ -3684,9 +3652,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_subtask",
             # Derived state, not a client toggle: it records whether this task
             # inherited its governance from its parent, so a client value can
-            # contradict ``governance_class``. The write also left no audit row —
-            # the field is in ``_HISTORY_DIFF_DISPLAY_EXCLUDED``, whose every other
-            # member is non-writable or privacy-gated. Nothing in the API reads it.
+            # contradict ``governance_class``. It is readable by every project
+            # member — both its current value here and, since #3306, its transitions
+            # on the task history feed when it moves on its own (it stays out of the
+            # diff alongside a ``governance_class`` change, which already says the
+            # same thing). Read-only is about who may *set* it, not who may see it.
             "parent_governance_inherited",
             # ADR-0124: blocked_since / blocked_by / age / impediment verdict are
             # server-stamped or derived — read-only. blocker_type / blocking_task
@@ -6190,6 +6160,14 @@ class TaskClassificationResponseSerializer(serializers.Serializer[Any]):
 
     subtree = serializers.UUIDField()
     matched = serializers.IntegerField()
+    # #3306: rows actually saved, as distinct from `matched` (rows the subtree
+    # resolved) and from the per-axis `applied` tallies, which count row-per-AXIS and
+    # therefore cannot be summed into a row count. The client's receipt needs a unit
+    # the caller can verify against the grid, and this is the only one it cannot
+    # derive: a row written on one axis and withheld on the other appears in exactly
+    # one per-axis total, so `governance.applied + delivery_mode.applied` is neither
+    # rows nor columns.
+    rows_written = serializers.IntegerField()
     governance = TaskClassificationAxisSerializer(required=False)
     delivery_mode = TaskClassificationAxisSerializer(required=False)
     skipped = TaskClassificationSkipSerializer(many=True)
@@ -8893,21 +8871,6 @@ class MilestoneListItemSerializer(serializers.Serializer[Any]):
     wbs_path = serializers.CharField(read_only=True)
     early_finish = serializers.DateField(read_only=True, allow_null=True)
     is_bound = serializers.BooleanField(read_only=True)
-
-
-class TaskScopeRollupSerializer(serializers.Serializer[dict[str, Any]]):
-    """Scope rollup for a task's subtree (ADR-0108 §3, #408).
-
-    ``current_scope`` is the live story-point sum over leaf descendants;
-    ``baselined_scope`` / ``scope_delta`` are null when there is no active baseline
-    (or it captured no scope) — never a misleading 0. ``has_baseline`` lets the UI
-    distinguish "no baseline" from "delta is exactly 0".
-    """
-
-    current_scope = serializers.IntegerField()
-    baselined_scope = serializers.IntegerField(allow_null=True)
-    scope_delta = serializers.IntegerField(allow_null=True)
-    has_baseline = serializers.BooleanField()
 
 
 class PreviousForecastSnapshotSerializer(serializers.Serializer[Any]):

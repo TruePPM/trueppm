@@ -19077,76 +19077,6 @@
                 "summary": "Delete board view"
             }
         },
-        "/api/v1/projects/{id}/board/lanes/": {
-            "get": {
-                "operationId": "v1_projects_board_lanes_retrieve",
-                "description": "The board's swimlane grouping, as a server fact (#2953, ADR-0843).\n\nLanes are **real container ids plus the project node** — there is no synthetic catch-all lane and no promotion of childless rows. Three invariants, identical to the web client's:\n\n1. A container is never a card, at any depth.\n2. Every task appears exactly once, in the lane of its top-level container ancestor; a nested container travels on the card as a crumb.\n3. Root-level work belongs to the project node, whose lane carries the project's name and is absent when it holds nothing.\n\nThis closes the #986 API-first gap: the grouping previously existed only in the browser, so no agent, MCP client or integration could reproduce the board a human sees.",
-                "summary": "Board swimlanes",
-                "parameters": [
-                    {
-                        "in": "query",
-                        "name": "group_depth",
-                        "schema": {
-                            "type": "integer"
-                        },
-                        "description": "WBS depth at which lanes are cut. Defaults to 1. No UI exposes this; it exists so a client may ask. Measured 2026-08-18, 94.9% of leaf rows sit at depth <= 2 and carry no crumb at all."
-                    },
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "sprints"
-                ],
-                "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/BoardLanes"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/projects/{id}/burn/": {
             "get": {
                 "operationId": "v1_projects_burn_retrieve",
@@ -26788,12 +26718,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/CsvImportStatusResponse"
                                 }
                             }
                         },
-                        "description": "{\"status\", \"filename\", \"summary\", \"requested_at\", \"date_order\", \"date_order_confirmed\"}."
+                        "description": "The import's outbox row: lifecycle state, result summary, the date convention it ran under, and the caller's authority over the undo."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
@@ -35551,7 +35480,7 @@
         "/api/v1/projects/{project_pk}/teams/": {
             "get": {
                 "operationId": "v1_projects_teams_list",
-                "description": "Read-only team access, nested under a project and as a top-level detail route.",
+                "description": "Read-only team access, nested under a project.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -45974,7 +45903,7 @@
         "/api/v1/tasks/{id}/duration-events/": {
             "get": {
                 "operationId": "v1_tasks_duration_events_list",
-                "description": "Duration-change audit events for a task, newest first (ADR-0151, #414).\n\nDetail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new\nduration, the percent-complete policy applied, the actor, and the active\nsprint (if any) at change time. Any project member may read (same gate as\n``scope``). IDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the\ncaller's projects, so ``get_object`` 404s on a foreign task. Paginated\nnewest-first; ``select_related`` keeps actor-name rendering off the N+1 path.",
+                "description": "Duration-change audit events for a task, newest first (ADR-0151, #414).\n\nDetail-scoped read of the task's ``TaskDurationChangeEvent`` rows — old/new\nduration, the percent-complete policy applied, the actor, and the active\nsprint (if any) at change time. Any project member may read: this action\ndeclares no ``permission_classes`` of its own, so it falls through to the\ngeneric ``IsProjectMember`` branch at the end of ``_rbac_permissions()``\n(Viewer+). The class-level ``permission_classes`` is *not* what applies —\n``get_permissions()`` replaces it wholesale.\nIDOR-safe: ``ProjectScopedViewSet`` restricts the queryset to the\ncaller's projects, so ``get_object`` 404s on a foreign task. Paginated\nnewest-first; ``select_related`` keeps actor-name rendering off the N+1 path.",
                 "summary": "Duration-change audit events for a task (ADR-0151, #414)",
                 "parameters": [
                     {
@@ -46220,70 +46149,6 @@
                         }
                     }
                 }
-            }
-        },
-        "/api/v1/tasks/{id}/scope/": {
-            "get": {
-                "operationId": "v1_tasks_scope_retrieve",
-                "description": "Scope rollup for a task's subtree (ADR-0108 §3, #408).\n\nReturns the live story-point sum over leaf descendants, the active\nbaseline's snapshot of that scope, and the delta (null when no active\nbaseline). Detail-scoped so the per-call queries are not an N+1; any\nproject member may read (the default permission applies — no schedule or\nbacklog gate, this is a read-only computed view).",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "description": "A UUID string identifying this task.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/TaskScopeRollup"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Retrieve scope"
             }
         },
         "/api/v1/tasks/{id}/split/": {
@@ -47252,66 +47117,6 @@
                         }
                     }
                 }
-            }
-        },
-        "/api/v1/teams/{id}/": {
-            "get": {
-                "operationId": "v1_teams_retrieve",
-                "description": "Read-only team access, nested under a project and as a top-level detail route.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "teams"
-                ],
-                "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Team"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Retrieve team"
             }
         },
         "/api/v1/teams/{team_pk}/members/": {
@@ -52648,65 +52453,6 @@
                     "columns"
                 ]
             },
-            "BoardLane": {
-                "type": "object",
-                "description": "One board swimlane (#2953).",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Container task id, or `root` for the project node."
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "The container's name, or the project's own name for the root lane."
-                    },
-                    "is_root": {
-                        "type": "boolean",
-                        "description": "True for the project-node lane. Says WHICH object it is, not that it lacks one."
-                    },
-                    "task_ids": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
-                        "description": "Cards in this lane, in WBS order. A container is never among them."
-                    }
-                },
-                "required": [
-                    "id",
-                    "is_root",
-                    "name",
-                    "task_ids"
-                ]
-            },
-            "BoardLanes": {
-                "type": "object",
-                "description": "The board's lane grouping (#2953, ADR-0843).\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the\nshape is visible to anyone diffing the schema — see #2942 for what OBJECT\ncosts.",
-                "properties": {
-                    "group_depth": {
-                        "type": "integer",
-                        "description": "Depth the lanes were cut at."
-                    },
-                    "lanes": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/BoardLane"
-                        }
-                    },
-                    "crumbs": {
-                        "type": "object",
-                        "additionalProperties": {
-                            "type": "string"
-                        },
-                        "description": "task id → the name of the nested container it actually sits in, when that differs from its lane. Absent for a card sitting directly in its lane, which is the overwhelming majority."
-                    }
-                },
-                "required": [
-                    "crumbs",
-                    "group_depth",
-                    "lanes"
-                ]
-            },
             "BoardSavedView": {
                 "type": "object",
                 "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\nOn read, config is run through the forward-migration registry\n(``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204): a stale stored\npayload is upgraded to the current shape before any client sees it, and the\nresolved ``schema_version`` is returned alongside. New writes are stamped at\nthe current version explicitly by the view layer (mirroring how it also\nstamps ``server_version`` rather than trusting a model default — see\n``BoardSavedView``'s docstring for why the field default itself stays put),\nso the migration chain is a no-op for them and only rewrites genuinely\nolder rows.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
@@ -53151,6 +52897,9 @@
                     "threshold": {
                         "type": "integer"
                     },
+                    "disregarded_vote_count": {
+                        "type": "integer"
+                    },
                     "your_vote": {
                         "type": "string",
                         "nullable": true
@@ -53169,6 +52918,7 @@
                     "approve_count",
                     "can_vote",
                     "created_at",
+                    "disregarded_vote_count",
                     "eligible_count",
                     "expires_at",
                     "from_ceiling",
@@ -53762,6 +53512,54 @@
                     "task_hex_id",
                     "task_name",
                     "upstream_task"
+                ]
+            },
+            "CsvImportStatusResponse": {
+                "type": "object",
+                "description": "The 200 body of ``GET …/import/csv/{id}/`` — declared, not prose (#3353).\n\nThis payload used to be typed ``OpenApiTypes.OBJECT`` with the key names listed\nin a sentence, which is not a contract anyone can generate an SDK against. It\nmatters most for ``can_undo``: a field whose entire purpose is to be read by a\nclient, reaching ``docs/api/openapi.json`` as an undiscoverable member of a free\nobject, is a field that does not exist for a non-browser caller (the #2942 class).\n\nResponse-only — nothing deserializes it; the view builds the dict itself.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Outbox lifecycle: `pending` → `dispatched` → `done` | `dead`."
+                    },
+                    "filename": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "description": "The importer's own result summary — counts, parked rows, row errors. **Empty (`{}`), never null**, until the job has run: `result_summary` is a `JSONField(default=dict)` with `null=False` and nothing writes `None` to it. Branch on `status`, not on this being absent."
+                    },
+                    "requested_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "date_order": {
+                        "type": "string",
+                        "description": "The slash-date convention this import actually ran under, read back so \"why does this task say 62 days\" stays answerable afterwards (#2926)."
+                    },
+                    "date_order_confirmed": {
+                        "type": "boolean",
+                        "description": "Whether a human accepted that convention rather than letting `auto` decide."
+                    },
+                    "can_undo": {
+                        "type": "boolean",
+                        "description": "May THIS caller undo the import? (#3353) Committing is the Scheduler band and `POST …/import/csv/{id}/undo/` is Admin+, so reaching this endpoint at all says nothing about the undo's gate. **Authority only** — a `true` is not a promise the undo will succeed: it additionally requires the project to be unarchived, and the import to still be in `done` state. Orthogonal to `status`, which answers whether there is anything to undo."
+                    }
+                },
+                "required": [
+                    "can_undo",
+                    "date_order",
+                    "date_order_confirmed",
+                    "filename",
+                    "id",
+                    "requested_at",
+                    "status",
+                    "summary"
                 ]
             },
             "DateFormatEnum": {
@@ -61692,7 +61490,7 @@
             },
             "ProgramMembershipRead": {
                 "type": "object",
-                "description": "Response serializer for ProgramMembership — mirrors the project version.",
+                "description": "Response serializer for ProgramMembership — mirrors the project version.\n\n``joined_at`` carries the same caveat as its project twin: it is the date the row\nwas first created, and a revoked member who is later re-added keeps it, so the\nspan may contain revoked intervals (#3410). It is not proof of uninterrupted\naccess.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -63743,7 +63541,7 @@
             },
             "ProjectMembershipRead": {
                 "type": "object",
-                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole                       — integer ordinal (canonical wire format; use for comparisons)\nrole_label                 — human-readable label e.g. \"Project Manager\" (display only)\njoined_at                  — when this membership row was created (per-project access evidence)\nrole_changed_at            — when the role last changed, or null if unchanged since joining\nother_active_project_count — how many OTHER active (non-archived, non-deleted) projects this\n                             user belongs to, excluding the current one. A resource-load\n                             signal for the assigner (#598). The full count is shown; it is a\n                             number only and leaks no project identities.\nother_active_project_names — names of those other projects, but ONLY the ones the *requesting*\n                             user is OWNER of (visibility gate — never reveal the name of a\n                             project the requester cannot already see). Empty for non-OWNERs.",
+                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole                       — integer ordinal (canonical wire format; use for comparisons)\nrole_label                 — human-readable label e.g. \"Project Manager\" (display only)\njoined_at                  — when this membership row was first created. Per-project access\n                             evidence, but NOT proof of uninterrupted access: re-adding a\n                             previously removed member revives their original row and keeps\n                             this date, so the span may contain one or more revoked intervals\n                             (#3410). Nothing on the row records the gap.\nrole_changed_at            — when the role last changed, or null if unchanged since joining\nother_active_project_count — how many OTHER active (non-archived, non-deleted) projects this\n                             user belongs to, excluding the current one. A resource-load\n                             signal for the assigner (#598). The full count is shown; it is a\n                             number only and leaks no project identities.\nother_active_project_names — names of those other projects, but ONLY the ones the *requesting*\n                             user is OWNER of (visibility gate — never reveal the name of a\n                             project the requester cannot already see). Empty for non-OWNERs.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -69130,10 +68928,15 @@
                         "format": "uuid",
                         "nullable": true,
                         "description": "ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates. Null when the batch created no rows — POST /paste-many-operations/{operation_id}/undo/."
+                    },
+                    "can_undo": {
+                        "type": "boolean",
+                        "description": "May THIS caller reverse this batch? (#3353) This endpoint is Member+ minus the resource band, while POST /paste-many-operations/{operation_id}/undo/ is Admin+ — so a `207` here says the caller cleared the write's gate and nothing about the undo's. Independent of `operation_id`, which answers whether there is anything to undo rather than whether you may; a client offering an Undo needs both. **Authority only** — a `true` is not a promise the undo will succeed: it additionally requires the project to be unarchived and the ledger row to still be inside the batch-operation retention window (`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS`, a deployment setting), after which the undo is a `404`. This endpoint also carries the idempotency mixin, whose request hash does not cover the caller's role — so a repeated `Idempotency-Key` replays the stored body, and a caller demoted since can be served a stale `true`. Harmless: the undo endpoint re-derives the role and still refuses. Treat this field as advisory, never as the gate."
                     }
                 },
                 "required": [
                     "applied",
+                    "can_undo",
                     "capabilities_denied",
                     "dependencies",
                     "operation_id",
@@ -69181,6 +68984,9 @@
                     "matched": {
                         "type": "integer"
                     },
+                    "rows_written": {
+                        "type": "integer"
+                    },
                     "governance": {
                         "$ref": "#/components/schemas/TaskClassificationAxis"
                     },
@@ -69206,6 +69012,7 @@
                     "can_undo",
                     "matched",
                     "operation_id",
+                    "rows_written",
                     "skipped",
                     "subtree"
                 ]
@@ -70919,32 +70726,6 @@
                     "started_at",
                     "status",
                     "task_name"
-                ]
-            },
-            "TaskScopeRollup": {
-                "type": "object",
-                "description": "Scope rollup for a task's subtree (ADR-0108 §3, #408).\n\n``current_scope`` is the live story-point sum over leaf descendants;\n``baselined_scope`` / ``scope_delta`` are null when there is no active baseline\n(or it captured no scope) — never a misleading 0. ``has_baseline`` lets the UI\ndistinguish \"no baseline\" from \"delta is exactly 0\".",
-                "properties": {
-                    "current_scope": {
-                        "type": "integer"
-                    },
-                    "baselined_scope": {
-                        "type": "integer",
-                        "nullable": true
-                    },
-                    "scope_delta": {
-                        "type": "integer",
-                        "nullable": true
-                    },
-                    "has_baseline": {
-                        "type": "boolean"
-                    }
-                },
-                "required": [
-                    "baselined_scope",
-                    "current_scope",
-                    "has_baseline",
-                    "scope_delta"
                 ]
             },
             "TaskSkillRequirement": {

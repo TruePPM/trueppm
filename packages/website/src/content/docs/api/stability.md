@@ -64,8 +64,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the three Breaking changes taken so far all
-bypassed it deliberately, and all three are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the four Breaking changes taken so far all
+bypassed it deliberately, and all four are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -133,6 +133,42 @@ deprecation window rather than being removed outright:
    removed path, schema, and event type, and the removal is declared in
    `scripts/schema-removal-allowlist.txt` so the schema gate treats it as reviewed
    rather than accidental.
+
+   **Bypassed a fourth time, in 0.4 (#3370).** Three read endpoints are removed outright:
+   `GET /api/v1/teams/{id}/`, `GET /api/v1/projects/{id}/board/lanes/`, and
+   `GET /api/v1/tasks/{id}/scope/`, together with the `BoardLane`, `BoardLanes` and
+   `TaskScopeRollup` component schemas. Removing an endpoint is **Breaking** by the table
+   above, so this is a policy exception and is recorded as one rather than as routine.
+
+   What the three have in common is that **nothing calls them**: a repository-wide search
+   across the web client, its Playwright suite, the mobile app, the MCP server, the docs
+   tree and the three closed-source client repos finds no caller of any of them. A
+   deprecation window exists to give a client time to migrate, and there is no client to
+   give time to. What each one leaves behind differs, and is worth stating exactly:
+
+   - `teams/{id}/` — looking a team up **by its id alone** is gone. Team attributes
+     (`name`, `short_id`, `is_default`, `member_count`) are still served by the
+     project-scoped list `GET /api/v1/projects/{project_id}/teams/`, which is what our own
+     web client has always used. The two `teams/{id}/members/` routes are unaffected, but
+     they return the team as a bare id, not as an object.
+   - `board/lanes/` — **there is no server-side replacement.** The WBS swimlane grouping
+     it returned is not what `board-config` carries: `board-config`'s `lanes` are the named
+     lanes *within* a status column, a different concept with a different shape. The
+     swimlane grouping is a client-side derivation again, and re-exposing it would be a
+     fresh API-design decision rather than restoring this route. The route has never
+     appeared in a tagged release at all — it was built during the 0.4 cycle and is removed
+     before that line reaches beta — so no client can be holding it.
+   - `tasks/{id}/scope/` — the rollup behind it stays. `services.compute_scope_rollup` is
+     ADR-0108 §3 engine logic, is unchanged, and is now covered as a unit rather than
+     through the route. What is withdrawn is only the claim that the scope delta is
+     reachable over the API; a client that needs it has no endpoint today.
+
+   As with the removals above, a stale call **does not fail silently**: the removed paths
+   answer `404`, so an integration still calling one finds out at the moment it calls
+   rather than inferring it from a response body. The changelog fragment names every
+   removed path and schema, and the removal is declared in
+   `scripts/schema-removal-allowlist.txt` so the schema gate treats it as reviewed rather
+   than accidental.
 
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for

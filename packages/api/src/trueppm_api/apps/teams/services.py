@@ -215,23 +215,51 @@ def has_team_facet(
     return user_facets(user, project_id, live_project_members_only=live_project_members_only)[facet]
 
 
-def team_member_user_ids(project_id: Any) -> set[Any]:
+def team_member_user_ids(project_id: Any, *, live_project_members_only: bool = True) -> set[Any]:
     """Return the set of user ids on a project's default team (the voter roster).
 
-    The eligible-voter set for the ADR-0104 Amendment-A ceiling-raise ratification:
-    every non-deleted ``TeamMembership`` of the project's default team. Scoped to
-    *team* membership — **not** project membership — so a non-team project Admin/PM
-    cannot vote on (or stuff) a team's signal-sharing decision. One query; the count
-    is the ratification denominator and ``user_id in <set>`` is the per-voter gate.
+    The eligible-voter set for the ADR-0104 ceiling-raise ratification: every
+    non-deleted ``TeamMembership`` of the project's default team **intersected with a
+    live, non-soft-deleted ``ProjectMembership``** (Amendment C, #3387). One query; the
+    count is the ratification denominator and ``user_id in <set>`` is the per-voter
+    gate.
+
+    **The team term still comes first, so the anti-stuffing property is untouched.**
+    Amendment A.2 scoped the roster to *team* membership rather than project membership
+    on purpose — a non-team project Admin/PM must not be able to vote on (or stuff) a
+    team's signal-sharing decision. The intersection can only ever *remove* voters
+    (``T ∩ M ⊆ T``), so someone excluded before is still excluded: a project Admin with
+    no team row has nothing for the second term to preserve.
+
+    **Why the intersection had to be added (Amendment C).** The ADR-0078 §F mirror is
+    create-only — :mod:`trueppm_api.apps.teams.signals` has no ``post_delete`` receiver
+    and ``TeamMembership`` has no FK to ``ProjectMembership`` a cascade could travel
+    over — so offboarding someone leaves their team row live forever. Without the floor
+    those ghosts inflate ``eligible_count``, and with it ``threshold``, while being
+    unable to cast a vote (``IsProjectMember`` 403s them first). A six-member team that
+    loses three still needs four approvals and can only ever raise three, so the
+    proposal becomes **unratifiable** with nothing in the UI explaining why. The
+    denominator was wrong in a way that silently changed governance outcomes.
+
+    Args:
+        project_id: The project whose default team is read.
+        live_project_members_only: Intersect with non-soft-deleted
+            ``ProjectMembership`` on the same project. Pass ``False`` only to ask the
+            raw "who has a team row" question — never from an eligibility, tally, or
+            recipient path.
+
+    Returns:
+        The set of eligible user ids.
     """
-    return set(
-        TeamMembership.objects.filter(
-            team__project_id=project_id,
-            team__is_default=True,
-            team__is_deleted=False,
-            is_deleted=False,
-        ).values_list("user_id", flat=True)
+    queryset = TeamMembership.objects.filter(
+        team__project_id=project_id,
+        team__is_default=True,
+        team__is_deleted=False,
+        is_deleted=False,
     )
+    if live_project_members_only:
+        queryset = queryset.filter(_live_project_membership_exists())
+    return set(queryset.values_list("user_id", flat=True))
 
 
 def facet_holder_user_ids(
@@ -360,26 +388,37 @@ def facet_holder_user_ids_by_project(project_ids: Any) -> dict[Any, set[Any]]:
     return holders
 
 
-def is_team_member(user: AbstractBaseUser | AnonymousUser, project_id: Any) -> bool:
+def is_team_member(
+    user: AbstractBaseUser | AnonymousUser,
+    project_id: Any,
+    *,
+    live_project_members_only: bool = True,
+) -> bool:
     """Whether ``user`` is on the project's default team (an eligible signal voter).
 
-    Deliberately carries **no** live-``ProjectMembership`` floor, unlike
-    :func:`user_facets`. This is the single-user
-    twin of :func:`team_member_user_ids`, and ADR-0104 §A.2 defines that roster as
-    team-scoped *on purpose* — scoping it to project membership is what a non-team
-    project Admin/PM would need to vote on a team's signal-sharing decision. Adding a
-    floor here narrows a roster the ADR deliberately widened away from project
-    membership and changes the ratification denominator, so it is a governance
-    amendment rather than a defect fix; it is tracked as #3387 and must move with the
-    ADR. Safe meanwhile: ``_SignalPrivacyBase`` sits behind ``IsProjectMember``, which
-    honors ``is_deleted``, so a revoked member is 403'd before this is consulted.
+    The single-user twin of :func:`team_member_user_ids`, and it carries the same
+    live-``ProjectMembership`` floor for the same reason (ADR-0104 Amendment C, #3387).
+    The two **must** agree: this is the write gate on casting a ratification vote while
+    the set form is the denominator that vote is measured against, so a floor on one
+    seam and not the other would let the tally count a roster the vote gate does not
+    recognize.
+
+    The floor narrows; it never widens. ADR-0104 §A.2's anti-stuffing property is the
+    *team* term, which is unchanged — a non-team project Admin/PM still has no team row
+    and still cannot vote.
+
+    ``live_project_members_only=False`` asks the raw "does a team row exist" question;
+    it has no eligibility meaning and must not be used from a gate.
     """
     if not getattr(user, "is_authenticated", False):
         return False
-    return TeamMembership.objects.filter(
+    queryset = TeamMembership.objects.filter(
         team__project_id=project_id,
         team__is_default=True,
         team__is_deleted=False,
         user=user,  # type: ignore[misc]  # narrowed authenticated above
         is_deleted=False,
-    ).exists()
+    )
+    if live_project_members_only:
+        queryset = queryset.filter(_live_project_membership_exists())
+    return queryset.exists()

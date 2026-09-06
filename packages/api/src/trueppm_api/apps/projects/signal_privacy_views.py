@@ -101,6 +101,10 @@ class CeilingProposalSerializer(serializers.Serializer[Any]):
     reject_count = serializers.IntegerField()
     eligible_count = serializers.IntegerField()
     threshold = serializers.IntegerField()
+    # Amendment C: eligibility is evaluated at tally time, so the counts above can move
+    # when the roster does. This says how many cast votes are no longer counted, so a
+    # shrinking tally is explainable rather than mysterious. Normally 0.
+    disregarded_vote_count = serializers.IntegerField()
     your_vote = serializers.CharField(allow_null=True)
     can_vote = serializers.BooleanField()
     votes = CeilingVoteSerializer(many=True)

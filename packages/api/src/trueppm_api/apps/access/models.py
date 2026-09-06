@@ -97,6 +97,10 @@ class ProjectMembership(VersionedModel):
     # "who has access and since when" answer for compliance questionnaires.
     # VersionedModel deliberately omits created_at/updated_at (sync uses
     # server_version), so these are explicit columns rather than inherited.
+    # Scope of the evidence (#3410): joined_at is the *first* join. Re-adding a
+    # revoked member revives their original row and keeps this date, so the span
+    # it describes may contain revoked intervals and no column records them.
+    # Do not present it as proof of uninterrupted access.
     # joined_at uses default=timezone.now (not auto_now_add) so the AddField
     # migration backfills existing rows non-interactively at migration time.
     joined_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -166,6 +170,9 @@ class ProgramMembership(VersionedModel):
     # ADR-0070's "mirrors ProjectMembership" claim holds and the program members
     # view can answer "who has access and since when". VersionedModel omits
     # created_at/updated_at (sync uses server_version), so these are explicit.
+    # The same scope caveat applies as on the project side (#3410): joined_at is
+    # the first join and survives a revoke-then-re-add, so it is not proof of
+    # uninterrupted access.
     # joined_at uses default=timezone.now (not auto_now_add) so the AddField
     # migration backfills existing rows non-interactively at migration time.
     joined_at = models.DateTimeField(default=timezone.now, editable=False)

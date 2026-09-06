@@ -553,7 +553,15 @@ def ratification_threshold(eligible_count: int) -> int:
 
 
 def _team_voter_ids(project_id: Any) -> set[Any]:
-    """The eligible-voter set: user ids on the project's default team (Amendment A.2)."""
+    """The eligible-voter set (Amendment A.2 as amended by Amendment C, #3387).
+
+    Default-team ``TeamMembership`` **intersected with live ``ProjectMembership``** —
+    the intersection lives in ``team_member_user_ids`` and is defaulted on, so this is
+    a plain delegation rather than a local filter. Both the denominator
+    (:func:`ratification_threshold`) and the numerator (:func:`_count_current_votes`)
+    read this one set, which is what keeps a tally internally consistent when the
+    roster moves mid-proposal.
+    """
     from trueppm_api.apps.teams.services import team_member_user_ids
 
     return team_member_user_ids(project_id)
@@ -627,22 +635,40 @@ def _resolve_proposal(
 
 def _count_current_votes(
     proposal: SignalCeilingRaiseProposal, voter_ids: set[Any]
-) -> tuple[int, int]:
-    """(approve, reject) counts restricted to *current* eligible members.
+) -> tuple[int, int, int]:
+    """(approve, reject, disregarded) — votes restricted to *current* eligible members.
 
-    A member who has left the team no longer sways the tally, so the numbers always
-    reconcile with the roster the threshold is computed against.
+    The third value is the count of cast votes whose caster is no longer eligible. It
+    exists so the tally can **explain itself**: with a live roster both the numerator
+    and the denominator can move between two reads of the same OPEN proposal, and a
+    bare pair of shrinking integers gives a reader no way to tell a withdrawn vote from
+    a departed voter. Surfaced as ``disregarded_vote_count`` on the API tally.
+
+    **This is the already-cast-vote rule of Amendment C, and it is deliberate.** A vote
+    counts only while its caster is eligible, so the numerator and the denominator move
+    together and the tally always reconciles with the roster the threshold is computed
+    against. Since #3387 "eligible" also means holding a live ``ProjectMembership``, so
+    an offboarded member's vote stops counting at the same instant they stop counting
+    toward the bar — a proposal can never ratify on an absent member's approval.
+
+    The vote **row is not deleted**: it stays as the audit record Amendment A.6 promises,
+    and re-seating the member restores their vote to the tally. And the recomputation
+    can only ever reach an OPEN proposal — :func:`_tally_and_maybe_apply` returns
+    immediately once the status is terminal and a ratified raise is never revisited —
+    so no offboarding can retroactively flip a decision that has already been applied.
     """
     approve = 0
     reject = 0
+    disregarded = 0
     for vote in proposal.votes.all():
         if vote.voter_id not in voter_ids:
+            disregarded += 1
             continue
         if vote.choice == CeilingVoteChoice.APPROVE:
             approve += 1
         elif vote.choice == CeilingVoteChoice.REJECT:
             reject += 1
-    return approve, reject
+    return approve, reject, disregarded
 
 
 def _tally_and_maybe_apply(proposal: SignalCeilingRaiseProposal) -> SignalCeilingRaiseProposal:
@@ -658,7 +684,7 @@ def _tally_and_maybe_apply(proposal: SignalCeilingRaiseProposal) -> SignalCeilin
     voter_ids = _team_voter_ids(proposal.project_id)
     eligible = len(voter_ids)
     threshold = ratification_threshold(eligible)
-    approve, reject = _count_current_votes(proposal, voter_ids)
+    approve, reject, _disregarded = _count_current_votes(proposal, voter_ids)
     if approve >= threshold:
         return _resolve_proposal(proposal, CeilingRaiseStatus.RATIFIED)
     # Approval can no longer reach the bar (even every remaining member voting yes
@@ -861,14 +887,23 @@ def proposal_tally(
 
     Pass ``voter_ids`` (the precomputed roster, identical across a project's proposals)
     to avoid one roster query per proposal when serializing a list.
+
+    ``disregarded_vote_count`` is the explainability handle Amendment C owes the reader:
+    eligibility is evaluated at *tally* time, so ``eligible_count``, ``threshold`` and
+    the approve/reject pair can all move between two reads of the same OPEN proposal
+    when the roster changes underneath it. Without this field a client can see the
+    numbers shift but cannot distinguish "someone changed their mind" from "someone left
+    the project", and cannot tell a member their own vote has stopped counting. It is
+    the count of cast votes whose caster is no longer eligible — normally 0.
     """
     if voter_ids is None:
         voter_ids = _team_voter_ids(proposal.project_id)
     eligible = len(voter_ids)
-    approve, reject = _count_current_votes(proposal, voter_ids)
+    approve, reject, disregarded = _count_current_votes(proposal, voter_ids)
     return {
         "approve_count": approve,
         "reject_count": reject,
         "eligible_count": eligible,
         "threshold": ratification_threshold(eligible),
+        "disregarded_vote_count": disregarded,
     }

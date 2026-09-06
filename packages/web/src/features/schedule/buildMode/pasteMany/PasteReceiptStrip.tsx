@@ -1,5 +1,6 @@
 import type { PasteSummary } from './buildPasteOperations';
 import { formatChord } from '@/lib/platform';
+import { shouldDiscloseUndoFloor } from '@/lib/roles';
 
 const FIELD_LABEL: Record<string, string> = {
   name: 'name',
@@ -63,9 +64,37 @@ export function buildPasteReceiptMessage(summary: PasteSummary): string {
   return sentences.join(' ');
 }
 
+/** What the strip says instead of offering an Undo the caller cannot use (#3353).
+ *
+ *  Shaped after `ClassificationPopover`'s note, per rule 379's copy clause: it names
+ *  what happens to THIS reader, and puts the role in the RECOVERY clause phrased as
+ *  rights. Naming the floor as the requirement ("needs the Project Manager role")
+ *  would be wrong copy for an Owner, who holds the right under a different label,
+ *  and for an Enterprise band role, which holds it under an arbitrary one.
+ *
+ *  Exported for its unit test and so the copy has one home: the same sentence has
+ *  to read correctly whether the author reaches for the button or the chord.
+ */
+export const UNDO_NEEDS_ADMIN_NOTE =
+  'You cannot reverse this paste in one step — someone with Project Manager rights ' +
+  'can. The rows are ordinary tasks, so you can delete them yourself.';
+
 interface PasteReceiptStripProps {
   summary: PasteSummary;
   isUndoing: boolean;
+  /**
+   * The server's `can_undo` for this batch (#3353, web rule 373), tri-state per
+   * rule 379: the two outputs it drives have OPPOSITE safe defaults, so it is not
+   * normalized to a boolean before it gets here.
+   *
+   * - The Undo control is an **affordance** → raised only on `=== true`, so an
+   *   unresolved verdict withholds it rather than offering one the server refuses.
+   *   Omitted, never disabled (rule 302, ux-review §6.1).
+   * - The note is a **disclosure** → shown only on an affirmative `=== false`
+   *   (`shouldDiscloseUndoFloor`), so an unresolved verdict stays silent rather
+   *   than telling a Project Manager they lack a right they hold.
+   */
+  canUndo: boolean | undefined;
   onUndo: () => void;
   onKeep: () => void;
   onMapColumns: () => void;
@@ -76,10 +105,17 @@ interface PasteReceiptStripProps {
  * until the author acts — Keep, Undo (⌘Z), or "Map columns…" — rather than
  * auto-dismissing like a delete toast: the needs-a-duration count it reports
  * stays walkable with F8 for as long as the strip is up.
+ *
+ * That persistence is why this strip *does* carry the disclosure rule 373(d)
+ * withheld from the classification toast. The objection there was structural — an
+ * 8-second `aria-live` region cannot carry a second clause, and the hover-or-focus
+ * reveal a tooltip needs is a race the reader loses. Neither applies here: the
+ * strip stays until the author acts, and the note is in its live region's own text.
  */
 export function PasteReceiptStrip({
   summary,
   isUndoing,
+  canUndo,
   onUndo,
   onKeep,
   onMapColumns,
@@ -92,7 +128,12 @@ export function PasteReceiptStrip({
       className="flex items-center gap-3 w-full px-3 py-2 rounded border border-neutral-border
         bg-neutral-surface-raised text-xs text-neutral-text-primary"
     >
-      <span className="flex-1 min-w-0">{buildPasteReceiptMessage(summary)}</span>
+      <span className="flex-1 min-w-0">
+        {buildPasteReceiptMessage(summary)}
+        {shouldDiscloseUndoFloor(canUndo) && (
+          <span className="text-neutral-text-secondary"> {UNDO_NEEDS_ADMIN_NOTE}</span>
+        )}
+      </span>
       <button
         type="button"
         onClick={onMapColumns}
@@ -102,16 +143,23 @@ export function PasteReceiptStrip({
       >
         Map columns…
       </button>
-      <button
-        type="button"
-        onClick={onUndo}
-        disabled={isUndoing}
-        className="flex-shrink-0 h-7 px-3 rounded text-xs font-semibold text-brand-primary
-          underline underline-offset-2 hover:no-underline disabled:opacity-50
-          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-      >
-        {isUndoing ? 'Undoing…' : `Undo (${formatChord('mod+z')})`}
-      </button>
+      {canUndo === true && (
+        <button
+          type="button"
+          onClick={onUndo}
+          disabled={isUndoing}
+          // The label's "⌘" is U+2318 PLACE OF INTEREST SIGN, which screen readers
+          // announce inconsistently. `aria-keyshortcuts` is the reliable handle and
+          // names the Ctrl form the handler also accepts — same treatment as the CSV
+          // wizard's Undo. Additive: it does not change the accessible name.
+          aria-keyshortcuts="Meta+Z Control+Z"
+          className="flex-shrink-0 h-7 px-3 rounded text-xs font-semibold text-brand-primary
+            underline underline-offset-2 hover:no-underline disabled:opacity-50
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+        >
+          {isUndoing ? 'Undoing…' : `Undo (${formatChord('mod+z')})`}
+        </button>
+      )}
       <button
         type="button"
         onClick={onKeep}

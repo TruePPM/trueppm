@@ -97,7 +97,13 @@ const ROSTER_TWO_ANAS = [
 // tabs on the child rows are the hierarchy signal.
 const PASTE_TEXT = 'Task\tDuration\tOwner\nDesign\t5\tAna Rivera\n\tWireframes\t3\n\tReview';
 
-async function setup(page: Page, roster: typeof ROSTER = ROSTER) {
+async function setup(
+  page: Page,
+  roster: typeof ROSTER = ROSTER,
+  // The `can_undo` the `tasks/bulk/` 207 reports (#3353). Defaults to the
+  // Admin/Owner case; `false` drives the Member who may paste and may not undo.
+  canUndo = true,
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
@@ -108,7 +114,7 @@ async function setup(page: Page, roster: typeof ROSTER = ROSTER) {
       body: JSON.stringify({ count: roster.length, next: null, previous: null, results: roster }),
     }),
   );
-  return setupTaskStore(page, { tasks: FIXTURE_TASKS });
+  return setupTaskStore(page, { tasks: FIXTURE_TASKS, canUndoBatchOperations: canUndo });
 }
 
 /** Focus a row (single click → RowFocused, not CellEdit) then dispatch a synthetic
@@ -257,6 +263,42 @@ test.describe('paste-many — spreadsheet rows into the outline (#2724)', () => 
     await expect(receipt).toContainText('check the spelling');
     // The row still commits — an unresolvable owner is a warning, never a rejection.
     await expect(page.getByRole('row').filter({ hasText: 'Survey' })).toHaveCount(1);
+  });
+
+  // #3353 — the receipt, not the endpoint. `POST /paste-many-operations/{id}/undo/`
+  // always refused a Member correctly; what shipped broken was the strip offering
+  // the control anyway, on a surface that persists until the author acts, with ⌘Z
+  // bound and advertised in its own label.
+  test('a Member who may paste and may not undo is offered no Undo (#3353)', async ({ page }) => {
+    await setup(page, ROSTER, false);
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(page, 'Foundation', PASTE_TEXT);
+
+    // The paste really landed — same receipt the golden path asserts, differing
+    // only in the server's authority verdict.
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText('3 rows pasted');
+    await expect(page.getByRole('row').filter({ hasText: 'Design' })).toHaveCount(1);
+
+    // Omitted, not disabled (rule 302) …
+    await expect(receipt.getByRole('button', { name: /Undo/ })).toHaveCount(0);
+    // … and said out loud, on a strip that stays up rather than an 8s toast (rule 373(d)).
+    await expect(receipt).toContainText('someone with Project Manager rights can');
+    // Keep and the remap are NOT undos and stay available.
+    await expect(receipt.getByRole('button', { name: 'Keep', exact: true })).toBeVisible();
+    await expect(receipt.getByRole('button', { name: 'Map columns…' })).toBeVisible();
+
+    // ⌘Z is unbound rather than firing an undo that would 403 — and, just as
+    // importantly, does not fall through to the structural undo and reverse some
+    // earlier act instead. The pasted rows are all still there.
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(receipt).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'Design' })).toHaveCount(1);
+    await expect(page.getByRole('row').filter({ hasText: 'Wireframes' })).toHaveCount(1);
+    await expect(page.getByRole('row').filter({ hasText: 'Foundation' })).toHaveCount(1);
   });
 
   test('an ambiguous Owner reads differently from an unknown one', async ({ page }) => {

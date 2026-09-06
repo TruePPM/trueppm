@@ -1673,6 +1673,13 @@ class TestComputeScopeRollup:
         # The parent's own 99 is a summary value, never part of the leaf sum.
         assert rollup["current_scope"] == 7
 
+    def test_a_parent_whose_leaves_carry_no_points_rolls_up_zero(self, project: Project) -> None:
+        """Zero is a real reading, not "unknown" — the sum of nothing is 0, never null."""
+        parent = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+        Task.objects.create(project=project, name="A", duration=1, wbs_path="1.1")
+        Task.objects.create(project=project, name="B", duration=1, wbs_path="1.2")
+        assert compute_scope_rollup(parent)["current_scope"] == 0
+
     def test_task_without_a_wbs_path_rolls_up_only_itself(self, project: Project) -> None:
         recurring = Task.objects.create(project=project, name="Daily", duration=1, story_points=2)
         assert compute_scope_rollup(recurring)["current_scope"] == 2
@@ -1693,6 +1700,46 @@ class TestComputeScopeRollup:
         assert rollup["has_baseline"] is True
         assert rollup["baselined_scope"] == 5
         assert rollup["scope_delta"] == 3
+
+    def test_the_baselined_sum_is_scoped_to_the_subtrees_leaves(self, project: Project) -> None:
+        """Multi-row ``Sum``, restricted to the subtree — what the n=1 cases cannot see.
+
+        Every other baseline case in this class has exactly one ``BaselineTask`` row
+        and one leaf, so dropping ``task_id__in=leaf_ids`` (or reading a single row
+        instead of summing) leaves all of them green. This case is arranged so both
+        defects change the answer: the subtree's two leaves baseline to 5 + 8 = 13
+        while a leaf *outside* the subtree carries 100, so an unrestricted sum reads
+        113 and a single-row read reads 5. The same out-of-subtree row makes
+        ``current_scope``'s own ltree filter non-vacuous (28, never 128).
+
+        This is the arithmetic the ``GET /api/v1/tasks/{id}/scope/`` test asserted
+        before #3370 removed that route; the route is gone, the rollup is not.
+        """
+        parent = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+        leaf_a = Task.objects.create(
+            project=project, name="A", duration=1, wbs_path="1.1", story_points=20
+        )
+        leaf_b = Task.objects.create(
+            project=project, name="B", duration=1, wbs_path="1.2", story_points=8
+        )
+        outside = Task.objects.create(
+            project=project, name="Elsewhere", duration=1, wbs_path="2", story_points=100
+        )
+        baseline = Baseline.objects.create(project=project, name="B1", is_active=True)
+        for task, points in ((leaf_a, 5), (leaf_b, 8), (outside, 100)):
+            BaselineTask.objects.create(
+                baseline=baseline,
+                task_id=task.pk,
+                task_name=task.name,
+                duration=1,
+                story_points=points,
+            )
+
+        rollup = compute_scope_rollup(parent)
+        assert rollup["current_scope"] == 28
+        assert rollup["baselined_scope"] == 13
+        assert rollup["scope_delta"] == 15
+        assert rollup["has_baseline"] is True
 
     def test_baseline_without_captured_points_reports_no_delta(self, project: Project) -> None:
         """A pre-story_points baseline must read "no baseline", never a phantom 0."""

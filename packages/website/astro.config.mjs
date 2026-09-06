@@ -272,6 +272,10 @@ export default defineConfig({
               badge: { text: "0.4", variant: "caution" },
             },
             {
+              slug: "getting-started/migrating-from-project-online",
+              badge: { text: "0.4", variant: "caution" },
+            },
+            {
               slug: "getting-started/try-it",
               badge: { text: "0.4", variant: "caution" },
             },

@@ -9,7 +9,6 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * - Toggling a KPI fires a PATCH (after the 250ms debounce).
  * - Changing the policy shows the Unsaved-changes bar; Save fires a PATCH.
  * - Non-admin role sees disabled controls and the Read-only pill.
- * - The stub-page-banner is gone (the page is no longer a stub).
  */
 
 const ME_ID = 'user-alice';
@@ -174,9 +173,6 @@ test.describe('Program Settings → Rollup KPIs', () => {
       'aria-checked',
       'false',
     );
-
-    // Stub banner is gone — the page is wired.
-    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
   });
 
   test('toggling a KPI fires a PATCH containing the updated enabled list', async ({ page }) => {

@@ -267,8 +267,38 @@ describe('ProgramGeneralPage (settings)', () => {
     // The inline hint the control describes by is unaffected (it is a <div>, not a
     // form control) — read-only users still get the plain-language explanation.
     expect(
-      screen.getByText(/Default methodology for projects in this program/i),
+      screen.getByText(/New projects created in this program start with this methodology/i),
     ).toBeInTheDocument();
+  });
+
+  // #3293 — methodology is NOT-NULL at every scope, so a program's value never
+  // flows down to a project that already exists. The hint used to claim it did
+  // ("Default methodology for projects in this program — unless a project sets
+  // its own"), a condition that is never false.
+  it('does not claim the program methodology flows down to existing projects (#3293)', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    const hint = screen.getByText(
+      /New projects created in this program start with this methodology/i,
+    );
+    expect(hint).toHaveTextContent(/Existing projects keep their own/i);
+    expect(
+      screen.queryByText(/unless a project sets its own\. Inherits the workspace default/i),
+    ).toBeNull();
+  });
+
+  // The hint IS the fix for #3293, so adjacent text is not enough — a screen
+  // reader on the radiogroup must reach it. FieldRow generates the id; the row
+  // has to take it through the render prop and point at it (ux-review, #3293).
+  it('associates the methodology hint with the radiogroup via aria-describedby', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    const group = screen.getByRole('radiogroup', { name: 'Methodology' });
+    const describedBy = group.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const hint = document.getElementById(describedBy as string);
+    expect(hint).not.toBeNull();
+    expect(hint).toHaveTextContent(/New projects created in this program start with this/i);
   });
 
   // #2549: ProgramViewSet.update/partial_update is gated by IsProgramNotClosed,

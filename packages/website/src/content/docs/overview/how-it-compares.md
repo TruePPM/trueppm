@@ -92,7 +92,7 @@ exists in TruePPM at all.
 
 | Capability | OpenProject Community | TruePPM |
 |---|---|---|
-| Custom work-item types and statuses | Unlimited, per project | **No** — six fixed statuses; board columns can be renamed, reordered, hidden and WIP-capped, but not added |
+| Custom work-item types and statuses | Unlimited, per project | **No** — six fixed statuses; board columns can be renamed, reordered, hidden and WIP-capped, but not added. Per-project statuses over a fixed canonical set are proposed in [ADR-1049](/architecture/decisions/)'s sibling [ADR-1050](/architecture/decisions/), sequenced for 0.6 |
 | Workflow transition rules | Per type, per role | **No** |
 | Custom roles and granular permissions | Yes | **No** — five fixed roles |
 | Wiki | Yes | **No** |
