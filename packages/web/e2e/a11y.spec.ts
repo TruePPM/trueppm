@@ -270,6 +270,124 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
   );
 }
 
+const PROGRAM_ID = 'e2e-a11y-00000000-0000-0000-0000-000000003476';
+
+/**
+ * Program detail (object endpoint). `my_role: 400` so the Members tab renders its
+ * *editable* branch — the role `<select>` per member plus the Add-member form.
+ * That is the state #3476 was about: a lower role renders read-only badges and no
+ * combobox at all, so a scan of it could not have seen the `select-name` failure.
+ * Shape mirrors ProgramSerializer.
+ */
+const PROGRAM = {
+  id: PROGRAM_ID,
+  server_version: 1,
+  name: 'Accessibility Audit Program',
+  description: 'Route-coverage fixture for the axe gate.',
+  code: 'A11YP',
+  methodology: 'HYBRID',
+  health: 'AUTO',
+  visibility: 'WORKSPACE',
+  lead: null,
+  lead_detail: null,
+  created_by: 'e2e-user',
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+  my_role: 400,
+  my_role_label: 'Program Admin',
+  project_count: 0,
+  member_count: 3,
+  is_sample: false,
+  is_closed: false,
+  closed_at: null,
+  closed_by: null,
+};
+
+/**
+ * Three memberships covering both role branches of the row: the caller's own
+ * OWNER row (read-only badge, "(you)" annotation, Leave button) and two lower
+ * roles that each render a picker — so the scan sees more than one unlabeled
+ * combobox, which is what made the original finding 14 nodes rather than one.
+ *
+ * `role_label` deliberately carries the PROJECT-scoped string the API actually
+ * sends for a program membership (`Role.label`, not `_PROGRAM_ROLE_LABELS` —
+ * that server-side residual is #3503), so this fixture stays honest about the
+ * wire and the assertion below proves the client re-scopes it. Shape mirrors
+ * ProgramMembershipReadSerializer.
+ */
+const PROGRAM_MEMBERS = [
+  {
+    id: 'a11y-mem-1',
+    server_version: 1,
+    program: PROGRAM_ID,
+    user: 'e2e-user',
+    user_detail: { id: 'e2e-user', username: 'e2euser', email: 'e2e@example.com' },
+    role: 400,
+    role_label: 'Project Admin',
+    joined_at: '2026-01-01T00:00:00Z',
+    role_changed_at: null,
+  },
+  {
+    id: 'a11y-mem-2',
+    server_version: 1,
+    program: PROGRAM_ID,
+    user: 'user-sofia',
+    user_detail: { id: 'user-sofia', username: 'sofia.p', email: 'sofia@example.com' },
+    role: 300,
+    role_label: 'Project Manager',
+    joined_at: '2026-01-02T00:00:00Z',
+    role_changed_at: null,
+  },
+  {
+    id: 'a11y-mem-3',
+    server_version: 1,
+    program: PROGRAM_ID,
+    user: 'user-dev',
+    user_detail: { id: 'user-dev', username: 'dev.omar', email: 'omar@example.com' },
+    role: 100,
+    role_label: 'Team Member',
+    joined_at: '2026-01-03T00:00:00Z',
+    role_changed_at: null,
+  },
+];
+
+/**
+ * Register the program-scoped endpoints `/programs/:id/members` reads, each with
+ * its REAL shape. Must run AFTER `setupShell`: that helper installs a broad
+ * catch-all route on the programs prefix returning a paginated LIST envelope, and
+ * `GET /programs/{id}/` is an OBJECT endpoint — served the list shape, `useProgram`
+ * resolves to `{count, results}` , `my_role` is undefined, the editable branch never
+ * renders, and the scan would pass against a page that shows nothing it was written
+ * to check. Playwright matches last-registered first, so these win.
+ */
+async function setupProgramMembers(page: import('@playwright/test').Page): Promise<void> {
+  // Programs LIST — the rail's "This program" tier reads it for the program name.
+  await page.route('**/api/v1/programs/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 1, next: null, previous: null, results: [PROGRAM] }),
+    }),
+  );
+  // Program members (bare array — this endpoint is not paginated).
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(PROGRAM_MEMBERS),
+    }),
+  );
+  // Program DETAIL (object) — registered after the members route so the more
+  // specific members URL is still reachable; these two globs do not overlap.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(PROGRAM),
+    }),
+  );
+}
+
 /**
  * Wait for the app shell + My Work content to settle before scanning. `/`
  * redirects to /me/work; the greeting `h1` renders only once the feed resolves,
@@ -434,7 +552,9 @@ test.describe('accessibility @a11y — routes', () => {
 
   test('project Schedule has no critical/serious WCAG violations', async ({ page }, testInfo) => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
+      timeout: 10_000,
+    });
 
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
@@ -450,7 +570,9 @@ test.describe('accessibility @a11y — routes', () => {
     // which is the Schedule view (New Task / New Milestone). It therefore shares
     // the Schedule route's excluded rules. SUPPRESSED-UNTIL(#2618)
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
+      timeout: 10_000,
+    });
     await page.getByRole('button', { name: 'Create new' }).click();
     await expect(page.getByRole('menu', { name: 'Create new' })).toBeVisible();
 
@@ -531,6 +653,46 @@ test.describe('accessibility @a11y — routes', () => {
 
     // Kbd-chip + group-label contrast fixed (#2265); the palette's
     // listbox/option/combobox semantics and contrast are all clean and gated.
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('program Members has no critical/serious WCAG violations', async ({ page }, testInfo) => {
+    // #3476: every role `<select>` on this page shipped with an `id` and no
+    // accessible name, so axe reported `select-name` (critical) once per member —
+    // 14 nodes on a real program. The route had no scan at all, which is why the
+    // gate never saw it.
+    await setupProgramMembers(page);
+    await page.goto(`/programs/${PROGRAM_ID}/members`);
+
+    // Gate on the members list itself, not on the heading: the heading renders
+    // while the query is still in flight, so scanning on it would audit the
+    // skeleton rather than the rows (and the comboboxes would not exist yet).
+    const list = page.getByRole('list', { name: 'Program members' });
+    await expect(list).toBeVisible({ timeout: 10_000 });
+    await expect(list.getByRole('listitem')).toHaveCount(3);
+
+    // The acceptance criterion, asserted directly rather than left to axe: each
+    // picker names the member whose role it changes. `exact: true` because
+    // Playwright's `name` is a substring match, and "Role for sofia.p" would
+    // otherwise also satisfy a lookup for "Role for sofia".
+    await expect(
+      list.getByRole('combobox', { name: 'Role for sofia.p', exact: true }),
+    ).toBeVisible();
+    await expect(
+      list.getByRole('combobox', { name: 'Role for dev.omar', exact: true }),
+    ).toBeVisible();
+
+    // Program vocabulary, on both surfaces that carry it: the picker's options
+    // and the Owner row's read-only badge. The badge is the one the API gets
+    // wrong — `role_label` is "Project Admin" on the wire (see the fixture).
+    await expect(
+      list.getByRole('option', { name: 'Program Manager', exact: true }).first(),
+    ).toBeAttached();
+    await expect(list.getByText('Program Admin', { exact: true })).toBeVisible();
+    await expect(list.getByText('Project Admin', { exact: true })).toHaveCount(0);
+    await expect(list.getByText('Project Manager', { exact: true })).toHaveCount(0);
+
+    // No rule exclusions — this route is clean at the moderate floor.
     await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 });
