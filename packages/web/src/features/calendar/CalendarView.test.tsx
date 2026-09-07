@@ -159,6 +159,93 @@ describe('CalendarView state branches (#2161)', () => {
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
+  // #2619 finding A: the empty state above was the ONLY mismatch signal, so a
+  // populated calendar on an AGILE project said nothing at all. Both polarities
+  // live together here on purpose — a "make these consistent" refactor has to
+  // confront the pair.
+  it('warns on a POPULATED calendar under AGILE, and still renders the grid', () => {
+    projectMock.mockReturnValue({
+      data: { effective_methodology: 'AGILE' },
+      isLoading: false,
+      error: null,
+    });
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(
+      screen.getByText(/This project is configured as Agile, but it already has a schedule/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review methodology' })).toBeInTheDocument();
+    // The work itself is never hidden — the route stays reachable by design.
+    expect(screen.getByTestId('calendar-grid')).toBeInTheDocument();
+    // Disjointness: the banner and the empty state never co-occur.
+    expect(
+      screen.queryByText("Calendar isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on a populated calendar under HYBRID', () => {
+    projectMock.mockReturnValue({
+      data: { effective_methodology: 'HYBRID' },
+      isLoading: false,
+      error: null,
+    });
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on an EMPTY calendar under AGILE — that is the empty state\'s job', () => {
+    projectMock.mockReturnValue({
+      data: { effective_methodology: 'AGILE' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.getByText("Calendar isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  // Rule 392: `tasks: []` while the query is in flight or after it failed is
+  // "unknown", never "this project has no schedule to warn about". The banner
+  // sits outside the ternary that owns those states, so it needs its own guard —
+  // and this pair is what proves the guard is there.
+  it('shows no banner while the task query is in flight under AGILE', () => {
+    projectMock.mockReturnValue({
+      data: { effective_methodology: 'AGILE' },
+      isLoading: false,
+      error: null,
+    });
+    calendarTasksMock.mockReturnValue({ tasks: [], isLoading: true, error: null, refetch });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner after the task query failed under AGILE', () => {
+    projectMock.mockReturnValue({
+      data: { effective_methodology: 'AGILE' },
+      isLoading: false,
+      error: null,
+    });
+    calendarTasksMock.mockReturnValue({
+      tasks: [],
+      isLoading: false,
+      error: new Error('boom'),
+      refetch,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
   it('keeps the generic empty state on a non-AGILE project', () => {
     projectMock.mockReturnValue({
       data: { effective_methodology: 'HYBRID' },
