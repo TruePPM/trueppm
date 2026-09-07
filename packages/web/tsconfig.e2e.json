@@ -21,7 +21,6 @@
     "playwright.config.ts",
     "playwright.integration.config.ts",
     "playwright.marketing.config.ts",
-    "playwright.merge.config.ts",
-    "playwright.wt.config.ts"
+    "playwright.merge.config.ts"
   ]
 }
