@@ -53,7 +53,7 @@ const OWNER_MEMBERSHIP = {
   user: ME_ID,
   user_detail: { id: ME_ID, username: 'alice', email: 'alice@example.com' },
   role: 400,
-  role_label: 'Project Admin',
+  role_label: 'Program Admin',
 };
 
 const MEMBER_MEMBERSHIP = {

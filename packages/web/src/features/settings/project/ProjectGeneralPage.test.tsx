@@ -597,7 +597,7 @@ describe('ProjectGeneralPage', () => {
         isAxiosError: true,
         response: {
           status: 400,
-          data: { program: ['You need at least Project Manager role on ‘Apollo’ to add this project to it.'] },
+          data: { program: ['You need at least Program Manager role on ‘Apollo’ to add this project to it.'] },
         },
       });
       mutateAsync.mockRejectedValueOnce(err);
@@ -608,7 +608,7 @@ describe('ProjectGeneralPage', () => {
       fireEvent.click(within(dialog).getByRole('radio', { name: /Apollo/ }));
       fireEvent.click(within(dialog).getByRole('button', { name: 'Move project' }));
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(/Project Manager role on ‘Apollo’/);
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Program Manager role on ‘Apollo’/);
       // Dialog stays open so the user can correct or cancel.
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
