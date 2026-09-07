@@ -25,6 +25,8 @@ import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProgramId } from '@/hooks/useProgramId';
 import { usePinned } from '@/hooks/usePins';
+import { useHasScrollAbove } from '@/hooks/useHasScrollAbove';
+import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
 import type { PinnedItem } from '@/api/types';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
@@ -362,6 +364,28 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const showFull = !sidebarCollapsed || isDrawer;
   const collapsed = sidebarCollapsed && !isDrawer;
 
+  // Tier-2's scroll container, held as a state node rather than a ref: the nav
+  // mounts a commit after the rail on a cold load, and a `RefObject`'s identity
+  // never changes, so an effect keyed on one would never re-run and the edge
+  // fades would never appear (the #2365 lesson, which both probe hooks carry).
+  const [tierScroller, setTierScroller] = useState<HTMLElement | null>(null);
+  const tierHasAbove = useHasScrollAbove(tierScroller);
+  const tierHasBelow = useHasScrollBelow(tierScroller);
+
+  // The personal tier folds to one row on an in-context route (#3473). On
+  // `/projects/:id/*` and `/programs/:id/*` Tier 2 is the ONLY nav home for those
+  // views (#1642/#1920) and it is also the only tier that can grow, so it is the
+  // only one the squeeze reaches: at 1280×800 the rail measured 739px of view
+  // list into a 298px slot, leaving 8 of 14 project views behind an unmarked
+  // scroll region. Every other tier is effectively rigid, so the ~158px the
+  // personal card spends on four always-available destinations is spent against
+  // the one tier with nowhere to go. Folding it keeps its counts (the "is
+  // anything waiting for me" signal, ADR-0979 §2) on screen and puts its
+  // destinations one click away. Scoped to the EXPANDED desktop rail: the 64px
+  // rail has no room for a summary row's label, and the drawer scrolls as one
+  // region (#1688) so nothing competes for height there.
+  const foldPersonalTier = !isDrawer && !collapsed && (projectId != null || programId != null);
+
   const projectById = useMemo(() => {
     const m = new Map<string, NonNullable<typeof projects>[number]>();
     for (const p of projects ?? []) m.set(p.id, p);
@@ -527,6 +551,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               avatar with no name states nothing the footer gear does not. */}
           <YouTier
             collapsed={collapsed}
+            folded={foldPersonalTier}
             user={user}
             roleLabel={roleLabel}
             dueTodayCount={dueTodayCount}
@@ -535,14 +560,25 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           />
 
           {/* Tier 2 — This project (grouped views) or, off a project, the pinned list.
-            This is the rail's primary in-context landmark (`Workspace navigation`). */}
+            This is the rail's primary in-context landmark (`Workspace navigation`).
+
+            The `relative` wrapper exists only to anchor the edge fades (rule 290
+            clause (d)): a fade has to be a SIBLING of the scroller, not a child, or
+            it scrolls away with the content it is there to mark. The drawer has no
+            wrapper role to play — the whole tier column is one scroll region there
+            (#1688) — so it takes `display: contents` and the DOM shape stays the
+            same in both branches for every spec that walks the rail. */}
+          <div className={isDrawer ? 'contents' : 'relative flex min-h-0 flex-1 flex-col'}>
           <nav
             aria-label="Workspace navigation"
+            ref={isDrawer ? undefined : setTierScroller}
             className={[
               'px-2 pb-2',
               // Desktop: this tier is the scroll region and grows to fill. In the
               // drawer the wrapper scrolls as one, so Tier 2 is plain in-flow content.
-              isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden',
+              // `overscroll-contain` stops a wheel that reaches the end of this list
+              // from chaining into the page behind the rail.
+              isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
             ].join(' ')}
           >
             {(projectId ? (
@@ -585,6 +621,31 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 />
               ))}
           </nav>
+          {/* Edge fades — the rule-290 clause (d) overflow cue, each rendered only
+              while that side actually carries hidden content. BOTH sides, not just
+              the bottom: Tab moves this scroller's offset onto a row deep in the
+              list, so it is not a scroller with a fixed origin, and a bottom-only
+              fade would state that everything above the fold is everything there is.
+              Decorative only — `aria-hidden` + `pointer-events-none`, so they mint no
+              tab stop and never intercept a click on the row underneath. The native
+              scrollbar is deliberately NOT hidden: clause (c) exists so an appearing
+              gutter cannot shift a fixed-height strip's neighbours, and this scroller
+              is always present, so nothing shifts. The fade covers the platforms that
+              auto-hide the scrollbar (macOS, touch), which is the case that made the
+              overflow invisible in the first place. */}
+          {!isDrawer && tierHasAbove && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-chrome-surface to-transparent"
+            />
+          )}
+          {!isDrawer && tierHasBelow && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-chrome-surface to-transparent"
+            />
+          )}
+          </div>
 
           {/* Tier 3 — Jump: ⌘K search + the Browse switcher (drawer inlines it).
             Desktop keeps `shrink-0` (fixed bottom bar); in the drawer it is in-flow
@@ -715,9 +776,17 @@ function SidebarBrand({
 }
 
 /** Tier 1 "You" — identity + the personal destinations (My Work, Timesheet, My
- *  Assets, Notifications) framed as a card. */
+ *  Assets, Notifications) framed as a card.
+ *
+ *  On an in-context route the card FOLDS to a single summary row (`folded`,
+ *  #3473). `foldPersonalTier` in `Sidebar` carries why the personal tier is the
+ *  one that yields. The fold is a disclosure, never a deletion: the three
+ *  destinations that lose their row are one click away, and the two counts that
+ *  answer "is anything waiting for me" (ADR-0979 §2) move ONTO the summary row
+ *  rather than off screen — the same trade the 64px rail makes with its dots. */
 function YouTier({
   collapsed = false,
+  folded = false,
   user,
   roleLabel,
   dueTodayCount,
@@ -726,27 +795,104 @@ function YouTier({
 }: {
   /** Icon-only rail (ADR-0979): identity block off, destination rows stay. */
   collapsed?: boolean;
+  /** In-context route (#3473): fold to a summary row until the user opens it. */
+  folded?: boolean;
   user: SidebarUser;
   roleLabel: string | null | undefined;
   dueTodayCount: number;
   unreadCount: number;
   closeDrawer: () => void;
 }) {
+  // Session-scoped, deliberately not persisted: the rail never unmounts, so a
+  // user who opens the fold keeps it open for as long as they are in the app.
+  // Persisting it would make a first-run user's rail depend on a choice they made
+  // on a different project weeks ago — the state the fold exists to avoid.
+  const [open, setOpen] = useState(false);
+  const showDestinations = !folded || open;
+  // The counts ride the summary row's ACCESSIBLE NAME, not only its badges: once
+  // the labelled rows are folded away the badges are bare digits, and accname
+  // would read the row as "Anika K. 3 4" (the rule-6 / #2 lesson — a mark's word
+  // has to be somewhere).
+  const summaryName = [
+    'Your work',
+    dueTodayCount > 0 ? `${dueTodayCount} due today` : null,
+    unreadCount > 0 ? `${unreadCount} unread` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return (
     <div
       className={
-        collapsed
-          ? 'mx-2 my-2'
+        collapsed || folded
+          ? // No card frame while folded. A card is a frame around a GROUP, and the
+            // folded tier is one row — framing it says "several things belong
+            // together" about a single control. Dropping it also returns 18px of
+            // padding and border to Tier 2, which is the whole point of the fold;
+            // the 64px rail already drops the frame for the same reason.
+            'mx-2 my-2'
           : 'm-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2'
       }
     >
+      {/* Folded summary row — identity, the two counts, and a disclosure chevron.
+          It REPLACES the identity block rather than sitting above it: the row is
+          the identity line, and rendering both would state the same fact twice in
+          adjacent rows. */}
+      {folded && !collapsed && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls="you-tier-destinations"
+          aria-label={`${summaryName}. ${open ? 'Hide' : 'Show'} personal destinations`}
+          className={youRowClass(false)}
+        >
+          <AvatarInitials initials={initialsForUser(user)} size="sm" />
+          {/* The visible label names the DESTINATIONS this row opens, not the user.
+              Two reasons, and the first is a conformity failure: WCAG 2.5.3
+              (Label in Name) requires the visible label to appear in the accessible
+              name, and the accessible name here has to carry the counts — so a
+              visible "Anika K." beside an accessible "Your work, 3 due today"
+              breaks the match and leaves a speech-input user with no way to say
+              the control's name. The second is that the footer already states
+              "Signed in / <name>" three rows below, so the name here would spend
+              the one row this fold was fought for restating a fact already on
+              screen. `aria-hidden` because the button's own `aria-label` owns the
+              name (rule 309(b) — never announce the same fact twice). */}
+          <span aria-hidden="true" className="min-w-0 truncate">
+            Your work
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            {dueTodayCount > 0 && (
+              <span
+                aria-hidden="true"
+                className="tppm-mono rounded-full bg-semantic-critical-bg px-1.5 py-0.5 text-xs text-semantic-critical"
+              >
+                {dueTodayCount}
+              </span>
+            )}
+            {unreadCount > 0 && (
+              <span
+                aria-hidden="true"
+                className="tppm-mono rounded-full bg-brand-primary px-1.5 py-0.5 text-xs text-neutral-text-inverse"
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+            <ChevronRightIcon
+              aria-hidden="true"
+              className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`}
+            />
+          </span>
+        </button>
+      )}
       {/* Identity is suppressed at 64px: initials with no name and no role line
           are an image of a person, not a statement about one, and the footer's
           settings gear is already the identity-adjacent control. The DESTINATION
           rows below stay, because "is anything waiting for me" is one of the
           three questions ADR-0979 §2 says the icon rail answers, and the counts
           that answer it live on them. */}
-      {!collapsed && (
+      {!collapsed && !folded && (
       <div className="flex items-center gap-2 px-1 pb-1.5">
         <AvatarInitials initials={initialsForUser(user)} size="md" />
         <div className="min-w-0">
@@ -760,6 +906,19 @@ function YouTier({
           )}
         </div>
       </div>
+      )}
+      {/* The disclosure region. `hidden` rather than unmounted so the folded rail
+          keeps one stable `aria-controls` target in both states — and because a
+          `[hidden]` subtree is out of the tab order and out of the accessibility
+          tree, which is the property `sr-only` would NOT have given here. */}
+      <div id="you-tier-destinations" hidden={!showDestinations}>
+      {/* The role line survives the fold. It is a PROJECT-SCOPED fact (#1919), so
+          on exactly the routes the fold applies to it is the one identity detail
+          the summary row does not already carry. */}
+      {folded && !collapsed && roleLabel && (
+        <p className="min-w-0 truncate px-2 pb-1 text-xs text-chrome-text-secondary">
+          {roleLabel}
+        </p>
       )}
       <NavLink
         to="/me/work"
@@ -875,6 +1034,7 @@ function YouTier({
           )
         )}
       </NavLink>
+      </div>
     </div>
   );
 }
@@ -1672,10 +1832,18 @@ function ProjectViewsTier({
             `bg-chrome-surface-raised` lifts the ground in both themes (1.10:1 light,
             1.14:1 dark) with no theme-specific override. It must be the CHROME ramp: the
             rail is painted `chrome-surface`, so the `neutral-*` sibling ADR-0942 §11
-            originally named is a cross-family non-step — 1.01:1 in light theme (rule 365). `sticky bottom-0` keeps it out of the scrolling
-            sequence when the verb bands overflow the rail (the Tier-2 nav is the desktop
-            scroll region); `max-h-[40%]` with its own scroll caps it so a future third
-            member can never eat the rail.
+            originally named is a cross-family non-step — 1.01:1 in light theme (rule 365).
+            `max-h-[40vh]` with its own scroll caps it so a future third member can never
+            eat the rail.
+
+            NOT `sticky bottom-0` any more (#3473). Pinning it read as free real estate and
+            was not: the Tier-2 nav is the desktop scroll region, so a band pinned inside it
+            is 113px the VIEW LIST cannot use, permanently, at every viewport — and the view
+            list is the only thing in the rail that can grow. At 1280×800 that bought two
+            always-visible rows at the price of eight scrolled-away ones. `mt-auto` alone
+            still gives ADR-0942 §2 what it asked for — the band ends the flow and sits at
+            the bottom on a short project — and on a tall one it now scrolls with the list
+            it belongs to instead of hovering over it.
 
             Deliberately NOT dimmed, shrunk, or bordered as a card: each of those encodes
             rank or unavailability, and a self-hoster lives in Settings in week one.
@@ -1691,7 +1859,7 @@ function ProjectViewsTier({
               key={group.id}
               role="group"
               aria-label={`${group.label} views`}
-              className="-mx-2 mt-auto max-h-[40vh] overflow-y-auto border-t border-chrome-border/25 bg-chrome-surface-raised px-2 pb-2 md:sticky md:bottom-0"
+              className="-mx-2 mt-auto max-h-[40vh] overflow-y-auto border-t border-chrome-border/25 bg-chrome-surface-raised px-2 pb-2"
             >
               <h2 aria-hidden="true" className={collapsed ? 'sr-only' : GROUP_LABEL}>
                 {group.id}
