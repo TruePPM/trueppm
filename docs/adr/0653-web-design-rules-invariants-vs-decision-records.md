@@ -77,6 +77,7 @@ checked are promoted out of prose:
 | No duplicate icon within a nav group | `settingsNavIcons.test.tsx` (#2425) |
 | Sub-floor type outside `features/settings` | `check-design-system-v2.sh` check 4b |
 | Bare text node as a Suspense fallback | `check-design-system-v2.sh` check 4c |
+| Query value gating a loading skeleton with no error read | `check-design-system-v2.sh` check 4f (#3351) |
 | Hex literals, arbitrary colors, off-token shadows | `check-design-system-v2.sh` checks 1–3 |
 | Dead TS initializers | `no-useless-assignment` (eslint) |
 | Unawaited Playwright promises | `no-floating-promises` on `e2e/**` |

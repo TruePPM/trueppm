@@ -28,6 +28,7 @@ from trueppm_api.apps.access.models import (
     ProjectMembership,
     Role,
 )
+from trueppm_api.apps.notifications import digests
 from trueppm_api.apps.notifications.digests import (
     build_program_health_digest,
     build_resource_overallocation_digest,
@@ -289,6 +290,130 @@ def test_healthy_program_is_not_listed(janet: Any, program: Program, calendar: C
 
     _, body = build_program_health_digest(janet, SUNDAY_1700_UTC)
     assert "Healthy" not in body
+
+
+# ---------------------------------------------------------------------------
+# Program-health digest audience — the live-membership floor (#3456)
+# ---------------------------------------------------------------------------
+
+
+def _at_risk_program(name: str, calendar: Calendar) -> Program:
+    """A program guaranteed to earn a digest line (SPI 0 → ``critical``)."""
+    program = Program.objects.create(name=name)
+    project = Project.objects.create(
+        name=f"{name} Delivery",
+        start_date=datetime.date(2026, 1, 1),
+        calendar=calendar,
+        program=program,
+    )
+    for i in range(3):
+        Task.objects.create(
+            project=project,
+            name=f"{name} overdue {i}",
+            early_finish=datetime.date(2026, 2, 1),
+            status=TaskStatus.IN_PROGRESS,
+        )
+    return program
+
+
+@pytest.mark.django_db
+def test_revoked_program_membership_leaves_the_digest_audience(janet: Any, calendar: Calendar):
+    """Revoking membership must stop the program's state reaching the ex-member.
+
+    Revocation soft-deletes the row rather than removing it, so an unfloored read
+    resolves the ex-member as current — and this digest is *pushed*, unrecallable
+    content that names the program, its band and its worst project.
+    """
+    revoked = _at_risk_program("Ares", calendar)
+    membership = ProgramMembership.objects.create(program=revoked, user=janet, role=Role.ADMIN)
+    membership.soft_delete()
+
+    subject, body = build_program_health_digest(janet, SUNDAY_1700_UTC)
+
+    assert "Ares" not in body
+    assert "Ares Delivery" not in body
+    # Falls back to the honest empty state, not a suppressed send.
+    assert "nothing at risk" in subject.lower()
+
+
+@pytest.mark.django_db
+def test_soft_deleted_program_leaves_the_digest_audience(janet: Any, calendar: Calendar):
+    """A soft-deleted program is not a program the user belongs to.
+
+    Stated for the record: this one passes on the unfixed code too, because the
+    ``Program`` queryset below the audience already floors ``is_deleted``. What the
+    membership-level floor adds is that the row no longer burns a
+    ``MAX_PROGRAMS_PER_DIGEST`` slot or inflates the overflow count — which is what
+    ``test_overflow_count_excludes_revoked_and_soft_deleted_memberships`` pins.
+    """
+    gone = _at_risk_program("Vulcan", calendar)
+    ProgramMembership.objects.create(program=gone, user=janet, role=Role.ADMIN)
+    gone.soft_delete()
+
+    subject, body = build_program_health_digest(janet, SUNDAY_1700_UTC)
+
+    assert "Vulcan" not in body
+    assert "nothing at risk" in subject.lower()
+
+
+@pytest.mark.django_db
+def test_live_membership_survives_the_floor(janet: Any, calendar: Calendar):
+    """The floor must remove only the revoked row — the live one still reports."""
+    live = _at_risk_program("Apollo", calendar)
+    revoked = _at_risk_program("Ares", calendar)
+    ProgramMembership.objects.create(program=live, user=janet, role=Role.ADMIN)
+    ProgramMembership.objects.create(program=revoked, user=janet, role=Role.ADMIN).soft_delete()
+
+    _, body = build_program_health_digest(janet, SUNDAY_1700_UTC)
+
+    assert "Apollo" in body
+    assert "Ares" not in body
+
+
+@pytest.mark.django_db
+def test_revoked_member_receives_no_program_state_in_the_rendered_digest(
+    janet: Any, calendar: Calendar
+):
+    """Assert on the rendered inbox row, not the queryset — this is what ships."""
+    revoked = _at_risk_program("Ares", calendar)
+    ProgramMembership.objects.create(program=revoked, user=janet, role=Role.ADMIN).soft_delete()
+    _opt_in(janet, HEALTH_EVENT, in_app=True, email=True)
+
+    assert send_due_digests(now=SUNDAY_1700_UTC) == 1
+
+    notif = Notification.objects.get(recipient=janet, event_type=HEALTH_EVENT)
+    assert "Ares" not in notif.body
+    assert "Ares" not in notif.subject
+    assert "nothing at risk" in notif.subject.lower()
+
+
+@pytest.mark.django_db
+def test_overflow_count_excludes_revoked_and_soft_deleted_memberships(
+    janet: Any, calendar: Calendar, monkeypatch: pytest.MonkeyPatch
+):
+    """``total_memberships`` drives "showing the first N of M" — M must count live rows.
+
+    Flooring only the id list fixes who is named and leaves M inflated, so the
+    ex-member's revoked programs still show up as a number in the footer.
+    """
+    # Cap of 1 forces the overflow footer without building 26 programs.
+    monkeypatch.setattr(digests, "MAX_PROGRAMS_PER_DIGEST", 1)
+
+    for name in ("Apollo", "Gemini"):
+        ProgramMembership.objects.create(
+            program=_at_risk_program(name, calendar), user=janet, role=Role.ADMIN
+        )
+    ProgramMembership.objects.create(
+        program=_at_risk_program("Ares", calendar), user=janet, role=Role.ADMIN
+    ).soft_delete()
+    dead_program = _at_risk_program("Vulcan", calendar)
+    ProgramMembership.objects.create(program=dead_program, user=janet, role=Role.ADMIN)
+    dead_program.soft_delete()
+
+    _, body = build_program_health_digest(janet, SUNDAY_1700_UTC)
+
+    assert "Showing the first 1 of 2 programs" in body
+    assert "of 4 programs" not in body
 
 
 # ---------------------------------------------------------------------------

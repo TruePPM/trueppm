@@ -7,7 +7,7 @@ documentedFor: "0.4"
 ## Authentication
 
 :::note[Ships in 0.4]
-Six items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
+Seven items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
 in `v0.3.0-alpha.3`, the latest release:
 
 - **Session-only "Remember me"** — in 0.3 the checkbox is present but inert; every
@@ -28,6 +28,11 @@ in `v0.3.0-alpha.3`, the latest release:
   must revoke each leaked API token by hand from its owner's personal settings
   page. The warning that key rotation does not reach API tokens applies to 0.3
   as well; only the remedy is new.
+- **The boot refusal on a bare `ALLOWED_HOSTS=*`** — in 0.3 the wildcard is
+  accepted silently, so host validation can be off with nothing saying so. The
+  `USE_X_FORWARDED_HOST = False` position stated alongside it in 0.4 is not new
+  behavior: it restates the default 0.3 already had, and only makes it a decision
+  the file records rather than one it inherits.
 
 Everything else on this page describes 0.3 behavior and is current.
 :::
@@ -520,6 +525,11 @@ Two gaps are therefore yours to close at the platform layer:
 - **API pod ingress.** `settings.prod` trusts `X-Forwarded-Proto` unconditionally,
   so anything that can open a socket to the API pod on `:8000` can claim its
   request arrived over HTTPS. Restrict that port to the ingress controller / edge.
+  The **host** is not taken from a header at all — `USE_X_FORWARDED_HOST` is
+  pinned `False`, so `X-Forwarded-Host` is ignored and your edge must preserve the
+  original `Host`. That keeps the host bounded by `ALLOWED_HOSTS` rather than by
+  this network rule; see
+  [The scheme comes from the proxy; the host does not](/administration/networking/#tls).
 - **API and worker egress.** Restrict it to the destinations you actually use.
 
 [Ports and firewall](/administration/networking/#ports-and-firewall) is the full

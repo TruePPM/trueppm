@@ -544,12 +544,25 @@ class TaskLinkViewSet(
 
 
 def _git_webhook_url(request: Request, project_pk: Any) -> str:
-    """Absolute URL of a project's inbound Git-webhook receiver (admin pastes this)."""
+    """Absolute URL of a project's inbound Git-webhook receiver (admin pastes this).
+
+    Prefers the explicit ``TRUEPPM_PUBLIC_API_BASE_URL`` for the same reason
+    ``sso.views._derive_redirect_uri`` does (#3515): this value leaves the system
+    — an admin copies it into GitHub/GitLab — so it must be the origin the
+    operator chose, not the ``Host`` header of whoever happened to ask. Behind a
+    proxy that rewrites ``Host`` the request-derived form yields an unreachable
+    internal name and fails silently forever, since the wrong URL only shows up
+    as webhooks that never arrive. Falls back to the request's absolute URI for
+    zero-config single-origin dev, where the two agree.
+    """
+    from django.conf import settings
     from django.urls import reverse
 
-    return request.build_absolute_uri(
-        reverse("git-webhook", kwargs={"project_pk": str(project_pk)})
-    )
+    path = reverse("git-webhook", kwargs={"project_pk": str(project_pk)})
+    base = (getattr(settings, "TRUEPPM_PUBLIC_API_BASE_URL", "") or "").rstrip("/")
+    if base:
+        return f"{base}{path}"
+    return request.build_absolute_uri(path)
 
 
 class _WebhookRefusal(Exception):
