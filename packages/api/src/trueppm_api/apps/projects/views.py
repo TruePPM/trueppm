@@ -84,6 +84,7 @@ from trueppm_api.apps.access.permissions import (
     McpScope,
     ProjectScopedViewSet,
     TokenHasScope,
+    assert_project_not_archived,
     can_user_edit_task,
     can_user_undo_batch_operation,
     role_can_undo_batch_operation,
@@ -871,6 +872,24 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # Exempt from the archived-write invariant (#3414). A Calendar belongs to no
+    # project — `get_queryset` returns the whole org library and `get_permissions`
+    # replaces the class-level project gate with `IsOrgAdmin` on every write. The
+    # inherited declaration above applies to nothing; archiving one project must not
+    # freeze a calendar every other project also schedules against.
+    #
+    # Be honest about the reach, because the exemption is what stops a test asking about
+    # it: `_enqueue_calendar_recalc` fans a calendar edit out to every project using it,
+    # and `_recalc_projects_for_calendar` does NOT filter `is_archived`, so the CPM
+    # recompute and the `project_calendar_changed` broadcast do land on archived
+    # projects. That fan-out predates this exemption and is not what the exemption is
+    # for — the write being excused here is the calendar row. Filtering the fan-out is
+    # tracked separately; do not read this attribute as a decision that rewriting an
+    # archived plan's dates through a shared calendar is intended.
+    archived_write_exempt = (
+        "workspace-level calendar library: the row is not project-scoped and writes "
+        "are gated by IsOrgAdmin, not by any project's lifecycle state"
+    )
     queryset = Calendar.objects.prefetch_related("exceptions").order_by("name")
     serializer_class = CalendarSerializer
     search_fields = ["name"]
@@ -1256,6 +1275,23 @@ class ProjectViewSet(
     mcp_scope = McpScope.QUERYSET
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    # Two actions on this viewset are unsafe methods that write nothing to the plan
+    # (#3414). They are exempt by name so the route-table invariant records the decision
+    # rather than inferring it; the archive/unarchive/destroy/restore bypass is a
+    # separate mechanism (`IsProjectNotArchived._bypasses_archive_check`) and is not
+    # expressed here.
+    archived_write_exempt = {
+        "export": (
+            "POST /export queues a read of the plan and returns a job row; taking a "
+            "copy of an archived project is a main reason to keep one, and the GET "
+            "twin on the same action is explicitly available while archived"
+        ),
+        "visit": (
+            "records the caller's own last-visited row so the landing default works; "
+            "it writes a profile row scoped to request.user, never project state"
+        ),
+    }
 
     def get_permissions(self) -> list[BasePermission]:
         # Additively guard the API-token path (ADR-0186 §E): a mcp:read token is
@@ -6789,6 +6825,11 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
         # gate create — enforce membership on the target task's project here.
         task = serializer.validated_data["task"]
         self._require_member_write(task.project_id)
+        # `IsProjectNotArchived` is declared on this viewset and cannot fire on THIS
+        # request for the same reason (#3414): no project kwarg for `has_permission`,
+        # and DRF calls no object check on a create. Every other action on the class is
+        # a detail route where it does fire.
+        assert_project_not_archived(task.project_id)
         # Wrap both writes in one atomic block: if the met_by/met_at stamp fails,
         # the criterion row itself is rolled back rather than being left with null
         # attribution on a criterion that appears met (P25 correctness fix).
@@ -7917,6 +7958,12 @@ class CrossProjectSlipConflictViewSet(
                 "``acknowledge`` (#3319).",
                 shape="messages",
             ),
+            403: ownership_refusal_403(
+                "The caller lacks Admin or the Scrum Master / Product Owner facet on the "
+                "downstream project, or that project is archived (#3414) — acknowledging "
+                "persists `acknowledged_by`/`acknowledged_at` and broadcasts, so it is a "
+                "write on a frozen plan."
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="acknowledge")
@@ -7934,6 +7981,7 @@ class CrossProjectSlipConflictViewSet(
         from rest_framework.exceptions import ValidationError as DRFValidationError
 
         from trueppm_api.apps.access.permissions import (
+            assert_project_not_archived,
             can_manage_scope_with_facet,
             effective_project_role,
         )
@@ -7941,6 +7989,13 @@ class CrossProjectSlipConflictViewSet(
 
         conflict = self.get_object()
         project_id = conflict.task.project_id
+        # Archived is checked here rather than by adding IsProjectNotArchived to
+        # `get_permissions` (#3414). This route is top-level — `slip-conflicts/<pk>/` —
+        # so `has_permission` resolves no project and stands down, and the object DRF
+        # hands `has_object_permission` is the conflict row, whose only route to a
+        # project is `task__project_id`. Appending the class would have looked like a
+        # fix and enforced nothing on either hook.
+        assert_project_not_archived(project_id)
         role = effective_project_role(request, project_id)
         if not can_manage_scope_with_facet(request.user, project_id, role):
             raise PermissionDenied(
@@ -17403,7 +17458,17 @@ class TaskSyncView(IdempotencyMixin, APIView):
                     "project-scoped API token (`projectApiTokenAuth`), not a user "
                     "session."
                 ),
-            )
+            ),
+            403: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "The token does not carry the `legacy:full` scope, or the project is "
+                    "archived (#3414) — flipping a criterion writes `met`/`met_by`/"
+                    "`met_at` and broadcasts, so it is a plan write and an archived plan "
+                    "is read-only. A CI job seeing this should stop retrying: neither "
+                    "cause is transient."
+                ),
+            ),
         },
     )
 )
@@ -17438,12 +17503,20 @@ class AcceptanceResultIngestView(IdempotencyMixin, APIView):
     from trueppm_api.apps.projects.throttles import AcceptanceResultThrottle
 
     authentication_classes = [ProjectApiTokenAuthentication]
+    # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745, #3414). Without
+    # this declaration `_project_pk_from_view` reads the literal `project_pk`, finds
+    # nothing, and IsProjectNotArchived's `has_permission` returns True for every
+    # caller — the gate would read as live in review and enforce nothing.
+    project_url_kwarg = "pk"
     # TokenHasScope(legacy:full) rejects a read-only mcp:read token at this write
     # path (ADR-0186 §E): only a full-scope token may report acceptance verdicts.
+    # IsProjectNotArchived refuses CI verdict ingest into an archived plan: flipping a
+    # criterion writes `met`/`met_by`/`met_at` and broadcasts, which is a plan write.
     permission_classes = [
         IsAuthenticated,
         IsTokenForProject,
         TokenHasScope(SCOPE_LEGACY_FULL),
+        IsProjectNotArchived,
     ]
     throttle_classes = [AcceptanceResultThrottle]
 
@@ -17611,8 +17684,29 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             throttles.append(_TRT())
         return throttles
 
+    # `destroy` REVOKES a token, and revocation has to keep working on an archived
+    # project (#3414). A project token is deliberately untouched by password reset and by
+    # off-boarding (see the class docstring), so this DELETE is its only revocation path;
+    # archived projects stay fully readable, so a leaked token keeps read access to the
+    # whole plan. Closing the route would mean a leaked credential could only be killed
+    # by unarchiving — which re-enables every write it can make — and revoking is
+    # Admin-level while unarchiving is Owner-only, so a non-Owner Admin would be stranded
+    # entirely. Minting a token is a write and stays gated.
+    #
+    # Same argument as `ProjectShareLinkRevokeView`: taking access away is not a write to
+    # the plan.
+    archived_write_exempt = {
+        "destroy": (
+            "revoking a project API token only removes access, and this DELETE is the "
+            "token's only revocation path; archived projects stay readable, so closing "
+            "it would leave a leaked credential live on a frozen plan"
+        )
+    }
+
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("create", "destroy"):
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsNotTokenAuthenticated(), IsProjectAdmin()]
+        if self.action == "create":
             return [
                 IsAuthenticated(),
                 IsNotTokenAuthenticated(),
@@ -17817,6 +17911,23 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
 
     _scope_field = "program"
     _scope_kwarg = "program_pk"
+
+    # This viewset is PROGRAM-scoped: `get_permissions` replaces the project ladder with
+    # the program one, and no project's archived flag governs a program token. It is
+    # named here only because the route-table invariant sees `IsProjectNotArchived` in
+    # the inherited class-level `permission_classes` and, correctly, refuses to assume an
+    # inherited declaration is dead (#3414). The program's own lifecycle gate is
+    # `IsProgramNotClosed`, which is applied above.
+    archived_write_exempt = {
+        "create": (
+            "program-scoped token: governed by IsProgramNotClosed on the program, not "
+            "by any single project's archived flag"
+        ),
+        "destroy": (
+            "program-scoped token revocation: governed by the program's lifecycle, and "
+            "revocation must stay available regardless (see ProjectApiTokenViewSet)"
+        ),
+    }
 
     def get_permissions(self) -> list[BasePermission]:
         # IsNotTokenAuthenticated on every branch — see ProjectApiTokenViewSet (#2878).
