@@ -101,6 +101,28 @@ every existing project where it was. This matrix is how you move them. (The
 iteration label is different: it is a true nullable override, so clearing it on a
 project really does fall back to the program's.)
 
+### After you save a methodology
+
+:::note[Ships in 0.4]
+The post-save report described here ships in **TruePPM 0.4**, the first beta. In
+`v0.3.0-alpha.3`, the latest release, a methodology save on the General section
+says nothing about the projects already in the program — you have to open this
+matrix and read the rows yourself.
+:::
+
+From 0.4, saving the **Methodology** on the General section will report the
+partition it left behind, immediately under the picker:
+
+> Saved. 9 of 12 projects in this program run as Waterfall; 3 do not. Existing
+> projects keep their own methodology. **Align the 3**
+
+**Align the 3** will scroll you to this matrix with the *Deviates from default*
+filter already applied, those rows already checked and **Methodology** already
+chosen in the field picker. It will **not** stage a value, so **Apply** stays
+disabled until you pick one — the link takes you to the change, it does not make
+it. Where the program has no projects, or where every project already matches,
+the message will say that instead of showing nothing.
+
 ### Seeing which projects deviate from the default
 
 :::note[Ships in 0.4]
