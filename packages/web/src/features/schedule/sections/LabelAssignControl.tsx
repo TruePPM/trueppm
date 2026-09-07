@@ -194,7 +194,7 @@ function LabelPopover({
                 style={labelDotStyle(label.color)}
                 aria-hidden="true"
               />
-              <span className="flex-1 truncate">{label.name}</span>
+              <span className="flex-1 min-w-0 truncate">{label.name}</span>
               {checked && (
                 <CheckIcon className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
               )}

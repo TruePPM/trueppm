@@ -114,14 +114,20 @@ export function StatusBar() {
 
   // The bar sits on the *raised* paper, not the sunken well: neutral-text-secondary
   // (#6B6965) is 4.63:1 on white / 5.16:1 on raised paper but only 4.35:1 on the
-  // sunken surface (#EAE5D9) — a WCAG 1.4.3 fail for the 11px chrome text (#1689).
+  // sunken surface (#EAE5D9) — a WCAG 1.4.3 fail for the chrome text (#1689).
   // Raising the surface keeps the quiet muted-text chrome look while clearing AA;
   // the recessed feel is still carried by the top border.
+  //
+  // The bar's type is `text-xs`, the rule-50 floor. It ran at `text-[11px]` under a
+  // named gate carve-out until #3475 retired it: the exception bought one pixel of
+  // chrome quietness and cost a WCAG 1.4.4 risk on the app's most persistent
+  // surface. The bar keeps `h-6`: `text-xs` has a 16px line box, so 12px type sits
+  // inside 24px with room to spare and no shell geometry moves.
   return (
     <footer
       role="contentinfo"
       aria-label="Application status"
-      className="hidden md:flex items-center h-6 px-4 gap-4 text-[11px] text-neutral-text-secondary
+      className="hidden md:flex items-center h-6 px-4 gap-4 text-xs text-neutral-text-secondary
         bg-neutral-surface-raised border-t border-neutral-border overflow-hidden"
     >
       {/* Persistent polite region for WS state transitions (#2203) — always

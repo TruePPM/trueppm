@@ -11,6 +11,7 @@
 
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toApiRelativePath } from '@/api/pagination';
 
 export type AssetKind = 'file' | 'link';
 
@@ -172,9 +173,14 @@ export const ASSET_PROVIDERS: { value: string; label: string }[] = [
  * target (`download_url`, prefixed `/api/v1`), which returns a short-lived signed
  * URL. Strip the API prefix so the auth-carrying `apiClient` (baseURL `/api/v1`)
  * doesn't double it. Reuses the exact attachment signed-url mechanism (ADR-0215).
+ *
+ * Uses the shared `toApiRelativePath` so this is not a second copy of that strip
+ * (#3467). It is also strictly safer than the start-anchored form it replaces: a
+ * `download_url` that ever arrives fully-qualified would not match `^/api/v1`,
+ * and the untouched absolute URL then bypasses the baseURL entirely.
  */
 export async function openAssetDownload(downloadUrl: string): Promise<void> {
-  const path = downloadUrl.replace(/^\/api\/v1/, '');
+  const path = toApiRelativePath(downloadUrl);
   const res = await apiClient.get<{ url: string; expires_at: string }>(path);
   if (res.data?.url) {
     window.open(res.data.url, '_blank', 'noopener,noreferrer');

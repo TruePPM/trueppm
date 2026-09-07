@@ -175,7 +175,7 @@ export function LaneMeta({
         <div className="flex items-center gap-2 min-w-0">
           {collapseToggle}
 
-          <span className="flex-1 text-xs font-semibold text-neutral-text-primary truncate">
+          <span className="flex-1 min-w-0 text-xs font-semibold text-neutral-text-primary truncate">
             {phaseName}
           </span>
 

@@ -13,6 +13,9 @@ Step 7 ([Forecast and confidence](/the-story/#7-forecast--monte-carlo-across-bot
 
 ## Chart variants
 
+
+![The Reports page with the sprint burndown chart and the burn chart selector](../../../assets/screenshots/reports.webp)
+
 ### Burn Down
 
 Plots remaining work from the project start date to today. The ideal burn line runs from total scope at start to zero at the planned finish date.

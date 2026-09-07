@@ -23,7 +23,7 @@ export function UnscheduledDragPreview({ task, x, y }: UnscheduledDragPreviewPro
       <span className="tppm-mono text-xs text-neutral-text-secondary w-14 truncate shrink-0">
         {task.wbs || '—'}
       </span>
-      <span className="flex-1 truncate">{task.name}</span>
+      <span className="flex-1 min-w-0 truncate">{task.name}</span>
       <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">{task.duration}d</span>
       <span className="text-xs text-neutral-text-secondary shrink-0 ml-1">Drop on timeline · Esc to cancel</span>
     </div>
