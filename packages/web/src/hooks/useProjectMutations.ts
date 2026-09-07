@@ -233,6 +233,18 @@ export function useUpdateProject(projectId: string | null | undefined) {
     onSuccess: () => {
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        // `Project.timezone` is an input to a value the server computes on a
+        // DIFFERENT endpoint: the notification-preference document reports the
+        // resolved `quiet_hours_timezone` and the tier that supplied it (#3377).
+        // Nothing optimistically recomputes that chain, and no event reports it,
+        // so without this the editor's own Notifications page keeps captioning
+        // the quiet-hours window with the pre-edit zone until the 30s staleTime
+        // lapses — stating a wrong zone, which is worse than stating none
+        // (web-rule 331(d): a key is reported by anything that moves an input of
+        // its response, whatever the endpoint is named). #3397.
+        void queryClient.invalidateQueries({
+          queryKey: ['project-notification-preferences', projectId],
+        });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },

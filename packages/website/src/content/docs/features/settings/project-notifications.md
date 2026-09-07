@@ -99,10 +99,12 @@ A zero-width window (from equals until) means "no quiet hours".
 
 :::note[Ships in 0.4]
 The **workspace** tier below ships in **TruePPM 0.4**, along with the
-`quiet_hours_timezone` and `quiet_hours_timezone_source` response fields. In
-`v0.3.0-alpha.3` (the latest release) a project that sets no timezone of its own
-falls straight through to the server's `TIME_ZONE`, and the workspace **Default
-timezone** setting has no effect on quiet hours.
+`quiet_hours_timezone` and `quiet_hours_timezone_source` response fields and the
+line on the Notifications page that states them. In `v0.3.0-alpha.3` (the latest
+release) a project that sets no timezone of its own falls straight through to
+the server's `TIME_ZONE`, the workspace **Default timezone** setting has no
+effect on quiet hours, and the page shows the **From** and **Until** times with
+no timezone beside them.
 :::
 
 The window resolves top-down and stops at the first usable value:
@@ -115,9 +117,22 @@ The window resolves top-down and stops at the first usable value:
 An unparseable value at any tier falls through to the next one rather than
 resetting the window to UTC.
 
-You do not have to work the chain out yourself. `GET
-/api/v1/projects/<id>/notification-preferences/` returns the resolved answer
-alongside the window:
+You do not have to work the chain out yourself. From 0.4 the **Quiet hours** card
+states the answer under the **From** and **Until** selects, and names the scope
+that decided it — which is what tells you who to ask to change it:
+
+| What the page says | What it means |
+|---|---|
+| Times are in `<zone>` — this project's timezone. | The project sets its own **Timezone** (Project → Settings → General). |
+| Times are in `<zone>` — the workspace default timezone. This project sets no usable timezone of its own. | The project inherits. A workspace admin changes it under Workspace → Settings → General. |
+| Times are in `<zone>` — the server default. Neither this project nor the workspace sets a usable timezone. | The chain fell past both scopes you can edit. Nobody can fix this from the app — see the degradation note below. |
+| Times are in `<zone>` — no project, workspace, or server timezone could be read. | Nothing in the chain was usable, so the window falls back to UTC. |
+
+The line is a read-only statement of fact, not a control — quiet hours are a
+project policy, so there is no per-member timezone to pick here.
+
+The same answer is on the API. `GET
+/api/v1/projects/<id>/notification-preferences/` returns it alongside the window:
 
 | Field | Meaning |
 |---|---|
