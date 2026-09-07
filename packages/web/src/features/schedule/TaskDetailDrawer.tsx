@@ -860,7 +860,11 @@ export function TaskDetailDrawer({
           // motion-safe so users (and e2e, #1655) with prefers-reduced-motion get
           // an instant snap instead of a transform that Playwright's stability
           // check races against.
-          'motion-safe:transition-transform duration-slow ease-brand',
+          // `visibility` is in the property list on purpose: it is not covered by
+          // `transition-transform`, so without it the closed shell's `invisible`
+          // applies at frame 0 and the drawer vanishes instead of sliding out.
+          // Discrete interpolation flips it at the END of the transform (rule 405).
+          'motion-safe:transition-[transform,visibility] duration-slow ease-brand',
           isOpen ? 'translate-x-0' : 'translate-x-full invisible pointer-events-none',
         ].join(' ')}
       >
@@ -879,7 +883,7 @@ export function TaskDetailDrawer({
           'md:hidden fixed inset-x-0 bottom-0 z-40',
           'rounded-t-card bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
-          'motion-safe:transition-transform duration-200',
+          'motion-safe:transition-[transform,visibility] duration-200',
           isOpen ? 'translate-y-0' : 'translate-y-full invisible pointer-events-none',
         ].join(' ')}
       >
