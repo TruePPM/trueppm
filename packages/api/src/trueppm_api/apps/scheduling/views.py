@@ -44,6 +44,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectScheduler,
     McpReadableViewMixin,
     McpScope,
+    assert_project_not_archived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
@@ -172,7 +173,14 @@ _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date r
             response=OpenApiTypes.OBJECT,
             description='Recalculation queued via the outbox; body is {"queued": true}.',
         ),
-        403: OpenApiResponse(description="Caller lacks the Resource Manager role on the project."),
+        403: OpenApiResponse(
+            description=(
+                "Caller lacks the Resource Manager role on the project, or the project "
+                "is archived (archived plans are read-only, and a recalculation rewrites "
+                "every task's dates). Both causes answer the same status — branch on "
+                "`detail`, not on 403 alone."
+            )
+        ),
         404: OpenApiResponse(description="Project not found."),
     },
 )
@@ -196,6 +204,15 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     # Permission check against the project object.
     if not IsProjectScheduler().has_object_permission(request, None, project):  # type: ignore[arg-type]
         return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+    # ...and the archived check, in the body for the same reason the membership check
+    # is (#3414). `IsProjectNotArchived` IS declared above, but this is an `@api_view`
+    # function: the generated `WrappedAPIView` carries no `project_url_kwarg`, the route
+    # spells the project `pk`, so `_project_pk_from_view` returns None and
+    # `has_permission` returns True — and DRF never calls `has_object_permission` on a
+    # function view. The declaration read as the gate while a manual recalculation ran
+    # happily against an archived plan, rewriting every task's dates.
+    assert_project_not_archived(project.pk)
 
     # Defer until any outer transaction commits so the ScheduleRequest row is
     # never visible to the drain before its parent write lands.
@@ -500,6 +517,14 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 ),
             ],
         ),
+        403: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "Caller is not a member of the project, or the project is archived — a "
+                "run refreshes the project's forecast cache and, for Scheduler+, "
+                "appends a drift-history row, so it is a write."
+            ),
+        ),
         404: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
             description="Project does not exist.",
@@ -565,6 +590,13 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
 
     if not IsProjectMember().has_object_permission(request, None, project):  # type: ignore[arg-type]
         return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+    # Same #3414 shape as `trigger_schedule`: the declared `IsProjectNotArchived` cannot
+    # fire on an `@api_view` function whose route spells the project `pk`. A run is not a
+    # pure read — it refreshes the project's `mc_latest` cache and, for Scheduler+,
+    # appends an author-attributed `MonteCarloRun` row, so an archived plan's forecast
+    # history could be extended indefinitely after it was frozen.
+    assert_project_not_archived(project.pk)
 
     cap: int | None = settings.MC_SIMULATION_CAP
     # A JSON `null` (or absent) body parses to request.data == None; the body is

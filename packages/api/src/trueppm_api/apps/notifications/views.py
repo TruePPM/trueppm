@@ -537,6 +537,16 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
     # nothing. Declared per view because `pk` means something else on other routes.
     project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember]
+    # Exempt from the archived-write invariant (#3414). The PATCH writes the CALLER'S
+    # OWN `ProjectNotificationPreference` row, not project state — ADR-0075's "each user
+    # owns their notification contract" rule. An archived project still emits
+    # notifications (mentions on its comments, digests), so a member must be able to
+    # silence it; gating this would freeze every member's routing at whatever it
+    # happened to be when the project was archived.
+    archived_write_exempt = (
+        "writes the caller's own per-project notification preference, not project "
+        "state; a member must still be able to silence an archived project"
+    )
 
     def _get_project(self, request: Request, pk: str) -> Project:
         project = get_object_or_404(Project, pk=pk, is_deleted=False)

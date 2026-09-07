@@ -7,7 +7,12 @@ import logging
 import redis as redis_lib
 from django.db import transaction
 from django.db.models import QuerySet
-from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
 from kombu.exceptions import (  # type: ignore[import-untyped]
     OperationalError as KombuOperationalError,
 )
@@ -32,6 +37,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProjectAdmin,
     IsProjectMember,
+    IsProjectNotArchived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
@@ -91,6 +97,24 @@ WEBHOOK_DELIVERY_PAGE = inline_serializer(
 
 # The 201 body carries the one-time `secret`; the shared Webhook schema does not
 # declare it (the field is write_only, which is right for every read). Declared per
+#: Both causes of the 403 the project-scoped create now answers. Declared as one string
+#: because the two are indistinguishable on the wire — same status, bare ``detail`` — so
+#: a client branches on the message either way, and publishing only one of them would
+#: tell an integrator the other cannot happen.
+#:
+#: Used ONLY where `ProgramWebhookViewSet` overrides the declaration with its own. A
+#: declaration on an inherited action that the subclass does not re-declare publishes on
+#: BOTH paths — which also collides their pinned operationIds — so `update`,
+#: `partial_update` and `destroy` are deliberately left undeclared here rather than
+#: gaining a project-flavored 403 on the program routes. They are part of the wider
+#: undeclared-403-on-DELETE gap recorded in the MR for #3414.
+_ARCHIVED_OR_NOT_ADMIN = (
+    "Caller is not a project Admin, or the project is archived (#3414) — archived "
+    "plans are read-only, so a webhook cannot be added, edited, deleted or "
+    "test-fired on one. Reading the webhook and its deliveries still works."
+)
+
+
 # viewset because one shared declaration would publish the same operationId on both
 # the project- and program-scoped paths — a duplicate-operationId collision. Ids are
 # pinned for the same reason as `deliveries`: operationId is the *method name* in a
@@ -99,9 +123,12 @@ WEBHOOK_DELIVERY_PAGE = inline_serializer(
 @extend_schema_view(
     create=extend_schema(
         summary="Register a webhook",
-        responses={201: WebhookCreateResponseSerializer},
+        responses={
+            201: WebhookCreateResponseSerializer,
+            403: OpenApiResponse(description=_ARCHIVED_OR_NOT_ADMIN),
+        },
         operation_id="v1_projects_webhooks_create",
-    )
+    ),
 )
 class WebhookViewSet(
     IdempotencyMixin,
@@ -136,15 +163,16 @@ class WebhookViewSet(
         # information disclosure beyond plain project membership, so it is
         # Admin-only — consistent with webhook create/update/delete/test, which
         # are already Admin-gated (only an Admin could have created the webhook).
-        if self.action in (
-            "create",
-            "update",
-            "partial_update",
-            "destroy",
-            "test_ping",
-            "deliveries",
-        ):
+        if self.action == "deliveries":
+            # A read. Archived projects stay readable, so no lifecycle gate here.
             return [IsAuthenticated(), IsProjectAdmin()]
+        if self.action in ("create", "update", "partial_update", "destroy", "test_ping"):
+            # IsProjectNotArchived fires in `has_permission` on these routes because the
+            # URL names `project_pk` — the kwarg `_project_pk_from_view` reads (#3414).
+            # `destroy` is gated like the rest since the archive bypass was scoped to
+            # ProjectViewSet; before that, the router-minted action name alone was
+            # enough to skip the check on every project-scoped viewset.
+            return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember()]
 
     def get_queryset(self) -> QuerySet[Webhook]:
@@ -195,7 +223,15 @@ class WebhookViewSet(
             202: inline_serializer(
                 name="WebhookTestPingResponse",
                 fields={"delivery_id": serializers.CharField()},
-            )
+            ),
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks Admin on the webhook's scope. On a PROJECT webhook the "
+                    "same status is also how an archived project refuses (#3414); the "
+                    "program-scoped route has no archived state. Declared once because "
+                    "this handler is shared by both viewsets."
+                )
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="test")

@@ -95,6 +95,16 @@ check — appended alongside the role gate on every action except the ones that
 manage archival itself. It composes *additively*: a role that would otherwise
 pass is still blocked while the project is archived.
 
+The archival exception is **scoped to `ProjectViewSet`**, not to the four action
+names. `archive`, `unarchive`, `restore` and `destroy` bypass the check on the
+project row itself, because an archived project would otherwise be unable to
+unarchive itself — a catch-22. They do *not* bypass it anywhere else: `destroy` is
+minted by the router on every `ModelViewSet`, so matching the name alone exempted
+the delete route of every project-scoped viewset in the API from the read-only
+contract. Deleting a task, risk, comment, attachment, label, phase, baseline,
+membership or assignment in an archived project is an ordinary write and is refused
+like any other.
+
 ## Naming the project kwarg: the fail-open a route inherits by accident
 
 Tier 0 only runs if the permission layer can find the project, and it finds it by
@@ -145,6 +155,32 @@ live URL resolver and asserts that every route naming a project enforces access 
 *some* path — the declared kwarg, a ViewSet's object check, or an explicit call in
 the view body — and it names the routes in that last category so removing one is a
 failing test rather than a silent downgrade.
+
+### The same guard, for the lifecycle gate
+
+The membership invariant is scoped to routes whose **URL names a project**, which
+is the right scope for the kwarg defect and the wrong one for `IsProjectNotArchived`:
+most routes that skipped the archived check are top-level, so they fell outside what
+it inspects. A second invariant in the same file therefore enumerates every
+**project-scoped write route** — discovered from the permissions the view really
+applies at runtime, not from a source grep — and asserts each one enforces archived
+state on one of four paths, or carries an `archived_write_exempt = "<reason>"`
+attribute saying in a sentence why the write must survive archiving. The exemption
+lives on the view rather than in a list, so it travels with the code it excuses.
+
+A declared permission class only counts when it can actually **fire**. Three shapes
+defeat it, and all three shipped:
+
+- the project is named only in the **request body**, so `has_permission` resolves
+  nothing and `has_object_permission` never runs (DRF does not call it on a create);
+- the route spells the project `pk` with no `project_url_kwarg` — the same fail-open
+  as above, one layer down;
+- the object handed to `has_object_permission` has no relation the resolver walks, so
+  it resolves `None` and returns `True`.
+
+Where none of the declarative paths can work, the check goes in the view body as
+`assert_project_not_archived(project_id)`, which raises the same refusal with the
+same message from wherever it is called.
 
 One deliberate wrinkle: when a declared route is given an id that matches **no live
 project**, the permission layer stands down so the view's own `get_object_or_404`

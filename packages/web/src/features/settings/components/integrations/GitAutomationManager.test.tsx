@@ -514,6 +514,28 @@ describe('GitAutomationManager — last delivery (#2882)', () => {
     expect(screen.queryByTestId('git-last-delivery')).not.toBeInTheDocument();
   });
 
+  it('names the archived project as the reason, with the one fix that resolves it', () => {
+    // The receiver refuses an archived project's deliveries with the same bare 404 as
+    // every other pre-verification refusal, deliberately — a 403 would tell an
+    // unauthenticated caller holding the project UUID that the project exists and is
+    // archived. This row is therefore the ONLY place the reason surfaces, which is why
+    // an unmapped token here would leave the admin with a bare 'project archived' and
+    // no next step (#3414).
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_refusal_at: '2026-09-07T09:30:00Z',
+      last_refusal_outcome: 'project_archived',
+      last_refusal_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    const refusal = screen.getByTestId('git-last-refusal');
+    expect(refusal).toHaveTextContent(/Delivery arrived while the project was archived/i);
+    expect(refusal).toHaveTextContent(/Unarchive the project/i);
+    // Not the humanized fallback — that would render the raw token with no hint.
+    expect(refusal).not.toHaveTextContent(/^project archived$/);
+  });
+
   it('keeps a hostile refusal from displacing the genuine verified outcome', () => {
     // The whole point of two slots: an anonymous caller spamming bad_signature must
     // not erase the no_link an admin is mid-diagnosis on.
