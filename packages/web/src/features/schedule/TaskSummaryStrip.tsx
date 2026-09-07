@@ -121,8 +121,8 @@ export function TaskSummaryStrip({ task }: { task: Task }) {
           {owner ? (
             <span className="inline-flex items-center gap-1.5 min-w-0">
               <span
-                className="w-5 h-5 rounded-full bg-sage-500 text-navy-900 dark:bg-sage-400 text-[10px] font-semibold
-                  inline-flex items-center justify-center shrink-0 select-none"
+                className="w-6 h-6 rounded-full bg-sage-500 text-navy-900 dark:bg-sage-400 text-xs font-semibold
+                  leading-none inline-flex items-center justify-center shrink-0 select-none"
                 aria-hidden="true"
               >
                 {initials(owner.name)}

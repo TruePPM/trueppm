@@ -48,6 +48,8 @@ short menu of samples; pick one and you land on a fully populated program. A
 dismissable **Start exploring** guide appears on the landing page with a couple
 of suggested first steps for the sample you chose.
 
+![The Programs directory showing the Atlas Platform Launch card with its three projects and the Load demo data button](../../../assets/screenshots/programs.webp)
+
 You can also load a demo straight from **My Work** when you have nothing assigned
 yet: that path drops you on a project **Board** with the demo's first open sprint
 already assigned to you, so your own work is visible immediately rather than a

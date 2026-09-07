@@ -151,6 +151,8 @@ what each sample is built to demonstrate.
 Every "look here" below assumes this much orientation, which is worth 30 seconds
 before you start clicking:
 
+![My Work for a team member on the Atlas sample: needs-attention and sprint tiles, today's blocked task, the ship-date forecast, and the active sprint](../../../assets/screenshots/my-work.webp)
+
 - **Views live in the left navigation rail**, not in top-bar tabs. Within a
   project they are grouped **Plan** (Schedule, Grid, Calendar) · **Deliver**
   (Backlog, Sprints, Board) · **Track** (Dashboard, Today, Risks, Reports,
@@ -213,6 +215,8 @@ name if you would rather not read URLs.
 | Labels | every sample | Board or Schedule → the toolbar filter | Themed labels (e.g. Bayside "critical-path", "inspection"; Atlas "security", "cutover") |
 | Monte Carlo P50/P80/P95 | Bayside · `bayside-sam` / Atlas · `atlas-alex` | Schedule → **Forecast** bar along the bottom → **Details ›** | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
 
+![The schedule after a Monte Carlo run: the Forecast bar shows P50, P80 and P95 finish dates, the CPM date, and the top driver](../../../assets/screenshots/monte-carlo.webp)
+
 ### Risk register
 
 | Capability | Sample · persona | Look here | Expect |
@@ -224,6 +228,8 @@ name if you would rather not read URLs.
 | `TRANSFER` response | Bayside · `bayside-sam` | Risks → "MEP subcontractor financial risk" | The only transfer in any sample, with the instrument named — and a note on what the bond does *not* cover, which is why it stays open |
 | Schedule-driving risks | Atlas · `atlas-alex` | Risks, then Schedule → **Forecast** bar → **Details ›** | Several high probability × impact risks that visibly move the forecast |
 
+![The risk register: a probability-by-impact heatmap on the left and the sortable risk table with severity and owner on the right](../../../assets/screenshots/risk-register.webp)
+
 ### Hybrid & program scale
 
 | Capability | Sample · persona | Look here | Expect |
@@ -234,6 +240,8 @@ name if you would rather not read URLs.
 | Hybrid rollup | Helios · `helios-jordan` / Atlas · `atlas-alex` | Rail **Overview** (`/projects/:id/overview`, or `/programs/:id/overview`) | Gated and flow work rolling up together under one parent |
 | Cross-project critical path | Atlas · `atlas-alex` | Program rail **Schedule** (`/programs/:id/schedule`) | Platform Core gates Migration, which gates the public-launch milestone |
 | Methodology mix in one program | Atlas · `atlas-alex` | Program rail **Projects** (`/programs/:id/projects`) | Agile, waterfall, and hybrid streams side by side |
+
+![The hybrid GTM Readiness schedule: waterfall launch-planning tasks above a Scrum enablement phase whose sprint windows render on the Gantt](../../../assets/screenshots/schedule-hybrid.webp)
 
 ### Interface (v2)
 

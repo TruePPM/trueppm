@@ -74,6 +74,8 @@ Open the grid from **Timesheet** in the sidebar's Personal group, or go straight
 fill gaps and submit at the end of the week — every project and task you logged against, laid out
 Monday to Sunday.
 
+![The weekly Timesheet grid with a day column per weekday and a week total](../../../assets/screenshots/timesheet.webp)
+
 - **Rows are your tasks, across every project.** Each row shows the task and its project; the grid spans all the projects you're a member of, so a cross-project week is one screen, not a tab per project.
 - **Columns are the seven days** of the selected week (Mon … Sun). Each cell is the hours you logged on that task that day; an empty cell reads as a muted `·`.
 - **Type hours however is fastest** — `2`, `2.5`, or `2:30` all mean two-and-a-half hours. `Tab` moves between cells, `Enter` saves the cell, `Esc` discards the edit. Clearing a cell removes that day's entry.

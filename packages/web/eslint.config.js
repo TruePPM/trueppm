@@ -124,6 +124,90 @@ export const NO_FOCUS_VISIBLE_ON_TRIGGER = [
   },
 ];
 
+// A shrinkable `flex-1` box that holds truncating text (rule 393, #3474).
+//
+// A flex item's `min-width` computes to `auto`, which resolves to its CONTENT
+// minimum — so the item refuses to shrink below the intrinsic width of its text,
+// pushes its siblings out, and overflows the row. `min-w-0` restores the
+// shrinkable floor that makes an ellipsis possible.
+//
+// **Be precise about which shape that actually bites, because #3474 was filed
+// against the wrong one.** CSS Sizing 3 §5.2 zeroes the automatic minimum size
+// for any box whose computed `overflow` is not `visible` — and Tailwind's
+// `truncate` IS `overflow:hidden`. So on an element that carries `flex-1` and
+// `truncate` TOGETHER, `min-w-0` changes nothing; measured in Chromium at #3474,
+// the child box is 120px either way and the row overflows 0px either way. The
+// shape that genuinely needs it is `flex-1` on a CONTAINER whose truncating text
+// is a descendant: same fixture, the container renders 307px wide and overflows
+// its 300px row by 187px, and adding `min-w-0` brings it back to 120px / 0px.
+//
+// What this rule therefore is, stated plainly so nobody has to re-derive it:
+// a CONSISTENCY rule, not a correctness one. `min-w-0` on a `flex-1 truncate`
+// element is inert *while* `truncate` sits on that element; it stops being inert
+// the moment someone moves the truncation onto a child, which is exactly the
+// edit that turns a working row into the container shape. Keeping the idiom
+// uniform costs nothing and makes that edit safe. Claiming it is what fixed
+// #3474 would cost the next reader an afternoon, so it does not claim that.
+//
+// The layout defect in #3474 itself was neither shape: five `shrink-0` siblings
+// consumed the whole 390px row, leaving the `flex-1` name a legitimate zero. The
+// fix is the wrap in `ProgramProjectsPage`, and `e2e/programs.spec.ts` is what
+// holds it — no lint rule can see "these siblings do not fit".
+//
+// The CONTAINER family is deliberately NOT enforced here. The selector for it
+// works (it is exercised in the self-test's documented-gap fixtures) and the
+// tree carries 18 candidate sites, none of them reviewed — turning it on in this
+// MR would red the pipeline for eighteen surfaces nobody has looked at, which is
+// how a rule gets reverted rather than adopted. It is its own sweep, and rule
+// 393 in `CLAUDE.md` records the measurement so the follow-up starts from
+// evidence rather than from this comment.
+//
+// This is a CLASS-STRING rule, so it is textual by nature (rule 300(b)) — but it
+// is written as an AST selector rather than a grep for two reasons that matter:
+// a `className` string in this tree is routinely wrapped across lines (the
+// offender that opened #3474 was one of them, and a line-oriented grep cannot
+// see `flex-1` and `truncate` that a prettier wrap put on different lines), and
+// the container family is a *structural* claim about an element and its child,
+// which no grep can make at all.
+//
+// Known gaps, all with the same escape hatch (`// eslint-disable-next-line
+// no-restricted-syntax` with a reason):
+//   · classes split across separate string arguments of a `cn(...)`/`clsx(...)`
+//     call are evaluated per string, so `clsx('flex-1 truncate', 'min-w-0')`
+//     reports even though the rendered class list is correct. There is no such
+//     site in the tree today.
+//   · a class list assembled in an imported constant (a `styles.ts` recipe) is
+//     invisible here, exactly as it is to NO_FOCUS_VISIBLE_ON_TRIGGER above.
+//   · the container family looks one level down only. A truncating grandchild is
+//     not reported — deeper nesting would need "no intermediate carries
+//     `min-w-0`", which esquery cannot express, and guessing at it is how a rule
+//     earns enough false positives to get switched off.
+const FLEX_TRUNCATE_MESSAGE =
+  '`flex-1 truncate` without `min-w-0` (rule 393). Inert while `truncate` sits on this element (overflow:hidden already zeroes min-width:auto), and load-bearing the moment the truncation moves to a child — keep the idiom uniform so that edit stays safe. Add `min-w-0`. If this genuinely is not a truncating flex child, add `// eslint-disable-next-line no-restricted-syntax` with a reason.';
+
+// Both classes present, `min-w-0` absent, anywhere in the same attribute value.
+// `[\s\S]` rather than `.` so a wrapped className is matched across its newlines.
+//
+// The leading `^` is load-bearing and is NOT decoration: esquery tests this with
+// `RegExp.test`, which retries at every offset, so an unanchored lookahead group
+// finds a *suffix* that satisfies it. `"min-w-0 flex-1 truncate"` — the correct
+// form — then matches from the offset just past `min-w-0`, where the negative
+// lookahead sees no remaining `min-w-0` and reports the fixed site as an
+// offender. Anchoring forces all three lookaheads to be evaluated against the
+// whole value exactly once. The self-test in
+// `src/test/flexTruncateMinWidthRule.test.ts` pins the class-order permutations
+// that caught this.
+const FLEX_TRUNCATE_PAT =
+  '/^(?=[\\s\\S]*\\bflex-1\\b)(?=[\\s\\S]*\\btruncate\\b)(?![\\s\\S]*\\bmin-w-0\\b)/';
+const CLASS_NAME_VALUE = (pat) =>
+  `JSXAttribute[name.name="className"] :matches(Literal[value=${pat}], TemplateElement[value.raw=${pat}])`;
+export const NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0 = [
+  {
+    selector: CLASS_NAME_VALUE(FLEX_TRUNCATE_PAT),
+    message: FLEX_TRUNCATE_MESSAGE,
+  },
+];
+
 export default [
   {
     ignores: ['dist/', 'coverage/', 'src/api/types.ts', 'eslint.config.js', 'postcss.config.js'],
@@ -162,7 +246,12 @@ export default [
       // Enforce WCAG alt text at error level (not warn) — zero tolerance from day one
       'jsx-a11y/alt-text': 'error',
       // Ban default exports — all modules use named exports
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...NO_FOCUS_VISIBLE_ON_TRIGGER],
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        ...NO_FOCUS_VISIBLE_ON_TRIGGER,
+        ...NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0,
+      ],
       // Prefer the Number.* static methods over the coercing global numeric
       // functions and bare NaN (#2099). Mirrors unicorn/prefer-number-properties
       // without pulling in the whole plugin — a core rule, so it guards product
@@ -183,7 +272,8 @@ export default [
         },
         {
           name: 'isFinite',
-          message: 'Use Number.isFinite — it does not coerce its argument like the global isFinite.',
+          message:
+            'Use Number.isFinite — it does not coerce its argument like the global isFinite.',
         },
         { name: 'NaN', message: 'Use Number.NaN instead of the bare global.' },
       ],
@@ -234,6 +324,7 @@ export default [
         NO_DEFAULT_EXPORT,
         ...NO_HARDCODED_ITERATION_LABEL,
         ...NO_FOCUS_VISIBLE_ON_TRIGGER,
+        ...NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0,
       ],
     },
   },
@@ -247,7 +338,12 @@ export default [
     files: ['src/features/schedule/**/*.tsx'],
     ignores: ['src/**/*.test.tsx'],
     rules: {
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...NO_HARDCODED_ITERATION_LABEL],
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        ...NO_HARDCODED_ITERATION_LABEL,
+        ...NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0,
+      ],
     },
   },
   // Test files also need vitest globals (describe, it, expect, etc.)
@@ -334,7 +430,8 @@ export default [
         },
         {
           name: 'isFinite',
-          message: 'Use Number.isFinite — it does not coerce its argument like the global isFinite.',
+          message:
+            'Use Number.isFinite — it does not coerce its argument like the global isFinite.',
         },
         { name: 'NaN', message: 'Use Number.NaN instead of the bare global.' },
       ],

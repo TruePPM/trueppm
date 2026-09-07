@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { canAuthorPlan } from '@/lib/roles';
@@ -475,6 +475,44 @@ export function GridView() {
     setDeletePhase('confirming');
   }, [selectedIds, projectId]);
 
+  /**
+   * Rule 368 with a destination that does not exist yet (#3445).
+   *
+   * `ConfirmDeleteStrip` takes focus on mount and then removes itself — on the dwell
+   * expiring, on Cancel, or on Escape — and the focused button goes with it, so focus
+   * fell to `<body>` (WCAG 2.4.3). Rule 368(b) says move focus synchronously in the
+   * handler before React commits, which is impossible here: the destination is the
+   * bulk **Delete** button, and that button is only rendered once `deletePhase` is
+   * back to `'idle'`, i.e. on the very commit that unmounts the strip. So the move is
+   * armed by the handler and performed by an effect on the following commit, when the
+   * ref is populated.
+   *
+   * The guard is the part that matters. A dwell that expires while the user has moved
+   * focus somewhere else entirely — the strip pauses on focus-WITHIN, so focus outside
+   * it lets the countdown run — must not yank them back to the toolbar; that is an
+   * unrequested context change (WCAG 3.2). So the handoff is armed only when the focus
+   * being orphaned is the strip's own (or already lost to `<body>`).
+   */
+  const bulkDeleteButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmRowRef = useRef<HTMLDivElement>(null);
+  const pendingDeleteFocusRef = useRef(false);
+
+  const handleCancelDelete = useCallback(() => {
+    const active = document.activeElement;
+    pendingDeleteFocusRef.current =
+      active === null || active === document.body || confirmRowRef.current?.contains(active) === true;
+    setDeletePhase('idle');
+  }, []);
+
+  useEffect(() => {
+    if (deletePhase !== 'idle' || !pendingDeleteFocusRef.current) return;
+    pendingDeleteFocusRef.current = false;
+    // Absent only if the selection or the authoring right vanished under us, in
+    // which case there is no undo control to hand back to and dropping to `<body>`
+    // is what any other unmount here would do — no regression, just no rescue.
+    bulkDeleteButtonRef.current?.focus();
+  }, [deletePhase]);
+
   // Faithful bulk restore (#2078): each task (and its subtree/deps/assignments)
   // comes back under its original id, so the delete is genuinely undoable. Hoisted
   // out of the delete toast's `onUndo` closure to keep that handler flat.
@@ -719,8 +757,10 @@ export function GridView() {
         onClearSelection={clearSelection}
         onDeleteClick={handleDeleteClick}
         onConfirmDelete={handleConfirmDelete}
-        onCancelDelete={() => setDeletePhase('idle')}
+        onCancelDelete={handleCancelDelete}
         isDeleting={deletePhase === 'deleting'}
+        deleteButtonRef={bulkDeleteButtonRef}
+        confirmRowRef={confirmRowRef}
         onAddTask={() => {
           setAddFormParentId(null);
           setShowAddForm(true);
@@ -844,6 +884,17 @@ interface ToolbarProps {
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
   isDeleting: boolean;
+  /**
+   * Owned by `GridView`, not by the Toolbar, because the focus handoff on
+   * #3445 crosses the two branches this component returns: the confirm row is
+   * what loses focus, and the bulk Delete button in the idle row is where it
+   * goes — and neither exists while the other is mounted. Rule 368(c): reaching
+   * a sibling's control means owning the ref at the common parent. Optional
+   * because `EmptyGridShell` renders this toolbar with no selection and no
+   * delete flow, so it has nothing to hand back to.
+   */
+  deleteButtonRef?: RefObject<HTMLButtonElement | null>;
+  confirmRowRef?: RefObject<HTMLDivElement | null>;
   onAddTask: () => void;
   onAddChild: () => void;
   showAddChild: boolean;
@@ -881,6 +932,8 @@ function Toolbar({
   onConfirmDelete,
   onCancelDelete,
   isDeleting,
+  deleteButtonRef,
+  confirmRowRef,
   onAddTask,
   onAddChild,
   showAddChild,
@@ -893,7 +946,14 @@ function Toolbar({
 }: ToolbarProps) {
   if (deletePhase !== 'idle') {
     return (
-      <div className="flex items-center gap-3 px-3 h-9 border-b border-neutral-border flex-shrink-0">
+      // `relative z-10` is what makes the buttons' 44px hit pad real (#3446): the
+      // pad overhangs the row by 8px, and without a stacking context the ChipStrip
+      // below paints later, wins the hit test in that band, and the pad becomes
+      // decoration. See the geometry comment in `ConfirmDeleteStrip`.
+      <div
+        ref={confirmRowRef}
+        className="relative z-10 flex items-center gap-3 px-3 h-9 border-b border-neutral-border flex-shrink-0"
+      >
         <ConfirmDeleteStrip
           count={selectedSize}
           isDeleting={isDeleting}
@@ -1010,6 +1070,7 @@ function Toolbar({
         <>
           <span className="text-xs text-neutral-text-secondary">{selectedSize} selected</span>
           <button
+            ref={deleteButtonRef}
             type="button"
             onClick={onDeleteClick}
             className="text-xs text-semantic-critical hover:underline

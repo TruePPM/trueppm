@@ -32,14 +32,42 @@ const PROJECT = {
   iteration_label: null,
 };
 
-// Worst-case width: an at-risk state word AND a P80 forecast date both want to
-// render in the health chip, immediately left of the sync badge.
+// The health chip's word is the variable-width part of this cluster, and the
+// widest word is NOT the worst health — severity is no guide to it. Measured in
+// Chromium at 375x812, single-threaded, against the bundled Inter at the chip's
+// own `text-xs font-medium`:
+//
+//   band       word        word w    chip w    header scrollW    overflow
+//   on_track   "On track"  48.73px   100.45    377               2px
+//   critical   "Critical"  40.55px    92.27    375               0px
+//   at_risk    "At risk"   36.47px    88.19    375               0px
+//
+// Read the last two columns together or the table looks self-contradictory: a
+// 12.26px wider word appears to cost only 2px. It does not — the header is
+// `flex-nowrap` with compressible neighbours, so it absorbs roughly the first
+// 10px and pins `scrollWidth` at exactly `clientWidth` (375) until it runs out.
+// on_track is the band that runs it out. So the slack, not the word width, is
+// what the margin here is made of, and it is ~10px.
+//
+// This fixture therefore pins `at_risk`, and that is a deliberate, temporary
+// concession rather than the worst case: the 2px on `on_track` is PRE-EXISTING
+// (verified by building `origin/main`'s HealthCluster and re-measuring) and is
+// filed as #3505, whose acceptance is flipping this fixture to the zero-count
+// `on_track` band and deleting this paragraph.
+//
+// Do NOT "restore" the old `critical_count: 2` here. Before #3470 the critical
+// band rendered "At risk" — the NARROWEST of the three words — so this guard
+// tested the best case while its comment called itself worst-case, and it sat
+// green through a real defect on the band it was not testing: the at-risk band
+// rendered the retired "On watch" (54.48px), overflowing by 8px and pushing the
+// account chip's right edge to 377.20px, clipped off a 375px screen. Retiring
+// that word is what this fixture now guards.
 const STATUS_SUMMARY = {
   task_count: 8,
-  critical_path_count: 2,
+  critical_path_count: 0,
   monte_carlo_p80: '2026-09-07',
   at_risk_count: 3,
-  critical_count: 2,
+  critical_count: 0,
   at_risk_tasks: [],
   critical_tasks: [],
   last_saved: null,

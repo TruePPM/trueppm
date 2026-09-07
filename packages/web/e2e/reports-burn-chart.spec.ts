@@ -319,8 +319,14 @@ test.describe('Reports tab — error state', () => {
   test('renders error banner with Retry button when API returns 500', async ({ page }) => {
     await setup(page, 500);
     await page.goto(`/projects/${PROJECT_ID}/reports`);
-    await expect(page.getByText(/couldn't load chart data/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('button', { name: /retry/i })).toBeVisible();
+    // Scoped to `ChartError`'s own block (the message's parent), not the page: a
+    // page-wide Retry locator is satisfied by any other component's error-state
+    // Retry, so it would keep passing even if the chart stopped offering one (the
+    // #3401 class). The block carries no role or testid, so the message node's
+    // parent is the handle; asserting it first keeps the scoping non-vacuous.
+    const errorState = page.getByText(/couldn't load chart data/i).locator('..');
+    await expect(errorState).toBeVisible({ timeout: 10_000 });
+    await expect(errorState.getByRole('button', { name: /^Retry$/i })).toBeVisible();
   });
 });
 

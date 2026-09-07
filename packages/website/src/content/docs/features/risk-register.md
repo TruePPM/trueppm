@@ -10,6 +10,8 @@ The Risk Register shipped in 0.1 — UI, scoring, lifecycle states, task links, 
 
 The Risk Register surfaces project risks in a dedicated **Risks** tab within the project workspace. Each risk is scored by probability × impact, tracked through a lifecycle, and can be linked to the tasks it affects.
 
+![The risk register: a probability-by-impact heatmap on the left and the sortable risk table with severity and owner on the right](../../../assets/screenshots/risk-register.webp)
+
 ## Risk scoring
 
 Severity is **probability × impact**, computed from two 1–5 integer fields. A 5×5 grid gives scores 1–25 across five bands:
