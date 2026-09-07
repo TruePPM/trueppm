@@ -101,7 +101,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 3, critical_path_count: 1, monte_carlo_p80: null,
+        task_count: 3, critical_path_count: 1, health_band: 'critical', monte_carlo_p80: null,
         at_risk_count: 0, critical_count: 1, at_risk_tasks: [], critical_tasks: [],
         last_saved: null, recalculated_at: null,
       }),

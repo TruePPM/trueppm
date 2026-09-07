@@ -66,6 +66,12 @@ export interface OverviewFixture {
 export interface StatusSummaryFixture {
   task_count: number;
   critical_path_count: number;
+  /**
+   * The server's health band (#3501). It folds in the manual `Project.health`
+   * override, so it is NOT derivable from the two counts below — a spec that
+   * wants the shell chip to read a word must set this, not the counts.
+   */
+  health_band: 'on_track' | 'at_risk' | 'critical';
   monte_carlo_p80: string | null;
   at_risk_count: number;
   critical_count: number;
@@ -216,6 +222,7 @@ const DEFAULT_OVERVIEW: OverviewFixture = {
 const DEFAULT_STATUS_SUMMARY: StatusSummaryFixture = {
   task_count: 0,
   critical_path_count: 0,
+  health_band: 'on_track',
   monte_carlo_p80: null,
   at_risk_count: 0,
   critical_count: 0,

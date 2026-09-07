@@ -224,6 +224,7 @@ async function gotoScheduleWithMC(
       body: JSON.stringify({
         task_count: 2,
         critical_path_count: 2,
+        health_band: 'on_track',
         monte_carlo_p80: '2026-12-10',
         at_risk_count: 0,
         critical_count: 0,

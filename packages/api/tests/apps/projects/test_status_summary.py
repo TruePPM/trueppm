@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.projects.models import Calendar, Health, Project, Task, TaskStatus
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 User = get_user_model()
@@ -263,3 +263,168 @@ class TestStatusSummary:
         c.force_authenticate(user=other_user)
         resp = c.get(f"/api/v1/projects/{project.pk}/status-summary/")
         assert resp.status_code in (403, 404)
+
+
+class TestStatusSummaryHealthBand:
+    """``health_band`` on the status summary (#3501).
+
+    The shell health chip fetches this endpoint and nothing else, so before the
+    field existed it could only re-derive a band from ``at_risk_count`` /
+    ``critical_count`` — which cannot see the manual ``Project.health`` report.
+    Every case below therefore pins the band against the counts on the same
+    project: a server that dropped the override would return the opposite value.
+    """
+
+    URL = "/api/v1/projects/{pk}/status-summary/"
+
+    # ── The AUTO branch: no report, so the counts decide ──────────────────────
+
+    def test_auto_with_no_signals_is_on_track(self, client: APIClient, project: Project) -> None:
+        assert project.health == Health.AUTO
+        resp = client.get(self.URL.format(pk=project.pk))
+        assert resp.json()["health_band"] == "on_track"
+
+    def test_auto_with_an_at_risk_task_is_at_risk(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        # Drop the one critical task so at-risk is the worst signal present.
+        Task.objects.filter(project=project, is_critical=True).update(is_critical=False)
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        assert (data["critical_count"], data["at_risk_count"]) == (0, 2)
+        assert data["health_band"] == "at_risk"
+
+    def test_auto_with_a_critical_task_is_critical(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        assert data["critical_count"] == 1
+        assert data["health_band"] == "critical"
+
+    def test_auto_lets_critical_win_over_at_risk(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        # Both signals present at once. Worst state wins — reversing the two
+        # tests in ``compute_health_band`` is the mutation this case catches, and
+        # no single-signal case above can.
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        assert data["at_risk_count"] > 0 and data["critical_count"] > 0
+        assert data["health_band"] == "critical"
+
+    # ── The override branch: the PM's report beats the counts ─────────────────
+
+    def test_manual_critical_wins_over_a_clean_plan(
+        self, client: APIClient, project: Project
+    ) -> None:
+        """The #3501 case: reported Critical, zero at-risk and zero critical tasks."""
+        project.health = Health.CRITICAL
+        project.save(update_fields=["health"])
+
+        data = client.get(self.URL.format(pk=project.pk)).json()
+
+        assert (data["at_risk_count"], data["critical_count"]) == (0, 0)
+        assert data["health_band"] == "critical"
+
+    def test_manual_on_track_wins_over_a_real_critical_task(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """The inverse: reported On track over a plan the counts call critical."""
+        project.health = Health.ON_TRACK
+        project.save(update_fields=["health"])
+
+        data = client.get(self.URL.format(pk=project.pk)).json()
+
+        assert data["critical_count"] == 1
+        assert data["health_band"] == "on_track"
+
+    def test_manual_at_risk_wins_over_a_clean_plan(
+        self, client: APIClient, project: Project
+    ) -> None:
+        project.health = Health.AT_RISK
+        project.save(update_fields=["health"])
+
+        assert client.get(self.URL.format(pk=project.pk)).json()["health_band"] == "at_risk"
+
+    # ── One rule, called twice (ADR-0133) ─────────────────────────────────────
+
+    def test_band_matches_my_projects_health_for_the_same_project(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """The two surfaces that print a band must never disagree about one project.
+
+        This is the assertion that would catch a second copy of the rule being
+        introduced next to the first — the divergence #3501 was filed for was
+        exactly one surface computing what the other read.
+        """
+        project.health = Health.CRITICAL
+        project.save(update_fields=["health"])
+
+        summary = client.get(self.URL.format(pk=project.pk)).json()
+        rows = client.get("/api/v1/projects/health-summary/").json()
+        row = next(r for r in rows if r["id"] == str(project.pk))
+
+        assert summary["health_band"] == row["health_band"] == "critical"
+
+    def test_the_band_costs_no_extra_query(
+        self,
+        client: APIClient,
+        project: Project,
+        tasks: list[Task],
+        django_assert_num_queries: object,
+    ) -> None:
+        """Reading the override must not refetch the project row.
+
+        ``health`` is a plain column on the instance ``get_object()`` already
+        loaded, so folding it into the band is free. Pinning the *absolute*
+        query count here would red on any unrelated auth or queryset change, so
+        this asserts the invariant that actually belongs to #3501: setting the
+        override does not change how many queries the endpoint runs.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        url = self.URL.format(pk=project.pk)
+        client.get(url)  # warm any per-connection setup out of the measurement
+
+        with CaptureQueriesContext(connection) as auto:
+            assert client.get(url).json()["health_band"] == "critical"
+
+        project.health = Health.ON_TRACK
+        project.save(update_fields=["health"])
+
+        with CaptureQueriesContext(connection) as overridden:
+            assert client.get(url).json()["health_band"] == "on_track"
+
+        assert len(overridden.captured_queries) == len(auto.captured_queries)
+
+    def test_a_viewer_sees_the_same_band_as_the_owner(
+        self, client: APIClient, other_user: object, project: Project, tasks: list[Task]
+    ) -> None:
+        """Every project member reads health, so every member reads the band.
+
+        Enforcement is inherited from the endpoint gate rather than added here
+        (``test_non_member_forbidden`` covers the refusal), but the band is a new
+        field on that payload and the lowest read role is the one a future
+        special-case would break first.
+        """
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.VIEWER)
+        project.health = Health.CRITICAL
+        project.save(update_fields=["health"])
+
+        viewer = APIClient()
+        viewer.force_authenticate(user=other_user)
+
+        owner_band = client.get(self.URL.format(pk=project.pk)).json()["health_band"]
+        viewer_resp = viewer.get(self.URL.format(pk=project.pk))
+
+        assert viewer_resp.status_code == 200
+        assert viewer_resp.json()["health_band"] == owner_band == "critical"
+
+    def test_band_is_one_of_the_three_vocabulary_values(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        # AUTO is a "no report" value, never a fourth band on the wire.
+        assert client.get(self.URL.format(pk=project.pk)).json()["health_band"] in {
+            "on_track",
+            "at_risk",
+            "critical",
+        }
