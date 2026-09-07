@@ -3,6 +3,7 @@ import type { ProjectMembership } from '@/api/types';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { ROLE_OWNER } from '@/lib/roles';
 import { RolePicker } from './RolePicker';
+import { roleLabel } from '@/lib/roleLabels';
 
 /**
  * Format an ISO timestamp as an absolute "MMM D, YYYY" date for access evidence.
@@ -125,10 +126,19 @@ export function MemberRow({
             onChange={(newRole) => onChangeRole(membership.id, newRole)}
             disabled={isUpdatingRole}
             id={`role-${membership.id}`}
+            valueLabel={role_label}
+            // Same `select-name` defect #3476 reported on the program row — an
+            // `id` alone announces as a bare "combo box". Explicit name, not
+            // `aria-labelledby`: the name cell's `(you)` span would be joined in
+            // untrimmed.
+            ariaLabel={`Role for ${user_detail.username}`}
           />
         ) : (
           <span className="inline-flex items-center rounded-full border border-neutral-border bg-neutral-surface-raised px-2.5 py-0.5 text-xs font-medium text-neutral-text-secondary">
-            {role_label}
+            {/* One derivation for the badge and the picker that replaces it
+                (#3476) — `role_label` rides along only as the fallback for an
+                ordinal outside the five OSS roles. */}
+            {roleLabel(role, 'project', role_label)}
           </span>
         )}
       </div>
@@ -191,7 +201,7 @@ export function MemberRow({
       {/* Sole-owner tooltip trigger */}
       {isSelf && isSoleOwner && (
         <span
-          className="shrink-0 text-xs text-neutral-text-disabled"
+          className="shrink-0 text-xs text-neutral-text-secondary"
           title="You're the only Project Admin — assign another before leaving"
         >
           Can&apos;t leave
