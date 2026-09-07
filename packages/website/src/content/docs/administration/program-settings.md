@@ -73,7 +73,7 @@ here affect every project in the program.
 | Accent color | Program accent swatch used in nav and health chrome. |
 | Description | Free-text summary of the program's purpose. |
 | Target date | The program's headline target finish date. |
-| Program manager | The program lead — the person accountable for the program. |
+| Program lead | The one person named as accountable for the program. A display field only — it grants no access. Permissions come from a member's program role (Program Admin, Program Manager, Resource Manager, Team Member, Viewer), set under **Access**. |
 | Health | Manual health override (On track / At risk / Critical), or **Auto** to let the [rollup](#rollup-kpis) compute it. |
 | Methodology | Planning model new projects created in this program start with. It seeds new projects only — projects already in the program keep their own. See [Methodology presets](/features/methodology-preset/). |
 | Iteration terminology | What the program calls its iteration container (Sprint, Iteration, Cycle…). Inherits the workspace default. |
@@ -306,7 +306,9 @@ lifecycle actions (#530). Every action here is logged and reviewable in the
 [workspace audit log](/administration/audit-log/):
 
 - **Close / Reopen** — end the program's active phase, or reopen a closed program.
-- **Transfer sponsorship** — reassign the program to a new manager.
+- **Transfer sponsorship** — hand the **Program Admin** role to another member. You
+  step down to **Program Manager**, and can optionally reassign the **program lead**
+  in the same step. The new Program Admin must already be a program member.
 - **Split into sub-programs** — divide the program's projects into new programs.
 - **Delete program** — permanently remove the program. This is a destructive,
   confirmation-gated action; before deleting, consider exporting first — see
