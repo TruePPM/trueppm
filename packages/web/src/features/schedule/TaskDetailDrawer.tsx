@@ -840,11 +840,19 @@ export function TaskDetailDrawer({
           (web-rule 264a). aria-modal="false" and no focus trap: keyboard focus
           can reach the Gantt/Board behind it, which stays live and clickable
           (clicking another bar/card swaps the drawer's task). No scrim on desktop
-          (rule 185). */}
+          (rule 185).
+
+          Closed is a TRANSFORM, not an unmount: `renderedTask` is the dirty-swap
+          rescue latch (#1978), so unmounting would destroy the draft it exists to
+          preserve. The closed shell must therefore leave the a11y tree explicitly —
+          `aria-hidden` + `invisible` — exactly as MonteCarloDetailPanel and
+          ResourceOverallocationDrawer already do. Without it every schedule route
+          carries a permanent `role="dialog"` whose accessible name is '' (#3545). */}
       <div
         role="dialog"
         aria-modal="false"
         aria-label={drawerTitle}
+        aria-hidden={!isOpen}
         className={[
           'hidden md:flex fixed inset-y-0 right-0 w-[540px] flex-col',
           'bg-neutral-surface border-l border-neutral-border z-40',
@@ -853,7 +861,7 @@ export function TaskDetailDrawer({
           // an instant snap instead of a transform that Playwright's stability
           // check races against.
           'motion-safe:transition-transform duration-slow ease-brand',
-          isOpen ? 'translate-x-0' : 'translate-x-full',
+          isOpen ? 'translate-x-0' : 'translate-x-full invisible pointer-events-none',
         ].join(' ')}
       >
         {content}
@@ -866,12 +874,13 @@ export function TaskDetailDrawer({
         role="dialog"
         aria-modal="true"
         aria-label={drawerTitle}
+        aria-hidden={!isOpen}
         className={[
           'md:hidden fixed inset-x-0 bottom-0 z-40',
           'rounded-t-card bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
           'motion-safe:transition-transform duration-200',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
+          isOpen ? 'translate-y-0' : 'translate-y-full invisible pointer-events-none',
         ].join(' ')}
       >
         <div
