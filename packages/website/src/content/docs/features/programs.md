@@ -184,13 +184,16 @@ would be rejected when you submit.
   pool keep their relative intake order in the project; an unranked item stays
   unranked and sorts last. Requires at least Team Member role on both the
   program and the target project.
-- **Projects** — the projects currently in this program. Click a project name
-  to navigate to it. The `Remove` action detaches the project (it becomes
-  standalone, untouched). When the program has a **target date** set, it shows at
-  the top of this tab. Each project row carries a standup-style count of its
-  **overdue** tasks (past their scheduled finish) and **at-risk** tasks (five or
-  fewer working days of float), so the tab reads like a morning dashboard rather
-  than a plain directory.
+- **Projects** — the projects currently in this program. Every project in the
+  program is listed, but only the ones you are a member of are links — because
+  program membership does not carry into projects (see above), a project you
+  hold no membership on is plain text marked **No access**, and a project owner
+  has to add you before you can open it. The `Remove` action detaches the
+  project (it becomes standalone, untouched). When the program has a **target
+  date** set, it shows at the top of this tab. Each project row carries a
+  standup-style count of its **overdue** tasks (past their scheduled finish) and
+  **at-risk** tasks (five or fewer working days of float), so the tab reads like
+  a morning dashboard rather than a plain directory.
 - **Resources** — *(added in 0.3)* within-program resource contention. Surfaces
   people staffed across more than one of the program's projects in overlapping
   windows, broken down by project, with an over-allocation flag when someone is

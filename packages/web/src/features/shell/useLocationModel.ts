@@ -3,6 +3,7 @@ import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProgramId } from '@/hooks/useProgramId';
 import { useProject } from '@/hooks/useProject';
+import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useProgram } from '@/hooks/useProgram';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useProjects } from '@/hooks/useProjects';
@@ -121,6 +122,9 @@ function titleCase(segment: string): string {
  * State resolution (see `LocationModel`):
  *   - project route with a program  → program picker · project picker · view leaf
  *   - project route, no program      → (program omitted) · project picker · view leaf
+ *   - project route, project 404/403 → (program omitted) · "Jump to project…" placeholder
+ *                                      · "Project unavailable" leaf (#3469) — the switcher never
+ *                                        names a view of a project that is not there
  *   - program route                  → program picker · (project omitted) · program-view leaf
  *   - global route (My Work, …)      → "Jump to project…" placeholder picker · leaf
  *                                      (#2102, ADR-0508 D3; leaf-only with 0 projects)
@@ -142,13 +146,32 @@ export function useLocationModel(): LocationModel {
   const onSettingsRoute = /\/settings(\/|$)/.test(location.pathname);
 
   const { data: project } = useProject(projectId);
-  // A project's program drives the program segment; on a program route the program
-  // is itself in context. Chained id keeps the hook call unconditional.
-  const effectiveProgramId = project?.program_detail?.id ?? programId;
-  const { data: program } = useProgram(effectiveProgramId);
+  // Same predicate ProjectShell renders `ProjectNotFound` on (#3469). On an
+  // unavailable project the switcher has nothing true to say about where you are,
+  // so it falls back to its off-project anatomy below.
+  const projectUnavailable = useProjectUnavailable(projectId);
 
   const { data: programs } = usePrograms();
   const { data: projects } = useProjects();
+
+  // A project's program drives the program segment; on a program route the program
+  // is itself in context. Chained id keeps the hook call unconditional.
+  const routeProgramId = projectUnavailable ? undefined : (project?.program_detail?.id ?? programId);
+  // `usePrograms()` is the member-scoped program list (DirectoryPagination,
+  // page_size=200 — ADR-0401) that already supplies this segment's own options, so
+  // a program absent from it is one the caller holds no membership on and
+  // `GET /programs/{id}/` would 404 on. Gate the detail fetch on it rather than
+  // firing and swallowing the failure: a project member outside the program used to
+  // get a failed program request on every page plus a segment that rendered as a
+  // bare leading chevron, because `current` stayed undefined and nothing read the
+  // error (#3469).
+  const memberProgram = routeProgramId
+    ? ((programs ?? []).find((p) => p.id === routeProgramId) ?? null)
+    : null;
+  const { data: program } = useProgram(memberProgram ? routeProgramId : undefined);
+  // Fall back to the list row so the segment renders from the first paint rather
+  // than popping in when the detail request lands.
+  const currentProgram = program ?? memberProgram ?? undefined;
 
   // The project route's active view — reused for the leaf label and to preserve the
   // view when switching projects. Off a project this is unused.
@@ -158,7 +181,10 @@ export function useLocationModel(): LocationModel {
   const grouped = useGroupedProjectViews(projectId);
 
   const programSegment = useMemo<ProgramSegmentModel | null>(() => {
-    if (!effectiveProgramId) return null;
+    // Omitted, not blanked, when the caller is not a program member: a segment
+    // whose name and picker are both empty renders as a leading chevron pointing at
+    // nothing (#3469), and rule 124 already forbids a picker with nothing to pick.
+    if (!routeProgramId || !currentProgram) return null;
     // On a program route, preserve the active program view; from a project route,
     // jumping to a program lands on its Overview.
     const targetView = programId
@@ -169,11 +195,15 @@ export function useLocationModel(): LocationModel {
       name: p.name,
       to: `/programs/${p.id}/${targetView}`,
     }));
-    return { options, current: program };
-  }, [effectiveProgramId, programId, location.pathname, programs, program]);
+    return { options, current: currentProgram };
+  }, [routeProgramId, currentProgram, programId, location.pathname, programs]);
 
   const projectSegment = useMemo<ProjectSegmentModel | null>(() => {
-    if (!projectId) {
+    // An unavailable project takes the SAME branch as being off a project entirely
+    // (#3469): the switcher keeps offering a one-hop jump into a project you can
+    // actually open, and stops naming one you cannot. Anchoring `currentId` to it
+    // instead rendered the id's row as checked-and-current with no name.
+    if (!projectId || projectUnavailable) {
       // Off-project placeholder picker (#2102, ADR-0508 D3): on a global route
       // (My Work, Notifications, the listing pages) the segment still offers a
       // one-hop jump into any member project — no `current`, options land on each
@@ -182,7 +212,7 @@ export function useLocationModel(): LocationModel {
       // `[Jump to project…] › Leaf` — and introduces no third segment), and with
       // zero projects the segment is omitted entirely (leaf-only; a picker with
       // nothing to pick is a dead affordance, rule 124).
-      if (effectiveProgramId) return null;
+      if (routeProgramId) return null;
       const list = projects ?? [];
       if (list.length === 0) return null;
       return {
@@ -211,7 +241,8 @@ export function useLocationModel(): LocationModel {
     };
   }, [
     projectId,
-    effectiveProgramId,
+    projectUnavailable,
+    routeProgramId,
     projects,
     projectView,
     project?.name,
@@ -220,6 +251,12 @@ export function useLocationModel(): LocationModel {
   ]);
 
   const leaf = useMemo(() => {
+    // Naming the view ("Dashboard", "Schedule") on a project that is not there is
+    // the leaf asserting a destination that does not exist (#3469). The route's own
+    // terminal state is what the leaf reports instead. Checked before the
+    // `projectId` branch, and before the `/projects` global label, which would
+    // otherwise read as the projects listing.
+    if (projectUnavailable) return 'Project unavailable';
     if (projectId) return grouped.labelFor(projectView);
     if (programId) {
       const seg = viewSegment(location.pathname, programId, 'overview');
@@ -227,7 +264,7 @@ export function useLocationModel(): LocationModel {
     }
     const first = location.pathname.split('/').find(Boolean) ?? '';
     return GLOBAL_ROUTE_LABEL[first] ?? titleCase(first);
-  }, [projectId, programId, projectView, location.pathname, grouped]);
+  }, [projectUnavailable, projectId, programId, projectView, location.pathname, grouped]);
 
   return {
     suppressed: onSettingsRoute,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -55,6 +56,11 @@ const CONNECTION_PRESENTATION: Record<
 export function StatusBar() {
   const location = useLocation();
   const projectId = useProjectId() ?? null;
+  // `ProjectShell` suppresses the project WebSocket on an unavailable project, so
+  // the store never leaves `connecting` — and the pill reported "Connecting…" for
+  // the rest of the session on a project the caller cannot open (#3469). There is
+  // no channel to report on, so the pill's empty form is absence.
+  const projectUnavailable = useProjectUnavailable(projectId);
   const { data: projects } = useProjects();
   const onlineUsers = useProjectPresence(projectId);
   const connectionState = useWsConnectionStore((s) => s.state);
@@ -80,7 +86,10 @@ export function StatusBar() {
   const statusNote = project ? `${project.name} · ${viewLabel}` : '';
 
   // The connection pill reflects the project WebSocket, which only runs inside
-  // a project (ProjectShell). Off a project there is no live channel to report.
+  // a project (ProjectShell). Off a project — or on one that is unavailable, where
+  // ProjectShell deliberately holds the socket closed — there is no live channel
+  // to report.
+  const showConnection = Boolean(projectId) && !projectUnavailable;
   const conn = CONNECTION_PRESENTATION[connectionState];
   const isLive = connectionState === 'live';
   // "viewing" (not "online") so the count can't be misread as availability/load
@@ -102,7 +111,17 @@ export function StatusBar() {
   const [connTransition, setConnTransition] = useState('');
   const prevConnRef = useRef<WsConnectionState | null>(null);
   useEffect(() => {
-    if (!projectId) return;
+    if (!showConnection) {
+      // Clear anything already announced. The socket runs for a moment before the
+      // project detail read 404s, so a genuine transition can land and then outlive
+      // the channel it described — leaving the bar's live region asserting a
+      // connection state on a project that is not there (#3469). Resetting the
+      // previous-state ref too means re-entering a real project announces from a
+      // clean slate rather than diffing against a stale value.
+      prevConnRef.current = null;
+      setConnTransition('');
+      return;
+    }
     if (prevConnRef.current === null) {
       prevConnRef.current = connectionState;
       return;
@@ -110,7 +129,7 @@ export function StatusBar() {
     if (prevConnRef.current === connectionState) return;
     prevConnRef.current = connectionState;
     setConnTransition(conn.aria);
-  }, [connectionState, projectId, conn.aria]);
+  }, [connectionState, showConnection, conn.aria]);
 
   // The bar sits on the *raised* paper, not the sunken well: neutral-text-secondary
   // (#6B6965) is 4.63:1 on white / 5.16:1 on raised paper but only 4.35:1 on the
@@ -140,7 +159,7 @@ export function StatusBar() {
           is NOT a live region: its aria-label carries the viewing count, which
           would announce on every presence change and double-speak transitions
           the persistent region above already handles (#2203). */}
-      {projectId && (
+      {showConnection && (
         <span
           className="flex items-center gap-1.5"
           aria-label={connAria}

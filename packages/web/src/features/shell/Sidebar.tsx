@@ -23,6 +23,8 @@ import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
+import { useHasAnyProjects } from '@/hooks/useHasAnyProjects';
 import { useProgramId } from '@/hooks/useProgramId';
 import { usePinned } from '@/hooks/usePins';
 import { useHasScrollAbove } from '@/hooks/useHasScrollAbove';
@@ -309,6 +311,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const dueTodayCount = myWorkData?.pages[0]?.due_today_count ?? 0;
   const { user } = useCurrentUser();
   const projectId = useProjectId();
+  // A project the caller cannot open has no views to list, so Tier 2 falls back to
+  // the pinned list rather than rendering a placeholder "Project · Hybrid
+  // methodology" card for a project the route is about to call unavailable (#3469).
+  const projectUnavailable = useProjectUnavailable(projectId);
+  // Counts program projects too, not only membership projects (#3469).
+  const hasAnyProjects = useHasAnyProjects();
   // Project-scoped role for the "You" card's identity line (#1919). Same
   // `role_label` source the settings team/member rows render — off a project
   // the hook resolves to null and the line is simply omitted, matching Tier 2
@@ -581,7 +589,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
             ].join(' ')}
           >
-            {(projectId ? (
+            {(projectId && !projectUnavailable ? (
               <ProjectViewsTier
                 projectId={projectId}
                 isDrawer={isDrawer}
@@ -613,7 +621,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   pinnedProgramList={pinnedProgramList}
                   pinnedProjects={pinnedProjects}
                   programById={programById}
-                  hasProjects={(projects ?? []).length > 0}
+                  hasProjects={hasAnyProjects}
                   loadingDemo={loadSample.isPending}
                   go={go}
                   setShowNewProject={setShowNewProject}
@@ -1665,7 +1673,13 @@ function ProjectViewsTier({
   const name = project.data?.name ?? 'Project';
   const programId = project.data?.program ?? null;
   const program = programs?.find((p) => p.id === programId) ?? null;
-  const programName = project.data?.program_detail?.name ?? null;
+  // Resolved from the MEMBER-SCOPED program list, not from the project payload's
+  // `program_detail` (#3469). `program_detail` is served to any project member
+  // regardless of program membership, so reading it here named a program the
+  // viewer cannot open — a subtitle pointing at a 404. Absent from the list means
+  // "not yours to open"; the subtitle then degrades to the methodology alone,
+  // which is the same fallback the identity square below already takes.
+  const programName = program?.name ?? null;
   const health = PROJECT_HEALTH_STATE[project.data?.health ?? 'AUTO'] ?? 'unknown';
   // Server-resolved preset (web-rule 196) — the same value the bar's
   // `MethodologyIndicator` reads (#1907, restoring the signal #1680 relocated here);
