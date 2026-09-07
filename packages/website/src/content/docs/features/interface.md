@@ -66,6 +66,8 @@ Three read APIs back the same underlying task-run records at different scopes:
 Press **⌘K** (Ctrl+K on Windows/Linux) anywhere to open the command palette. It
 is the fastest path to:
 
+![The command palette opened over the Dashboard: current sprint, current project actions, recent projects, and jump-to views](../../../assets/screenshots/command-palette.webp)
+
 :::note[Ships in 0.4 — off-project findability]
 Four of the entries below are **not in the latest release**: **Navigate** between
 projects and programs, **Pick up where you left off** (the Recent group), **Find
@@ -158,6 +160,8 @@ bookmarks keep working.
 The project rail groups its views into three bands named for what you are *doing* —
 **Plan**, **Deliver**, **Track** — in the order work moves through them, followed by
 a **Workspace** band that is ruled off and pinned to the bottom of the rail:
+
+![The Platform Core project Dashboard: needs-attention tiles for late tasks and open risks, schedule health, next milestone, team utilization, and the burn-up chart](../../../assets/screenshots/project-overview.webp)
 
 | Band | What it holds | What it answers |
 |---|---|---|

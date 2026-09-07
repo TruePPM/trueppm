@@ -42,6 +42,15 @@ describe('ProgramIdentitySquare (#963)', () => {
     expect(el).toHaveTextContent('ART');
   });
 
+  it('labels a single-word unset program with its first two letters', () => {
+    const el = renderSquare({
+      program: { color: null, code: '', name: 'Atlas' },
+      size: 'lg',
+      showLabel: true,
+    });
+    expect(el).toHaveTextContent('AT');
+  });
+
   it('shows no label at sm/md even when showLabel is set (no room)', () => {
     const sm = renderSquare({ program: SET, size: 'sm', showLabel: true });
     expect(sm).toHaveTextContent('');
@@ -51,37 +60,45 @@ describe('ProgramIdentitySquare (#963)', () => {
     expect(md.className).toContain('h-4');
   });
 
-  describe('xs-label dense-list variant (issue 1051)', () => {
-    it('labels an unset-color tile with 1–2-char name initials so uncolored programs are distinguishable', () => {
-      const el = renderSquare({ program: UNSET, size: 'xs-label' });
-      // Still the faint neutral FILLED square (no accent), but now carrying the
-      // initials — "Phase 2 Modernization" → "P2".
+  // The `xs-label` variant is GONE (#3475). It rendered `text-[7px]` initials in a
+  // 16px tile — below the rule-50 floor in every tree, settings included — and the
+  // two call sites that used it (the rail's pinned programs and its Browse switcher
+  // list) both render the program NAME as adjacent text, so the glyphs were never
+  // the distinguishing signal issue 1051 added them to be. These tests pin the
+  // absence: a size that cannot hold legible type carries none, and no tile emits a
+  // sub-floor `text-[Npx]` class at any size.
+  describe('no sub-floor type at any size (#3475, rule 50)', () => {
+    const SIZES = ['sm', 'md', 'lg'] as const;
+
+    it.each(SIZES)('renders no sub-floor text-[Npx] class at %s', (size) => {
+      const el = renderSquare({ program: SET, size, showLabel: true });
+      // Anything below 12px, fractions included — the same shape the CI gate's
+      // TINY_TEXT_PAT matches, so this test and the gate agree by construction.
+      expect(el.className).not.toMatch(/text-\[(1[01]|[0-9])(\.\d+)?px\]/);
+    });
+
+    it('md is a label-free dot even for an unset-color program', () => {
+      // The dense-rail case issue 1051 was filed about. The tile stays the faint
+      // neutral FILLED square; distinguishing the program is the adjacent name's
+      // job, not two guessed-at 7px glyphs.
+      const el = renderSquare({ program: UNSET, size: 'md' });
       expect(el.className).toContain('bg-neutral-surface-sunken');
       expect(el.className).toContain('h-4');
-      expect(el.className).toContain('text-[7px]');
       expect(el.style.backgroundColor).toBe('');
-      expect(el).toHaveTextContent('P2');
+      expect(el).toHaveTextContent('');
     });
 
-    it('labels a single-word unset program with its first two letters', () => {
-      const el = renderSquare({
-        program: { color: null, code: '', name: 'Atlas' },
-        size: 'xs-label',
-      });
-      expect(el).toHaveTextContent('AT');
-    });
-
-    it('renders the code on the accent fill when color is set', () => {
-      const el = renderSquare({ program: SET, size: 'xs-label' });
+    it('md keeps the accent fill and still shows no label', () => {
+      const el = renderSquare({ program: SET, size: 'md' });
       expect(el).toHaveStyle({ backgroundColor: '#7C3AED' });
-      expect(el).toHaveTextContent('PHX');
+      expect(el).toHaveTextContent('');
       expect(el.className).not.toContain('bg-neutral-surface-sunken');
     });
 
-    it('always carries the label — showLabel is a no-op for this variant', () => {
-      // Unlike lg, xs-label needs no showLabel to render initials.
-      const el = renderSquare({ program: UNSET, size: 'xs-label' });
-      expect(el).toHaveTextContent('P2');
+    it('lg — the only labeled size — is at the text-xs floor', () => {
+      const el = renderSquare({ program: SET, size: 'lg', showLabel: true });
+      expect(el.className).toContain('text-xs');
+      expect(el).toHaveTextContent('PHX');
     });
   });
 

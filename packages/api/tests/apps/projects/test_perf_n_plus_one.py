@@ -25,7 +25,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.notifications.models import Mention
 from trueppm_api.apps.projects.models import (
     Baseline,
@@ -716,6 +716,66 @@ def test_ungrouped_project_list_query_count_invariant_to_page_size() -> None:
 
     assert scaled == baseline, (
         f"Ungrouped project list not invariant: 1 -> {baseline}, 8 -> {scaled}."
+    )
+
+
+@pytest.mark.django_db
+def test_program_list_query_count_invariant_to_page_size() -> None:
+    """The Programs directory is query-count invariant to the roster and page (#3471).
+
+    ``member_count`` moved from a ``Count`` over the ``memberships`` join to a
+    correlated ``Subquery`` when the visibility scope became an ``Exists`` — the
+    exact class of change (a value relocated into a per-row subquery) these #1482
+    guards exist to police. One program vs eight, each with a multi-member roster
+    and its own projects, must issue the same number of queries: the annotations
+    are correlated subqueries folded into the single list query, not per-row reads.
+    """
+    from trueppm_api.apps.workspace.models import Workspace
+
+    Workspace.load()
+    user = User.objects.create_user(username="program_list_perf", password="pw")
+    cal = Calendar.objects.create(name="Std-3471")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    round_no = itertools.count()
+
+    def seed(n: int) -> None:
+        # ProgramMembership.program and Project.program are PROTECT, so the whole
+        # subtree has to go before the programs themselves.
+        stale = Program.objects.filter(name__startswith="PL")
+        Project.objects.filter(program__in=stale).delete()
+        ProgramMembership.objects.filter(program__in=stale).delete()
+        stale.delete()
+        # Co-members are not deleted between rounds (they hold no PL membership
+        # once the roster above is gone), so their usernames must not collide.
+        r = next(round_no)
+        for i in range(n):
+            program = Program.objects.create(name=f"PL{i}", public_sharing=True)
+            ProgramMembership.objects.create(program=program, user=user, role=Role.OWNER)
+            # A roster wider than the caller: the shape the old join filter
+            # collapsed to one row, and the shape member_count now counts.
+            for j in range(3):
+                other = User.objects.create_user(username=f"pl_{r}_{i}_{j}", password="pw")
+                ProgramMembership.objects.create(program=program, user=other, role=Role.MEMBER)
+            for k in range(2):
+                Project.objects.create(
+                    name=f"PL{i}-{k}",
+                    start_date=date(2026, 4, 1),
+                    calendar=cal,
+                    program=program,
+                )
+
+    seed(1)
+    baseline = _project_list_query_count(client, "/api/v1/programs/")
+    seed(8)
+    scaled = _project_list_query_count(client, "/api/v1/programs/")
+
+    assert scaled == baseline, (
+        f"GET /programs/ is not query-count invariant: 1 program -> {baseline} "
+        f"queries, 8 programs -> {scaled}. A per-row read (likely a member_count "
+        f"or effective_* resolver) replaced a correlated Subquery — fold it back "
+        f"into the annotation."
     )
 
 
