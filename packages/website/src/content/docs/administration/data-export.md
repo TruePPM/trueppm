@@ -1,12 +1,29 @@
 ---
 title: Data export
 description: Export a whole program to a canonical JSON seed file — endpoint, CLI, round-trip guarantee, and limitations.
+documentedFor: "0.4"
 ---
 
 Any program — or a single project — can be exported to a canonical JSON seed
 file, the same format the [sample projects](/getting-started/sample-projects/)
 ship in. Use it to back up your work, move it between instances, or hand it to a
 developer to edit and re-import.
+
+:::note[Ships in 0.4 — program role names]
+The **program** role *names* on this page ship in **TruePPM 0.4**, the first
+beta. On `v0.3.0-alpha.3`, the latest release, the program surfaces use the
+project vocabulary instead — the tier called "Program Manager" below reads
+**Project Manager**, and "Program Admin" reads **Project Admin**.
+
+**Who may export is unchanged.** The same tiers have always been able to
+export a project or a program, on 0.3 exactly as on 0.4; only the name the
+Members tab and the role pickers display for the program roles is new. If you
+are on 0.3, read "Program Manager" below as the role your program's Members
+tab calls "Project Manager". The **project** role names on this page are
+correct on every release.
+
+Everything else on this page describes 0.3 behavior and is current.
+:::
 
 ## Which format for which job
 
@@ -49,10 +66,10 @@ write to stdout.
 GET /api/v1/programs/{id}/export/
 ```
 
-Requires **Admin** (a Program Admin or the Owner). The seed includes team-private
-data raw — story points and committed/completed/capacity velocity — so it sits at
-the same tier as the async export bundle rather than being open to every member.
-The response is a JSON attachment.
+Requires **Program Manager or above** (the Admin and Owner tiers). The seed
+includes team-private data raw — story points and committed/completed/capacity
+velocity — so it sits at the same tier as the async export bundle rather than
+being open to every member. The response is a JSON attachment.
 
 ## Export a project
 
@@ -160,9 +177,9 @@ card shows the job move through *queued → building → ready*, then offers
 **Download bundle**. A finished bundle's download link stays valid for a few days
 (see [retention](/administration/retention/)); use **Rebuild** to make a fresh one.
 
-Exporting a program bundle is an **Admin+** action (a Program Admin or the Owner),
-for the same reason as the project bundle — it aggregates the full change history,
-every member's time entries, and all attachment binaries across the program.
+Exporting a program bundle is a **Program Manager or above** action, for the
+same reason as the project bundle — it aggregates the full change history, every
+member's time entries, and all attachment binaries across the program.
 
 ### API
 
@@ -186,7 +203,8 @@ Inside the archive, each member project's contents are nested under
 ## Who can export, and where bundles are stored
 
 Exporting a full project or program — the JSON seed **and** the async bundle — is
-restricted to **project/program Admins and Owners**. A bundle is a complete copy of
+restricted to the **Admin and Owner tiers**: Project Manager or Project Admin on a
+project, Program Manager or Program Admin on a program. A bundle is a complete copy of
 the project's or program's data (including time entries, attachments, and history),
 so a Viewer or Member cannot bulk-export it even though they can read individual
 items through the app.

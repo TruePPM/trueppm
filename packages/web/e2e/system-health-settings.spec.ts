@@ -329,10 +329,19 @@ test.describe('Workspace Settings → System health', () => {
 
     // The hook is retry:false, so a 500 surfaces the error UI immediately
     // (not the fixture, not a stuck skeleton).
-    await expect(
-      page.getByText("Couldn't load system health — the API may be unreachable."),
-    ).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+    //
+    // Scoped to `SystemHealthErrorState`'s own block (the message's parent), not
+    // the page: a page-wide Retry locator is satisfied by any other component's
+    // error-state Retry, so it would keep passing even if this panel stopped
+    // offering one (the #3401 defect class). The block carries no role or testid,
+    // so the message node's parent is the handle. Asserting the container first
+    // keeps the scoping honest — a locator that resolves to nothing fails here
+    // rather than silently narrowing the assertion below to a vacuous truth.
+    const errorState = page
+      .getByText("Couldn't load system health — the API may be unreachable.")
+      .locator('..');
+    await expect(errorState).toBeVisible();
+    await expect(errorState.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
     // No component data leaks through in the error state.
     await expect(page.getByText('Outbox dispatcher', { exact: true })).toHaveCount(0);
   });

@@ -21,6 +21,8 @@
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
+import { DEFAULT_PREVIEW_PORT } from './ports';
+
 /** Schemes that never leave the browser. */
 const LOCAL_SCHEMES = ['data:', 'blob:', 'about:', 'chrome-extension:'];
 
@@ -35,7 +37,11 @@ function isThirdParty(url: string, origin: string): boolean {
 
 test.describe('Self-hosted fonts (#2419)', () => {
   test('a page load makes zero requests to any third-party host', async ({ page, baseURL }) => {
-    const origin = new URL(baseURL ?? 'http://127.0.0.1:4173').origin;
+    // The fallback is dead in practice (the config always sets baseURL) but it
+    // must not restate the port: a literal here would go stale the moment a
+    // worktree run moves off the default, and would then measure a DIFFERENT
+    // origin than the one under test. See e2e/ports.ts. (#3514)
+    const origin = new URL(baseURL ?? `http://127.0.0.1:${DEFAULT_PREVIEW_PORT}`).origin;
     const offenders: string[] = [];
 
     // Record every request the page attempts — including ones that fail, since a

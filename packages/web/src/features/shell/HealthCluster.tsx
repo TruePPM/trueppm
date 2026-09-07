@@ -24,6 +24,7 @@ import {
   type AddedTimeShortForm,
 } from '@/features/project/addedTime';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { deriveHealthBand, HEALTH_BAND_LABEL, type HealthBand } from '@/lib/healthBand';
 
 interface Props {
   /** Selects + scrolls to a task and routes to the schedule (owned by TopBar). */
@@ -67,15 +68,20 @@ function LockGlyph() {
 // Chip state word — derived from the project-wide at-risk / critical counts on
 // `useShellStats`, NOT from the methodology segment set. `status-summary`
 // carries `at_risk_count` / `critical_count` for every methodology, so an Agile
-// project whose cluster shows Sprint/Points/Velocity still reads "At risk" on the
-// chip when it has a real critical task (rule 6 — the WORD is the non-color
+// project whose cluster shows Sprint/Points/Velocity still reads "Critical" on
+// the chip when it has a real critical task (rule 6 — the WORD is the non-color
 // signal; the dot only reinforces it).
+//
+// The word is the SERVER band word (`HEALTH_BAND_LABEL`), never a chip-private
+// synonym. The chip used to render "At risk" for the critical band and
+// "On watch" for the at-risk band, so the top bar disagreed with the page
+// beneath it on the same project and "On watch" existed nowhere else in the
+// product (#3470). A task-count nuance belongs in the popover rows below, not
+// in the word.
 // ---------------------------------------------------------------------------
 
-type ChipStateKey = 'critical' | 'atRisk' | 'onTrack';
-
 interface ChipState {
-  key: ChipStateKey;
+  band: HealthBand;
   word: string;
   /** Word color: semantic for at-risk/critical; neutral for on-track (the dot
    *  carries the on-track color so the word stays a calm non-color signal, rule 6). */
@@ -83,30 +89,25 @@ interface ChipState {
   dotClass: string;
 }
 
+const CHIP_WORD_CLASS: Record<HealthBand, string> = {
+  critical: 'text-semantic-critical',
+  at_risk: 'text-semantic-at-risk',
+  on_track: 'text-neutral-text-secondary',
+};
+
+const CHIP_DOT_CLASS: Record<HealthBand, string> = {
+  critical: 'bg-semantic-critical',
+  at_risk: 'bg-semantic-at-risk',
+  on_track: 'bg-semantic-on-track',
+};
+
 function deriveChipState(criticalCount: number, atRiskCount: number): ChipState {
-  // One critical ⇒ "At risk"; ≥1 at-risk & 0 critical ⇒ "On watch"; else "On
-  // track". No other math — the chip is a single worst-state read.
-  if (criticalCount > 0) {
-    return {
-      key: 'critical',
-      word: 'At risk',
-      wordClass: 'text-semantic-critical',
-      dotClass: 'bg-semantic-critical',
-    };
-  }
-  if (atRiskCount > 0) {
-    return {
-      key: 'atRisk',
-      word: 'On watch',
-      wordClass: 'text-semantic-at-risk',
-      dotClass: 'bg-semantic-at-risk',
-    };
-  }
+  const band = deriveHealthBand(criticalCount, atRiskCount);
   return {
-    key: 'onTrack',
-    word: 'On track',
-    wordClass: 'text-neutral-text-secondary',
-    dotClass: 'bg-semantic-on-track',
+    band,
+    word: HEALTH_BAND_LABEL[band],
+    wordClass: CHIP_WORD_CLASS[band],
+    dotClass: CHIP_DOT_CLASS[band],
   };
 }
 
@@ -688,7 +689,8 @@ function DrillRows({
 /**
  * v2 methodology-adaptive project health surface (ADR-0128 §B, progressive
  * disclosure — issue 1644). A single all-width **status chip** shows the
- * worst-state word (On track / On watch / At risk), a health dot, and an
+ * worst-state band word (On track / At risk / Critical — the one health
+ * vocabulary, rule 7 / ADR-0126), a health dot, and an
  * optional P80 forecast fragment. Clicking it opens a **health popover** whose
  * rows are exactly the methodology's `healthClusterModel` segments — forecast
  * band, at-risk/critical drills, sprint/points/velocity — with the ADR-0104

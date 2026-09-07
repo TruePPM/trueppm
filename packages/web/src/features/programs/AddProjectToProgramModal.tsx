@@ -177,7 +177,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
                         className="h-4 w-4 text-brand-primary
                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                       />
-                      <span className="flex-1 truncate text-sm text-neutral-text-primary">
+                      <span className="flex-1 min-w-0 truncate text-sm text-neutral-text-primary">
                         {p.name}
                       </span>
                       {/* Methodology badge (issue 564) — confirm the right "Riverside"
@@ -213,7 +213,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
                         className="h-4 w-4 text-brand-primary
                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                       />
-                      <span className="flex-1 truncate text-sm text-neutral-text-primary">
+                      <span className="flex-1 min-w-0 truncate text-sm text-neutral-text-primary">
                         {p.name}
                       </span>
                       {/* Methodology badge (issue 564) — confirm the right "Riverside"

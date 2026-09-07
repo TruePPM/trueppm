@@ -219,7 +219,7 @@ export function SettingsContextSwitcher({
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <HealthDot health={contextHealth} />
-        <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>
+        <span className="flex-1 min-w-0 truncate text-neutral-text-primary font-medium">{contextName}</span>
         <svg
           width="10"
           height="10"
@@ -323,7 +323,7 @@ export function SettingsContextSwitcher({
                       className={`w-full flex items-center gap-1.5 px-2 h-7 text-[11px] text-left text-neutral-text-primary ${isHighlighted ? 'bg-neutral-surface-sunken' : ''}`}
                     >
                       <HealthDot health={opt.health} />
-                      <span className="flex-1 truncate">{opt.name}</span>
+                      <span className="flex-1 min-w-0 truncate">{opt.name}</span>
                       {isActive && <CheckIcon />}
                     </button>
                   );

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { SprintPanel } from './SprintPanel';
 import { makeSprint } from '@/features/sprints/sprintTestFixtures';
+import { VELOCITY_TEAM_PRIVATE_MESSAGE } from '@/features/sprints/VelocityTeamPrivateNote';
 import { ROLE_MEMBER, ROLE_SCHEDULER, ROLE_VIEWER } from '@/lib/roles';
 import type { ApiSprint } from '@/types';
 
@@ -97,7 +98,7 @@ function renderPanel(opts: {
     tasks = [],
     tasksUnloaded = false,
   } = opts;
-  useActiveSprintMock.mockReturnValue({ sprint, isLoading: false });
+  useActiveSprintMock.mockReturnValue({ sprint, isLoading: false, error: null });
   useScheduleTasksMock.mockReturnValue({
     tasks: tasksUnloaded ? undefined : tasks,
   } as unknown as ReturnType<typeof useScheduleTasks>);
@@ -656,7 +657,12 @@ describe('SprintPanel velocity + forecast (#607)', () => {
       velocity: { sprints: [], velocity_suppressed: true },
     });
     expandPanel();
-    expect(screen.getByTestId('velocity-suppressed')).toHaveTextContent(/team-private/i);
+    // #3472: assert the SHARED sentence, not a local literal — the Sprints
+    // panel's own spec asserts the same constant, so the two surfaces are
+    // pinned to one wording rather than to two that happen to match today.
+    expect(screen.getByTestId('velocity-suppressed')).toHaveTextContent(
+      VELOCITY_TEAM_PRIVATE_MESSAGE,
+    );
     // Neither the chart nor the forecast line render in the gated state.
     expect(screen.queryByTestId('velocity-sparkline')).toBeNull();
     expect(screen.queryByTestId('velocity-forecast-line')).toBeNull();
