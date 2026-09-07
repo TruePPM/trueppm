@@ -15,6 +15,10 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 from django.utils import timezone
 
+from trueppm_api.apps.projects.restructure_hooks import (
+    broadcast_tasks_restructured_and_recalc,
+)
+
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import (
         Project,
@@ -87,7 +91,9 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
     """Reverse one application — a single step from the user's side.
 
     Soft-deletes the rows this application wrote, and **only** those: the undo set
-    is ``created_task_ids``, not a heuristic over the project.
+    is ``created_task_ids``, not a heuristic over the project. When anything was
+    removed it emits its forward path's own ``tasks_restructured`` and enqueues a
+    recalculation, both on commit — see the call at the end.
 
     It deliberately skips rows a person has since touched. An undo that discards
     typed work in order to reverse a machine's write is the same unrecoverable
@@ -133,6 +139,19 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
         "undo": {"deleted": deleted, "kept": kept},
     }
     application.save(update_fields=["status", "undone_at", "result_summary"])
+
+    if deleted:
+        # The forward path (`template_tasks.apply_template`) emits `tasks_restructured`
+        # and enqueues a recalculation; an undo removes those same rows, so it is the
+        # same kind of mutation and owes collaborators the same event — without it the
+        # rows appear live and never disappear, and the seeded dates never move back
+        # (#3415). Guarded on `deleted` for the same reason the forward path guards on
+        # `created`: when every row was kept, no task row changed and there is nothing
+        # to announce. Deferred to commit inside the helper, and reached only here on
+        # the success path — a broadcast scheduled on a refusal path is discarded
+        # anyway, because DRF's exception handler rolls back under ATOMIC_REQUESTS.
+        broadcast_tasks_restructured_and_recalc(application.project_id)
+
     return {"deleted": deleted, "kept": kept}
 
 

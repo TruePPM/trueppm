@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { RECALC_PROMPT_TIMEOUT_MS, type RecalcPromptState } from './recalcPercentPrompt';
 import { CheckIcon, RepeatIcon } from '@/components/Icons';
+import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 
 type Phase = 'idle' | 'accepting' | 'done' | 'error';
+
+/** How long the "Set to N%" confirmation stays before the chip unmounts. */
+const CONFIRM_DWELL_MS = 1200;
 
 interface Props {
   prompt: RecalcPromptState;
   /** Re-send the edit with an explicit percent_complete. Rejects on API error. */
   onAccept: (percent: number) => Promise<void>;
-  /** Dismiss the prompt (Keep — % left unchanged). */
+  /** Dismiss the prompt (Keep — % left unchanged). Need not be stable. */
   onDismiss: () => void;
 }
 
@@ -19,36 +23,37 @@ interface Props {
  * and pauses that timer while hovered or focused so a reader is never raced.
  * Accepting re-PATCHes percent_complete to the prorated suggestion; dismissing
  * leaves the entered % untouched.
+ *
+ * Both dwells come from `usePausableAutoDismiss`, which reads `onDismiss` through
+ * a ref. Every call site passes an inline arrow, and the previous hand-rolled
+ * timers listed that callback in their effect dependencies — so each parent
+ * re-render (a task refetch re-renders every row) tore the timer down and re-armed
+ * it from zero, and on a busy schedule the prompt never went away on its own.
  */
 export function RecalcPercentChip({ prompt, onAccept, onDismiss }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
-  const pausedRef = useRef(false);
   const { suggestedPercent, oldDuration, newDuration } = prompt;
 
-  // ~10s auto-dismiss (treated as Keep), paused while hovered/focused. Not armed
-  // once the user has accepted (accepting/done) or hit an error to retry.
-  useEffect(() => {
-    if (phase !== 'idle') return;
-    let remaining = RECALC_PROMPT_TIMEOUT_MS;
-    let last = Date.now();
-    const id = setInterval(() => {
-      const now = Date.now();
-      if (!pausedRef.current) remaining -= now - last;
-      last = now;
-      if (remaining <= 0) {
-        clearInterval(id);
-        onDismiss();
-      }
-    }, 250);
-    return () => clearInterval(id);
-  }, [phase, onDismiss]);
+  // ~10s auto-dismiss (treated as Keep), paused while hovered or holding focus.
+  // Armed only while idle: accepting/done have their own exit below, and an error
+  // waits for a retry rather than timing out under the user.
+  const { pauseHandlers } = usePausableAutoDismiss({
+    active: phase === 'idle',
+    durationMs: RECALC_PROMPT_TIMEOUT_MS,
+    restartKey: prompt,
+    onDismiss,
+  });
 
-  // Brief success confirmation, then unmount.
-  useEffect(() => {
-    if (phase !== 'done') return;
-    const id = setTimeout(onDismiss, 1200);
-    return () => clearTimeout(id);
-  }, [phase, onDismiss]);
+  // Brief success confirmation, then unmount. No pause handlers are attached to
+  // this instance on purpose: the confirmation holds no control, so there is
+  // nothing a reader can be raced away from — the hook is used here only for the
+  // ref-read of `onDismiss` that makes the dwell survive a parent re-render.
+  usePausableAutoDismiss({
+    active: phase === 'done',
+    durationMs: CONFIRM_DWELL_MS,
+    restartKey: prompt,
+    onDismiss,
+  });
 
   const handleAccept = useCallback(async () => {
     setPhase('accepting');
@@ -59,13 +64,6 @@ export function RecalcPercentChip({ prompt, onAccept, onDismiss }: Props) {
       setPhase('error');
     }
   }, [onAccept, suggestedPercent]);
-
-  const pause = () => {
-    pausedRef.current = true;
-  };
-  const resume = () => {
-    pausedRef.current = false;
-  };
 
   const base =
     'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 h-6 text-xs font-medium';
@@ -97,10 +95,7 @@ export function RecalcPercentChip({ prompt, onAccept, onDismiss }: Props) {
       role="status"
       aria-live="polite"
       data-testid="recalc-percent-chip"
-      onMouseEnter={pause}
-      onMouseLeave={resume}
-      onFocusCapture={pause}
-      onBlurCapture={resume}
+      {...pauseHandlers}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();

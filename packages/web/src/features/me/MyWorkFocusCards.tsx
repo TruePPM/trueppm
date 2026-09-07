@@ -61,7 +61,7 @@ export function MyWorkFocusCards({ cards }: { cards: MyWorkFocusCard[] }) {
             i === 0 ? ACCENT_BORDER[card.variant] : '',
           ].join(' ')}
         >
-          <span className="tppm-mono text-[10.5px] font-medium uppercase tracking-[0.07em] text-neutral-text-secondary">
+          <span className="tppm-mono text-xs font-medium uppercase tracking-[0.07em] text-neutral-text-secondary">
             {card.label}
           </span>
           <div className="flex items-baseline gap-2">
