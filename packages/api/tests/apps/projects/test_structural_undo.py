@@ -937,6 +937,37 @@ def test_undo_structural_service_refuses_an_archived_project(project: Project) -
     assert shape(project) == before
 
 
+@pytest.mark.django_db
+def test_undo_broadcasts_tasks_restructured_and_recalculates(
+    project: Project, owner_client: APIClient
+) -> None:
+    """Pins the emitting half of the hook, which the suite otherwise only silences.
+
+    ``undo`` and ``act`` above patch ``broadcast_board_event`` and
+    ``enqueue_recalculate`` without asserting on them, so deleting the
+    ``broadcast_tasks_restructured_and_recalc`` call left every structural test green.
+    That call now sits in ``restructure_hooks`` and is shared with the template undo
+    (#3415) — a shared contract with only one asserting caller is how the two drift.
+    """
+    tasks = make_tasks(project, ["1", "2", "3"])
+    response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
+    assert response.status_code == 200
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        undone = owner_client.post(
+            UNDO_URL.format(pk=response.json()["operation_id"]), {}, format="json"
+        )
+
+    assert undone.status_code == 200
+    mock_recalc.assert_called_once_with(str(project.pk))
+    mock_broadcast.assert_called_once_with(str(project.pk), "tasks_restructured", {})
+
+
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # The declared 200 vs. the body actually returned (#3416)
 # ---------------------------------------------------------------------------

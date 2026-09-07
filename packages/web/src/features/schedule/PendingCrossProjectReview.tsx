@@ -29,6 +29,13 @@ import {
  * wires it in with a single always-safe line. The server is the real gate
  * (Scheduler+ on the successor project); the buttons self-gate pessimistically
  * so a control that would 403 never shows as actionable.
+ *
+ * "Nothing pending" is a *resolved* empty list. The hook returns `[]` while
+ * loading and after a failure too, and this banner is the only entry point to
+ * the accept/reject decision — nothing re-prompts — so a failed read must not
+ * pass as an all-clear (#3424). While loading the banner stays silent (a
+ * disclosure defaults to silent, rule 379); a terminal failure renders a
+ * same-footprint strip that says the check failed, with Retry.
  */
 interface Props {
   projectId: string;
@@ -44,11 +51,30 @@ const DEP_TYPE_LABEL: Record<LinkType, string> = {
 };
 
 export function PendingCrossProjectReview({ projectId, currentRole }: Props) {
-  const { items } = usePendingIncomingDeps(projectId);
+  const { items, isLoading, error, refetch } = usePendingIncomingDeps(projectId);
   const [open, setOpen] = useState(false);
 
-  // Nothing to review → no banner. Kept after the hook so hook order is stable.
-  if (items.length === 0) return null;
+  // Kept after the hooks so hook order is stable. A refetch failure keeps the
+  // last good list, so `items` still answers and the normal banner renders;
+  // only a failure with nothing to show becomes the error strip.
+  if (items.length === 0) {
+    if (error != null && !isLoading) {
+      return (
+        <div
+          className="flex items-center gap-3 px-4 py-2 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
+          role="status"
+        >
+          <p className="text-xs text-semantic-critical">
+            Couldn&rsquo;t check for cross-project links awaiting your review.
+          </p>
+          <Button variant="secondary" size="sm" className="ml-auto shrink-0" onClick={refetch}>
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
     <>
@@ -86,7 +112,7 @@ function ReviewPanel({
   currentRole: number | null;
   onClose: () => void;
 }) {
-  const { items } = usePendingIncomingDeps(projectId);
+  const { items, isLoading, error, refetch } = usePendingIncomingDeps(projectId);
   const resolve = useResolvePendingDependency(projectId);
   // Trap Tab within the slide-over, focus the first control on open, and restore
   // focus to the trigger on close (WCAG 2.4.3, web-rule 136). Esc → onClose.
@@ -113,10 +139,12 @@ function ReviewPanel({
     null,
   );
 
-  // Close once the last pending item clears (all reviewed).
+  // Close once the last pending item clears (all reviewed). Only a *resolved*
+  // empty list means that: a refetch that failed with nothing cached would
+  // otherwise read as "all reviewed" and silently close the review (#3424).
   useEffect(() => {
-    if (items.length === 0) onClose();
-  }, [items.length, onClose]);
+    if (items.length === 0 && !isLoading && error == null) onClose();
+  }, [items.length, isLoading, error, onClose]);
 
   // Scheduler+ on this successor project is the real (server) gate; mirror it
   // here so a control that would 403 never reads as actionable. `null` (role
@@ -196,6 +224,21 @@ function ReviewPanel({
           <p className="px-4 py-2 text-xs text-neutral-text-secondary border-b border-neutral-border bg-neutral-surface-raised">
             {disabledReason}
           </p>
+        )}
+
+        {error != null && (
+          <div
+            role="status"
+            className="flex items-center gap-3 px-4 py-2 border-b border-neutral-border bg-neutral-surface-raised"
+          >
+            <p className="text-xs text-semantic-critical">
+              Couldn&rsquo;t refresh the pending links
+              {items.length > 0 ? ' — this list may be out of date.' : '.'}
+            </p>
+            <Button variant="secondary" size="sm" className="ml-auto shrink-0" onClick={refetch}>
+              Retry
+            </Button>
+          </div>
         )}
 
         <div className="flex-1 overflow-y-auto">

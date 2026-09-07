@@ -1104,16 +1104,16 @@ function PinnedTier({
               list, not a tree. Items also keep their normal tree
               position; pinning adds a shortcut, it does not relocate. */}
           {pinnedProgramList.map((prog) => {
-            // The identity square needs the full program row for its color and
-            // initials. A pinned program past the list page ceiling has no
-            // loaded row, so fall back to the pin's own name/code — the square
-            // degrades, the jump link does not.
+            // The identity square needs the full program row for its color. A
+            // pinned program past the list page ceiling has no loaded row, so
+            // fall back to the pin's own name/code — the square degrades, the
+            // jump link does not.
             const loaded = programById.get(prog.id);
             return (
               <div key={prog.id} className={rowClass(false)}>
                 <ProgramIdentitySquare
                   program={loaded ?? { name: prog.name, code: prog.code ?? '', color: null }}
-                  size="xs-label"
+                  size="md"
                 />
                 <button
                   type="button"
@@ -1523,10 +1523,12 @@ function BrowseContent({
                   className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                 />
               </button>
-              {/* Program identity is a SQUARE (rule 158). The xs-label variant labels
-                  unset-color programs with their initials so uncolored programs stay
-                  distinguishable in this dense switcher list (issue 1051). */}
-              <ProgramIdentitySquare program={prog} size="xs-label" />
+              {/* Program identity is a SQUARE (rule 158) — a label-free wayfinding
+                  dot. It used to carry 7px initials for uncolored programs (issue
+                  1051); the program NAME renders as the adjacent button text, which
+                  is what actually distinguishes them, so the sub-floor type went
+                  rather than the tile (#3475). */}
+              <ProgramIdentitySquare program={prog} size="md" />
               <button
                 type="button"
                 onClick={() => go(`/programs/${prog.id}/overview`)}

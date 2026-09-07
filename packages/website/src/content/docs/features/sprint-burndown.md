@@ -17,6 +17,8 @@ Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of t
 - **Trending callout:** `Trending {N} pts ahead/behind of ideal · scope-add {date} (+{N} pts)` — color reflects on-track / at-risk
 - **Forecast close:** linear extrapolation from current pace to zero remaining
 
+![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
+
 ## Burn up view
 
 A **Burn down / Burn up / Combined** toggle sits on the chart card. **Burn up** plots two ascending lines instead of the descending remaining line:

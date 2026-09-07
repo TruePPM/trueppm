@@ -44,9 +44,16 @@ export interface PendingIncomingDep {
 }
 
 export interface PendingIncomingDepsResult {
+  /**
+   * `[]` while the query is loading AND after it failed — a consumer that
+   * gates a consent surface on `items.length` must read `isLoading` / `error`
+   * first, or an unresolved read passes as "nothing pending" (#3424).
+   */
   items: PendingIncomingDep[];
   isLoading: boolean;
   error: Error | null;
+  /** Re-run just this query — wired to the banner's error-state Retry. */
+  refetch: () => void;
 }
 
 /**
@@ -80,6 +87,7 @@ export function usePendingIncomingDeps(projectId: string | null): PendingIncomin
     items,
     isLoading: query.isLoading,
     error: query.error,
+    refetch: () => void query.refetch(),
   };
 }
 

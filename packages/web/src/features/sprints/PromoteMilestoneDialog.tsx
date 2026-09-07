@@ -819,7 +819,7 @@ function BindModeBody({
                 <span className="flex items-center gap-1.5 shrink-0 text-brand-primary">
                   <FlagIcon className="h-3.5 w-3.5" />
                 </span>
-                <span className="flex-1 truncate text-sm font-medium text-neutral-text-primary">
+                <span className="flex-1 min-w-0 truncate text-sm font-medium text-neutral-text-primary">
                   {m.name}
                 </span>
                 {m.wbs && (
