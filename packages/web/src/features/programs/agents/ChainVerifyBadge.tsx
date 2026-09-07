@@ -83,7 +83,7 @@ export function ChainVerifyBadge() {
               To verify the full chain on your own instance, run:
             </p>
             <div className="flex items-center gap-2">
-              <code className="tppm-mono flex-1 truncate rounded-control bg-neutral-surface-sunken px-2 py-1 text-xs text-neutral-text-primary">
+              <code className="tppm-mono flex-1 min-w-0 truncate rounded-control bg-neutral-surface-sunken px-2 py-1 text-xs text-neutral-text-primary">
                 {VERIFY_COMMAND}
               </code>
               <button

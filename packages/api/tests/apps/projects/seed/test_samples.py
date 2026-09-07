@@ -7,10 +7,12 @@ gate ("a fresh install can load the hybrid-large project") holds.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.management import call_command
 from rest_framework.test import APIClient
 
@@ -83,6 +85,44 @@ def test_every_bundled_sample_imports(owner: Any, key: str) -> None:
     projects = Project.objects.filter(program=program)
     assert projects.exists()
     assert all(p.is_sample for p in projects)
+
+
+@pytest.mark.parametrize("key", sorted(SAMPLES))
+def test_bundled_sample_in_flight_tasks_keep_authored_progress(owner: Any, key: str) -> None:
+    """#3486: every IN_PROGRESS task in every fixture loads at its authored percent.
+
+    Read from the fixture rather than a hard-coded table so the assertion cannot
+    rot when a sample's content changes: whatever the document declares is what
+    the loaded row must report. Before the replay finalize pass every one of
+    these landed at 0% with ``remaining_points == story_points``, because a task
+    that ends in flight is born at the base of the progression and nothing walked
+    the numbers back.
+    """
+    document = json.loads(SAMPLES[key].path.read_text())
+    program = load_sample(key, owner=owner, create_users=True)
+
+    checked = 0
+    for project_data in document["projects"]:
+        project = Project.objects.get(program=program, name=project_data["name"])
+        for task_data in project_data["tasks"]:
+            if task_data.get("status") != "IN_PROGRESS":
+                continue
+            task = Task.objects.get(project=project, wbs_path=task_data["wbs_path"])
+            # A task the timeline walked past IN_PROGRESS is a different fixture
+            # bug, not this one; assert only on rows that did land in flight.
+            if str(task.status) != "IN_PROGRESS":
+                continue
+            checked += 1
+            if "percent_complete" in task_data:
+                assert task.percent_complete == task_data["percent_complete"], (
+                    f"{key}/{project_data['slug']}/{task_data['wbs_path']}"
+                )
+            if "remaining_points" in task_data:
+                assert task.remaining_points == task_data["remaining_points"], (
+                    f"{key}/{project_data['slug']}/{task_data['wbs_path']}"
+                )
+    # Guard against a vacuous pass: every bundled sample authors in-flight work.
+    assert checked > 0
 
 
 def test_samples_endpoint_lists_all(owner: Any) -> None:
@@ -175,6 +215,150 @@ def test_without_flag_personas_stay_unusable_via_command(owner: Any) -> None:
     call_command("load_sample_project")
     alex = User.objects.get(username="atlas-alex")
     assert alex.has_usable_password() is False
+
+
+# --- persona logins on a *reload* (#3484) ----------------------------------
+
+
+def test_reload_with_personas_enables_preexisting_persona_accounts(
+    owner: Any, settings: Any
+) -> None:
+    """The reported bug: the second run must actually enable the accounts it lists.
+
+    Loading is idempotent, so by the time an evaluator follows the guide's advice
+    and re-runs with ``--with-personas`` the persona rows already exist — and the
+    old code only passworded rows it *created*, leaving every listed account with
+    ``has_usable_password() is False`` while printing "Persona logins enabled".
+    """
+    settings.DEBUG = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+
+    call_command("load_sample_project")
+    alex = User.objects.get(username="atlas-alex")
+    assert alex.has_usable_password() is False  # precondition: the bug's start state
+
+    call_command("load_sample_project", "--with-personas")
+
+    alex.refresh_from_db()
+    assert alex.has_usable_password() is True
+    assert alex.check_password("demo") is True
+
+
+def test_reload_with_personas_makes_token_endpoint_accept_the_persona(
+    owner: Any, settings: Any
+) -> None:
+    """End-to-end proof: ``POST /auth/token/`` stops returning "No active account"."""
+    # The login endpoint is scoped-throttled against a shared LocMem cache; isolate
+    # this test's history so a sibling test's logins cannot make it 429.
+    cache.clear()
+    settings.DEBUG = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+
+    call_command("load_sample_project")
+    call_command("load_sample_project", "--with-personas")
+
+    resp = APIClient().post(
+        "/api/v1/auth/token/",
+        {"username": "atlas-alex", "password": "demo"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert "access" in resp.data
+
+
+def test_reload_still_never_repasswords_a_real_account(owner: Any, settings: Any) -> None:
+    """A colliding account with its own password survives a *reload*, not just a first load.
+
+    ``test_persona_password_never_repasswords_existing_user`` pins the first-load
+    case; this pins the branch #3484 added. A usable password is the discriminator
+    for "a real user owns this row", so it is what keeps the new behavior out of
+    the #1057 hijack case.
+    """
+    settings.DEBUG = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    real = User.objects.create_user(username="atlas-mei", password="original-secret")
+
+    call_command("load_sample_project", "--with-personas")
+
+    real.refresh_from_db()
+    assert real.check_password("original-secret") is True
+    assert real.check_password("demo") is False
+
+
+def test_reload_never_repasswords_a_privileged_account(owner: Any, settings: Any) -> None:
+    """A staff/superuser row is refused even with an unusable password.
+
+    Handing a printed password to an admin account would be a full takeover, so the
+    usable-password discriminator is not the only guard.
+    """
+    settings.DEBUG = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    staff = User.objects.create_user(username="atlas-sam", is_staff=True)
+    staff.set_unusable_password()
+    staff.save(update_fields=["password"])
+
+    call_command("load_sample_project", "--with-personas")
+
+    staff.refresh_from_db()
+    assert staff.has_usable_password() is False
+
+
+def test_report_lists_only_accounts_the_printed_password_opens(
+    owner: Any, settings: Any, capsys: Any
+) -> None:
+    """The report is derived from observed state, so a refusal is named, not hidden."""
+    settings.DEBUG = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    User.objects.create_user(username="atlas-mei", password="original-secret")
+
+    call_command("load_sample_project", "--with-personas")
+    out = capsys.readouterr().out
+
+    assert "Persona logins enabled" in out
+    assert "atlas-alex" in out  # enabled — the username the guide references
+    assert "left untouched" in out
+    assert "pre-existing account with its own password" in out
+    assert "changepassword" in out  # the operator's way out
+
+
+def test_owner_fallback_report_reads_the_state_back(settings: Any, capsys: Any) -> None:
+    """The sibling instance of the same defect, found by the recurrence sweep.
+
+    With no superuser, ``_resolve_owner`` owns the program with the sample's own
+    OWNER persona and printed "(unusable password)" from the create branch's
+    intent. On a reload that row already exists and is never touched, so once
+    ``--with-personas`` has made it loginable the line was simply false.
+    """
+    settings.DEBUG = True
+    assert not User.objects.filter(is_superuser=True).exists()
+
+    call_command("load_sample_project", "--with-personas")
+    first = capsys.readouterr().out
+    assert "(unusable password)" in first  # minted this run, still unusable
+
+    # atlas-alex is now loginable (it is a persona like any other), so the second
+    # run must not repeat the claim.
+    call_command("load_sample_project", "--with-personas")
+    second = capsys.readouterr().out
+    assert "(usable password)" in second
+    assert "(unusable password)" not in second
+
+
+def test_rest_load_sample_never_passwords_personas(owner: Any, settings: Any) -> None:
+    """The REST path passes no ``persona_password``, so #3484 mints no login there.
+
+    ``persona_password`` reaching only the management command is what makes the
+    sample usernames server-curated rather than caller-steered.
+    """
+    settings.DEBUG = True
+    resp = _client(owner).post("/api/v1/programs/load-sample/", {}, format="json")
+    assert resp.status_code == 201, resp.content
+    assert User.objects.get(username="atlas-alex").has_usable_password() is False
 
 
 # --- endpoints -------------------------------------------------------------

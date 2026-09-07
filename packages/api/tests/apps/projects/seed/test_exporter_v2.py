@@ -155,3 +155,9 @@ def test_v2_round_trip_preserves_task_end_states(owner: Any) -> None:
     # remaining_points burned down to 2 survives the round-trip (task.points)
     t2 = Task.objects.get(project__program=program2, wbs_path="2")
     assert t2.remaining_points == 2
+    # ...and so does the in-flight progress the replay restores (#3486). Before
+    # the finalize pass a second import re-zeroed it, so percent decayed one
+    # round-trip at a time while the byte-identical fixpoint still held.
+    assert t2.percent_complete == 40.0
+    t5 = Task.objects.get(project__program=program2, wbs_path="5")
+    assert (t5.percent_complete, t5.remaining_points) == (25.0, 3)

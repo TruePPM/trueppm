@@ -56,6 +56,8 @@ or workspace, which you can override per setting whenever you choose.
 
 The **General** page edits the project's identity:
 
+![Project settings, General: project name, code, description, lead, program, health override, visibility and guest access](../../../assets/screenshots/project-settings.webp)
+
 - **Name**, **description**, and **code**
 - **Health** indicator and **visibility**
 - **Time zone** — the clock this project's

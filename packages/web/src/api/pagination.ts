@@ -2,6 +2,30 @@ import { apiClient } from './client';
 import type { PaginatedResponse } from './types';
 
 /**
+ * Reduce a DRF `next`/`previous` link to a path relative to the apiClient
+ * baseURL (`/api/v1`).
+ *
+ * DRF builds these with `request.build_absolute_uri`, so they arrive as
+ * fully-qualified URLs whose path already contains `/api/v1`. Two ways to get
+ * this wrong, and both have shipped:
+ *
+ * - Hand axios `new URL(next).pathname + search` and it double-prefixes the
+ *   baseURL — `/api/v1/api/v1/tasks/?page=2` — which 404s (#3467).
+ * - Hand axios the absolute URL untouched and it skips the baseURL (axios does
+ *   not prefix an absolute URL), so the request goes to whatever host the
+ *   server put in the link. That is the `Host` header the API happened to see,
+ *   which under the Vite dev proxy (`changeOrigin: true`) is the API container
+ *   rather than the page origin — a cross-origin request the browser refuses.
+ *
+ * Stripping everything up to and including `/api/v1` leaves a baseURL-relative
+ * remainder that is correct regardless of the host, scheme, or proxy in front.
+ * This is the ONLY place that transform lives; see `pagination.conformance.test.ts`.
+ */
+export function toApiRelativePath(nextUrl: string): string {
+  return nextUrl.replace(/^.*\/api\/v1/, '');
+}
+
+/**
  * Fetch every page of a DRF-paginated list endpoint and return the flattened
  * rows, following the `next` link until it is exhausted.
  *
@@ -13,9 +37,8 @@ import type { PaginatedResponse } from './types';
  * `response.results` directly instead — do not page through unbounded history.)
  *
  * Works for both page-number and cursor pagination: only `results` and `next`
- * are read, never `count`. DRF emits an absolute `next` URL
- * (`request.build_absolute_uri`); we reduce it to a path relative to the
- * apiClient baseURL (`/api/v1`) so axios doesn't double-prefix it.
+ * are read, never `count`. The absolute `next` link is normalized by
+ * `toApiRelativePath`.
  */
 export async function fetchAllPages<T>(
   path: string,
@@ -31,9 +54,7 @@ export async function fetchAllPages<T>(
       isFirstPage ? { params } : undefined,
     );
     rows.push(...res.data.results);
-    // Strip everything up to and including `/api/v1` so the remainder is
-    // baseURL-relative regardless of host/scheme in the absolute `next`.
-    nextPath = res.data.next ? res.data.next.replace(/^.*\/api\/v1/, '') : null;
+    nextPath = res.data.next ? toApiRelativePath(res.data.next) : null;
     isFirstPage = false;
   }
   return rows;

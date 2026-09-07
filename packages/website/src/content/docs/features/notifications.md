@@ -46,6 +46,8 @@ The slide-out panel (`NotificationPanel`) and the full-screen route
 `NotificationRow`, shared between them — so what you see from the bell and
 what you see at `/me/notifications` never disagree.
 
+![The Notifications inbox with unread items: a project end-date shift and a mention, each with mark read, archive and snooze actions](../../../assets/screenshots/notifications.webp)
+
 Every row shows who or what triggered it (a mentioner's name, or the event's
 own subject), a relative timestamp, and a preview: a mention row previews the
 comment snippet; an event-sourced row (a task assignment, a blocked flag, and

@@ -89,6 +89,10 @@ class ReplayContext:
     risks: dict[str, Risk]  # risk slug -> Risk
     final_status: dict[tuple[str, str], str]  # desired end column per task
     final_sprint: dict[tuple[str, str], dict[str, Any]]  # desired end state per sprint
+    # Authored in-flight progress per task, restored after the timeline runs
+    # (#3486). Only carries the keys the document actually wrote, so a dated
+    # ``task.points`` beat is never overwritten by a value nobody authored.
+    final_progress: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     tz: Any = None  # program timezone for synthesized timestamps (defaults to UTC)
     # Scope-change rows opened during replay, so a later resolve can close them.
     open_scope: dict[Any, SprintScopeChange] = field(default_factory=dict)
@@ -289,8 +293,9 @@ def _run_sim_clock(beats: list[_Beat], ctx: ReplayContext) -> None:
     """
     if not beats:
         # No timeline (e.g. a v2 doc with only relative dates) — still finalize
-        # sprint states so the seed's intended end state holds.
-        _finalize_sprints(ctx, ctx.anchor)
+        # sprint states and in-flight progress so the seed's intended end state
+        # holds.
+        _finalize(ctx, ctx.anchor)
         return
 
     by_day: dict[date, list[_Beat]] = {}
@@ -325,7 +330,7 @@ def _run_sim_clock(beats: list[_Beat], ctx: ReplayContext) -> None:
         _snapshot_active_sprints(ctx, day)
         day += timedelta(days=1)
 
-    _finalize_sprints(ctx, last)
+    _finalize(ctx, last)
 
 
 def _snapshot_active_sprints(ctx: ReplayContext, day: date) -> None:
@@ -337,6 +342,17 @@ def _snapshot_active_sprints(ctx: ReplayContext, day: date) -> None:
                 logger.exception(
                     "seed replay: burndown snapshot failed sprint=%s day=%s", sprint.pk, day
                 )
+
+
+def _finalize(ctx: ReplayContext, day: date) -> None:
+    """Restore the end states the replay had to walk up to, once it has.
+
+    Two passes, both backstops for the same structural fact: replay births an
+    entity at the *base* of its progression so the timeline has somewhere to walk
+    from, and the walk does not always land on every authored field.
+    """
+    _finalize_sprints(ctx, day)
+    _finalize_tasks(ctx, day)
 
 
 def _finalize_sprints(ctx: ReplayContext, day: date) -> None:
@@ -351,6 +367,43 @@ def _finalize_sprints(ctx: ReplayContext, day: date) -> None:
         if desired and sprint.state != desired:
             sprint.state = desired
             _save(sprint, _aware(ctx, day), ctx.default_actor, ["state"])
+
+
+def _finalize_tasks(ctx: ReplayContext, day: date) -> None:
+    """Restore the authored progress of every task that ends in flight (#3486).
+
+    A task whose end column is IN_PROGRESS is born at 0% with its full points
+    remaining so the timeline has room to walk it forward, and nothing ever puts
+    the authored numbers back: ``_apply_task_status`` writes only the column and
+    the actual dates, and ``Task._coerce_signoff_percent`` — which is what
+    rescues REVIEW and COMPLETE — does not reach this column. Without this pass
+    every in-flight task in every v2 seed loads at 0%.
+
+    That is not cosmetic. ``percent_complete`` sets the *remaining* duration CPM
+    schedules (ADR-0132/0136), so a 0% in-flight task is billed at its full
+    duration and both the utilization heat map and the burndown's "remaining"
+    read high. The pass therefore runs before the importer's post-commit
+    ``enqueue_recalculate``, so the recompute sees the corrected values.
+
+    Only fields the document actually authored are written, which is what keeps
+    a dated ``task.points`` beat authoritative: a task that declares no
+    ``remaining_points`` of its own is left holding whatever the timeline gave it.
+    """
+    for key, task in ctx.tasks.items():
+        if ctx.final_status.get(key) != TaskStatus.IN_PROGRESS:
+            continue
+        authored = ctx.final_progress.get(key)
+        if not authored:
+            continue
+        fields = [
+            name
+            for name in ("percent_complete", "remaining_points")
+            if name in authored and getattr(task, name) != authored[name]
+        ]
+        for name in fields:
+            setattr(task, name, authored[name])
+        if fields:
+            _save(task, _aware(ctx, day), ctx.default_actor, fields)
 
 
 # --- event handlers ----------------------------------------------------------

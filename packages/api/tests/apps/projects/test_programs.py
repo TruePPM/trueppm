@@ -173,6 +173,142 @@ def test_list_annotates_project_count(owner: object, calendar: Calendar) -> None
     assert resp.data["results"][0]["project_count"] == 2
 
 
+@pytest.mark.django_db
+def test_list_member_count_counts_every_live_member_not_just_the_caller(
+    owner: object, other_user: object, stranger: object
+) -> None:
+    """``member_count`` is the program's headcount, not the caller's own row (#3471).
+
+    The visibility scope used to be a ``memberships__user=user`` join filter, which
+    narrowed the joined rows to the caller's own membership *before* the
+    ``Count("memberships")`` aggregate ran — so every program in the directory
+    reported exactly 1 member regardless of its real roster.
+    """
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    ProgramMembership.objects.create(program=program, user=stranger, role=Role.VIEWER)
+
+    resp = _client(owner).get("/api/v1/programs/")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.data["results"][0]["member_count"] == 3
+
+
+@pytest.mark.django_db
+def test_list_member_count_excludes_revoked_memberships(
+    owner: object, other_user: object, stranger: object
+) -> None:
+    """A revoked (soft-deleted) membership is not a member (#3471, #3410).
+
+    Revocation soft-deletes the row rather than removing it, so a count that
+    omitted ``is_deleted=False`` would keep reporting departed people.
+    """
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    ProgramMembership.objects.create(
+        program=program, user=stranger, role=Role.VIEWER, is_deleted=True
+    )
+
+    resp = _client(owner).get("/api/v1/programs/")
+
+    assert resp.data["results"][0]["member_count"] == 2
+
+
+@pytest.mark.django_db
+def test_list_member_count_is_correct_for_a_non_owner_member(
+    owner: object, other_user: object
+) -> None:
+    """The count does not depend on WHICH member asks (#3471).
+
+    Under the join filter the caller's own row was the only one counted, so this
+    read 1 for a Member on a two-person program.
+    """
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+
+    resp = _client(other_user).get("/api/v1/programs/")
+
+    assert [p["name"] for p in resp.data["results"]] == [program.name]
+    assert resp.data["results"][0]["member_count"] == 2
+
+
+@pytest.mark.django_db
+def test_list_scope_still_hides_programs_from_non_members(
+    owner: object, other_user: object, stranger: object
+) -> None:
+    """Swapping the join filter for ``Exists`` must not widen visibility (#3471).
+
+    The scope is an authorization boundary: a stranger, and a member whose
+    membership has been revoked, must both still be unable to list the program —
+    a populated roster is exactly the condition under which a broken semi-join
+    would start leaking rows.
+
+    The detail assertions pin **404**, not ``in (403, 404)``. ``IsProgramMember``
+    falls through on a top-level ``/programs/{pk}/`` route, so the membership-scoped
+    ``get_queryset`` is what denies — and a 403 here would be the existence oracle
+    #3129 closed on the project side (403 for a real id, 404 for a fake one).
+    """
+    program = _create_program(_client(owner), name="Mine")
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+
+    # Never a member.
+    resp = _client(stranger).get("/api/v1/programs/")
+    assert resp.status_code == 200
+    assert resp.data["results"] == []
+    assert _client(stranger).get(f"/api/v1/programs/{program.pk}/").status_code == 404
+
+    # Membership revoked — the row survives soft-deleted and must not confer access.
+    ProgramMembership.objects.filter(program=program, user=other_user).update(is_deleted=True)
+    resp = _client(other_user).get("/api/v1/programs/")
+    assert resp.data["results"] == []
+    assert _client(other_user).get(f"/api/v1/programs/{program.pk}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_list_excludes_a_soft_deleted_program_with_live_memberships(owner: object) -> None:
+    """``is_deleted=False`` on the Program itself is load-bearing (#3471).
+
+    The delete endpoint soft-deletes the memberships too, so the ``Exists`` probe
+    alone would hide the program and drop this predicate's only coverage. A
+    program soft-deleted by any path that leaves memberships live — an admin
+    action, a data migration, future lifecycle code — must still not surface in
+    the directory or resolve at its old URL.
+    """
+    program = _create_program(_client(owner), name="Zombie")
+    Program.objects.filter(pk=program.pk).update(is_deleted=True)
+
+    assert ProgramMembership.objects.filter(program=program, is_deleted=False).exists()
+
+    resp = _client(owner).get("/api/v1/programs/")
+    assert resp.status_code == 200
+    assert resp.data["results"] == []
+    assert _client(owner).get(f"/api/v1/programs/{program.pk}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_list_project_count_unaffected_by_a_multi_member_roster(
+    owner: object, other_user: object, stranger: object, calendar: Calendar
+) -> None:
+    """``project_count`` must not fan out against the membership roster (#3471).
+
+    Before the fix the ``memberships`` join was narrowed to a single row, which
+    incidentally kept ``project_count`` honest. Now that the roster is no longer
+    narrowed, prove the two counts do not multiply each other.
+    """
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    ProgramMembership.objects.create(program=program, user=stranger, role=Role.VIEWER)
+    for name in ("A", "B"):
+        Project.objects.create(
+            name=name, start_date=date(2026, 4, 1), calendar=calendar, program=program
+        )
+
+    resp = _client(owner).get("/api/v1/programs/")
+
+    assert resp.data["results"][0]["project_count"] == 2
+    assert resp.data["results"][0]["member_count"] == 3
+
+
 # ---------------------------------------------------------------------------
 # Retrieve — membership gate
 # ---------------------------------------------------------------------------

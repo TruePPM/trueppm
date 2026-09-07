@@ -252,7 +252,9 @@ test.describe('Programs — New project derives methodology from the program (#2
   // creating under a program always carries that program's effective_methodology,
   // with no toggle to turn on or off. Golden path: assert the create POST carries
   // the program's methodology with no explicit opt-in needed.
-  test('creating a project under a program sends that program’s derived methodology', async ({ page }) => {
+  test('creating a project under a program sends that program’s derived methodology', async ({
+    page,
+  }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
 
     // Distinct from FIXTURE_PROGRAM's own stored `methodology` (HYBRID) so a pass
@@ -266,7 +268,9 @@ test.describe('Programs — New project derives methodology from the program (#2
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          results: [{ ...FIXTURE_PROGRAM, effective_methodology: 'AGILE', calendar_source: 'workspace' }],
+          results: [
+            { ...FIXTURE_PROGRAM, effective_methodology: 'AGILE', calendar_source: 'workspace' },
+          ],
           count: 1,
           next: null,
           previous: null,
@@ -380,8 +384,22 @@ test.describe('Programs — shell nav', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([
-          { id: 'pa', name: 'Low Risk', methodology: 'HYBRID', program: PROGRAM_ID, overdue_count: 0, at_risk_count: 1 },
-          { id: 'pb', name: 'High Risk', methodology: 'HYBRID', program: PROGRAM_ID, overdue_count: 2, at_risk_count: 6 },
+          {
+            id: 'pa',
+            name: 'Low Risk',
+            methodology: 'HYBRID',
+            program: PROGRAM_ID,
+            overdue_count: 0,
+            at_risk_count: 1,
+          },
+          {
+            id: 'pb',
+            name: 'High Risk',
+            methodology: 'HYBRID',
+            program: PROGRAM_ID,
+            overdue_count: 2,
+            at_risk_count: 6,
+          },
         ]),
       }),
     );
@@ -389,7 +407,9 @@ test.describe('Programs — shell nav', () => {
     await page.goto(`/programs/${PROGRAM_ID}/overview`);
 
     // The at-risk card is a drill-through link that sorts the offending projects first.
-    const atRiskCard = page.getByRole('link', { name: /At-risk tasks: 3\. View at-risk projects\./ });
+    const atRiskCard = page.getByRole('link', {
+      name: /At-risk tasks: 3\. View at-risk projects\./,
+    });
     await expect(atRiskCard).toBeVisible({ timeout: 5_000 });
     await atRiskCard.click();
 
@@ -561,7 +581,15 @@ test.describe('Programs — shell nav', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           results: [
-            { id: CALENDAR_ID, server_version: 1, name: 'Compressed 4x10', working_days: 30, hours_per_day: 10, timezone: 'UTC', exceptions: [] },
+            {
+              id: CALENDAR_ID,
+              server_version: 1,
+              name: 'Compressed 4x10',
+              working_days: 30,
+              hours_per_day: 10,
+              timezone: 'UTC',
+              exceptions: [],
+            },
           ],
           count: 1,
           next: null,
@@ -635,8 +663,12 @@ test.describe('Programs — shell nav', () => {
     const aliceRow = page.locator('li').filter({ hasText: 'alice' }).first();
     await expect(aliceRow).toBeVisible();
     await expect(aliceRow.getByText('(you)')).toBeVisible();
-    // The role badge in the row uses the role label as exact text.
-    await expect(aliceRow.getByText('Project Admin', { exact: true })).toBeVisible();
+    // The role badge names the ordinal in PROGRAM vocabulary (#3476). The
+    // fixture's `role_label` is deliberately the project-scoped string the API
+    // actually sends for a program membership (#3503), so this assertion is also
+    // what proves the client re-scopes it rather than echoing the wire.
+    await expect(aliceRow.getByText('Program Admin', { exact: true })).toBeVisible();
+    await expect(aliceRow.getByText('Project Admin', { exact: true })).toHaveCount(0);
   });
 });
 
@@ -862,7 +894,10 @@ test.describe('Programs — directory filter & sort (#1796)', () => {
     // the empty-state block — the search box also exposes a "Clear filter"
     // affordance while a query is active. Scoped by testid since #3198: the block
     // no longer carries a role of its own (ADR-0989).
-    await page.getByTestId('empty-state').getByRole('button', { name: /Clear filter/i }).click();
+    await page
+      .getByTestId('empty-state')
+      .getByRole('button', { name: /Clear filter/i })
+      .click();
     await expect(cardNames(page)).toHaveCount(3);
   });
 
@@ -1052,7 +1087,9 @@ test.describe('Programs — Projects-tab rollup surfacing (#560 / #564)', () => 
 });
 
 test.describe('Programs — remove-from-program safety (#2176)', () => {
-  const PROGRAM_PROJECTS = [{ id: 'pp-alpha', name: 'Alpha', methodology: 'WATERFALL', program: PROGRAM_ID }];
+  const PROGRAM_PROJECTS = [
+    { id: 'pp-alpha', name: 'Alpha', methodology: 'WATERFALL', program: PROGRAM_ID },
+  ];
 
   test('Remove asks for confirmation, states the consequence, and only PATCHes on confirm', async ({
     page,
@@ -1060,7 +1097,11 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
     let patchFired = false;
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROGRAM_PROJECTS),
+      }),
     );
     // Record the unassign PATCH; return the project with a null program.
     await page.route('**/api/v1/projects/pp-alpha/', (r) => {
@@ -1072,7 +1113,11 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
           body: JSON.stringify({ id: 'pp-alpha', name: 'Alpha', program: null }),
         });
       }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS[0]) });
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROGRAM_PROJECTS[0]),
+      });
     });
 
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
@@ -1101,7 +1146,9 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
     await expect.poll(() => patchFired).toBe(true);
   });
 
-  test('surfaces a retryable error state when the projects list fails to load', async ({ page }) => {
+  test('surfaces a retryable error state when the projects list fails to load', async ({
+    page,
+  }) => {
     let attempts = 0;
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     // The queryClient retries a 5xx once (retry: failureCount < 1), so the
@@ -1109,17 +1156,30 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) => {
       attempts += 1;
       if (attempts <= 2) {
-        return r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'boom' }) });
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'boom' }),
+        });
       }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) });
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROGRAM_PROJECTS),
+      });
     });
 
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
-    const errorState = page.getByText(/Couldn't load this program's projects/i);
+    // `QueryErrorState variant="inline"` renders role="status"; scoping to it (not
+    // just the text node) gives the Retry below a real container. A page-wide Retry
+    // locator would click any other component's error-state Retry (the #3401 class).
+    const errorState = page
+      .getByRole('status')
+      .filter({ hasText: /Couldn't load this program's projects/i });
     await expect(errorState).toBeVisible();
 
     // Retry re-runs just the failed request; the second attempt succeeds.
-    await page.getByRole('button', { name: /retry/i }).click();
+    await errorState.getByRole('button', { name: /^Retry$/i }).click();
     await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
   });
 });
@@ -1185,5 +1245,113 @@ test.describe('Programs — pin state on the Projects tab (#2553)', () => {
     const pin = page.getByRole('button', { name: 'Unpin Alpha' });
     await expect(pin).toBeVisible();
     await expect(pin).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+test.describe('Programs — Projects tab at phone width (#3474)', () => {
+  // 390px is the reported width and the narrowest phone the design system
+  // supports. `hasTouch`/`isMobile` come along because the row also carries a
+  // PinToggle, whose reveal is gated on pointer coarseness (#2390) — a fine
+  // pointer would hide it and quietly remove one of the shrink-0 siblings that
+  // squeezes the name.
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  // The worst case the row can be asked to render: a long name beside every
+  // optional sibling at once — methodology, both rollup chips, the pin, and the
+  // admin-only Remove. Each of those is `shrink-0`, so together they are what
+  // used to leave the `flex-1` name with no free space at all.
+  const LONG_NAME = 'Riverside Water Treatment Plant Modernization';
+  const PHONE_PROJECTS = [
+    {
+      id: 'pp-long',
+      name: LONG_NAME,
+      methodology: 'WATERFALL',
+      program: PROGRAM_ID,
+      overdue_count: 2,
+      at_risk_count: 6,
+    },
+  ];
+
+  async function gotoProjects(page: Page) {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PHONE_PROJECTS),
+      }),
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    // Page-rendered signal before measuring anything.
+    await expect(page.getByRole('list', { name: 'Projects in this program' })).toBeVisible();
+  }
+
+  test('the project name keeps a readable box beside the chips, the pin and Remove', async ({
+    page,
+  }) => {
+    await gotoProjects(page);
+
+    const name = page.getByRole('link', { name: LONG_NAME });
+    await expect(name).toBeVisible();
+
+    // The measurement, not `toBeVisible()`, is the assertion. The reported bug
+    // left the name a few pixels wide ("the fourth row shows 2…"), which is a
+    // non-empty box — visible to Playwright and useless to a reader.
+    //
+    // Expressed as a fraction of the row rather than an absolute pixel count:
+    // the row's own width is what the name is competing for, and the pin and
+    // Remove control legitimately claim a fixed part of it. Measures ~51% today
+    // (184px of a 358px row); the floor is set well below that so ordinary
+    // padding or type changes do not turn this into a maintenance tax, while a
+    // return of the collapse (which lands at single digits) still fails it.
+    const list = page.getByRole('list', { name: 'Projects in this program' });
+    const rowBox = await list.getByRole('listitem').first().boundingBox();
+    const box = await name.boundingBox();
+    expect(rowBox).not.toBeNull();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(rowBox!.width * 0.4);
+  });
+
+  test('the row does not overflow its card — Remove stays inside the right edge', async ({
+    page,
+  }) => {
+    await gotoProjects(page);
+
+    const list = page.getByRole('list', { name: 'Projects in this program' });
+    const row = list.getByRole('listitem').first();
+    await expect(row).toBeVisible();
+
+    // Nothing spills past the row box. `scrollWidth - clientWidth` catches the
+    // overflow even though the row neither clips nor scrolls, which is why the
+    // original report could see Remove past the card edge while every element
+    // still reported itself visible.
+    const overflow = await row.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    const rowBox = await row.boundingBox();
+    const remove = row.getByRole('button', { name: `Remove ${LONG_NAME} from this program` });
+    await expect(remove).toBeVisible();
+    const removeBox = await remove.boundingBox();
+    expect(rowBox).not.toBeNull();
+    expect(removeBox).not.toBeNull();
+    expect(removeBox!.x + removeBox!.width).toBeLessThanOrEqual(rowBox!.x + rowBox!.width + 0.5);
+  });
+
+  test('the metadata chips wrap below the name rather than competing with it', async ({ page }) => {
+    await gotoProjects(page);
+
+    const name = page.getByRole('link', { name: LONG_NAME });
+    const chip = page.getByText('2 overdue');
+    await expect(name).toBeVisible();
+    await expect(chip).toBeVisible();
+
+    // Below `md` the metadata group takes its own line. Asserting the geometry
+    // rather than the class keeps this true if the mechanism changes; the name's
+    // box above is what it buys.
+    const nameBox = await name.boundingBox();
+    const chipBox = await chip.boundingBox();
+    expect(nameBox).not.toBeNull();
+    expect(chipBox).not.toBeNull();
+    expect(chipBox!.y).toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height);
   });
 });

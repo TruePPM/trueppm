@@ -90,10 +90,16 @@ def _v2_seed() -> dict[str, Any]:
                         "delivery_mode": "scrum",
                     },
                     {
+                        # Ends in flight at an authored 40%. Replay births it at
+                        # 0% to walk it forward, so the number only survives if
+                        # the finalize pass restores it (#3486). Declares no
+                        # remaining_points, so its dated task.points beat below
+                        # stays authoritative for that field.
                         "wbs_path": "2",
                         "name": "Wire login UI",
                         "type": "story",
                         "status": "IN_PROGRESS",
+                        "percent_complete": 40.0,
                         "story_points": 3,
                         "assignee": "priya",
                         "sprint": "s1",
@@ -116,6 +122,22 @@ def _v2_seed() -> dict[str, Any]:
                         "type": "story",
                         "status": "NOT_STARTED",
                         "story_points": 2,
+                        "sprint": "s1",
+                        "delivery_mode": "scrum",
+                    },
+                    {
+                        # In flight with both progress fields authored and no
+                        # events of its own — the pure synthesized path, where
+                        # nothing but the finalize pass can put 25% / 3 points
+                        # remaining back (#3486).
+                        "wbs_path": "5",
+                        "name": "Session storage",
+                        "type": "story",
+                        "status": "IN_PROGRESS",
+                        "percent_complete": 25.0,
+                        "story_points": 5,
+                        "remaining_points": 3,
+                        "assignee": "priya",
                         "sprint": "s1",
                         "delivery_mode": "scrum",
                     },
@@ -322,6 +344,42 @@ def test_task_points_event_replayed(program: Any) -> None:
     # task:core:2 stays IN_PROGRESS (never COMPLETE, which would zero this),
     # so the authored remaining_points survives to the end state.
     assert task.remaining_points == 2
+
+
+def test_in_flight_task_keeps_authored_percent_after_replay(program: Any) -> None:
+    """#3486: replay must not leave an IN_PROGRESS task at the 0% it was born at.
+
+    The task is created at 0% so the timeline has room to walk it forward, and
+    ``_apply_task_status`` writes only the column and the actual dates — so
+    without the finalize restore the authored 40% is silently lost. This is the
+    v2 replay path: the assertion is worthless on a v1 document, which never
+    zeroes the field in the first place.
+    """
+    task = _task(program, "2")
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.percent_complete == 40.0
+
+
+def test_in_flight_task_keeps_authored_remaining_points(program: Any) -> None:
+    """#3486: an in-flight story reports its authored remaining points.
+
+    Task 5 has no events at all, so the synthesizer alone walks it into
+    IN_PROGRESS. Born with ``remaining_points = story_points`` (5), it must end
+    at the authored 3 — the acceptance criterion that separates "some points
+    burned" from "nothing started".
+    """
+    task = _task(program, "5")
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.percent_complete == 25.0
+    assert task.remaining_points == 3
+    assert task.story_points == 5
+
+
+def test_authored_percent_restore_is_backdated_not_import_time(program: Any) -> None:
+    """The restore writes history like every other replay write, not at import time."""
+    task = _task(program, "5")
+    dates = {h.history_date.date() for h in task.history.all()}
+    assert max(dates) <= date.fromisoformat(ANCHOR)
 
 
 def test_task_ac_met_sets_dor(program: Any) -> None:
