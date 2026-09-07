@@ -66,6 +66,8 @@ SHA-256 hash of the token, never the token itself.
    blank for one that never expires) and **required** for a read-only AI token.
 6. Click **Create token**.
 
+![The personal access tokens page with the Create token button and the token cap](../../../assets/screenshots/api-tokens.webp)
+
 The raw token is shown **exactly once**, with a copy button. Copy it now and
 store it somewhere safe — TruePPM cannot show it again, because it only keeps the
 hash. If you lose it, revoke the token and create a new one.

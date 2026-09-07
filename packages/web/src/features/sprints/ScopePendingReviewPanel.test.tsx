@@ -144,6 +144,52 @@ describe('ScopePendingReviewPanel (ADR-0102 §5)', () => {
     expect(screen.queryByRole('button', { name: 'Accept all' })).not.toBeInTheDocument();
   });
 
+  // ----- An unresolved tasks read is not an all-clear (#3424) --------------
+  // `tasks` is `undefined` until the schedule query resolves; before this fix
+  // both callers passed `?? []`, so the panel opened on "No items pending
+  // acceptance. Everything … is part of the commitment." on timing alone.
+
+  it('LOADING: shows a skeleton, never the all-clear, and no bulk controls', () => {
+    render(
+      <ScopePendingReviewPanel projectId="p1" sprintId="s1" tasks={undefined} onClose={() => {}} />,
+      { wrapper },
+    );
+    expect(screen.getByRole('status', { name: /Loading pending items/ })).toBeInTheDocument();
+    expect(screen.queryByText(/No items pending acceptance/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept all' })).not.toBeInTheDocument();
+  });
+
+  it('FAILED with nothing loaded: says the list could not load, never the all-clear', () => {
+    render(
+      <ScopePendingReviewPanel
+        projectId="p1"
+        sprintId="s1"
+        tasks={undefined}
+        tasksError={new Error('503')}
+        onClose={() => {}}
+      />,
+      { wrapper },
+    );
+    expect(screen.getByText(/Couldn’t load the pending items/)).toBeInTheDocument();
+    expect(screen.queryByText(/No items pending acceptance/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: /Loading pending items/ })).not.toBeInTheDocument();
+  });
+
+  it('a refetch failure that kept the last good list still renders the list', () => {
+    render(
+      <ScopePendingReviewPanel
+        projectId="p1"
+        sprintId="s1"
+        tasks={[pendingTask]}
+        tasksError={new Error('refetch failed')}
+        onClose={() => {}}
+      />,
+      { wrapper },
+    );
+    expect(screen.getByText('Urgent hotfix')).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn’t load the pending items/)).not.toBeInTheDocument();
+  });
+
   it('offline disables the accept/reject controls (rule 152 — never queue)', () => {
     render(
       <ScopePendingReviewPanel

@@ -309,7 +309,7 @@ export function TimezoneFormatSection() {
                   disabled:cursor-not-allowed disabled:text-neutral-text-secondary
                   focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
               >
-                <span className="flex-1 truncate">{triggerLabel}</span>
+                <span className="flex-1 min-w-0 truncate">{triggerLabel}</span>
                 <span aria-hidden="true" className="shrink-0 text-neutral-text-secondary">
                   ▾
                 </span>

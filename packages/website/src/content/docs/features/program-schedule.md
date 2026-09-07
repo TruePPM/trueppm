@@ -15,6 +15,8 @@ This is a **read-only** view. It is the place to see and explain the cross-proje
 
 Open a program and choose the **Schedule** tab (between **Projects** and **Resources**). Any program member can view it — including on a closed program, so the cross-project schedule stays available for a retrospective. Tasks in member projects you don't have access to appear as [limited-view bars](#limited-view-tasks) rather than being hidden, so the chain is never broken by a `blocked by [redacted]` gap.
 
+![The read-only program schedule: the cross-project critical path across three project lanes with cross-project links dashed](../../../assets/screenshots/program-schedule.webp)
+
 The view is computed on demand from the current state of every member project, so it always reflects the latest dates — there is nothing to "rebuild."
 
 ## Project lanes

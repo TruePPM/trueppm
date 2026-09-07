@@ -23,13 +23,21 @@ test.describe('Wave 8 — Login screen', () => {
     await expect(page.getByText('Sign in to keep your launch on schedule.')).toBeVisible();
   });
 
-  test('email field accepts email input and password field is obscured', async ({ page }) => {
+  test('identifier field takes an email OR a username, and the password field is obscured', async ({
+    page,
+  }) => {
     await page.goto('/login');
 
     const emailInput = page.getByLabel('Email');
     const passwordInput = page.getByLabel('Password', { exact: true });
 
-    await expect(emailInput).toHaveAttribute('type', 'email');
+    // `text`, not `email` (#3468): the token endpoint matches the username first
+    // and falls back to the email, so `type="email"` would put a browser
+    // validation bubble on a perfectly good username. `autocomplete="username"`
+    // is the standard identifier token — `email` would stop a password manager
+    // offering a saved username.
+    await expect(emailInput).toHaveAttribute('type', 'text');
+    await expect(emailInput).toHaveAttribute('autocomplete', 'username');
     await expect(passwordInput).toHaveAttribute('type', 'password');
   });
 

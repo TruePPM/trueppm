@@ -50,12 +50,25 @@ export function useBoardIdentity(rawProjectId: string | null | undefined) {
  * into the board-wide flag every write affordance reads — pessimistic while the
  * role loads (`canEditTask(null)` is false). The server stays authoritative.
  *
+ * `sprintStateUnknown` is pessimistic in the same way (#3424): a `?sprint=`
+ * board whose sprints query has not resolved, or failed, locks exactly as a
+ * closed sprint does, because the one thing the lock exists to prevent — a
+ * card move back-dating scope into a COMPLETED sprint — is precisely what an
+ * unresolved read cannot rule out. The two inputs are kept separate rather
+ * than folded into `sprintClosed` so the closed-sprint banner (a disclosure)
+ * stays silent until the sprint is *known* closed, while the lock (a withheld
+ * affordance) engages the moment it is not known open.
+ *
  * Kept out of `useBoardIdentity` for two reasons: the identity hook has to
- * resolve *before* the sprint scope that produces `sprintClosed`, and the two
+ * resolve *before* the sprint scope that produces the sprint flags, and the
  * inputs stay deliberately separate concepts — the closed-sprint banner keys
  * off `sprintClosed` alone, so it must not appear on an active board merely
  * because the viewer lacks write access.
  */
-export function boardReadOnly(currentRole: number | null, sprintClosed: boolean): boolean {
-  return sprintClosed || !canEditTask(currentRole);
+export function boardReadOnly(
+  currentRole: number | null,
+  sprintClosed: boolean,
+  sprintStateUnknown: boolean,
+): boolean {
+  return sprintClosed || sprintStateUnknown || !canEditTask(currentRole);
 }

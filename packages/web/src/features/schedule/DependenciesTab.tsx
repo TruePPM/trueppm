@@ -273,7 +273,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete, canWrite }: DepRowProps
   return (
     <div className="border-b border-neutral-border/40 last:border-b-0">
       <div className="flex items-center gap-2 py-1.5">
-        <span className="flex-1 text-sm text-neutral-text-primary truncate" title={label}>
+        <span className="flex-1 min-w-0 text-sm text-neutral-text-primary truncate" title={label}>
           {label}
         </span>
         {!canWrite ? (

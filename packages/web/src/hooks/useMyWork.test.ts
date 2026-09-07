@@ -96,6 +96,29 @@ describe('useMyWork', () => {
     });
     expect(getMock).toHaveBeenCalledWith('/me/work/?cursor=abc');
   });
+
+  it('normalizes an ABSOLUTE cursor to a baseURL-relative path (#3467)', async () => {
+    // The fixture above uses a relative `next`, which DRF never sends — it
+    // builds the link with `request.build_absolute_uri`. Passing that through
+    // untouched makes axios skip its `/api/v1` baseURL and request whichever
+    // host the server wrote into the link, which under the dev proxy's
+    // `changeOrigin` is the API container rather than the page origin.
+    getMock.mockResolvedValueOnce({
+      data: { ...firstPage, next: 'http://api:8000/api/v1/me/work/?cursor=xyz' },
+    });
+    const { result } = renderHook(() => useMyWork(), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    getMock.mockResolvedValueOnce({
+      data: { ...firstPage, results: [], next: null, previous: null },
+    });
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    expect(getMock).toHaveBeenCalledWith('/me/work/?cursor=xyz');
+    expect(getMock).not.toHaveBeenCalledWith('http://api:8000/api/v1/me/work/?cursor=xyz');
+  });
 });
 
 describe('useMyWorkStatusUpdate', () => {
