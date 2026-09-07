@@ -65,16 +65,28 @@ changes you made to the demo, but never touches your own projects.
 
 ### What each sample demonstrates
 
-Four samples ship. Every one exercises the five-role RBAC model
-(Owner / Admin / Scheduler / Member / Viewer), realistic **capacity profiles**
-(full-time, part-time, and 10% advisors — not everyone is at 100%), and a
-**non-default working calendar** attached to at least one resource so
-calendar-aware capacity is visible.
+Five samples ship in 0.4. Every one exercises the five-role RBAC model
+(Owner / Admin / Scheduler / Member / Viewer).
+
+The four **methodology** samples — Atlas, Aurora, Bayside, and Helios — each also
+carry realistic **capacity profiles** (full-time, part-time, and 10% advisors —
+not everyone is at 100%) and a **non-default working calendar** attached to at
+least one resource, so calendar-aware capacity is visible. **1.0 GA Launch** is
+the odd one out by design: it runs a single standard calendar and a mostly
+full-time roster, because its story is what happens *between* projects rather
+than inside one.
+
+:::note[Ships in 0.4 — the 1.0 GA Launch sample]
+Four of the five samples below load on 0.3, the current release. **1.0 GA Launch**
+(`ga-launch`) lands with the 0.4 tag — on 0.3 the loader offers the other four
+and the `--sample ga-launch` key is not recognized. 0.4 is
+[Underway](/overview/roadmap/).
+:::
 
 #### Atlas Platform Launch — hybrid-large (the flagship)
 
 A fictional B2B SaaS launch: one program, three projects that span the
-methodology mix, 88 tasks, a 15-plus person resource roster across calendars,
+methodology mix, 92 tasks, a 15-plus person resource roster across calendars,
 and a **20-risk register**.
 
 - **Platform Core** (agile) — sprints with a velocity history feeding a release
@@ -145,6 +157,42 @@ Mehta (Scheduler) holding the plan and Diego Santos (Site Superintendent) on the
 ground. This is Sam's home turf: no sprints, no backlog, just the schedule and
 what moves when a task slips — and how a structure slip cascades into fit-out.
 
+#### 1.0 GA Launch — program coordination
+
+:::note[Ships in 0.4]
+This sample lands with the 0.4 tag. On 0.3 it is not in the loader's menu.
+:::
+
+Four workstreams shipping one outcome: *Platform Hardening & Scale* (waterfall),
+*SOC 2 Type II Readiness* (waterfall), *Security Pen-Test & Remediation*
+(hybrid), and *GA Marketing & Launch* (agile) — 20 tasks, four gate milestones,
+a **9-risk register**, and three **cross-project dependencies**, two of which
+land on the GA announcement itself. Where the other samples each demonstrate a methodology,
+this one demonstrates *coordination*: no single project's plan contains the
+answer to "when do we ship?"
+
+Two things are unique to it:
+
+- **The full 5-role matrix on one project.** *Security Pen-Test & Remediation*
+  seeds all five roles at once — Owner, Admin, Scheduler, Member, and Viewer —
+  so the whole permission model is visible on a single screen instead of
+  inferred across projects.
+- **A WIP-limited board.** The same project opens on its **Board** with column
+  limits set (In progress 3, Review 2), so the WIP-limit behavior has somewhere
+  to show itself out of the box.
+
+**Look at first:** the program schedule — the security sign-off and the platform
+GA-ready milestone both gate the GA announcement, so a slip in either moves the
+launch date. Then the people: six of the seven personas work in more than one
+workstream, which is load no single project's plan can see.
+
+**Personas:** Dana Okafor (Owner, the program manager) holds Admin on all four
+workstreams, while each workstream has its own owner — Malcolm Reed (platform),
+Bob Tran (SOC 2), Janus Vela (security), and Jane Castellano (launch). Several
+hold *different* roles in different places: Malcolm owns the platform stream but
+is Scheduler on security; Bob owns SOC 2 but is Viewer on security. Lena Fischer
+is the 60% part-timer split across two streams.
+
 #### Helios CRM Replacement — hybrid-small
 
 A completed waterfall planning phase feeding an agile build phase, joined by a
@@ -165,6 +213,7 @@ without maintaining two representations of the same work.
 docker compose exec api python manage.py load_sample_project                          # Atlas (default)
 docker compose exec api python manage.py load_sample_project --sample aurora-mobile-app
 docker compose exec api python manage.py load_sample_project --sample bayside-civic-center
+docker compose exec api python manage.py load_sample_project --sample ga-launch        # ships in 0.4
 docker compose exec api python manage.py load_sample_project --sample helios-crm-replacement
 ```
 
