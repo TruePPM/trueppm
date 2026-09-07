@@ -260,7 +260,7 @@ export function deriveBarGeometry(opts: {
   scheduledStart?: string | null;
   duration: number;
   isSummary: boolean;
-}): { start: string; finish: string; displayDuration: number } {
+}): { start: string; finish: string } {
   const {
     plannedStart: p,
     earlyStart: e,
@@ -320,19 +320,19 @@ export function deriveBarGeometry(opts: {
             .slice(0, 10)
         : ''));
 
-  // For summary tasks that have CPM dates, compute a display duration as the
-  // calendar-day span. This matches what the backend writes back during CPM so
-  // both representations stay consistent.
-  const displayDuration =
-    isSummary && e && ef
-      ? Math.max(1, Math.round((new Date(ef).getTime() - new Date(e).getTime()) / 86_400_000))
-      : duration;
-
-  return { start, finish, displayDuration };
+  // #3530: this used to substitute a client-computed CALENDAR-day span for a
+  // summary's `duration`, on the rationale that it "matches what the backend
+  // writes back during CPM". The backend was writing a calendar-day span into a
+  // column documented — and consumed everywhere else — as WORKING days, and this
+  // mirrored it. Both halves are fixed: `_apply_cpm_results` now stores the
+  // working-day span, so the server value is the correct one and there is
+  // nothing left to substitute. Every summary "Nd" the UI renders is therefore
+  // the same unit as the leaf durations beside it.
+  return { start, finish };
 }
 
 export function mapTask(t: ApiTask): Task {
-  const { start, finish, displayDuration } = deriveBarGeometry({
+  const { start, finish } = deriveBarGeometry({
     plannedStart: t.planned_start,
     earlyStart: t.early_start,
     earlyFinish: t.early_finish,
@@ -347,7 +347,8 @@ export function mapTask(t: ApiTask): Task {
     name: t.name,
     start,
     finish,
-    duration: displayDuration,
+    // Server-authoritative working days for leaves AND summaries (#3530).
+    duration: t.duration,
     remainingDuration: t.remaining_duration ?? null,
     progress: t.percent_complete,
     parentId: t.parent_id,
@@ -536,7 +537,7 @@ export interface TaskDatesDelta {
  * would have produced.
  */
 export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task {
-  const { start, finish, displayDuration } = deriveBarGeometry({
+  const { start, finish } = deriveBarGeometry({
     plannedStart: delta.planned_start,
     earlyStart: delta.early_start,
     earlyFinish: delta.early_finish,
@@ -548,7 +549,9 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     ...existing,
     start,
     finish,
-    duration: displayDuration,
+    // The CPM delta carries the server's working-day value for summaries too
+    // (#3530) — spliced straight through, exactly as a re-fetch would map it.
+    duration: delta.duration,
     isCritical: delta.is_critical,
     totalFloat: delta.total_float,
     freeFloat: delta.free_float,
