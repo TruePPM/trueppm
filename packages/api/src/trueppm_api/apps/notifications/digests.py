@@ -113,17 +113,37 @@ def week_start_for(local_now: datetime.datetime) -> datetime.date:
 def build_program_health_digest(user: Any, local_now: datetime.datetime) -> tuple[str, str]:
     """Build the (subject, body) of *user*'s weekly program-health digest.
 
-    Covers only programs the user is a member of, and only those whose rolled-up
-    health is ``at_risk`` or ``critical``. Each line names the program, its band,
-    and the project contributing most to it, and points at the existing program
+    Covers only programs the user *currently* belongs to, and only those whose
+    rolled-up health is ``at_risk`` or ``critical``. Each line names the program, its
+    band, and the project contributing most to it, and points at the existing program
     overview drill-through.
     """
-    program_ids = list(
-        ProgramMembership.objects.filter(user=user)
-        .values_list("program_id", flat=True)
-        .order_by("program_id")[:MAX_PROGRAMS_PER_DIGEST]
+    # Live-membership floor (#3456). Revoking a program member soft-deletes the
+    # ProgramMembership row rather than deleting it, so an unfloored read resolves a
+    # revoked member as current. This digest is *pushed* content — it names each
+    # at-risk program, its health band and its worst-contributing project — so an
+    # unfloored audience mails program state to someone whose access was taken away,
+    # on a weekly schedule, unrecallably.
+    #
+    # ``program__is_deleted=False`` is applied HERE, on the membership rows, rather
+    # than only on the Program queryset below — the same reason
+    # ``build_resource_overallocation_digest`` floors on its membership rows:
+    # ``MAX_PROGRAMS_PER_DIGEST`` slices this list and ``total_memberships`` counts
+    # it, so a revoked or soft-deleted row would burn a cap slot and inflate the
+    # "showing the first N of M" footer even after the body itself was corrected.
+    #
+    # Inlined rather than shared: ``ProjectMembership`` has a ``live()`` helper but
+    # ``ProgramMembership`` does not, and adding one plus migrating every program-axis
+    # call site is #3458's scope, not this fix's.
+    audience = ProgramMembership.objects.filter(
+        user=user, is_deleted=False, program__is_deleted=False
     )
-    total_memberships = ProgramMembership.objects.filter(user=user).count()
+    program_ids = list(
+        audience.values_list("program_id", flat=True).order_by("program_id")[
+            :MAX_PROGRAMS_PER_DIGEST
+        ]
+    )
+    total_memberships = audience.count()
 
     lines: list[str] = []
     for program in Program.objects.filter(id__in=program_ids, is_deleted=False).order_by("name"):

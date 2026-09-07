@@ -748,6 +748,19 @@ env:
   # No trailing slash, no path. Standardized on the TRUEPPM_ prefix pre-0.3
   # (#1355); the legacy bare FRONTEND_BASE_URL still works as a fallback.
   TRUEPPM_FRONTEND_BASE_URL: ""
+  # Public origin of the API itself, e.g. "https://trueppm.example.com". Pins the
+  # two absolute URLs the API would otherwise derive from the request's Host
+  # header: the OIDC redirect_uri you allow-list in your IdP (ADR-0187) and the
+  # inbound Git-webhook URL a project admin pastes into GitHub/GitLab.
+  #
+  # settings.prod deliberately does NOT trust X-Forwarded-Host (#3515) — the edge
+  # is expected to preserve the original Host, which every proxy this chart ships
+  # does. This value is the supported way to state the public origin when yours
+  # does not: it is a value you set, not a belief about a header the app cannot
+  # verify. Set it whenever the name the app is reached under differs from the
+  # name it receives, and always when SSO is enabled.
+  # No trailing slash, no path.
+  TRUEPPM_PUBLIC_API_BASE_URL: ""
   # Retention window (days) for soft-deleted ("trashed") projects. Once a project
   # has been in the trash longer than this, the consolidated retention purge
   # (retention.run_purge, ADR-0173) HARD-deletes it and all its child data —

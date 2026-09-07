@@ -129,6 +129,27 @@ list the name your own release actually generates.
 Wildcards are not a fix. `ALLOWED_HOSTS=*` disables host validation entirely and
 is never appropriate in production — list the names instead.
 
+:::note[Ships in 0.4]
+From **0.4**, production **refuses to start** on a bare `ALLOWED_HOSTS=*`, with a
+message naming the fix. On `v0.3.0-alpha.3`, the latest release, `*` is accepted
+silently — nothing in the product enforces the paragraph above.
+
+A wildcard *subdomain* (`.example.com`) is still accepted: it constrains the host
+to a suffix you chose, which is the supported way to serve many names. Only the
+bare `*`, which constrains nothing, is refused.
+
+If your host set is genuinely unknowable, set `TRUEPPM_ALLOW_WILDCARD_HOSTS=true`
+to acknowledge it — the boot proceeds and logs a warning instead. Existing 0.3
+installs running `*` therefore have a one-variable remedy rather than a
+crash-loop on upgrade.
+:::
+
+`ALLOWED_HOSTS` is the only bound on the host TruePPM reports, and therefore on
+the absolute URLs it builds. TruePPM does **not** trust `X-Forwarded-Host` — your
+edge must preserve the original `Host` — so this list is what an operator
+controls. See
+[The scheme comes from the proxy; the host does not](/administration/networking/#tls).
+
 
 ## Optional / advanced settings
 
@@ -141,7 +162,7 @@ is never appropriate in production — list the names instead.
 | `TRUEPPM_VERSION` | the installed package version | Version string surfaced on `/api/v1/edition/`; will also feed the [in-product feedback](#in-product-feedback-report-a-bug) payload once that control ships in 0.4, so a bug report names the exact release it came from. Leave unset to use the running package's own version. |
 | `TRUEPPM_BUILD_SHA` | _(empty)_ | Commit SHA of the image build, surfaced alongside `TRUEPPM_VERSION`. Set by the Helm chart's image build pipeline; empty on a source checkout, where the version string alone is identifying enough. |
 | `TRUEPPM_SECURE_SSL_REDIRECT` | `false` | Production-only HTTP→HTTPS redirect. See [TLS redirect posture](#tls-redirect-posture) below before enabling it. |
-| `TRUEPPM_PUBLIC_API_BASE_URL` | _(empty)_ | Public origin of the API itself (not the web app), used only to build the OIDC `redirect_uri` your identity provider redirects back to: `{TRUEPPM_PUBLIC_API_BASE_URL}/api/v1/auth/oidc/callback/`. Empty (the default) falls back to the incoming request's absolute URL — correct for a single-origin dev setup, but **behind a reverse proxy or load balancer set this explicitly** so the value your IdP's allow-listed redirect URI must match is deterministic rather than dependent on request headers. A trailing slash is stripped. See [Single sign-on](/administration/single-sign-on/). |
+| `TRUEPPM_PUBLIC_API_BASE_URL` | _(empty)_ | Public origin of the API itself (not the web app). Pins the two absolute URLs TruePPM would otherwise derive from the request's `Host` header: the OIDC `redirect_uri` your identity provider redirects back to (`{TRUEPPM_PUBLIC_API_BASE_URL}/api/v1/auth/oidc/callback/`), and — **from 0.4** — the inbound Git-webhook URL a project admin pastes into GitHub/GitLab. Empty (the default) falls back to the incoming request's absolute URL, correct for a single-origin dev setup. **Behind a reverse proxy or load balancer set this explicitly**, and it is the required fix if your edge rewrites `Host` rather than preserving it — TruePPM ignores `X-Forwarded-Host` by design. A trailing slash is stripped. See [Single sign-on](/administration/single-sign-on/). |
 | `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` | _(empty)_ | Comma-separated list of hostnames exempt from TruePPM's outbound SSRF address deny-list, which otherwise blocks private, loopback, and link-local addresses. **Set this if you run your identity provider inside the same cluster** — an in-cluster Keycloak or Authentik at a private service address (e.g. `keycloak.sso.svc.cluster.local`) is unreachable without it, so discovery, token exchange, and JWKS all fail with "provider unreachable" and **Test connection** reports the issuer as unreachable. Matching is an exact, case-insensitive hostname compare — no wildcards, no suffix matching. The exemption applies to **every** outbound integration, not only SSO, so list the specific IdP host and nothing broader. In the Helm chart, set it under `env:` in `values.yaml`, where it is documented alongside `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`, or inject it through `envFrom` (a ConfigMap or Secret key); there is no dedicated chart value. See [Single sign-on → Running the identity provider inside your cluster](/administration/single-sign-on/#running-the-identity-provider-inside-your-cluster). |
 | `TRUEPPM_HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. To disable automatic purging, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window makes the cutoff "now" and purges all rows on the next run. The legacy bare `HISTORY_RETENTION_DAYS` is still read as a fallback when the prefixed var is unset. |
 | `TRUEPPM_TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. The legacy bare `TASK_RUN_RETENTION_DAYS` is still read as a fallback when the prefixed var is unset. |
@@ -184,6 +205,7 @@ is never appropriate in production — list the names instead.
 | `STATIC_ROOT` | `staticfiles/` under the app directory | Filesystem path WhiteNoise collects and serves Django static assets from (`manage.py collectstatic`). Override only if your container image lays out paths differently than the shipped image. |
 | `TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS` | `false` | Operator opt-in confirming `TRUEPPM_DEFAULT_FILE_STORAGE` produces a real time-limited signed URL. The attachment **Get signed download URL** action only recognizes the built-in django-storages S3, GCS, and Azure Blob backends automatically; on `FileSystemStorage` (the default) or any other backend it refuses with `501 Not Implemented` rather than hand back a link labeled "signed" that never actually expires. Set this to `true` only if your configured backend genuinely signs its URLs. |
 | `TRUEPPM_ALLOW_UNENCRYPTED_DB` | `false` | Operator opt-in to run production against a `DATABASE_URL` that has no `sslmode` parameter (e.g. when TLS to the database is enforced at the network layer). `prod` refuses to boot on such a URL unless this is `true`; when set, the boot logs a warning instead. |
+| `TRUEPPM_ALLOW_WILDCARD_HOSTS` | `false` | **Ships in 0.4.** Operator acknowledgment that `ALLOWED_HOSTS` is a bare `*`. `prod` refuses to boot on `*` unless this is `true`; when set, the boot logs a warning instead. `*` disables host validation entirely, which is the only bound on the absolute URLs TruePPM builds — see [Host names you must include](#host-names-you-must-include). Wildcard *subdomains* (`.example.com`) do not need this. |
 | `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) Django trusts for CSRF validation, e.g. `https://trueppm.example.com`. A single-origin deploy needs no value. Set it when a proxy rewrites the `Origin` / `Referer` header so Django sees an origin it did not serve. It does **not** enable a [split-origin deploy](#split-origin-deploys), which is unsupported. |
 | `TRUEPPM_FRONTEND_BASE_URL` | _(empty)_ | Public origin the web app is served from, e.g. `https://trueppm.example.com`. Used to build absolute task deep-links in notification emails (e.g. `task.blocked`). Leave empty to omit the link — emails still carry the blocker type, age, and actor. No trailing slash, no path. Must match `ALLOWED_HOSTS` and `TRUEPPM_PUBLIC_API_BASE_URL` — see [One origin, four variables](/administration/networking/#one-origin-four-variables). The legacy bare `FRONTEND_BASE_URL` is still accepted as a fallback. |
 | `TRUEPPM_AUTH_REFRESH_COOKIE_SECURE` | `true` | Sets the `Secure` flag on the refresh-token cookie. The browser drops a `Secure` cookie over plain HTTP, so set `false` only on a non-HTTPS dev/preview host. The dev settings already default this to `false` for localhost. Legacy bare `AUTH_REFRESH_COOKIE_SECURE` still accepted. |
@@ -789,6 +811,14 @@ out of rotation.
 | Variable | Default | What it does |
 |---|---|---|
 | `TRUEPPM_SECURE_SSL_REDIRECT` | `false` | When `true`, `prod` redirects every non-HTTPS request to HTTPS, using `SECURE_PROXY_SSL_HEADER` (`X-Forwarded-Proto`) to detect the original scheme behind a proxy. |
+
+There is no companion variable for the **host**, deliberately. `prod` pins
+`USE_X_FORWARDED_HOST = False` and `USE_X_FORWARDED_PORT = False`: the scheme has
+to come from the proxy because the container cannot know it, but the host does
+not, and no proxy TruePPM ships sets `X-Forwarded-Host`. Trusting it would mean
+believing a header only the client could have written. When your edge rewrites
+`Host`, set `TRUEPPM_PUBLIC_API_BASE_URL` instead — a value you control, rather
+than a belief about a header TruePPM cannot verify.
 
 Turn it on only when TruePPM itself terminates TLS or otherwise receives the original
 request scheme reliably — for example, a deployment that exposes the app directly over

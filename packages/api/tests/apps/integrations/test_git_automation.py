@@ -951,3 +951,63 @@ def test_unmatched_delivery_is_logged(
     with caplog.at_level(logging.WARNING, logger="trueppm_api.apps.integrations.views"):
         _post(project, body, _github_headers(body))
     assert any("no_link" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# #3515: the webhook URL leaves the system — an admin pastes it into GitHub or
+# GitLab — so it must be the origin the operator chose, not the Host header of
+# whoever asked. Behind a proxy that rewrites Host, the request-derived form
+# yields an unreachable internal name and fails silently forever: the only
+# symptom is webhooks that never arrive.
+# ---------------------------------------------------------------------------
+
+
+def test_webhook_url_prefers_the_configured_public_origin(
+    settings: object, project: Project, admin: object
+) -> None:
+    """TRUEPPM_PUBLIC_API_BASE_URL pins the origin, overriding the request host."""
+    settings.TRUEPPM_PUBLIC_API_BASE_URL = "https://trueppm.example.com"  # type: ignore[attr-defined]
+    url = reverse("git-automation-config", kwargs={"project_pk": str(project.pk)})
+
+    webhook_url = _auth(admin).get(url, HTTP_HOST="internal-service").json()["webhook_url"]
+
+    assert webhook_url.startswith("https://trueppm.example.com/")
+    assert "internal-service" not in webhook_url
+
+
+def test_webhook_url_ignores_a_trailing_slash_on_the_configured_origin(
+    settings: object, project: Project, admin: object
+) -> None:
+    """Same rstrip("/") shape as sso._derive_redirect_uri, so the two cannot drift."""
+    settings.TRUEPPM_PUBLIC_API_BASE_URL = "https://trueppm.example.com/"  # type: ignore[attr-defined]
+    url = reverse("git-automation-config", kwargs={"project_pk": str(project.pk)})
+
+    webhook_url = _auth(admin).get(url).json()["webhook_url"]
+
+    assert "//api/" not in webhook_url
+    assert webhook_url.startswith("https://trueppm.example.com/api/")
+
+
+def test_webhook_url_falls_back_to_the_request_host_when_unset(
+    settings: object, project: Project, admin: object
+) -> None:
+    """Zero-config single-origin dev keeps working; the two agree there."""
+    settings.TRUEPPM_PUBLIC_API_BASE_URL = ""  # type: ignore[attr-defined]
+    url = reverse("git-automation-config", kwargs={"project_pk": str(project.pk)})
+
+    webhook_url = _auth(admin).get(url, HTTP_HOST="testserver").json()["webhook_url"]
+
+    assert "testserver" in webhook_url
+
+
+def test_rotate_secret_response_uses_the_same_webhook_url_rule(
+    settings: object, project: Project, admin: object
+) -> None:
+    """The rotate response returns the URL alongside the plaintext secret, so it
+    is the one an admin actually copies — it must not be the odd one out."""
+    settings.TRUEPPM_PUBLIC_API_BASE_URL = "https://trueppm.example.com"  # type: ignore[attr-defined]
+    url = reverse("git-automation-rotate-secret", kwargs={"project_pk": str(project.pk)})
+
+    webhook_url = _auth(admin).post(url, HTTP_HOST="internal-service").json()["webhook_url"]
+
+    assert webhook_url.startswith("https://trueppm.example.com/")

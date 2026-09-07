@@ -77,6 +77,8 @@ def _load_prod(
     db_password: str | None = None,
     redis_url: str = _REDIS_URL_CLEAN,
     media_root: str | Path | None = None,
+    allowed_hosts: str = "prod.example.com",
+    allow_wildcard_hosts: bool = False,
 ) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
@@ -102,7 +104,7 @@ def _load_prod(
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
     env_overrides = {
-        "ALLOWED_HOSTS": "prod.example.com",
+        "ALLOWED_HOSTS": allowed_hosts,
         "SECRET_KEY": _STRONG_KEY,
         "TRUEPPM_SECURE_SSL_REDIRECT": "false",
         "DATABASE_URL": database_url,
@@ -114,6 +116,7 @@ def _load_prod(
         mock.patch.object(base, "STORAGES", storages),
         mock.patch.object(base, "ALLOW_LOCAL_ATTACHMENT_STORAGE", allow_local),
         mock.patch.object(base, "ALLOW_UNENCRYPTED_DB", allow_unencrypted_db),
+        mock.patch.object(base, "ALLOW_WILDCARD_ALLOWED_HOSTS", allow_wildcard_hosts),
         mock.patch.object(base, "INTEGRATION_ENCRYPTION_KEY", encryption_key),
         mock.patch.object(base, "DATABASES", {"default": {"PASSWORD": db_password}}),
         mock.patch.object(base, "REDIS_URL", redis_url),
@@ -153,6 +156,50 @@ def test_prod_boots_and_sets_security_headers() -> None:
     assert prod.SECURE_SSL_REDIRECT is False
     assert "^api/v1/health/$" in prod.SECURE_REDIRECT_EXEMPT
     assert "^api/v1/edition/$" in prod.SECURE_REDIRECT_EXEMPT
+
+
+def test_prod_trusts_the_proxy_for_the_scheme_but_not_the_host() -> None:
+    """The forwarded-header position is a decision, not an inherited default (#3515).
+
+    Both halves are asserted together because the asymmetry is the point: the
+    scheme is taken from the proxy (the container only ever speaks plain HTTP, so
+    there is no other signal), while the host is not (every proxy this project
+    ships preserves the original ``Host`` and none sets ``X-Forwarded-Host``, so
+    trusting it would only widen who can steer ``build_absolute_uri``). Before
+    this, ``USE_X_FORWARDED_HOST`` was unset and nothing failed if someone flipped
+    it — a decision recorded only in a comment is a comment.
+    """
+    prod = _load_prod(backend=_S3, allow_local=False)
+    assert prod.SECURE_PROXY_SSL_HEADER == ("HTTP_X_FORWARDED_PROTO", "https")
+    assert prod.USE_X_FORWARDED_HOST is False
+    assert prod.USE_X_FORWARDED_PORT is False
+
+
+def test_prod_refuses_wildcard_allowed_hosts() -> None:
+    """A bare '*' in ALLOWED_HOSTS stops the boot (#3515)."""
+    with pytest.raises(RuntimeError, match="wildcard"):
+        _load_prod(backend=_S3, allow_local=False, allowed_hosts="*")
+
+
+def test_prod_boots_on_wildcard_allowed_hosts_when_acknowledged() -> None:
+    """TRUEPPM_ALLOW_WILDCARD_HOSTS lets '*' through, so an upgrade has a remedy."""
+    prod = _load_prod(
+        backend=_S3,
+        allow_local=False,
+        allowed_hosts="*",
+        allow_wildcard_hosts=True,
+    )
+    assert prod.ALLOWED_HOSTS == ["*"]
+
+
+def test_prod_accepts_a_wildcard_subdomain() -> None:
+    """'.example.com' still bounds the host to a chosen suffix, so it is allowed.
+
+    The guard targets the one value that constrains nothing. Refusing wildcard
+    subdomains too would break per-tenant-subdomain installs for no gain.
+    """
+    prod = _load_prod(backend=_S3, allow_local=False, allowed_hosts=".example.com,prod.example.com")
+    assert ".example.com" in prod.ALLOWED_HOSTS
 
 
 def test_prod_authenticates_with_jwt_and_owner_token_only() -> None:

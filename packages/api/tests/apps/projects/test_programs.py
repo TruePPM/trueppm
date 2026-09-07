@@ -977,8 +977,13 @@ def test_assign_project_to_program_requires_admin_on_both(
         format="json",
     )
     assert resp.status_code == 400, resp.content
-    # Error message names the program (helpful for the UI's toast surface).
-    assert "Project Manager" in str(resp.content) or "permission" in str(resp.content)
+    # Error message names the program (helpful for the UI's toast surface) and
+    # names the tier in PROGRAM vocabulary — the refusal is about a role on a
+    # program, so "Project Manager" here would send the reader to the wrong
+    # members list (#3503).
+    body = str(resp.content)
+    assert "Program Manager" in body
+    assert "Project Manager" not in body
 
 
 @pytest.mark.django_db

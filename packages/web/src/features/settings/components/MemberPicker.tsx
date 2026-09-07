@@ -1,5 +1,5 @@
 /**
- * Member picker for the Project lead / Program manager fields on Settings →
+ * Member picker for the Project lead / Program lead fields on Settings →
  * General (#966). A thin adapter over the pure `EntitySelectCombobox` (web-rule
  * 160): it fetches the scope's member roster and maps rows to options; the
  * primitive owns the interaction. Selection sets the page's `lead` state via
@@ -41,6 +41,13 @@ interface MemberPickerProps {
    * read "Unassigned" for an assigned lead.
    */
   selectedDetail?: { id: string; username: string; email?: string } | null;
+  /**
+   * `aria-describedby` for the editable trigger — pass the owning `FieldRow`'s
+   * render-prop `describedBy` so the row's visible hint is programmatically
+   * associated (web-rule 269). The read-only branch does not need it: it renders
+   * the value and its provenance as text, not as a described control.
+   */
+  describedBy?: string;
 }
 
 export function MemberPicker({
@@ -52,6 +59,7 @@ export function MemberPicker({
   canEdit,
   readOnlyProvenance = 'managed by an admin',
   selectedDetail,
+  describedBy,
 }: MemberPickerProps) {
   // Both hooks are called unconditionally (rules of hooks); only the active
   // scope passes an id, so the other query stays disabled (`enabled: !!id`).
@@ -120,6 +128,7 @@ export function MemberPicker({
       onChange={onChange}
       label={label}
       isLoading={isLoading}
+      describedBy={describedBy}
     />
   );
 }
