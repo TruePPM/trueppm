@@ -177,6 +177,12 @@ program overview and the resource heat map already show, so a digest line and
 the screen it points to can never disagree. A week with nothing to report
 still sends, with a subject line saying so, rather than going silent.
 
+Both digests are scoped to your **current** memberships. When your access to a
+program or project is revoked, or the program or project itself is deleted, it
+leaves the digest immediately — it is not named in the next send, and it is not
+counted in the "showing the first 25 of N" line when you belong to more than the
+per-digest cap.
+
 Turning on either digest reveals a **Digest schedule** card — a day and hour
 picker, evaluated in your own timezone, that governs both digests together
 (there is one schedule per user, not one per digest).
