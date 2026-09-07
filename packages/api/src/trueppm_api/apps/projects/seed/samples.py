@@ -264,10 +264,13 @@ def load_sample(
     are created to make the board render fully. This differs from the generic
     import endpoint, which never mints logins.
 
-    ``persona_password`` (default ``None``) leaves those created personas with an
-    unusable password. When set — only via ``load_sample_project --with-personas``,
-    which gates the value behind DEBUG/env (#1760, mirroring #1350) — the created
-    personas become loginable so an evaluator can sign in as each one.
+    ``persona_password`` (default ``None``) leaves those personas with an unusable
+    password. When set — only via ``load_sample_project --with-personas``, which
+    gates the value behind DEBUG/env (#1760, mirroring #1350) — the personas become
+    loginable so an evaluator can sign in as each one. Because loading is idempotent
+    the personas usually already exist by the second run, so the password is applied
+    to pre-existing persona rows too, provided they carry no usable password of
+    their own and are not staff/superuser accounts (#3484).
 
     Raises:
         UnknownSampleError: if ``key`` is not registered.

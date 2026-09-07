@@ -307,7 +307,7 @@ export function EntitySelectCombobox({
                         ) : (
                           <>
                             <Avatar initials={row.option!.initials} />
-                            <span className="flex-1 truncate text-neutral-text-primary">
+                            <span className="flex-1 min-w-0 truncate text-neutral-text-primary">
                               {row.option!.primaryText}
                             </span>
                             {row.option!.secondaryText && (

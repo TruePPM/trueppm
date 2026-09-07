@@ -317,11 +317,26 @@ function PertPanel({ pert }: { pert: PertPreview }) {
   );
 }
 
+/**
+ * Resolution state of the sprint read that produced `sprintIsActive` (#3455).
+ *
+ * `unresolved` (in flight) and `failed` both mean the active-sprint verdict is
+ * UNKNOWN, so the remaining-points control stays disabled either way — a
+ * withheld affordance is the safe default on an unknown (rule 379/392). They
+ * differ only in what the control is allowed to say about itself: an in-flight
+ * read stays quiet, a terminal failure says so and offers a retry, and neither
+ * may claim "this iteration is not active", which is the false all-clear that
+ * sent the user hunting for a sprint problem that does not exist.
+ */
+export type SprintReadState = 'resolved' | 'unresolved' | 'failed';
+
 /** Sprint effort fieldset — committed points (read-only) + editable remaining. Self-guarding. */
 function SprintEffortFieldset({
   task,
   projectId,
   sprintIsActive,
+  sprintReadState,
+  onRetrySprintRead,
   remaining,
   setRemaining,
   updateTask,
@@ -330,12 +345,17 @@ function SprintEffortFieldset({
   task: Task;
   projectId: string;
   sprintIsActive: boolean;
+  sprintReadState: SprintReadState;
+  onRetrySprintRead?: () => void;
   remaining: string;
   setRemaining: (v: string) => void;
   updateTask: UpdateTaskMutation;
   itl: ReturnType<typeof useIterationLabel>;
 }) {
   if (!task.sprintId) return null;
+  // Taken as a separate input rather than folded into `sprintIsActive` so the
+  // unknown case cannot be dropped silently by a later edit to either one.
+  const sprintStateUnknown = sprintReadState !== 'resolved';
   return (
     <fieldset className="flex flex-col gap-3 border-t border-neutral-border pt-4">
       <legend className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
@@ -363,7 +383,7 @@ function SprintEffortFieldset({
           const n = value === '' ? null : Number(value);
           updateTask.mutate({ id: task.id, projectId, remaining_points: n });
         }}
-        disabled={!sprintIsActive || task.status === 'COMPLETE'}
+        disabled={!sprintIsActive || sprintStateUnknown || task.status === 'COMPLETE'}
         id={`rem-${task.id}`}
       />
 
@@ -372,7 +392,28 @@ function SprintEffortFieldset({
           Remaining effort is zeroed automatically when a task is completed.
         </p>
       )}
-      {!sprintIsActive && task.status !== 'COMPLETE' && (
+      {task.status !== 'COMPLETE' && sprintReadState === 'failed' && (
+        // Terminal failure on the only thing that decides whether this control
+        // opens: say so instead of the "…while the iteration is active" line,
+        // which reads as a fact about the iteration and sends the user to fix a
+        // sprint that may be running fine (rule 246 copy, rule 392 polarity).
+        // Same footprint as the sentence it replaces — the fieldset around it is
+        // not dead, so this is not a `QueryErrorState` pane.
+        <p role="status" className="text-xs text-semantic-critical">
+          Couldn&apos;t check whether the {itl.lower} is active — remaining effort stays
+          locked.{' '}
+          <button
+            type="button"
+            onClick={onRetrySprintRead ?? (() => window.location.reload())}
+            className="underline focus-visible:outline-none focus-visible:ring-2
+              focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              focus-visible:ring-offset-neutral-surface"
+          >
+            Retry
+          </button>
+        </p>
+      )}
+      {!sprintIsActive && !sprintStateUnknown && task.status !== 'COMPLETE' && (
         <p className="text-xs text-neutral-text-secondary">
           Remaining effort can be updated while the {itl.lower} is active.
         </p>
@@ -390,6 +431,14 @@ interface EstimatesTabProps {
   userIsAdmin?: boolean;
   /** Whether the task's sprint is currently ACTIVE — gates remaining-points edit. */
   sprintIsActive?: boolean;
+  /**
+   * How the read behind `sprintIsActive` resolved (#3455). Defaults to
+   * `'resolved'` so a caller that has the verdict in hand — or has no sprint to
+   * look up — behaves exactly as before.
+   */
+  sprintReadState?: SprintReadState;
+  /** Re-run the failed sprint read; wired to the Retry in the failure copy. */
+  onRetrySprintRead?: () => void;
 }
 
 export function EstimatesTab({
@@ -399,6 +448,8 @@ export function EstimatesTab({
   userIsScheduler,
   userIsAdmin = false,
   sprintIsActive = false,
+  sprintReadState = 'resolved',
+  onRetrySprintRead,
 }: EstimatesTabProps) {
   const itl = useIterationLabel(projectId);
   const updateTask = useUpdateTask();
@@ -609,6 +660,8 @@ export function EstimatesTab({
         task={task}
         projectId={projectId}
         sprintIsActive={sprintIsActive}
+        sprintReadState={sprintReadState}
+        onRetrySprintRead={onRetrySprintRead}
         remaining={remaining}
         setRemaining={setRemaining}
         updateTask={updateTask}

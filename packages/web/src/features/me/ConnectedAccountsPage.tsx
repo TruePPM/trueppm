@@ -1068,7 +1068,7 @@ function RecentlyPulled({ items, sourceName }: { items: ExternalWorkItem[]; sour
             <span className="tppm-mono text-xs font-medium text-neutral-text-secondary w-16 shrink-0 truncate">
               {item.external_id}
             </span>
-            <span className="flex-1 truncate text-[13px] text-neutral-text-primary">
+            <span className="flex-1 min-w-0 truncate text-[13px] text-neutral-text-primary">
               {item.title || item.external_id}
             </span>
             {item.external_status ? (

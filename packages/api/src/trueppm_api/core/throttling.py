@@ -21,7 +21,7 @@ turned on without ever rate-limiting a k8s probe.
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from rest_framework.request import Request
 from rest_framework.throttling import (
@@ -124,9 +124,85 @@ class LoginAccountRateThrottle(SimpleRateThrottle):
         username = request.data.get("username") if isinstance(request.data, dict) else None
         if not username:
             return None
-        normalized = str(username).strip().lower()
-        ident = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-        return self.cache_format % {"scope": self.scope, "ident": ident}
+        return self.cache_key_for(str(username))
+
+    @classmethod
+    def cache_key_for(cls, identifier: str) -> str:
+        """Return the bucket key for ``identifier``.
+
+        The single owner of this throttle's key derivation. ``get_cache_key`` and
+        ``charge`` must not each spell the hash out, or the two drift and the
+        canonical charge silently stops landing in the bucket ``get_cache_key``
+        reads.
+        """
+        ident = hashlib.sha256(identifier.strip().lower().encode("utf-8")).hexdigest()
+        return cls.cache_format % {"scope": cls.scope, "ident": ident}
+
+    @classmethod
+    def consume(cls, identifier: str) -> float | None:
+        """Record one attempt against ``identifier``'s bucket and report the verdict.
+
+        Returns ``None`` when the attempt was within the rate, or the number of
+        seconds to wait when the bucket was already at its limit.
+
+        Why this exists (#3468): the throttle runs in ``check_throttles``, *before*
+        the view body, so it can only ever key on the identifier as submitted. Once
+        one account answers to two identifiers (its username and its email), an
+        attacker gets two independent per-account buckets and the effective guess
+        allowance against that account doubles — which defeats exactly the cross-IP
+        protection #1717 added. Resolving the email inside ``get_cache_key`` would
+        put an unauthenticated, unindexed ``email__iexact`` query in front of *every*
+        login, so instead the login view calls this once it has resolved an email to
+        its canonical username.
+
+        **Recording is not enough, and the half-measure is the trap.** The username
+        bucket already accumulates every username-form attempt (DRF charges it in
+        ``allow_request``) and now every email-form attempt too, so it holds the true
+        total — but nothing *checks* it on the email path, and an attacker who spends
+        the username budget first then finds the email's own bucket empty and gets a
+        second full allowance. Only the email-first order would be capped, which is
+        worse than not fixing it at all: the protection looks complete and is
+        order-dependent. So this both records **and** reports, and the view refuses
+        on a ``None``-less return.
+
+        The residual is a narrow oracle and it is the right trade: an attacker who
+        already knows a username, and who spends that account's entire per-window
+        budget on it, can then learn whether a given address belongs to that same
+        account by whether they get a 429 rather than a 401. That leaks a mapping
+        between two identifiers of one already-known account, at one bit per window,
+        at the cost of the guesses they came for — against doubling the brute-force
+        budget on every targeted account, permanently.
+
+        Charging after the fact (rather than pre-emptively) matches how DRF throttles
+        work anyway — the Nth attempt is served and the N+1th is refused.
+        """
+        throttle = cls()
+        if not throttle.rate:
+            # No rate configured for this scope — nothing to charge, nothing to refuse.
+            return None
+        throttle.key = cls.cache_key_for(identifier)
+        throttle.now = throttle.timer()
+
+        # Evict entries that have aged out of the window before recording, exactly as
+        # ``SimpleRateThrottle.allow_request`` does. ``throttle_success`` refreshes the
+        # cache TTL on every write, so without this an entry could outlive the window
+        # it belongs to and over-throttle the account. ``duration`` is set in
+        # ``SimpleRateThrottle.__init__`` from ``parse_rate`` but is not declared on the
+        # class, so it carries no type for mypy --strict.
+        duration = cast("int", getattr(throttle, "duration", 0))
+        history: list[float] = list(throttle.cache.get(throttle.key, []))
+        while history and history[-1] <= throttle.now - duration:
+            history.pop()
+        throttle.history = history
+        # ``num_requests`` and ``duration`` are set in ``SimpleRateThrottle.__init__``
+        # from ``parse_rate`` but are not declared on the class, so they carry no type.
+        if len(history) >= cast("int", getattr(throttle, "num_requests", 0)):
+            # Already at the limit before this attempt. Report the wait and record
+            # nothing — DRF's own throttle_failure does not extend the window either,
+            # so a refused attempt must not push the bucket's expiry out.
+            return throttle.wait()
+        throttle.throttle_success()
+        return None
 
 
 class ProbeExemptUserRateThrottle(UserRateThrottle):

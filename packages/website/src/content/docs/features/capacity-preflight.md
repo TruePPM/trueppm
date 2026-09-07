@@ -18,6 +18,8 @@ Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-mana
 - **Aggregate label** — `{committed} / {capacity} hours committed · On track · {buffer} hours of buffer` (or `overrun` when negative)
 - **Per-person rows** — initials avatar + name + `{committed}/{capacity}` text; over-allocated members get a red avatar tint
 
+![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
+
 ## Points ceiling (added in 0.3)
 
 :::note[Added in 0.3]

@@ -157,6 +157,9 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     // fixture's ?self=true response) — not a client-reformatted string.
     const rail = railOf(page);
     await expect(rail).toBeVisible({ timeout: 10_000 });
+    // On a project route the tier is folded (#3473), so the role line arrives with
+    // the disclosure. It is still the ONLY place the rail states the user's role.
+    await rail.getByRole('button', { name: /Show personal destinations/ }).click();
     await expect(rail.getByText('Project Manager')).toBeVisible();
   });
 

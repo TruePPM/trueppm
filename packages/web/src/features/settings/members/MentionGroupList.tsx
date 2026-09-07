@@ -75,7 +75,7 @@ export function MentionGroupList({
 
   if (groups.length === 0) {
     return (
-      <p className="text-sm text-neutral-text-disabled py-2">
+      <p className="text-sm text-neutral-text-secondary py-2">
         No mention groups yet.
         {canManageGroup && ' Create one below.'}
       </p>

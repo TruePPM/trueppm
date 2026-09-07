@@ -30,6 +30,8 @@ bar, alongside Today, Risks, and Reports). You'll see a reverse-chronological li
 each row shows the change type, the object it affected, its name, how long ago it
 happened, and — for project admins — who made it.
 
+![The project Activity feed filtered by entity type and action, listing created tasks and sprints with actor and time](../../../assets/screenshots/activity.webp)
+
 Each row tells you, at a glance:
 
 - **What changed** — a verb (`created`, `updated`, `deleted`) paired with the

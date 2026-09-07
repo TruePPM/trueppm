@@ -210,47 +210,63 @@ export function ProgramProjectsPage() {
           className="divide-y divide-neutral-border rounded-card border border-neutral-border bg-neutral-surface"
         >
           {sortedProjects.map((p) => (
+            /* One wrapping row, not two layouts (#3474). Below `md` the metadata
+               group is forced onto its own line (`order-last w-full`) so the name
+               keeps the first line to itself; from `md` up it returns inline and
+               the row reads exactly as before. Duplicating the pin/Remove controls
+               into a phone-only branch was rejected — it doubles their accessible
+               names, which collides Playwright's strict mode and reads twice to a
+               screen reader. */
             <li
               key={p.id}
-              className="group flex items-center gap-3 px-4 py-3 hover:bg-neutral-surface-raised"
+              className="group flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-neutral-surface-raised"
             >
+              {/* `min-w-0` here is the house idiom (rule 393), NOT what fixed
+                  #3474 — `truncate` is overflow:hidden, which already zeroes
+                  min-width:auto, and measurement showed the name renders
+                  identically with and without it. What emptied this row was the
+                  shrink-0 budget below. Keep it so the box stays shrinkable if
+                  the truncation ever moves onto a child. */}
               <Link
                 to={`/projects/${p.id}/overview`}
-                className="flex-1 truncate text-sm font-medium text-neutral-text-primary
+                className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-text-primary
                   hover:text-brand-primary
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {p.name}
               </Link>
-              <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
-                {p.methodology}
-              </span>
-              {/* Standup-style rollup chips (issue 560) — only when the count is
-                  non-zero. Color is paired with the word (rule 7/120); the
-                  count stays mono (rule 8c). Outlined, AA-dark text variants
-                  (rule 39/145). Informational — the row name carries the link. */}
-              {(p.overdueCount ?? 0) > 0 && (
-                <span
-                  className="tppm-mono shrink-0 rounded-chip border border-semantic-critical/40 px-1.5 py-0.5 text-xs text-semantic-critical"
-                  aria-label={`${p.overdueCount} overdue task${p.overdueCount === 1 ? '' : 's'}`}
-                >
-                  {p.overdueCount} overdue
+              <div className="order-last flex w-full flex-wrap items-center gap-2 md:order-none md:w-auto md:flex-nowrap md:gap-3">
+                <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
+                  {p.methodology}
                 </span>
-              )}
-              {(p.atRiskCount ?? 0) > 0 && (
-                <span
-                  className="tppm-mono shrink-0 rounded-chip border border-semantic-at-risk/40 px-1.5 py-0.5 text-xs text-semantic-at-risk"
-                  aria-label={`${p.atRiskCount} at-risk task${p.atRiskCount === 1 ? '' : 's'}`}
-                >
-                  {p.atRiskCount} at risk
-                </span>
-              )}
+                {/* Standup-style rollup chips (issue 560) — only when the count is
+                    non-zero. Color is paired with the word (rule 7/120); the
+                    count stays mono (rule 8c). Outlined, AA-dark text variants
+                    (rule 39/145). Informational — the row name carries the link. */}
+                {(p.overdueCount ?? 0) > 0 && (
+                  <span
+                    className="tppm-mono shrink-0 rounded-chip border border-semantic-critical/40 px-1.5 py-0.5 text-xs text-semantic-critical"
+                    aria-label={`${p.overdueCount} overdue task${p.overdueCount === 1 ? '' : 's'}`}
+                  >
+                    {p.overdueCount} overdue
+                  </span>
+                )}
+                {(p.atRiskCount ?? 0) > 0 && (
+                  <span
+                    className="tppm-mono shrink-0 rounded-chip border border-semantic-at-risk/40 px-1.5 py-0.5 text-xs text-semantic-at-risk"
+                    aria-label={`${p.atRiskCount} at-risk task${p.atRiskCount === 1 ? '' : 's'}`}
+                  >
+                    {p.atRiskCount} at risk
+                  </span>
+                )}
+              </div>
               <PinToggle
                 kind="project"
                 id={p.id}
                 name={p.name}
                 pinned={p.isPinned ?? false}
                 size="sm"
+                className="shrink-0"
               />
               {isAdmin && (
                 <button
@@ -258,7 +274,11 @@ export function ProgramProjectsPage() {
                   onClick={() => setPendingRemoval({ id: p.id, name: p.name })}
                   disabled={removeProjectFromProgram.isPending}
                   aria-label={`Remove ${p.name} from this program`}
-                  className="h-8 rounded-control border border-neutral-border px-2 text-xs text-neutral-text-secondary
+                  /* 44px tall on a phone (rule 5) and back to the row's
+                     desktop density from `md` up — this is the row's one
+                     destructive control and it now sits on a touch surface. */
+                  className="h-11 shrink-0 rounded-control border border-neutral-border px-3 text-xs text-neutral-text-secondary
+                    md:h-8 md:px-2
                     hover:bg-neutral-surface disabled:opacity-50
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >

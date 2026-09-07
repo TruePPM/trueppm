@@ -78,15 +78,24 @@ with nothing running and end with a signed-in browser.
 
 2. **Load a sample.** Pick the one that matches the methodology you care about —
    **Aurora** for pure agile, **Bayside** for waterfall/CPM, **Helios** for the
-   small hybrid bridge, **Atlas** for the whole story at program scale — and run
-   its line. Loading more than one is fine; they do not collide.
+   small hybrid bridge, **Atlas** for the whole story at program scale, and
+   **1.0 GA Launch** for coordination across four workstreams — and run its line.
+   Loading more than one is fine; they do not collide.
 
    ```bash
    docker compose exec api python manage.py load_sample_project --sample aurora-mobile-app --with-personas
    docker compose exec api python manage.py load_sample_project --sample bayside-civic-center --with-personas
    docker compose exec api python manage.py load_sample_project --sample helios-crm-replacement --with-personas
+   docker compose exec api python manage.py load_sample_project --sample ga-launch --with-personas         # ships in 0.4
    docker compose exec api python manage.py load_sample_project --with-personas                          # Atlas (default)
    ```
+
+   :::note[Ships in 0.4 — the 1.0 GA Launch sample]
+   The other four samples load on 0.3, the current release. **1.0 GA Launch**
+   (`ga-launch`) lands with the 0.4 tag; on 0.3 that `--sample` key is not
+   recognized. Every checklist row below names one of the four that load today.
+   0.4 is [Underway](/overview/roadmap/).
+   :::
 
    Prefer to click? On a fresh install the **Programs** page has a **Load demo
    data** button that does the same thing.
@@ -99,7 +108,7 @@ with nothing running and end with a signed-in browser.
    so copy it before you clear the terminal.
 
 Persona accounts are namespaced `<sample>-<name>` — `aurora-priya`,
-`bayside-sam`, `helios-jordan`, `atlas-alex`. Without `--with-personas` they
+`bayside-sam`, `helios-jordan`, `atlas-alex`, `ga-dana`. Without `--with-personas` they
 exist but cannot sign in. You can also stay on your own admin account: you own
 every sample you load, so you already see everything the walkthroughs point at.
 
@@ -107,8 +116,9 @@ every sample you load, so you already see everything the walkthroughs point at.
 
 Signing in as a persona is not a cosmetic change of name in the corner — access
 is scoped per project, so what a persona can open and what they can change both
-depend on who they are. Atlas is built to show this, because it is the only
-sample with enough projects for one person to hold two different roles:
+depend on who they are. Atlas is built to show this, because it sets roles
+**per project** rather than once per account, so one person can hold two
+different roles:
 
 | Sign in as | Sees | Role |
 | --- | --- | --- |
@@ -124,9 +134,12 @@ Sign in as `atlas-priya`, then as `atlas-jordan`, and compare the project list
 and the actions each one is offered on Platform Core. That contrast is the
 fastest way to see the five-role model doing real work.
 
-The other three samples give every persona the same role on every project, which
-is the right shape for a single-project team — the roster comes from each
-account's program role.
+Aurora, Bayside, and Helios give every persona the same role on every project,
+which is the right shape for a single-project team — the roster comes from each
+account's program role. **1.0 GA Launch** (which ships in 0.4) sets roles per
+project the way Atlas does, and goes one further: its *Security Pen-Test &
+Remediation* project seeds all five roles at once, so the whole matrix is
+visible on one screen.
 
 When you are done, the program owner can **Remove sample data** to tear a demo
 down without touching real work. See
@@ -137,6 +150,8 @@ what each sample is built to demonstrate.
 
 Every "look here" below assumes this much orientation, which is worth 30 seconds
 before you start clicking:
+
+![My Work for a team member on the Atlas sample: needs-attention and sprint tiles, today's blocked task, the ship-date forecast, and the active sprint](../../../assets/screenshots/my-work.webp)
 
 - **Views live in the left navigation rail**, not in top-bar tabs. Within a
   project they are grouped **Plan** (Schedule, Grid, Calendar) · **Deliver**
@@ -200,6 +215,8 @@ name if you would rather not read URLs.
 | Labels | every sample | Board or Schedule → the toolbar filter | Themed labels (e.g. Bayside "critical-path", "inspection"; Atlas "security", "cutover") |
 | Monte Carlo P50/P80/P95 | Bayside · `bayside-sam` / Atlas · `atlas-alex` | Schedule → **Forecast** bar along the bottom → **Details ›** | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
 
+![The schedule after a Monte Carlo run: the Forecast bar shows P50, P80 and P95 finish dates, the CPM date, and the top driver](../../../assets/screenshots/monte-carlo.webp)
+
 ### Risk register
 
 | Capability | Sample · persona | Look here | Expect |
@@ -211,6 +228,8 @@ name if you would rather not read URLs.
 | `TRANSFER` response | Bayside · `bayside-sam` | Risks → "MEP subcontractor financial risk" | The only transfer in any sample, with the instrument named — and a note on what the bond does *not* cover, which is why it stays open |
 | Schedule-driving risks | Atlas · `atlas-alex` | Risks, then Schedule → **Forecast** bar → **Details ›** | Several high probability × impact risks that visibly move the forecast |
 
+![The risk register: a probability-by-impact heatmap on the left and the sortable risk table with severity and owner on the right](../../../assets/screenshots/risk-register.webp)
+
 ### Hybrid & program scale
 
 | Capability | Sample · persona | Look here | Expect |
@@ -221,6 +240,8 @@ name if you would rather not read URLs.
 | Hybrid rollup | Helios · `helios-jordan` / Atlas · `atlas-alex` | Rail **Overview** (`/projects/:id/overview`, or `/programs/:id/overview`) | Gated and flow work rolling up together under one parent |
 | Cross-project critical path | Atlas · `atlas-alex` | Program rail **Schedule** (`/programs/:id/schedule`) | Platform Core gates Migration, which gates the public-launch milestone |
 | Methodology mix in one program | Atlas · `atlas-alex` | Program rail **Projects** (`/programs/:id/projects`) | Agile, waterfall, and hybrid streams side by side |
+
+![The hybrid GTM Readiness schedule: waterfall launch-planning tasks above a Scrum enablement phase whose sprint windows render on the Gantt](../../../assets/screenshots/schedule-hybrid.webp)
 
 ### Interface (v2)
 

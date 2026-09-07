@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect } from 'vitest';
 import { VelocityPanel } from './VelocityPanel';
+import { VELOCITY_TEAM_PRIVATE_MESSAGE } from './VelocityTeamPrivateNote';
 import type { ProjectVelocity, VelocitySprintEntry } from '@/hooks/useSprints';
 
 function makeSprint(overrides: Partial<VelocitySprintEntry>): VelocitySprintEntry {
@@ -267,5 +268,56 @@ describe('VelocityPanel v2 fidelity (issue 1230)', () => {
   it('omits the in-flight stat entirely when there is no active sprint', () => {
     render(<VelocityPanel velocity={makeVelocity({ sprints: [makeSprint({})] })} />);
     expect(screen.queryByText(/This sprint/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * #3472 — the server nulls `sprints` to [] AND sets `velocity_suppressed` for a
+ * reader below the velocity audience, so the two branches are byte-identical on
+ * every field EXCEPT the verdict. Both must be pinned together: a test that only
+ * covers the suppressed branch cannot see the neutral branch being deleted, and
+ * a test that only covers the empty branch is what shipped the defect.
+ */
+describe('VelocityPanel privacy verdict (#3472)', () => {
+  it('states the team-private sentence — never "No closed sprints yet" — when suppressed', () => {
+    render(<VelocityPanel velocity={makeVelocity({ velocity_suppressed: true })} />);
+    expect(screen.getByTestId('velocity-suppressed')).toHaveTextContent(
+      VELOCITY_TEAM_PRIVATE_MESSAGE,
+    );
+    expect(screen.queryByText(/No closed sprints yet/i)).not.toBeInTheDocument();
+  });
+
+  it('suppresses the chart, the forecast chip and the excluded chip in the gated state', () => {
+    render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          velocity_suppressed: true,
+          // The server nulls these too; assert the client would not leak them
+          // even if a future response carried them alongside the verdict.
+          sprints: [makeSprint({})],
+          rolling_avg_points: 38.5,
+          forecast_range_low: 32,
+          forecast_range_high: 45,
+          excluded_count: 1,
+        })}
+        currentSprint={{ name: 'Sprint 7', completed_points: 3, committed_points: 26 }}
+      />,
+    );
+    expect(screen.queryByRole('img', { name: 'Velocity bar chart' })).toBeNull();
+    expect(screen.queryByLabelText(/Forecast range/)).toBeNull();
+    expect(screen.queryByText(/excluded/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/38.5/)).not.toBeInTheDocument();
+  });
+
+  it('still says "No closed sprints yet" when the verdict is absent and there genuinely are none', () => {
+    render(<VelocityPanel velocity={makeVelocity()} />);
+    expect(screen.getByText(/No closed sprints yet/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('velocity-suppressed')).toBeNull();
+  });
+
+  it('still says "No closed sprints yet" when the verdict is explicitly false', () => {
+    render(<VelocityPanel velocity={makeVelocity({ velocity_suppressed: false })} />);
+    expect(screen.getByText(/No closed sprints yet/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('velocity-suppressed')).toBeNull();
   });
 });
