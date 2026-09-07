@@ -1,6 +1,7 @@
 ---
 title: Program risk policy
 description: Decide what a program does when a cross-project dependency slips — surface it, warn the people involved, or block the successor and escalate.
+documentedFor: "0.4"
 ---
 
 When one project's task is a predecessor for a task in another project in the same **program**, a slip in the first can block the second. The **Program Settings → Risk & deps policy** page decides what the program does when that happens. Open it at **Program → Settings → Risk & deps policy**.
@@ -17,12 +18,27 @@ This is intra-program only. The policy governs dependencies *between projects in
 
 ## Permissions
 
+:::note[Ships in 0.4 — program role names]
+The role *names* used here ship in **TruePPM 0.4**, the first beta. On
+`v0.3.0-alpha.3`, the latest release, the program surfaces use the project
+vocabulary instead — the tier called "Program Manager" below reads **Project
+Manager**, and the Owner tier reads **Project Admin**.
+
+**The permission tiers themselves are unchanged.** The same role has always
+been able to change the slip policy and the escalation window, on 0.3 exactly
+as on 0.4; only the name the Members tab and the role pickers display for it
+is new. If you are on 0.3, read "Program Manager" below as the role your
+Members tab calls "Project Manager".
+
+Everything else on this page describes 0.3 behavior and is current.
+:::
+
 | Action | Minimum role |
 |--------|-------------|
 | View the risk policy | Program Viewer |
-| Change the slip policy or escalation days | Program Admin |
+| Change the slip policy or escalation days | Program Manager |
 
-A program Viewer sees the page in read-only mode. Only a program Admin can change the slip policy or the escalation window.
+A program Viewer sees the page in read-only mode. Only a Program Manager or above can change the slip policy or the escalation window.
 
 ## The risk matrix is read-only here
 
@@ -68,4 +84,4 @@ No. It applies only to dependencies between projects within the same program. Cr
 Escalation fires once a blocked dependency has been unresolved for the configured number of days. Set it lower to escalate sooner, higher to give teams more room to resolve a slip before the program manager is pulled in. The allowed range is 1–30 days.
 
 **What is the API behind this page?**
-`GET` and `PATCH` `/api/v1/programs/{program_id}/risk-policy/`, returning `slip_propagation` (`none` / `warn` / `block`) and `escalation_days` (1–30). Reads require program Viewer; writes require program Admin. Both fields are validated server-side.
+`GET` and `PATCH` `/api/v1/programs/{program_id}/risk-policy/`, returning `slip_propagation` (`none` / `warn` / `block`) and `escalation_days` (1–30). Reads require program Viewer; writes require Program Manager or above. Both fields are validated server-side.

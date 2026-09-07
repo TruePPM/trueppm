@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { devPort } from './e2e/ports';
+
 /**
  * Playwright integration test configuration.
  *
@@ -11,7 +13,17 @@ import { defineConfig, devices } from '@playwright/test';
  * server is started via webServer below and proxies /api → Django.
  * Local: set API_URL=http://localhost:8000 and ensure Django is running, then
  *   npx playwright test --config playwright.integration.config.ts
+ *
+ * Port: same defect and same fix as playwright.config.ts (#3514). This config
+ * also sets `reuseExistingServer: !CI`, so a hardcoded 5173 lets a run in one
+ * worktree silently adopt a sibling worktree's dev server — which serves that
+ * OTHER checkout's source. `devPort()` reads the per-worktree
+ * `TRUEPPM_E2E_DEV_PORT` from `.envrc`; unset it is 5173, so CI is unchanged.
+ * See `e2e/ports.ts`.
  */
+const PORT = devPort();
+const ORIGIN = `http://127.0.0.1:${PORT}`;
+
 export default defineConfig({
   testDir: './e2e/integration',
   // Real state is shared — serial execution avoids race conditions.
@@ -22,7 +34,7 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? 'line' : 'html',
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: ORIGIN,
     trace: 'on-first-retry',
   },
   projects: [
@@ -34,8 +46,10 @@ export default defineConfig({
   webServer: {
     // Vite dev server with the /api proxy — inherits API_URL from the
     // environment (set to http://localhost:8000 in the CI job).
-    command: 'npm run dev -- --host 127.0.0.1',
-    url: 'http://127.0.0.1:5173',
+    // `--port`/`--strictPort` and `url` all read PORT: a dev server on one port
+    // with `baseURL` naming another is the silent-wrong-server class itself.
+    command: `npm run dev -- --host 127.0.0.1 --port ${PORT} --strictPort`,
+    url: ORIGIN,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

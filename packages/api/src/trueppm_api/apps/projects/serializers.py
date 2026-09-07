@@ -21,7 +21,7 @@ from trueppm_scheduler import InvalidScheduleInput, find_cycle
 if TYPE_CHECKING:
     from trueppm_api.apps.workspace.models import Workspace
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProjectMembership, Role, program_role_label
 from trueppm_api.apps.projects.attachment_policy import (
     SYSTEM_ATTACHMENT_DENYLIST,
     SYSTEM_DEFAULT_ATTACHMENT_TYPES,
@@ -1393,7 +1393,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if old_program is not None:
             _require_admin_role(
                 _program_membership_role(request, old_program.pk),
-                f"You need at least Project Manager role on '{old_program.name}' "
+                f"You need at least Program Manager role on '{old_program.name}' "
                 "to move this project out of it.",
             )
 
@@ -1401,7 +1401,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if new_program is not None:
             _require_admin_role(
                 _program_membership_role(request, new_program.pk),
-                f"You need at least Project Manager role on '{new_program.name}' "
+                f"You need at least Program Manager role on '{new_program.name}' "
                 "to add this project to it.",
             )
 
@@ -2137,22 +2137,6 @@ class SeedImportRequestSerializer(serializers.Serializer[Any]):
     expected_program_id = serializers.UUIDField(required=False, allow_null=True)
 
 
-# Program-context labels for the shared ``Role`` enum (#1794). The enum labels
-# are project-scoped ("Project Admin", "Project Manager"); a program card must
-# read the role as it applies to the *program*, not to some project. Every role
-# the enum defines is mapped so a future enum value can't silently fall back to
-# a project label without a matching test failing. The project-side
-# ``Role.label`` values are intentionally left unchanged — see
-# ``access.models.Role``.
-_PROGRAM_ROLE_LABELS: dict[Role, str] = {
-    Role.VIEWER: "Viewer",
-    Role.MEMBER: "Team Member",
-    Role.SCHEDULER: "Resource Manager",
-    Role.ADMIN: "Program Manager",
-    Role.OWNER: "Program Admin",
-}
-
-
 class ProgramSerializer(serializers.ModelSerializer[Program]):
     """Read/write serializer for Program (ADR-0070).
 
@@ -2801,21 +2785,19 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         The shared ``Role`` enum labels are project-scoped — OWNER reads
         "Project Admin" and ADMIN reads "Project Manager", which is wrong on a
         program card (users read "I'm an admin of some project" rather than
-        "my role on this program"). ``_PROGRAM_ROLE_LABELS`` remaps every role
-        the enum defines to its program-appropriate wording; the project-side
-        ``Role.label`` values are deliberately left untouched so project
-        surfaces keep reading "Project Admin"/"Project Manager".
+        "my role on this program"). ``access.models.program_role_label`` remaps
+        every role the enum defines to its program-appropriate wording; the
+        project-side ``Role.label`` values are deliberately left untouched so
+        project surfaces keep reading "Project Admin"/"Project Manager".
         """
-        role = getattr(obj, "_my_role", None)
-        if role is None:
-            return None
-        # Same unnamed-ordinal guard as ProjectSerializer.get_my_role_label (#3419):
-        # `Role(350)` raises ValueError for an Enterprise band role and 500s the
-        # response. `_PROGRAM_ROLE_LABELS` is keyed by `Role`, so it cannot answer for
-        # an ordinal the enum does not define either.
-        if role not in Role.values:
-            return None
-        return _PROGRAM_ROLE_LABELS.get(Role(role), Role(role).label)
+        # Same helper as ``ProgramMembershipReadSerializer.get_role_label``, so
+        # this card and the members list can no longer name one membership two
+        # different things (#3503).
+        #
+        # ``None`` covers both "no membership" and an ordinal the enum does not
+        # define — the unnamed-ordinal guard from #3419, where a bare ``Role(350)``
+        # raises ``ValueError`` for an Enterprise band role and 500s the response.
+        return program_role_label(getattr(obj, "_my_role", None))
 
 
 class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):

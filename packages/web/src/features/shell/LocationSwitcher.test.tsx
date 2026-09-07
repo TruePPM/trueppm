@@ -185,4 +185,32 @@ describe('LocationSwitcher (#1643)', () => {
     expect(screen.getByText('Launch Site')).toBeInTheDocument();
     expect(screen.getByText('Board')).toHaveAttribute('aria-current', 'page');
   });
+
+  it("mobile wayfinding yields FIRST — it carries the bar's shrink weight below md (#3505)", () => {
+    mockBreakpoint.mockReturnValue('sm');
+    mockModel.mockReturnValue(model());
+    renderWithRouter(<LocationSwitcher />);
+    const nav = screen.getByRole('navigation', { name: 'Location' });
+    // The shell bar's right region stopped being `shrink-0` below md, because a
+    // rigid status cluster pushes past the bar instead of scrolling (rule 290,
+    // #3505). With both sides shrinkable, flexbox splits the squeeze
+    // proportionally — which would keep these two labels at width and scroll the
+    // health chip under the pinned chrome instead. The overwhelming weight here
+    // restores #1788's order: non-interactive wayfinding, whose labels truncate
+    // cleanly, is what the phone spends first.
+    expect(nav.className).toContain('shrink-[9999]');
+    expect(nav.className).toContain('min-w-0');
+  });
+
+  it('desktop wayfinding does NOT take that weight — at md+ the region absorbs the squeeze', () => {
+    mockBreakpoint.mockReturnValue('lg');
+    mockModel.mockReturnValue(model());
+    renderWithRouter(<LocationSwitcher />);
+    // The inverse of the rule above, and the reason the weight is on the phone
+    // branch rather than the shared element: at md+ the right region carries
+    // `shrink-[9999]` so the breadcrumb keeps its natural width (#2533).
+    expect(screen.getByRole('navigation', { name: 'Location' }).className).not.toContain(
+      'shrink-[9999]',
+    );
+  });
 });

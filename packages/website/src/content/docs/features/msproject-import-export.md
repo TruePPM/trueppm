@@ -164,7 +164,7 @@ All operations authenticate with a bearer token (`$JWT`); `$PROJECT_ID` is the p
 
 ```bash
 # POST a .xml (or .mpp if MPXJ is installed) as multipart form-data (field: "file").
-# Optional "program" field assigns the new project to a program — requires program Admin.
+# Optional "program" field assigns the new project to a program — requires Program Manager on it.
 # Default upload cap 50 MB; configurable via MSPROJECT_MAX_UPLOAD_MB.
 curl -X POST \
   -H "Authorization: Bearer $JWT" \
