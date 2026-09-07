@@ -68,25 +68,44 @@ export function useSprints(projectId: string | null | undefined): UseSprintsResu
   };
 }
 
+export interface UseActiveSprintResult {
+  sprint: ApiSprint | null;
+  isLoading: boolean;
+  /**
+   * The underlying sprint-list fetch error.
+   *
+   * `sprint === null` encodes two different situations — "this project has no
+   * active sprint" and "we could not find out" — so a caller that gates a write
+   * affordance or a disclosure on it must read this alongside `isLoading`
+   * (rule 392, #3455). Withholding on unknown is correct; *explaining* the
+   * withhold as "not in the active sprint" is a claim a failed read cannot make.
+   */
+  error: Error | null;
+  /**
+   * Re-run the sprint list query — wired to a surface's retry control. Optional
+   * so happy-path mocks aren't forced to thread it; the production hook always
+   * provides it.
+   */
+  refetch?: () => void;
+}
+
 /**
  * Derive the current active sprint from `useSprints` — the API guarantees
  * at most one `ACTIVE` sprint per project (ADR-0037 single-active rule).
  *
- * Returns `null` while the underlying query is loading or the project has
- * no active sprint. Does not fire a separate request — it reads from the
+ * Returns `null` while the underlying query is loading, after it failed, or
+ * when the project genuinely has no active sprint — read `isLoading` / `error`
+ * to tell those apart. Does not fire a separate request — it reads from the
  * already-cached list, so callers can mount this hook freely without
  * worrying about double-fetching.
  */
-export function useActiveSprint(projectId: string | null | undefined): {
-  sprint: ApiSprint | null;
-  isLoading: boolean;
-} {
-  const { sprints, isLoading } = useSprints(projectId);
+export function useActiveSprint(projectId: string | null | undefined): UseActiveSprintResult {
+  const { sprints, isLoading, error, refetch } = useSprints(projectId);
   const sprint = useMemo(
     () => sprints.find((s) => s.state === 'ACTIVE') ?? null,
     [sprints],
   );
-  return { sprint, isLoading };
+  return { sprint, isLoading, error, refetch };
 }
 
 export interface SprintsByState {

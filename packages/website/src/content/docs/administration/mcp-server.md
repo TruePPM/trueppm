@@ -456,7 +456,7 @@ a program-level artifact, and a program admin already sees every child's data th
 the program surfaces. The default is `withhold` because a team's "no" is meant to be
 final, and a bulk export is the widest possible read of what it covers.
 
-Both routes already require program Admin or above, and **humans are unaffected by
+Both routes already require Program Manager or above, and **humans are unaffected by
 either value** — this governs agent credentials only.
 
 :::note[Why this is an operator setting and not a workspace or program toggle]

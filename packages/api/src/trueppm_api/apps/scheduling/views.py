@@ -172,7 +172,7 @@ _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date r
             response=OpenApiTypes.OBJECT,
             description='Recalculation queued via the outbox; body is {"queued": true}.',
         ),
-        403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
+        403: OpenApiResponse(description="Caller lacks the Resource Manager role on the project."),
         404: OpenApiResponse(description="Project not found."),
     },
 )
@@ -181,7 +181,7 @@ _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date r
 def trigger_schedule(request: Request, pk: str) -> Response:
     """Manually trigger a CPM recalculation for a project.
 
-    Requires the requesting user to hold at least the Scheduler role on the
+    Requires the requesting user to hold at least the Resource Manager role on the
     project.  The request is written to the transactional outbox and dispatched
     immediately if the broker is available; otherwise the Beat drain task picks
     it up within 30 seconds.

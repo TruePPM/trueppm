@@ -190,9 +190,13 @@ check "prune releases reservations"                  "$(grep -q 'ledger_release_
 check "remove gates label-clear on issue state"      "$(grep -q 'issue_is_closed "\$rm_issue"' "$WT"; echo $?)"
 check ".wt-reservation is allowlisted in dirty check" "$(grep -q '\\.wt-reservation' "$WT"; echo $?)"
 CODE="$(grep -vE '^[[:space:]]*#' "$WT")"
-if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n'; then r=1; else r=0; fi
+# Here-string, not a pipe (#3538): these two expect NO match, so `grep` drains the
+# stream and nothing is signalled today — but the shape is one match away from the
+# SIGPIPE that reds `scripts:test`, and it should not be the reader's expectation
+# that keeps it safe.
+if grep -qE 'declare -A|mapfile|readarray|local -n' <<<"$CODE"; then r=1; else r=0; fi
 check "no bash 4+ constructs (declare -A/mapfile/readarray/local -n)" "$r"
-if printf '%s\n' "$CODE" | grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\^'; then r=1; else r=0; fi
+if grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\^' <<<"$CODE"; then r=1; else r=0; fi
 check "no \${var^} case-conversion expansion" "$r"
 
 # --- Case 9: web rule numbers are a reservable sequence (#3284) ------------

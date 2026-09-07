@@ -106,8 +106,8 @@ describe('MoveProgramDialog', () => {
   });
 
   it('surfaces the server error verbatim', () => {
-    setup({ error: 'You need at least Project Manager role on ‘Apollo’ to add this project to it.' });
-    expect(screen.getByRole('alert')).toHaveTextContent(/Project Manager role on ‘Apollo’/);
+    setup({ error: 'You need at least Program Manager role on ‘Apollo’ to add this project to it.' });
+    expect(screen.getByRole('alert')).toHaveTextContent(/Program Manager role on ‘Apollo’/);
   });
 
   it('warns that the move reshapes rollup ownership and visibility', () => {

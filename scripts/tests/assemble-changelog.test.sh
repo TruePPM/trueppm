@@ -132,9 +132,11 @@ check "empty changelog.d leaves CHANGELOG unchanged" "$r"
 # trip the guard against itself.
 echo "Case 4: bash 3.2 portability guard"
 CODE="$(grep -vE '^[[:space:]]*#' "$SCRIPT")"
-if printf '%s\n' "$CODE" | grep -qF 'declare -A'; then r=1; else r=0; fi
+# Here-string, not a pipe (#3538): see wt-testdb.test.sh Case 6 for the SIGPIPE
+# this shape produces once a reader exits before the writer is done.
+if grep -qF 'declare -A' <<<"$CODE"; then r=1; else r=0; fi
 check "no associative-array declare -A" "$r"
-if printf '%s\n' "$CODE" | grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\^'; then
+if grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\^' <<<"$CODE"; then
   echo "  found \${var^} construct in code"; r=1
 else
   r=0

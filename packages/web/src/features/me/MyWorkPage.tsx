@@ -40,6 +40,7 @@ import { useTimeRollup } from '@/hooks/useTimeEntry';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { localTodayIso } from '@/lib/localDate';
 import { countBlocked, selectVisibleTasks } from './myWorkBlocked';
+import { useHasAnyProjects } from '@/hooks/useHasAnyProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
@@ -129,8 +130,16 @@ export function MyWorkPage() {
   const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } =
     useMyWork();
   // Used to differentiate empty-state flavor A (no projects) vs B (no assignments).
-  // useProjects is already in cache from the Sidebar — cheap reuse.
-  const { data: projects } = useProjects();
+  // Counts program projects as well as membership projects (#3469): `GET /projects/`
+  // is membership-scoped, so a program Owner holding no ProjectMembership read as a
+  // brand-new user and was shown the "let's get you started" onboarding for a
+  // program they already run. Both queries are already in cache from the Sidebar —
+  // cheap reuse, no request of its own.
+  const hasAnyProjects = useHasAnyProjects();
+  // The membership-scoped half on its own, so the empty state can tell "has
+  // projects" from "has projects only because they are in a program" (#3469).
+  // Cached alongside the hook above; no extra request.
+  const { data: memberProjects } = useProjects();
   // Name for the time-aware greeting. Already cached from the shell.
   const { user } = useCurrentUser();
 
@@ -306,7 +315,8 @@ export function MyWorkPage() {
         <LoadingSkeleton />
       ) : totalCount === 0 ? (
         <MyWorkEmptyState
-          hasProjects={(projects ?? []).length > 0}
+          hasProjects={hasAnyProjects}
+          reachableOnlyViaProgram={hasAnyProjects && (memberProjects ?? []).length === 0}
           hasConnectedExternalSource={externalSources.some((s) => s.status !== 'not_connected')}
         />
       ) : (

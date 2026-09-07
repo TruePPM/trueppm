@@ -360,13 +360,22 @@ check "drop checks pg_stat_activity"            "$(grep -q 'pg_stat_activity' "$
 # naive grep over the whole file fails on the very diff that fixes the bug —
 # the same reason enterprise-boundary-check reads import syntax and not prose.
 WT_CODE="$(grep -vE '^[[:space:]]*#' "$WT")"
-check "db_query does not attach stdin (-i)"     "$(! printf '%s\n' "$WT_CODE" | grep -q 'docker exec -i'; echo $?)"
-check "db_query redirects stdin from /dev/null" "$(printf '%s\n' "$WT_CODE" | grep -q 'psql .*</dev/null'; echo $?)"
-check "prune-dbs reconciles its own totals"     "$(printf '%s\n' "$WT_CODE" | grep -q 'processed != orphan_count'; echo $?)"
+# Fed by here-string, never by a pipe (#3538). `grep -q` exits at its first match,
+# and a writer still holding the rest of a 39 KB stream takes SIGPIPE — which
+# `pipefail` promotes to 141 and `check` then reports as a failure of an assertion
+# that is in fact satisfied. It reds `scripts:test` about 1 run in 300, naming a
+# real invariant about `prune-dbs`, so the diagnosis starts by reading correct code.
+# `<<<` runs the reader in this shell with no second process to signal. Third
+# instance of the class: #2803 (`| head -n 1`), #3321 (`| while read … return`).
+check "db_query does not attach stdin (-i)"     "$(! grep -q 'docker exec -i' <<<"$WT_CODE"; echo $?)"
+check "db_query redirects stdin from /dev/null" "$(grep -q 'psql .*</dev/null' <<<"$WT_CODE"; echo $?)"
+check "prune-dbs reconciles its own totals"     "$(grep -q 'processed != orphan_count' <<<"$WT_CODE"; echo $?)"
 # #3418: the emitter must be an `if`, not an `&&` list whose false condition
 # becomes the loop's — and therefore the function's — exit status under set -e.
-check "orphan emitter is an if, not an && list" "$(! printf '%s\n' "$WT_CODE" | grep -qE '\(\( *owned == 1 *\)\) *&&'; echo $?)"
-check "orphan_test_dbs ends with an explicit return 0" "$(printf '%s\n' "$WT_CODE" | awk '/^orphan_test_dbs\(\)/,/^}/' | grep -q 'return 0'; echo $?)"
+check "orphan emitter is an if, not an && list" "$(! grep -qE '\(\( *owned == 1 *\)\) *&&' <<<"$WT_CODE"; echo $?)"
+# Nested here-strings rather than `awk … | grep`: awk is a writer too, and its
+# output being small today is a property of the function, not of the shape.
+check "orphan_test_dbs ends with an explicit return 0" "$(grep -q 'return 0' <<<"$(awk '/^orphan_test_dbs\(\)/,/^}/' <<<"$WT_CODE")"; echo $?)"
 # The prefix guard must require something AFTER the prefix, or the shared
 # `test_trueppm_wt` name itself would be droppable.
 check "prefix guard requires a suffix"          "$(grep -q '"\${WT_TEST_DB_PREFIX}"?\*' "$WT"; echo $?)"
@@ -376,10 +385,52 @@ check "catalog query uses anchored regex"       "$(grep -q "datname ~ '\^\\\${WT
 check "catalog query does not use LIKE"         "$(! grep -q "FROM pg_database WHERE datname LIKE" "$WT"; echo $?)"
 
 CODE="$(grep -vE '^[[:space:]]*#' "$WT")"
-if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n'; then r=1; else r=0; fi
+if grep -qE 'declare -A|mapfile|readarray|local -n' <<<"$CODE"; then r=1; else r=0; fi
 check "no bash 4+ constructs (declare -A/mapfile/readarray/local -n)" "$r"
-if printf '%s\n' "$CODE" | grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\^'; then r=1; else r=0; fi
+if grep -qE '\$\{[A-Za-z_][A-Za-z0-9_]*\^' <<<"$CODE"; then r=1; else r=0; fi
 check "no \${var^} case-conversion expansion" "$r"
+
+# --- Case 8: static-grep inputs are here-strings, never pipes (#3538) -------
+#
+# Case 6 asserts things about scripts/wt by grepping its source. Fed through a
+# PIPE, `grep -q` exits at its first match and the writer takes SIGPIPE, which
+# `pipefail` promotes to 141 — so `check` reports a satisfied assertion as a
+# failure. That is what reds `scripts:test` on main, and only sometimes: whether
+# the writer is still writing when the reader exits is pure scheduling. Measured
+# at ~1 run in 300 in the job's own image on a busy runner, 0 in 400 on macOS.
+#
+# A static guard needs a negative control, or "the here-string form returns 0"
+# proves nothing — it would pass just as happily against the piped form on a
+# quiet machine. Padding the input past the pipe buffer removes the race in the
+# other direction: the writer is *guaranteed* to be mid-write when grep -q exits
+# on line 1, so the piped shape fails here every time.
+echo "Case 8: static-grep inputs are here-strings, not pipes"
+
+# Built with awk, not `yes | head`: that pipeline is itself an instance of the
+# class (#2803) and would abort this script under set -o pipefail.
+PADDED="MATCHME
+$(awk 'BEGIN { for (i = 0; i < 200000; i++) print "x" }')"
+
+piped_rc=0
+( set -o pipefail; printf '%s\n' "$PADDED" | grep -q 'MATCHME' ) >/dev/null 2>&1 || piped_rc=$?
+check "negative control: the piped shape does fail here" "$([[ "$piped_rc" -ne 0 ]]; echo $?)"
+
+here_rc=0
+( set -o pipefail; grep -q 'MATCHME' <<<"$PADDED" ) >/dev/null 2>&1 || here_rc=$?
+check "the here-string shape survives the same input"    "$([[ "$here_rc" -eq 0 ]]; echo $?)"
+
+# Tree-wide guard, scoped to the comment-stripped whole-file idiom (`*CODE=`).
+# That is where a reader's early exit meets a writer with tens of KB still
+# queued; a few-line "$OUT" captured from a command under test is not this class,
+# and banning it would cost thirty rewrites to prevent nothing.
+PIPED_CODE_SHAPE='"\$\{?[A-Za-z_]*CODE\}?" *\|'
+offenders="$(grep -nE "$PIPED_CODE_SHAPE" "$REPO_ROOT"/scripts/tests/*.test.sh || true)"
+check "no comment-stripped source is piped into a reader" "$([[ -z "$offenders" ]]; echo $?)"
+# An `if`, not an `&&` list: a false condition on a top-level `&&` becomes the
+# script's exit status under set -e — the #3418 trap, one file over.
+if [[ -n "$offenders" ]]; then
+  printf '    %s\n' "$offenders"
+fi
 
 echo ""
 echo "wt-testdb: $pass passed, $fail failed"

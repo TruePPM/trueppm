@@ -148,7 +148,7 @@ export function MentionGroupRow({
           <div>
             <p className="mb-1 text-xs font-semibold text-neutral-text-secondary">Members</p>
             {group.members.length === 0 ? (
-              <p className="text-xs text-neutral-text-disabled">No members yet.</p>
+              <p className="text-xs text-neutral-text-secondary">No members yet.</p>
             ) : (
               <ul className="space-y-1">
                 {group.members.map((m) => (

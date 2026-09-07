@@ -150,6 +150,31 @@ WT_STASH_NS="refs/wt-stash"
 # shared `test_trueppm` nor the dev `trueppm` database can ever be matched, let
 # alone dropped.
 WT_TEST_DB_PREFIX="${TRUEPPM_WT_TEST_DB_PREFIX:-test_trueppm_wt}"
+
+# --- Per-worktree Playwright ports (#3514) -----------------------------------
+#
+# Playwright's `reuseExistingServer` identifies "an existing server" by PORT
+# ALONE, and both Playwright configs hardcoded one (:4173 preview, :5173 dev).
+# So in this workflow — the documented default for multi-issue work — every
+# worktree on the machine shared one server, and a local e2e run silently
+# asserted against whichever checkout happened to have started it. Three of six
+# branches in the 2026-09-06 batch hit it. The dangerous direction is the
+# PASSING one: a green run against a sibling's bundle proves nothing and looks
+# exactly like a trustworthy result.
+#
+# Each worktree therefore gets its own pair, exported into `.envrc` beside
+# TRUEPPM_TEST_DB and read by packages/web/e2e/ports.ts. Unset (the main
+# checkout, and every CI job) the configs fall back to 4173/5173, so CI is
+# byte-identical to before.
+#
+# The band: 43100-43899 (preview) and 44100-44899 (dev), one shared offset so a
+# worktree's two ports carry the same index. Chosen to sit below macOS's
+# ephemeral range (net.inet.ip.portrange.first = 49152, so nothing outbound can
+# transiently claim one) and above the crowded 3000-9000 development band, and
+# it collides with nothing this repo runs (5173, 4173, 8000, 5432, 6379, 8080).
+WT_PORT_SPAN="${TRUEPPM_WT_PORT_SPAN:-800}"
+WT_PREVIEW_PORT_BASE="${TRUEPPM_WT_PREVIEW_PORT_BASE:-43100}"
+WT_DEV_PORT_BASE="${TRUEPPM_WT_DEV_PORT_BASE:-44100}"
 # Reached with `docker exec` on the container name rather than `docker compose`,
 # so this works from any worktree without resolving a compose file (cmd_doctor
 # checks the api container the same way).
@@ -581,6 +606,79 @@ worktree_test_db() {
   awk -F= '/^export TRUEPPM_TEST_DB=/ { print $2; exit }' "$path/.envrc"
 }
 
+# The Playwright preview port a worktree was given, read back from its `.envrc`.
+# awk (not `sed | head`) for the same reason as above: no pipe to SIGPIPE under
+# `set -o pipefail`. Empty for a worktree created before #3514 — those keep the
+# 4173/5173 defaults, which is correct but unisolated.
+worktree_e2e_port() {
+  local path="$1"
+  [[ -f "$path/.envrc" ]] || return 0
+  awk -F= '/^export TRUEPPM_E2E_PORT=/ { print $2; exit }' "$path/.envrc"
+}
+
+# Deterministic offset in [0, WT_PORT_SPAN) derived from the worktree slug —
+# the SAME slug that names the test database — so a given branch lands on the
+# same ports every time it is recreated. cksum is POSIX (CRC-32) and gives the
+# identical number on macOS and Linux; $RANDOM or a timestamp would not be
+# stable across runs, which is the property that makes the port memorable and
+# makes a stale `.envrc` harmless.
+port_offset_for_slug() {
+  local slug="$1" sum
+  sum="$(printf '%s' "$slug" | cksum | awk '{print $1}')"
+  printf '%s' "$(( sum % WT_PORT_SPAN ))"
+}
+
+# True when nothing is listening on 127.0.0.1:$1. Uses bash's /dev/tcp rather
+# than lsof/nc: it is a builtin, so there is no dependency to be missing and no
+# BSD-vs-GNU flag divergence (the class that makes `lsof -ti :4173 | xargs -r kill`
+# a silent no-op on macOS — BSD xargs has no -r).
+port_is_free() {
+  local port="$1"
+  ( exec 3<>"/dev/tcp/127.0.0.1/${port}" ) >/dev/null 2>&1 && return 1
+  return 0
+}
+
+# Every preview port currently claimed by a live worktree, one per line.
+claimed_e2e_ports() {
+  local path port
+  while IFS= read -r path; do
+    [[ -z "$path" || "$path" == "$REPO_ROOT" ]] && continue
+    port="$(worktree_e2e_port "$path")"
+    [[ -n "$port" ]] && printf '%s\n' "$port"
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
+}
+
+# Resolve the offset this worktree will use: the slug's own, linear-probed
+# forward until BOTH derived ports are unclaimed by a sibling worktree and
+# unbound by any live process.
+#
+# The probe is what makes a collision implausible rather than merely unlikely.
+# A bare hash over 800 slots is a birthday problem — at 25 concurrent worktrees
+# the chance of some pair colliding is ~26%, which is a coin-flip away from the
+# exact bug this change exists to remove. Probing against the authoritative
+# claim (the siblings' own `.envrc` files) makes an overlap between live
+# worktrees impossible by construction, the same guarantee the ADR ledger gives
+# numbers; the /dev/tcp check additionally steps over an unrelated process that
+# happens to hold one. Echoes the offset; falls back to the slug's own if every
+# slot is somehow taken (WT_PORT_SPAN slots vs a WIP cap of 10).
+resolve_port_offset() {
+  local slug="$1"
+  local start offset i preview dev claimed
+  start="$(port_offset_for_slug "$slug")"
+  claimed="$(claimed_e2e_ports)"
+  for (( i = 0; i < WT_PORT_SPAN; i++ )); do
+    offset=$(( (start + i) % WT_PORT_SPAN ))
+    preview=$(( WT_PREVIEW_PORT_BASE + offset ))
+    dev=$(( WT_DEV_PORT_BASE + offset ))
+    if printf '%s\n' "$claimed" | grep -qx "$preview"; then continue; fi
+    if port_is_free "$preview" && port_is_free "$dev"; then
+      printf '%s' "$offset"
+      return 0
+    fi
+  done
+  printf '%s' "$start"
+}
+
 # Every database belonging to <base>: the name itself plus its pytest-xdist
 # worker databases. xdist suffixes the test DB per worker, so ONE interrupted
 # parallel run strands the whole `<base>_gw0..gwN` family rather than a single
@@ -846,6 +944,13 @@ cmd_new() {
   db_slug="$(printf '%s' "$short_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_' | cut -c1-32)"
   local test_db="test_trueppm_wt_${db_slug}"
 
+  # Per-worktree Playwright ports, derived from the same slug (see the
+  # WT_*_PORT_BASE block above for why this exists and how the band was picked).
+  local port_offset preview_port dev_port
+  port_offset="$(resolve_port_offset "$db_slug")"
+  preview_port=$(( WT_PREVIEW_PORT_BASE + port_offset ))
+  dev_port=$(( WT_DEV_PORT_BASE + port_offset ))
+
   # .envrc for direnv users. No-op if direnv isn't installed.
   cat > "$target_path/.envrc" <<EOF
 # Auto-generated by scripts/wt. Reuses the running Docker stack from the main
@@ -856,6 +961,13 @@ export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}
 # other worktrees without colliding on a shared test DB. Honored by
 # packages/api/src/trueppm_api/settings/dev.py.
 export TRUEPPM_TEST_DB=${test_db}
+# Per-worktree Playwright ports. Playwright's reuseExistingServer identifies a
+# running server by PORT ALONE, so without these every worktree shares one
+# preview server and a local e2e run silently asserts against another branch's
+# bundle — including in the direction that PASSES. Read by
+# packages/web/e2e/ports.ts; unset (main checkout, CI) it is 4173/5173. (#3514)
+export TRUEPPM_E2E_PORT=${preview_port}
+export TRUEPPM_E2E_DEV_PORT=${dev_port}
 EOF
 
   # Note: we deliberately do NOT write to .git/worktrees/<name>/info/exclude —
@@ -895,6 +1007,7 @@ EOF
     fi
   fi
 
+  ok "e2e ports: preview :$preview_port, dev :$dev_port (exported in .envrc)"
   ok "created worktree at $target_path on branch $branch"
   say ""
   dim "  cd $target_path"

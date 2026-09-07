@@ -37,10 +37,33 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
   } as unknown as Program;
 }
 
+const refetchWs = vi.fn();
+const refetchProgram = vi.fn();
+
 function setWorkspacePolicy(policy: WorkspaceSettings['calendarOverridePolicy']) {
   vi.mocked(useWorkspaceSettings).mockReturnValue({
     data: { calendarOverridePolicy: policy },
+    isError: false,
+    refetch: refetchWs,
   } as unknown as ReturnType<typeof useWorkspaceSettings>);
+}
+
+/** The page reads isError/refetch off both queries (#3351) — keep the mock shape in parity. */
+function setWorkspaceFailed() {
+  vi.mocked(useWorkspaceSettings).mockReturnValue({
+    data: undefined,
+    isError: true,
+    refetch: refetchWs,
+  } as unknown as ReturnType<typeof useWorkspaceSettings>);
+}
+
+function setProgramFailed() {
+  vi.mocked(useProgram).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: true,
+    refetch: refetchProgram,
+  } as unknown as ReturnType<typeof useProgram>);
 }
 
 function renderPage() {
@@ -51,12 +74,16 @@ describe('ProgramCalendarPage', () => {
   beforeEach(() => {
     mutateAsync.mockReset();
     mutateAsync.mockResolvedValue(undefined);
+    refetchWs.mockReset();
+    refetchProgram.mockReset();
     vi.mocked(useUpdateProgram).mockReturnValue({
       mutateAsync,
     } as unknown as ReturnType<typeof useUpdateProgram>);
     vi.mocked(useProgram).mockReturnValue({
       data: makeProgram(),
       isLoading: false,
+      isError: false,
+      refetch: refetchProgram,
     } as unknown as ReturnType<typeof useProgram>);
     vi.mocked(useCalendars).mockReturnValue({
       calendars: CALENDARS,
@@ -135,6 +162,53 @@ describe('ProgramCalendarPage', () => {
     expect(
       screen.getByTitle('This program is closed and cannot be modified. Reopen it first.'),
     ).toHaveTextContent(/Read-only — program closed/i);
+  });
+
+  // #3351 — the page destructured only `data` off useWorkspaceSettings, so a failed
+  // GET /workspace/ left `ws === undefined` forever and the skeleton guard never
+  // cleared: two placeholders pulsing with no error and no retry. Same defect
+  // #3298 fixed one scope down on ProjectMethodologyPage. The skeleton assertion is
+  // load-bearing — "an error is shown" would also pass if BOTH branches rendered.
+  it('renders an error with Retry, not a perpetual skeleton, when the workspace GET fails', () => {
+    setWorkspaceFailed();
+
+    const { container } = renderPage();
+
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(
+      screen.getByText("Couldn't load this program's working calendar."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeNull();
+    // The section heading must survive the error branch — <SettingsSection
+    // aria-labelledby> targets the id this strip mints (rule 246).
+    expect(screen.getByRole('heading', { name: 'Working calendar' })).toBeInTheDocument();
+  });
+
+  // The other half of the same guard: `programLoading` settles to false on a 500 but
+  // `!program` stays true, so a dead program GET stalled the page identically.
+  it('renders an error with Retry, not a perpetual skeleton, when the program GET fails', () => {
+    setProgramFailed();
+
+    const { container } = renderPage();
+
+    expect(
+      screen.getByText("Couldn't load this program's working calendar."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeNull();
+  });
+
+  it('retries only the query that actually failed', async () => {
+    const user = userEvent.setup();
+    setWorkspaceFailed();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(refetchWs).toHaveBeenCalledTimes(1);
+    // Re-running the program GET would evict a warm cache entry for nothing.
+    expect(refetchProgram).not.toHaveBeenCalled();
   });
 
   it('renders the picker read-only for a non-admin member', () => {

@@ -30,6 +30,13 @@ interface ApiProject {
   at_risk_count?: number | null;
   /** The requesting user's own pin (#2390); annotated per-caller (#2553). */
   is_pinned?: boolean;
+  /**
+   * The requesting user's own role ordinal on THIS project, or null when they
+   * hold no membership; annotated per-caller (#3357). This roster is
+   * program-scoped while `GET /projects/{id}/` is membership-scoped, so this is
+   * the field that says whether a row is openable at all (#3469).
+   */
+  my_role?: number | null;
 }
 
 /**
@@ -66,6 +73,12 @@ export function useProgramProjects(
         // camelCase `isPinned` flag on cached rows, so the domain object has to
         // carry it for the optimistic flip to land here too.
         isPinned: p.is_pinned ?? false,
+        // Presence-tested, not `?? null`. The server always emits this key, so a
+        // real `null` means "no membership" and the roster marks the row as
+        // unopenable (#3469). A payload MISSING the key is an older cached response
+        // or a fixture that predates the field — unknown, not denied — so it maps to
+        // `undefined` and the row keeps its link rather than being marked on a guess.
+        myRole: 'my_role' in p ? (p.my_role ?? null) : undefined,
       }));
     },
     enabled: !!programId,
