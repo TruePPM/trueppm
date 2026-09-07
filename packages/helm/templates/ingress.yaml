@@ -18,6 +18,21 @@ Note the app-side companion to edge TLS: settings.prod sets
 SECURE_PROXY_SSL_HEADER and honors X-Forwarded-Proto, and the k8s probe paths
 (/api/v1/health/, /api/v1/edition/) are exempt from the optional HTTP→HTTPS
 redirect so liveness/readiness keep working over the in-cluster plain-HTTP hop.
+
+Required header contract for whatever fronts this release (#3515). The app takes
+the SCHEME from the proxy and the HOST from the request, so:
+
+  - X-Forwarded-Proto MUST be set to the scheme the client used. ingress-nginx
+    and the cloud LBs do this themselves; a hand-rolled proxy must be told to.
+  - The original Host MUST be preserved end to end. settings.prod pins
+    USE_X_FORWARDED_HOST = False, so X-Forwarded-Host is IGNORED — an edge that
+    rewrites Host to an internal name yields unusable absolute URLs (the OIDC
+    redirect_uri and the Git-webhook URL) with no error anywhere. If yours
+    rewrites Host and cannot be changed, set env.TRUEPPM_PUBLIC_API_BASE_URL
+    rather than looking for a header-trust switch; there is deliberately none.
+
+Whatever Host does arrive must be listed in ALLOWED_HOSTS, and a bare "*" there
+now refuses to boot (TRUEPPM_ALLOW_WILDCARD_HOSTS acknowledges it).
 */}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress

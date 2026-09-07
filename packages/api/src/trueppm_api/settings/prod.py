@@ -9,6 +9,7 @@ import environ
 
 from trueppm_api.apps.observability.logging import build_logging_config
 from trueppm_api.core.security_checks import (
+    validate_allowed_hosts,
     validate_attachment_storage,
     validate_integration_encryption_key,
     validate_project_soft_delete_retention,
@@ -21,6 +22,7 @@ from .base import *  # noqa: F403
 from .base import (
     ALLOW_LOCAL_ATTACHMENT_STORAGE,
     ALLOW_UNENCRYPTED_DB,
+    ALLOW_WILDCARD_ALLOWED_HOSTS,
     DATABASES,
     DJANGO_LOG_LEVEL,
     INTEGRATION_ENCRYPTION_KEY,
@@ -46,6 +48,26 @@ _REFUSING_TO_START = "Refusing to start: "
 LOGGING = build_logging_config(level=DJANGO_LOG_LEVEL, json_output=True)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+
+# Refuse to boot on a bare-wildcard ALLOWED_HOSTS (#3515). Host validation is the
+# only bound on the host the API reports, and therefore on every absolute URL it
+# builds; "*" removes it. Same import-time enforcement as the guards below, since
+# gunicorn/asgi workers never run `manage.py check`. Operators whose host set is
+# genuinely unknowable opt in via TRUEPPM_ALLOW_WILDCARD_HOSTS=true and keep the
+# warning instead — the TRUEPPM_ALLOW_UNENCRYPTED_DB shape, chosen so an existing
+# install running "*" has a one-variable remedy rather than a crash-loop.
+_wildcard_host_errors = validate_allowed_hosts(
+    ALLOWED_HOSTS, debug=DEBUG, allow_wildcard=ALLOW_WILDCARD_ALLOWED_HOSTS
+)
+if _wildcard_host_errors:
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _wildcard_host_errors))
+if ALLOW_WILDCARD_ALLOWED_HOSTS and "*" in ALLOWED_HOSTS:
+    logging.getLogger("trueppm.settings").warning(
+        "ALLOWED_HOSTS contains the wildcard '*', so Django performs no host "
+        "validation. Absolute URLs the API builds (the OIDC redirect_uri and the "
+        "inbound Git-webhook URL) will follow whatever host the caller sends. "
+        "Proceeding because TRUEPPM_ALLOW_WILDCARD_HOSTS=true is set."
+    )
 
 SECRET_KEY = env("SECRET_KEY")  # required; no default in prod
 
@@ -73,6 +95,42 @@ DATABASES["default"]["CONN_MAX_AGE"] = 600
 
 # Security headers.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# The host is NOT taken from the proxy, and that asymmetry with the line above is
+# deliberate (#3515). Django defaults both of these to False; stating them keeps
+# the file from inheriting a position it never took.
+#
+# Why the scheme is trusted and the host is not:
+#
+#   * X-Forwarded-Proto carries information the app cannot obtain any other way —
+#     the container always speaks plain HTTP on :8000, so without the header
+#     every request looks insecure. Its failure mode here is contained: the
+#     Secure flags on the session, CSRF and refresh cookies are hardcoded True
+#     above and in base.py rather than derived from is_secure(), so a spoofed
+#     value does not downgrade a cookie.
+#
+#   * X-Forwarded-Host carries nothing new. Every proxy this project ships
+#     preserves the original Host (`proxy_set_header Host $host` in
+#     nginx/app.conf.template, app-http.conf.template, demo.conf.template,
+#     packages/web/nginx.conf and the chart's web ConfigMap), and none of them
+#     sets or strips X-Forwarded-Host. Turning this on would therefore trust a
+#     header whose only author in every supported topology is the client: Host is
+#     the edge's routing key, so a value that does not route never arrives, while
+#     X-Forwarded-Host routes fine and would be believed anyway. That is a strict
+#     widening of who can steer request.build_absolute_uri(), and it buys nothing.
+#
+# The premise True would need — "the proxy is the sole ingress path" — is also not
+# something the chart enforces: templates/networkpolicy.yaml restricts the bundled
+# datastore pods only, and the admin docs hand API-pod ingress restriction to the
+# operator. Do not flip this without also closing that gap and stripping the
+# header at every edge.
+#
+# An operator whose proxy genuinely rewrites Host does not need this switch:
+# TRUEPPM_PUBLIC_API_BASE_URL pins the origin for both request-derived absolute
+# URLs (the OIDC redirect_uri and the inbound Git-webhook URL), which is a value
+# they control rather than a belief about a header they cannot verify.
+USE_X_FORWARDED_HOST = False
+USE_X_FORWARDED_PORT = False
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SESSION_COOKIE_SECURE = True

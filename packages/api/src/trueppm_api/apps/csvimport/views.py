@@ -72,7 +72,11 @@ def _require_project_scheduler(user: object, project_pk: str) -> None:
         .first()
     )
     if role is None or role < Role.SCHEDULER:
-        raise PermissionDenied("You need at least the Scheduler role to import a spreadsheet.")
+        # "Resource Manager" is the label for ``Role.SCHEDULER``; "Scheduler" is the
+        # code name and appears on no surface a user can reach (#3503).
+        raise PermissionDenied(
+            "You need at least the Resource Manager role to import a spreadsheet."
+        )
 
 
 def _require_project_admin(user: object, project_pk: str) -> None:
@@ -312,7 +316,9 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
             400: OpenApiResponse(
                 description="Missing, oversized, or unreadable upload, or an unknown `date_order`."
             ),
-            403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
+            403: OpenApiResponse(
+                description="Caller lacks the Resource Manager role on the project."
+            ),
         },
     )
     def post(self, request: Request, project_pk: str) -> Response:
@@ -394,7 +400,7 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
 class CsvImportView(IdempotencyMixin, APIView):
     """Upload and import a CSV/Excel spreadsheet into an existing project.
 
-    Requires the Scheduler role. The import runs asynchronously through the
+    Requires the Resource Manager role. The import runs asynchronously through the
     transactional outbox; the 202 response carries ``import_request_id`` — not a
     Celery task id, which does not exist until the on_commit dispatch fires
     (ADR-0632 decision 6).
@@ -420,7 +426,9 @@ class CsvImportView(IdempotencyMixin, APIView):
                     "drain re-dispatch replays the convention the operator confirmed."
                 )
             ),
-            403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
+            403: OpenApiResponse(
+                description="Caller lacks the Resource Manager role on the project."
+            ),
         },
     )
     def post(self, request: Request, project_pk: str) -> Response:
@@ -487,7 +495,9 @@ class CsvImportStatusView(APIView):
                     "convention it ran under, and the caller's authority over the undo."
                 ),
             ),
-            403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
+            403: OpenApiResponse(
+                description="Caller lacks the Resource Manager role on the project."
+            ),
             404: OpenApiResponse(description="No such import for this project."),
         },
     )

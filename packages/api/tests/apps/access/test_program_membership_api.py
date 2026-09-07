@@ -11,7 +11,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProgramMembership, Role
+from trueppm_api.apps.access.models import PROGRAM_ROLE_LABELS, ProgramMembership, Role
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import Methodology, Program
 
@@ -728,3 +728,136 @@ def test_re_add_is_refused_on_a_closed_program(
 
     assert resp.status_code == 403
     assert ProgramMembership.objects.get(pk=existing.pk).is_deleted is True
+
+
+# ---------------------------------------------------------------------------
+# role_label vocabulary (#3503)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("role", "expected_label"),
+    [
+        (Role.VIEWER, "Viewer"),
+        (Role.MEMBER, "Team Member"),
+        (Role.SCHEDULER, "Resource Manager"),
+        (Role.ADMIN, "Program Manager"),
+        (Role.OWNER, "Program Admin"),
+    ],
+)
+def test_members_list_role_label_uses_program_vocabulary(
+    program: Program, owner: object, member: object, role: int, expected_label: str
+) -> None:
+    """``GET /programs/{id}/members/`` names roles for the *program* (#3503).
+
+    Ordinals 300 and 400 used to serialize through the project-scoped
+    ``Role.label`` and read "Project Manager" / "Project Admin" on a program
+    row; the lower three read the same either way and must not move.
+    """
+    ProgramMembership.objects.create(program=program, user=member, role=role)
+
+    resp = _client(owner).get(_members_url(program))
+
+    assert resp.status_code == 200, resp.data
+    row = next(m for m in resp.data if str(m["user"]) == str(member.pk))
+    assert row["role"] == role
+    assert row["role_label"] == expected_label
+
+
+@pytest.mark.django_db
+def test_member_retrieve_role_label_uses_program_vocabulary(
+    program: Program, owner: object, member: object
+) -> None:
+    """The detail route reads the same vocabulary as the list route."""
+    membership = ProgramMembership.objects.create(program=program, user=member, role=Role.ADMIN)
+
+    resp = _client(owner).get(f"{_members_url(program)}{membership.pk}/")
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["role_label"] == "Program Manager"
+
+
+@pytest.mark.django_db
+def test_members_role_label_agrees_with_program_card_my_role_label(
+    program: Program, owner: object, member: object
+) -> None:
+    """One membership, one name — the defect this issue is about (#3503).
+
+    ``GET /programs/{id}/`` answers ``my_role_label`` and
+    ``GET /programs/{id}/members/`` answers ``role_label`` for the *same* row.
+    Before the fix they disagreed ("Program Manager" vs "Project Manager") and
+    only TruePPM's own web client knew which one to believe.
+    """
+    ProgramMembership.objects.create(program=program, user=member, role=Role.ADMIN)
+    client = _client(member)
+
+    card = client.get(f"/api/v1/programs/{program.pk}/")
+    members = client.get(_members_url(program))
+
+    assert card.status_code == 200, card.data
+    assert members.status_code == 200, members.data
+    row = next(m for m in members.data if str(m["user"]) == str(member.pk))
+    assert card.data["my_role_label"] == row["role_label"] == "Program Manager"
+
+
+@pytest.mark.django_db
+def test_members_role_label_degrades_for_an_enterprise_band_ordinal(
+    program: Program, owner: object, member: object
+) -> None:
+    """An ordinal outside the five OSS roles must not 500 the response.
+
+    ADR-0072 reserves 301-399 for Enterprise custom roles and ``role`` is a
+    plain ``IntegerField``, so ``Role(350)`` is reachable — and raises
+    ``ValueError``, which DRF does not convert. The OSS edition has no name for
+    it, so the field echoes the ordinal rather than borrowing a neighbour's
+    label; the web client prefers its own vocabulary for ordinals it knows and
+    falls back to this string only here.
+    """
+    ProgramMembership.objects.create(program=program, user=member, role=350)
+
+    resp = _client(owner).get(_members_url(program))
+
+    assert resp.status_code == 200, resp.data
+    row = next(m for m in resp.data if str(m["user"]) == str(member.pk))
+    assert row["role"] == 350
+    assert row["role_label"] == "Role 350"
+
+
+def test_every_role_has_a_program_label() -> None:
+    """A new ``Role`` member must be named for the program too, not fall back.
+
+    The map is exhaustive by design: without this, adding an enum value would
+    silently reintroduce a project label on a program surface.
+    """
+    assert set(PROGRAM_ROLE_LABELS) == set(Role)
+
+
+def test_program_membership_str_uses_program_vocabulary(program: Program, member: object) -> None:
+    """The admin/log repr is a program surface too (#3503)."""
+    membership = ProgramMembership(program=program, user=member, role=Role.OWNER)
+    assert "Program Admin" in str(membership)
+    assert "Project Admin" not in str(membership)
+
+
+def test_no_program_permission_refusal_uses_project_vocabulary() -> None:
+    """A refusal on a program surface must not name a *project* role (#3503).
+
+    The exhaustiveness test above guards the map; this guards the **call sites**,
+    which is the half that keeps recurring — #1794 fixed the program card, #3503
+    the members list and three refusal messages, and each time the map was
+    already right and a new surface reached past it. Every ``IsProgram*``
+    permission class only ever refuses on a program, so "Project" in its
+    ``message`` is a defect by construction.
+    """
+    from trueppm_api.apps.access import permissions as perms
+
+    offenders = {
+        name: cls.message
+        for name, cls in vars(perms).items()
+        if name.startswith("IsProgram")
+        and isinstance(cls, type)
+        and isinstance(getattr(cls, "message", None), str)
+        and "Project" in cls.message
+    }
+    assert offenders == {}, f"program refusals naming a project role: {offenders}"

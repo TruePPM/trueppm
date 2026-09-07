@@ -25,11 +25,19 @@ interface TransferOwnershipDialogProps {
   title: string;
   /** One-line plain-English summary of the role reshuffle. */
   description: string;
-  /** Accessible label for the new-owner picker, e.g. "new owner" / "new sponsor". */
+  /**
+   * Accessible label for the new-owner picker, e.g. "new owner" / "new Program
+   * Admin". Name the *role tier* the transfer moves, in the same words the
+   * Members and Access surfaces use — not a synonym for it (#3513).
+   */
   ownerPickerLabel: string;
   /**
-   * When set, renders a second optional picker for the program lead/PM. Only the
-   * program flow passes this (sponsorship can rotate the program manager too).
+   * When set, renders a second optional picker for the project/program `lead`
+   * FK — the display field naming one accountable person, which grants no
+   * access. Only the program flow passes this (sponsorship can reassign the
+   * program lead in the same step). Never label it with a role name: "Program
+   * Manager" is the ordinal-300 permission tier, and the two appeared side by
+   * side in this dialog under one phrase until #3513.
    */
   leadPickerLabel?: string;
   /** Server error message to surface inline, or null. */
