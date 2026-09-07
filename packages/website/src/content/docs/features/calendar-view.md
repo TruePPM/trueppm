@@ -26,6 +26,8 @@ Every task whose date span overlaps the window on screen is drawn. Dates come fr
 
 Month is the default. The grid runs from the Monday on or before the 1st to the Sunday on or after the last day of the anchored month, which is **four to six week rows** depending on how the month falls.
 
+![The Calendar view in Month mode showing task chips spanning days with a critical-path legend](../../../assets/screenshots/calendar.webp)
+
 - Days that belong to the neighboring months are **dimmed** — sunken cell background, muted date number — so the month's own shape stays legible.
 - Saturday and Sunday columns are muted relative to the working week.
 - **Today** gets a tinted cell and its date number in a filled circle.

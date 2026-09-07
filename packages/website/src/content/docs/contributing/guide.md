@@ -134,6 +134,29 @@ make lint       # runs all linters
 make typecheck  # runs all type checkers
 ```
 
+## Documentation screenshots
+
+The product screenshots in the docs (`packages/website/src/assets/screenshots/`)
+are captured from a running dev stack loaded with the **Atlas Platform Launch**
+sample, not edited by hand. When a UI change makes one stale, re-capture it:
+
+```bash
+make up
+docker compose exec api python manage.py load_sample_project --with-personas
+cd packages/website
+npm run screenshots                       # every shot
+npm run screenshots -- --only schedule,board
+npm run screenshots -- --list             # names and routes
+```
+
+The script (`scripts/capture-screenshots.mjs`) signs in through the API as the
+demo PM persona (`atlas-alex`, password `demo` under `DEBUG`) and a contributor
+(`atlas-tom`) for the personal surfaces, dismisses first-run prompts, and writes
+WebP files at a fixed 1600×1000 viewport. Add a new surface by appending an entry
+to its shot list; the `ready` selector should be something that only renders
+after the page's data loads, not the chrome. Reference an image from a page as
+`![descriptive alt text](../../../assets/screenshots/<name>.webp)`.
+
 ## Merge requests
 
 1. Push your branch and open an MR targeting `main`

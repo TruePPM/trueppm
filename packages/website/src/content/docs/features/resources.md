@@ -45,6 +45,8 @@ results.
   `0.5` for half their capacity). Assigning someone who isn't yet on the roster adds them
   automatically.
 
+![The Team roster tab listing each person with role and availability](../../../assets/screenshots/resources-roster.webp)
+
 ## Assignments across projects
 
 :::note[Ships in 0.4 — the Assignments view]
@@ -58,6 +60,8 @@ panel will gain an **Assignments** section that lists every task the resource is
 assigned to, **across every project**, grouped by project. Each task row links to
 that task in its project schedule, and each project heading links to that project's
 allocation view, so you can drill from the catalog straight into the work.
+
+![Program resource contention: people staffed across projects in overlapping windows, flagged over-allocated by week](../../../assets/screenshots/program-resources.webp)
 
 Every row shows the task's status, percent complete, and the resource's allocation
 on that task (the raw `units` fraction of their capacity). A neutral summary — for
@@ -77,6 +81,8 @@ skills) but not the assignments list.
 You can attach **skill requirements** to a task — the skills (and minimum proficiency) the
 work needs. When you assign a resource, TruePPM evaluates the fit and returns it with the
 assignment:
+
+![The Team heatmap tab: average utilization, over-allocated and under-utilized counts, and a per-person weekly utilization grid](../../../assets/screenshots/resources-heatmap.webp)
 
 - **Exact** — the resource meets every requirement.
 - **Partial** — some requirements met, some short on proficiency.

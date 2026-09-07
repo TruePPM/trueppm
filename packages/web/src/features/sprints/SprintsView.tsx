@@ -569,7 +569,9 @@ export function SprintsView() {
   // and summary-in-sprint counts are *project*-level, not per-sprint, so they
   // can't be computed from `backlogTasks` (active sprint only). TanStack Query
   // caches this list with the Schedule view, so we don't refetch on tab swap.
-  const { tasks: projectTasks } = useScheduleTasks(projectId ?? undefined);
+  const { tasks: projectTasks, error: projectTasksError } = useScheduleTasks(
+    projectId ?? undefined,
+  );
   // SCHEDULER+ can pull retro action items into a PLANNED sprint.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
   const canPullCarryover = (currentRole ?? -1) >= ROLE_SCHEDULER;
@@ -909,6 +911,7 @@ export function SprintsView() {
         scopeReviewOpen={scopeReviewOpen}
         canManageScope={canManageScope}
         projectTasks={projectTasks}
+        projectTasksError={projectTasksError}
         onCloseScopeReview={() => setScopeReviewOpen(false)}
         addTaskForSprintId={addTaskForSprintId}
         onCloseAddTask={() => setAddTaskForSprintId(null)}
@@ -1669,6 +1672,7 @@ function SprintModals({
   scopeReviewOpen,
   canManageScope,
   projectTasks,
+  projectTasksError,
   onCloseScopeReview,
   addTaskForSprintId,
   onCloseAddTask,
@@ -1700,6 +1704,7 @@ function SprintModals({
   scopeReviewOpen: boolean;
   canManageScope: boolean;
   projectTasks: Task[] | undefined;
+  projectTasksError: Error | null;
   onCloseScopeReview: () => void;
   addTaskForSprintId: string | null;
   onCloseAddTask: () => void;
@@ -1766,7 +1771,8 @@ function SprintModals({
         <ScopePendingReviewPanel
           projectId={projectId}
           sprintId={activeSprint.id}
-          tasks={projectTasks ?? []}
+          tasks={projectTasks}
+          tasksError={projectTasksError}
           offline={typeof navigator !== 'undefined' && !navigator.onLine}
           onClose={onCloseScopeReview}
         />

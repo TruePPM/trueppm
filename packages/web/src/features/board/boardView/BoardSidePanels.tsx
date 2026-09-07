@@ -5,7 +5,9 @@ import { ScopePendingReviewPanel } from '@/features/sprints/ScopePendingReviewPa
 
 interface BoardSidePanelsProps {
   projectId: string;
-  tasks: Task[];
+  /** The raw tasks query result — `undefined` until it resolves, so the scope review can tell unknown from empty (#3424). */
+  tasks: Task[] | undefined;
+  tasksError: Error | null;
   /** True when a card id resolves to a live card — a deleted card is not openable. */
   isTaskOpenable: (taskId: string) => boolean;
   onOpenTask: (taskId: string) => void;
@@ -28,6 +30,7 @@ interface BoardSidePanelsProps {
 export function BoardSidePanels({
   projectId,
   tasks,
+  tasksError,
   isTaskOpenable,
   onOpenTask,
   activityOpen,
@@ -78,6 +81,7 @@ export function BoardSidePanels({
           projectId={projectId}
           sprintId={activeSprintId}
           tasks={tasks}
+          tasksError={tasksError}
           offline={typeof navigator !== 'undefined' && !navigator.onLine}
           onClose={onCloseScopeReview}
         />
