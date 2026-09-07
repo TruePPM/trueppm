@@ -70,6 +70,26 @@ and re-seeds it, so it is safe to run repeatedly while exploring. The replace is
 scoped by the internal `is_sample` flag the importer sets, so a real project that
 happens to share a name with a sample project is never touched.
 
+Because it is idempotent, adding `--with-personas` to a **later** run is the normal
+way to turn persona logins on after the fact: the flag applies to the persona
+accounts an earlier run already created, not only to accounts the current run
+mints. Two accounts it will not take over:
+
+- one that already has a **usable password of its own** — a real person may hold a
+  username that collides with a namespaced persona slug, and the loader never
+  overwrites a password it did not set;
+- any **staff or superuser** account, even one with an unusable password.
+
+Those are listed back to you by name, with the reason, under a `left untouched`
+heading — the command reports only the accounts the printed password verifiably
+opens, so the list you see is the list that works. To take one of them over
+deliberately, set its password yourself with the
+[administrator fallback](/administration/admin-password/#administrator-fallback):
+
+```bash
+docker compose exec api python manage.py changepassword atlas-mei
+```
+
 ## `create_demo_share_link`
 
 Mints (or pins) the public read-only **share links** used by the hosted demo
@@ -220,7 +240,10 @@ user-facing guide.
   accounts the resolved demo password so they are loginable and prints their real,
   namespaced usernames (e.g. `atlas-alex`) — same resolution as `load_sample_project`
   (`TRUEPPM_DEMO_PASSWORD` if set, else `demo` under `DEBUG=True`, else a random token
-  printed once). Without it the personas exist but carry unusable passwords.
+  printed once). It works on a re-run too, so it is the way to enable persona logins
+  for a sample that was already loaded without the flag; accounts holding a password
+  of their own, and staff/superuser accounts, are reported as left untouched rather
+  than taken over. Without it the personas exist but carry unusable passwords.
 - **`import_seed <path> [--owner <username>] [--create-users] [--no-replace]`** —
   imports a TruePPM JSON seed file into the database. Re-running with the same file
   rebuilds the program subtree idempotently on the program slug. `--create-users`
