@@ -25,6 +25,7 @@ import {
   useStartProgramExport,
 } from '../hooks/useProgramExport';
 import { ROLE_ADMIN } from '@/lib/roles';
+import { MethodologyAlignOffer } from './MethodologyAlignOffer';
 import type {
   DurationChangePercentPolicy,
   EstimationScale,
@@ -49,6 +50,20 @@ const HEALTH_ACTIVE: Record<ProgramHealth, string> = {
   CRITICAL: 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40',
   AUTO: 'bg-brand-primary-light text-brand-primary border-brand-primary/40',
 };
+
+/**
+ * Stable id for the post-save align offer (#3293), so the radiogroup the admin just
+ * moved points `aria-describedby` at it.
+ *
+ * This attribute is the mechanism, not the redundancy. `role="status"` announces
+ * *mutations* of a region already in the accessibility tree (web-rule 335) and this
+ * offer MOUNTS — with the projects list often already in cache, its whole sentence
+ * lands in the same commit as the region, which AT announces inconsistently. The live
+ * region still earns its place (it fires when the partition resolves after the mount),
+ * but the describedby is what makes the counts reachable either way, and it is the
+ * half a test can watch fail.
+ */
+const ALIGN_OFFER_ID = 'program-methodology-align-offer';
 
 const METHODOLOGY_OPTIONS: Array<{ id: ProgramMethodology; label: string }> = [
   { id: 'WATERFALL', label: 'Waterfall' },
@@ -208,6 +223,13 @@ export function ProgramGeneralPage() {
   const [initialHealth, setInitialHealth] = useState<ProgramHealth>('AUTO');
   const [initialTargetDate, setInitialTargetDate] = useState('');
   const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
+  /**
+   * The methodology a save just committed, or null for "no offer" (#3293, D17).
+   * Set only on the success path of `handleSave`, and only when methodology was the
+   * field that moved — a save of the health chip or the program code has nothing to
+   * report about the projects in the program.
+   */
+  const [alignOffer, setAlignOffer] = useState<ProgramMethodology | null>(null);
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
   const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
   const [initialAllowGuests, setInitialAllowGuests] = useState<boolean | null>(null);
@@ -406,9 +428,16 @@ export function ProgramGeneralPage() {
     setInitialVisibility(visibility);
     setInitialColor(color);
     setInitialLead(lead);
+    // D17 — report on a methodology save and nothing else. `mutateAsync` throws on a
+    // failed save, so this line is unreachable on the failure path and the offer can
+    // never claim "Saved." for a write that did not land. `initialMethodology` is the
+    // pre-save snapshot: the setter above does not change the value this closure
+    // captured.
+    setAlignOffer(methodology !== initialMethodology ? methodology : null);
   }, [
     programId,
     updateProgram,
+    initialMethodology,
     name,
     description,
     code,
@@ -469,13 +498,36 @@ export function ProgramGeneralPage() {
     initialLead,
   ]);
 
-  useDirtyForm({
+  const { dirty } = useDirtyForm({
     values,
     initialValues,
     onSave: handleSave,
     onReset: handleReset,
     apiReady: !!program,
   });
+
+  // "Never while dirty" (D17). Once the form has a pending edit again, "Saved." and its
+  // counts describe a state the page is no longer in — a stale partition beside a live
+  // save bar reads as a claim about what is on screen. Dropping the offer is honest;
+  // the next save re-earns it.
+  useEffect(() => {
+    if (dirty) setAlignOffer(null);
+  }, [dirty]);
+
+  /**
+   * The offer's announcement channel (web-rule 335). The region below is mounted
+   * unconditionally and empty; the offer writes its settled sentence into it, so the
+   * text is a mutation of a node already in the accessibility tree rather than arriving
+   * with the node.
+   *
+   * `useCallback` with no deps on purpose — the offer effects on this identity, and a
+   * new function each render would re-announce the same sentence on every keystroke
+   * elsewhere on the form.
+   */
+  const alignLiveRef = useRef<HTMLDivElement>(null);
+  const announceAlign = useCallback((sentence: string) => {
+    if (alignLiveRef.current) alignLiveRef.current.textContent = sentence;
+  }, []);
 
   // The whole General page is editable only at Admin+ (issue 1084). Reads are open;
   // writes are gated server-side, so this render-gate only spares a sub-Admin the
@@ -512,6 +564,10 @@ export function ProgramGeneralPage() {
   const methodologyShown = methodologyLocked
     ? (program?.effective_methodology ?? methodology)
     : methodology;
+  // No offer under a workspace `inherit` lock: the picker is read-only, so the control
+  // cannot go dirty and there is no methodology save to report on. `alignOffer` is
+  // already unreachable there — this states the invariant rather than relying on it.
+  const showAlignOffer = alignOffer != null && !methodologyLocked;
 
   return (
     <div>
@@ -700,42 +756,76 @@ export function ProgramGeneralPage() {
             })}
           >
             {({ describedBy }) => (
-              <div
-                className="flex gap-2"
-                role="radiogroup"
-                aria-label="Methodology"
-                // The hint is the whole payload of #3293 — it says what setting this
-                // does and does not do. Adjacent text is not enough: without this the
-                // radiogroup announces only "Methodology, radio group".
-                aria-describedby={describedBy}
-              >
-                {METHODOLOGY_OPTIONS.map((opt) => {
-                  const isSelected = methodologyShown === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => {
-                        if (methodologyEditable) setMethodology(opt.id);
-                      }}
-                      disabled={!methodologyEditable}
-                      role="radio"
-                      aria-checked={isSelected}
-                      className={[
-                        'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                        !methodologyEditable ? 'cursor-not-allowed' : '',
-                        isSelected
-                          ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                          : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                        !methodologyEditable && !isSelected ? 'opacity-60' : '',
-                      ].join(' ')}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                <div
+                  className="flex gap-2"
+                  role="radiogroup"
+                  aria-label="Methodology"
+                  // The hint is the whole payload of #3293 — it says what setting this
+                  // does and does not do. Adjacent text is not enough: without this the
+                  // radiogroup announces only "Methodology, radio group". The align offer
+                  // joins it while it is mounted (web-rule 335(a)) so the resolved counts
+                  // are reachable from the control that produced them.
+                  aria-describedby={
+                    [describedBy, showAlignOffer ? ALIGN_OFFER_ID : null]
+                      .filter(Boolean)
+                      .join(' ') || undefined
+                  }
+                >
+                  {METHODOLOGY_OPTIONS.map((opt) => {
+                    const isSelected = methodologyShown === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          if (methodologyEditable) setMethodology(opt.id);
+                        }}
+                        disabled={!methodologyEditable}
+                        role="radio"
+                        aria-checked={isSelected}
+                        className={[
+                          'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                          !methodologyEditable ? 'cursor-not-allowed' : '',
+                          isSelected
+                            ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                            : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                          !methodologyEditable && !isSelected ? 'opacity-60' : '',
+                        ].join(' ')}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* #3293 — the hint says a program's methodology does not reach existing
+                    projects; this says which ones that leaves, and links to the one
+                    surface that can change them. It navigates and never writes (D19). */}
+                {showAlignOffer && programId && alignOffer && (
+                  <MethodologyAlignOffer
+                    id={ALIGN_OFFER_ID}
+                    programId={programId}
+                    methodology={alignOffer}
+                    onAnnounce={announceAlign}
+                  />
+                )}
+                {/* The offer's live region, mounted ALWAYS and ALWAYS empty (web-rule
+                    335). The offer itself appears only after a save, so a `role="status"`
+                    on its own container would enter the accessibility tree carrying its
+                    whole sentence — the shape AT announces inconsistently. Keeping the
+                    region here, outside the conditional, is what makes the sentence a
+                    mutation of an existing node. It is deliberately NOT the panel: the
+                    visible copy and the spoken copy differ (the spoken one names the
+                    link, which a sighted reader can simply see). */}
+                <div
+                  ref={alignLiveRef}
+                  aria-live="polite"
+                  role="status"
+                  className="sr-only"
+                  data-testid="methodology-align-live"
+                />
+              </>
             )}
           </FieldRow>
 

@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { useBulkProjectFields } from '@/hooks/useBulkProjectFields';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
-import { BulkFieldsMatrix, type FieldDescriptor } from '../components/BulkFieldsMatrix';
+import {
+  BULK_FIELDS_MAX_ROWS,
+  BulkFieldsMatrix,
+  type FieldDescriptor,
+} from '../components/BulkFieldsMatrix';
 import {
   DEVIATES,
   METHODOLOGY_LABEL,
@@ -29,10 +33,83 @@ export function ProgramProjectsPage() {
   const bulkFields = useBulkProjectFields(programId);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [methodologyFilter, setMethodologyFilter] =
-    useState<MethodologyDeviationFilterValue>('ALL');
+
   const isNarrow = useBreakpoint() === 'sm';
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const [methodologyFilter, setMethodologyFilter] =
+    useState<MethodologyDeviationFilterValue>('ALL');
+
+  /**
+   * Deep-link arrival contract (#3293, D41). The canonical link is
+   * `/programs/{id}/settings?bulk=methodology&only=deviating#projects`, emitted by the
+   * post-save align offer on the General section.
+   *
+   * It is an **effect on the params, not a mount-time read**, and that is not a style
+   * choice: program settings is one consolidated scrolling page (ADR-0146), so this
+   * section is ALREADY MOUNTED when the offer's link is clicked. A `useState`
+   * initializer would run exactly once, before the admin ever saved, and the link would
+   * arm nothing — green in a standalone unit test and dead in the product.
+   *
+   * "Once per arrival" is enforced by the strip: the params are removed with
+   * `replace: true` in the same commit that arms, so a refresh or a Back lands on the
+   * plain page rather than silently re-checking rows the admin has since changed. Note
+   * what that does NOT cover — a URL copied or hand-built *before* the strip arms on a
+   * cold load, which is deliberate and harmless: the contract seeds a filter and a
+   * selection, never a staged value, so the worst a shared link can do is pre-check
+   * rows. Apply still needs a value the recipient chose.
+   *
+   * **It scrolls itself, and must.** `SettingsShell`'s hash effect is guarded
+   * once-per-hash-*value* (`lastHandledHashRef`), and this link's hash is always
+   * `#projects`. Nothing rewrites the hash on scroll, so on a second use — link, wheel
+   * back up to General, save, link again — the shell's effect early-returns and the
+   * viewport never moves while this section silently filters and pre-checks rows
+   * off-screen. See web-rule 399.
+   */
+  const [searchParams] = useSearchParams();
+  const [arrival, setArrival] = useState<number | null>(null);
+  const arrivals = useRef(0);
+  useEffect(() => {
+    const hasParams = searchParams.has('bulk') || searchParams.has('only');
+    if (!hasParams) return;
+    // A half-formed link is not the contract — a stray `bulk` alone must not preselect
+    // a cohort nobody named. Either way the params are cleaned up.
+    if (searchParams.get('bulk') === 'methodology' && searchParams.get('only') === 'deviating') {
+      arrivals.current += 1;
+      setArrival(arrivals.current);
+      setMethodologyFilter(DEVIATES);
+      // Deferred so the narrowed rows are laid out before we measure. `scroll-mt-6` on
+      // `SettingsSection` clears the sticky header, which is why the section element is
+      // the target rather than the matrix. Guarded for jsdom, which has no
+      // `scrollIntoView`, and for the standalone-route mount, which has no section.
+      requestAnimationFrame(() => {
+        const section = document.querySelector('[data-settings-section="projects"]');
+        if (section instanceof HTMLElement && typeof section.scrollIntoView === 'function') {
+          section.scrollIntoView({
+            block: 'start',
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+              ? 'auto'
+              : 'smooth',
+          });
+        }
+      });
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('bulk');
+    next.delete('only');
+    void navigate(
+      {
+        pathname: location.pathname,
+        search: next.toString() ? `?${next.toString()}` : '',
+        // Carried forward so the shell's own hash handling still works on a COLD load,
+        // where it is the thing that scrolls. The explicit scroll above is what covers
+        // the in-page case the shell's once-per-hash guard cannot.
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [searchParams, navigate, location.pathname, location.hash]);
 
   // Admin/Owner can manage program membership (ADR-0072 role ordinals). Gates
   // "+ Add project" / "Import" — assigning a project to a program is a project-
@@ -182,6 +259,25 @@ export function ProgramProjectsPage() {
   if (!programId) return null;
 
   const projectCount = projects?.length ?? 0;
+
+  /**
+   * What the arrival says on the matrix's live region (#3293, D41).
+   *
+   * A full sentence, matching the register the same region already uses ("Selection
+   * cleared. Showing 3 projects.") rather than a comma-spliced fragment ending on a bare
+   * field name — and it names the **next act**, because D19 stages nothing on purpose, so
+   * Apply is disabled on arrival and "choose a value, then Apply" is the one thing a
+   * screen-reader user cannot infer from the value control the way a sighted one can.
+   *
+   * Below `md` the matrix drops every write affordance (`narrowReadOnly`), so there is no
+   * selection to speak of and no Apply to reach: claiming "N selected" there would be a
+   * live region describing controls that are not on the page.
+   */
+  const armedCount = Math.min(visibleProjects.length, BULK_FIELDS_MAX_ROWS);
+  const arrivalNote = isNarrow
+    ? `Showing the ${visibleProjects.length} of ${projectCount} projects that differ from the program methodology. Bulk edits need a wider screen.`
+    : `Methodology selected for ${armedCount} of ${projectCount} projects. Choose a methodology, then Apply.`;
+
   const deviationLabel = methodologyLocked
     ? 'Deviates from workspace'
     : 'Deviates from default';
@@ -295,6 +391,14 @@ export function ProgramProjectsPage() {
               />
             ) : (
               <BulkFieldsMatrix
+                /* An arrival re-seeds the matrix, so it remounts (#3293, D41). The
+                   arrival props are mount-time seeds by design — re-applying them on
+                   every render would fight the admin's own clicks — and this section is
+                   already mounted when the deep link fires, so the key is what makes
+                   the seed reachable. Remounting also guarantees the arrival stages
+                   nothing: any value the admin had staged before is discarded, which is
+                   the state D41 requires. */
+                key={arrival ?? 'plain'}
                 rows={visibleProjects}
                 rowKey={(p) => p.id}
                 rowLabel={(p) => p.name}
@@ -307,6 +411,17 @@ export function ProgramProjectsPage() {
                 selectionResetKey={methodologyFilter}
                 tallyRows={projects}
                 narrowReadOnly
+                {...(arrival != null
+                  ? {
+                      initialFieldKey: 'methodology',
+                      // The rows the deep link named: whatever the DEVIATES filter is
+                      // showing at the moment the matrix first mounts. The matrix
+                      // clamps to its own cap, so the sentence on the offer
+                      // ("Align the first 200") and what arrives here agree.
+                      initialSelection: visibleProjects.map((p) => p.id),
+                      arrivalNote: arrivalNote,
+                    }
+                  : {})}
                 scopeNote={
                   activeFilterLabel ? (
                     <>
