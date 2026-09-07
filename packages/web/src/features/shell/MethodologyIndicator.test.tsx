@@ -133,3 +133,33 @@ describe('MethodologyIndicator (issue #1907, restoring #1469 after #1680)', () =
     expect(container.firstChild).toBeNull();
   });
 });
+
+/**
+ * Unavailable-project suppression (#3469).
+ *
+ * This badge reads the same `?? 'HYBRID'` literal the rail subtitle did, and it
+ * renders in exactly the state where that subtitle is off screen (collapsed rail) —
+ * so suppressing the rail alone would leave this as the ONLY methodology claim
+ * visible on a project that is not there.
+ */
+describe('MethodologyIndicator — project unavailable', () => {
+  it.each([404, 403])('renders nothing when the project query fails with %i', (status) => {
+    mockUseProject.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: { isAxiosError: true, response: { status } },
+    });
+    renderWithRouter(<MethodologyIndicator />);
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('still renders on a transient server error', () => {
+    mockUseProject.mockReturnValue({
+      data: { id: 'proj-1', methodology: 'HYBRID', effective_methodology: 'HYBRID' },
+      isLoading: false,
+      error: { isAxiosError: true, response: { status: 500 } },
+    });
+    renderWithRouter(<MethodologyIndicator />);
+    expect(screen.getByRole('img')).toBeInTheDocument();
+  });
+});

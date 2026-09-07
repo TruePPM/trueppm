@@ -20,11 +20,20 @@ vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: vi.fn(() => 'p1'),
 }));
 
+// Mocked rather than driven through `useProject`: the bar reads only the boolean,
+// and the predicate itself (404/403 → true) has its own coverage in
+// `useProjectUnavailable.test.ts`.
+const projectUnavailable = vi.hoisted<{ current: boolean }>(() => ({ current: false }));
+vi.mock('@/hooks/useProjectUnavailable', () => ({
+  useProjectUnavailable: () => projectUnavailable.current,
+}));
+
 import { useProjectId } from '@/hooks/useProjectId';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   mockUseProjectId.mockReturnValue('p1');
+  projectUnavailable.current = false;
   // Default to a live connection so the pre-existing presence assertions hold.
   useWsConnectionStore.setState({ state: 'live', reconnectAttempts: 0 });
 });
@@ -166,5 +175,44 @@ describe('StatusBar', () => {
       });
       expect(screen.getByText(/won't be saved/i)).toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * Unavailable-project suppression (#3469).
+ *
+ * `ProjectShell` deliberately holds the project WebSocket closed when the project
+ * 404s, so `wsConnectionStore` never leaves `connecting` — and the bar reported
+ * "Connecting…" for the rest of the session, on a project that will never connect.
+ * The pill's empty form is absence: there is no channel to report on.
+ */
+describe('StatusBar — project unavailable', () => {
+  it('renders no connection pill when the project is unavailable', () => {
+    projectUnavailable.current = true;
+    useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p-missing/overview'] });
+
+    expect(screen.queryByText(/connecting/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/connecting to live updates/i)).not.toBeInTheDocument();
+    // The bar itself stays — build provenance is not project-scoped.
+    expect(screen.getByRole('contentinfo', { name: /application status/i })).toBeInTheDocument();
+    expect(screen.getByText(/build test-sha/i)).toBeInTheDocument();
+  });
+
+  it('announces no connection transition while the project is unavailable', () => {
+    projectUnavailable.current = true;
+    useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p-missing/overview'] });
+
+    act(() => {
+      useWsConnectionStore.setState({ state: 'failed', reconnectAttempts: 3 });
+    });
+    expect(screen.queryByText(/your session expired/i)).not.toBeInTheDocument();
+  });
+
+  it('still renders the pill on a project that IS available', () => {
+    useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p1/overview'] });
+    expect(screen.getByLabelText(/connecting to live updates/i)).toBeInTheDocument();
   });
 });
