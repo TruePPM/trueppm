@@ -72,6 +72,13 @@ const PROJECT = {
  * rendered the retired "On watch", 54.48px, overflowing by 8px and pushing the
  * account chip's right edge to 377.20px, off a 375px screen). Both are now
  * inputs rather than the choice, so neither can be restored by accident.
+ *
+ * Since #3501 the chip prints the server's `health_band` instead of deriving one
+ * from the counts, so the band has to travel in the payload: `statusSummary`
+ * emits `health_band`, and without it every row of this matrix renders the same
+ * "On track" word through the `?? 'on_track'` fallback — the sweep would test one
+ * band three times while its comment claimed three. The counts stay because the
+ * popover rows still render them.
  */
 const BANDS = [
   { band: 'on_track', at_risk_count: 0, critical_count: 0 },
@@ -79,13 +86,14 @@ const BANDS = [
   { band: 'critical', at_risk_count: 3, critical_count: 2 },
 ] as const;
 
-function statusSummary({ at_risk_count, critical_count }: (typeof BANDS)[number]) {
+function statusSummary({ band, at_risk_count, critical_count }: (typeof BANDS)[number]) {
   return {
     task_count: 8,
     critical_path_count: 2,
     // A P80 forecast date also wants to render in the chip, immediately left of
     // the sync badge — the widest the cluster ever gets on a phone.
     monte_carlo_p80: '2026-09-07',
+    health_band: band,
     at_risk_count,
     critical_count,
     at_risk_tasks: [],

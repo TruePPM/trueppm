@@ -2,13 +2,22 @@
  * The one project health vocabulary (web rule 7, ADR-0126 "One status
  * vocabulary": a dot is health, a pill/chip is state).
  *
- * A health band is a **server fact**. `GET /projects/my-projects-health/`
- * returns it as `health_band`, derived by `views.py::compute_band` — the manual
- * `Project.health` override when it is not AUTO, otherwise counts-first:
- * `critical_count > 0` → critical, else `at_risk_count > 0` → at_risk, else
- * on_track. A surface that prints a band word should read `HEALTH_BAND_LABEL`
- * rather than a literal, so the product cannot grow a fourth word for a
- * three-value vocabulary.
+ * A health band is a **server fact**, and this module deliberately holds no way
+ * to compute one. `GET /projects/health-summary/` and
+ * `GET /projects/{id}/status-summary/` both return it as `health_band`, from the
+ * one `views.py::compute_health_band` — the manual `Project.health` override
+ * when it is not AUTO, otherwise counts-first: `critical_count > 0` → critical,
+ * else `at_risk_count > 0` → at_risk, else on_track. A surface that prints a
+ * band word should read `HEALTH_BAND_LABEL` rather than a literal, so the
+ * product cannot grow a fourth word for a three-value vocabulary.
+ *
+ * This module used to export a `deriveHealthBand(criticalCount, atRiskCount)`
+ * for the shell chip, whose payload carried the counts but not the band. It was
+ * only ever the counts branch, so it could not see the manual override, and the
+ * chip printed "On track" over a project its own PM had reported Critical
+ * (#3501). `status-summary` now carries `health_band` and the helper is gone —
+ * do not reintroduce it. If a new payload cannot carry a band, add the field to
+ * that payload rather than a second copy of the rule here.
  *
  * Be honest about the coverage that claim currently has: the shell health chip,
  * the program rollup (`ProgramOverviewPage`, which adds `unknown`) and the
@@ -35,19 +44,3 @@ export const HEALTH_BAND_LABEL: Record<HealthBand, string> = {
   at_risk: 'At risk',
   critical: 'Critical',
 };
-
-/**
- * The counts-first branch of the server's `compute_band`, for a surface that
- * holds the at-risk / critical counts but not the band itself (the shell's
- * `status-summary` payload). Deliberately the same order of tests as the
- * server: worst state wins, and there is no other math.
- *
- * This does NOT see the manual `Project.health` override — a caller that has
- * the server's `health_band` must use that value directly rather than
- * re-deriving it here.
- */
-export function deriveHealthBand(criticalCount: number, atRiskCount: number): HealthBand {
-  if (criticalCount > 0) return 'critical';
-  if (atRiskCount > 0) return 'at_risk';
-  return 'on_track';
-}

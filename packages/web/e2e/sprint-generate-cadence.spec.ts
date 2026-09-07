@@ -276,6 +276,7 @@ async function setupCommon(page: import('@playwright/test').Page): Promise<void>
       body: JSON.stringify({
         task_count: 0,
         critical_path_count: 0,
+        health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,
         critical_count: 0,
