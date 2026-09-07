@@ -54,7 +54,7 @@ export function MembersTab() {
         )}
 
         {!isLoading && !isError && members.length === 0 && (
-          <p className="text-sm text-neutral-text-disabled py-4">
+          <p className="text-sm text-neutral-text-secondary py-4">
             No members yet. Add someone below.
           </p>
         )}
