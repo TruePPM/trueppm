@@ -75,7 +75,7 @@ here affect every project in the program.
 | Accent color | Program accent swatch used in nav and health chrome. |
 | Description | Free-text summary of the program's purpose. |
 | Target date | The program's headline target finish date. |
-| Program manager | The program lead — the person accountable for the program. |
+| Program lead | The one person named as accountable for the program. A display field only — it grants no access. Permissions come from a member's program role (Program Admin, Program Manager, Resource Manager, Team Member, Viewer), set under **Access**. |
 | Health | Manual health override (On track / At risk / Critical), or **Auto** to let the [rollup](#rollup-kpis) compute it. |
 | Methodology | Planning model new projects created in this program start with. It seeds new projects only — projects already in the program keep their own. See [Methodology presets](/features/methodology-preset/). |
 | Iteration terminology | What the program calls its iteration container (Sprint, Iteration, Cycle…). Inherits the workspace default. |
@@ -100,6 +100,28 @@ and after that it keeps its own — changing the program's methodology later lea
 every existing project where it was. This matrix is how you move them. (The
 iteration label is different: it is a true nullable override, so clearing it on a
 project really does fall back to the program's.)
+
+### After you save a methodology
+
+:::note[Ships in 0.4]
+The post-save report described here ships in **TruePPM 0.4**, the first beta. In
+`v0.3.0-alpha.3`, the latest release, a methodology save on the General section
+says nothing about the projects already in the program — you have to open this
+matrix and read the rows yourself.
+:::
+
+From 0.4, saving the **Methodology** on the General section will report the
+partition it left behind, immediately under the picker:
+
+> Saved. 9 of 12 projects in this program run as Waterfall; 3 do not. Existing
+> projects keep their own methodology. **Align the 3**
+
+**Align the 3** will scroll you to this matrix with the *Deviates from default*
+filter already applied, those rows already checked and **Methodology** already
+chosen in the field picker. It will **not** stage a value, so **Apply** stays
+disabled until you pick one — the link takes you to the change, it does not make
+it. Where the program has no projects, or where every project already matches,
+the message will say that instead of showing nothing.
 
 ### Seeing which projects deviate from the default
 
@@ -308,7 +330,9 @@ lifecycle actions (#530). Every action here is logged and reviewable in the
 [workspace audit log](/administration/audit-log/):
 
 - **Close / Reopen** — end the program's active phase, or reopen a closed program.
-- **Transfer sponsorship** — reassign the program to a new manager.
+- **Transfer sponsorship** — hand the **Program Admin** role to another member. You
+  step down to **Program Manager**, and can optionally reassign the **program lead**
+  in the same step. The new Program Admin must already be a program member.
 - **Split into sub-programs** — divide the program's projects into new programs.
 - **Delete program** — permanently remove the program. This is a destructive,
   confirmation-gated action; before deleting, consider exporting first — see

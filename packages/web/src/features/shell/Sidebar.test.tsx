@@ -1725,3 +1725,101 @@ describe('Sidebar unannotated rows', () => {
     expect(screen.getByRole('img', { name: 'health unknown' })).toBeInTheDocument();
   });
 });
+
+/**
+ * Route-level not-found (#3469).
+ *
+ * The rail is mounted by `AppShell`, beside — not inside — the route that
+ * `ProjectShell` renders `ProjectNotFound` into, so on a project the caller cannot
+ * open Tier 2 kept drawing a header card from literal fallbacks: `'Project'`,
+ * `'HYBRID'`, `'unknown'`. It read as a real project sitting next to a page saying
+ * the project is not available.
+ */
+describe('Sidebar — project unavailable', () => {
+  beforeEach(() => {
+    mockUseProjectId.mockReturnValue('p-missing');
+    mockUseProject.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: { isAxiosError: true, response: { status: 404 } },
+    });
+  });
+
+  it('does not render the "This project" tier', () => {
+    renderRail();
+    expect(screen.queryByRole('heading', { name: 'This project' })).not.toBeInTheDocument();
+    // The placeholder card the tier drew from its fallbacks is gone with it.
+    expect(screen.queryByText('Hybrid methodology')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the pinned tier, so the rail still gets the user somewhere', () => {
+    renderRail();
+    expect(screen.getByText(/Pin a project from its Overview/)).toBeInTheDocument();
+  });
+
+  it('keeps the project tier on a transient server error', () => {
+    // A 500 is not "not yours" — the route keeps rendering, so the rail must too.
+    mockUseProject.mockReturnValue({
+      data: HYBRID_PROJECT,
+      isLoading: false,
+      error: { isAxiosError: true, response: { status: 500 } },
+    });
+    renderRail();
+    expect(screen.getByRole('heading', { name: 'This project' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Program membership reaches the project count (#3469).
+ *
+ * `GET /projects/` is membership-scoped, so a program Owner holding no
+ * `ProjectMembership` read as a brand-new user and the rail offered them
+ * "No projects yet — create one or load a demo" for a program they run.
+ */
+describe('Sidebar — program Owner with no project memberships', () => {
+  beforeEach(() => {
+    mockUseProjects.mockReturnValue({ data: [], count: 0 });
+    mockUsePrograms.mockReturnValue({
+      data: [{ id: 'prog1', name: 'Artemis', code: 'ART', color: null, project_count: 4 }],
+    });
+  });
+
+  it('does not offer the zero-project onboarding', () => {
+    renderRail();
+    expect(screen.queryByText(/No projects yet/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Pin a project from its Overview/)).toBeInTheDocument();
+  });
+
+  it('still offers it when the program is genuinely empty', () => {
+    mockUsePrograms.mockReturnValue({
+      data: [{ id: 'prog1', name: 'Artemis', code: 'ART', color: null, project_count: 0 }],
+    });
+    renderRail();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No projects yet — create one or load a demo.',
+    );
+  });
+});
+
+/**
+ * The rail's project subtitle must not name a program the viewer cannot open
+ * (#3469) — `program_detail` is served to any project member regardless of
+ * program membership, so reading it there pointed the subtitle at a 404.
+ */
+describe('Sidebar — project member outside the program', () => {
+  it('drops the program name from the tier subtitle', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    // The project's program is absent from the member-scoped program list.
+    mockUsePrograms.mockReturnValue({ data: [] });
+    renderRail();
+    expect(screen.queryByText(/Artemis/)).not.toBeInTheDocument();
+    // The methodology half of the subtitle survives.
+    expect(screen.getByText('Hybrid methodology')).toBeInTheDocument();
+  });
+
+  it('keeps the program name when the caller IS a program member', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    renderRail();
+    expect(screen.getByText(/Artemis/)).toBeInTheDocument();
+  });
+});

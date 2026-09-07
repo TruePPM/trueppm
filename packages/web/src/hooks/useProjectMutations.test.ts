@@ -109,6 +109,32 @@ describe('useUpdateProject', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
   });
+
+  it("invalidates the project's notification preferences, whose zone the project timezone decides", async () => {
+    // `Project.timezone` is an input to `quiet_hours_timezone`, which the server
+    // computes on a DIFFERENT endpoint (#3377/#3397). Nothing optimistically
+    // recomputes that chain and no event reports it, so without this the
+    // editor's own Notifications page captions the quiet-hours window with the
+    // pre-edit zone for the whole 30s staleTime — stating a WRONG zone, which
+    // is worse than the omission the caption exists to fix (web-rule 331(d)).
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateProject('proj-1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ timezone: 'Asia/Tokyo' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['project-notification-preferences', 'proj-1'],
+    });
+  });
+
+  it('does not invalidate a notification-preference cache for a null project', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateProject(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ timezone: 'Asia/Tokyo' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['project-notification-preferences', null],
+    });
+  });
 });
 
 describe('useCalendars', () => {

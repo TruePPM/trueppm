@@ -141,10 +141,34 @@ interface Props<Row> {
    * set of rows underneath the checkboxes is no longer the set the user checked.
    */
   selectionResetKey?: string | number;
+  /**
+   * Arrival contract for a deep link into this matrix (#3293, D41). All three are read
+   * **once, at mount**; nothing here re-arms on a later render, because a deep link is
+   * an arrival and not a mode.
+   *
+   * `initialFieldKey` seeds the field picker, `initialSelection` seeds the checked rows
+   * (clamped to `maxRows`), and `arrivalNote` is spoken on the live region this matrix
+   * already owns rather than adding a second one.
+   *
+   * What is deliberately NOT here is a staged value: the link stages nothing, so Apply
+   * stays disabled and the preview cannot be reached without the admin's own press. A
+   * URL that could arrive pre-armed would be a bulk write behind a link.
+   */
+  initialFieldKey?: string;
+  initialSelection?: readonly string[];
+  arrivalNote?: string;
 }
 
 const UNSET = Symbol('unset');
 type Staged = BulkFieldValue | typeof UNSET;
+
+/**
+ * Rows a single Apply may reach. Exported because callers must state the same number in
+ * their own copy — the align offer's "Align the first 200" and the Projects section's
+ * arrival announcement both promise it (#3293) — and three independent `200` literals
+ * is how one of them goes stale silently.
+ */
+export const BULK_FIELDS_MAX_ROWS = 200;
 
 const GRID_CHECKBOX = '36px';
 const GRID_NAME = 'minmax(180px, 1fr)';
@@ -160,16 +184,31 @@ export function BulkFieldsMatrix<Row>({
   isApplying,
   entityNoun,
   rowNoun,
-  maxRows = 200,
+  maxRows = BULK_FIELDS_MAX_ROWS,
   scopeNote,
   selectionResetKey,
   tallyRows,
   narrowReadOnly = false,
+  initialFieldKey,
+  initialSelection,
+  arrivalNote,
 }: Props<Row>) {
   const isNarrow = useBreakpoint() === 'sm' && narrowReadOnly;
   const editableFields = useMemo(() => fields.filter((f) => !f.locked), [fields]);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
-  const [fieldKey, setFieldKey] = useState<string>(() => editableFields[0]?.key ?? '');
+  // Lazy initializers, on purpose: the arrival props are a mount-time seed, not a
+  // controlled value. Re-applying them on a later render would fight the admin's own
+  // clicks — checking a fourth row would snap back to the three the link chose.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(
+    () => new Set((initialSelection ?? []).slice(0, maxRows)),
+  );
+  const [fieldKey, setFieldKey] = useState<string>(() => {
+    // Only honor a field that exists AND is editable — a locked field is not in the
+    // picker, so seeding it would leave the select showing a value it cannot hold.
+    if (initialFieldKey && editableFields.some((f) => f.key === initialFieldKey)) {
+      return initialFieldKey;
+    }
+    return editableFields[0]?.key ?? '';
+  });
   const [staged, setStaged] = useState<Staged>(UNSET);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const liveRef = useRef<HTMLDivElement>(null);
@@ -209,6 +248,22 @@ export function BulkFieldsMatrix<Row>({
   }, []);
 
   /**
+   * Arrival announcement (#3293, D41). It rides the live region this matrix already
+   * owns — a second region for one sentence would leave two of them racing on the same
+   * page — and it fires once: the note describes an arrival, not a state to re-state.
+   *
+   * Deliberately NOT paired with a `.focus()`. Seating focus here would fight the
+   * `#projects` anchor scroll the deep link depends on, and the payload is the sentence,
+   * not the name of whatever control focus would land on.
+   */
+  const arrivalSpoken = useRef(false);
+  useEffect(() => {
+    if (arrivalSpoken.current || !arrivalNote) return;
+    arrivalSpoken.current = true;
+    announce(arrivalNote);
+  }, [arrivalNote, announce]);
+
+  /**
    * Per-column deviation tally. `null` means "no row in this column could be
    * compared" — the column then says nothing at all, which is a different state
    * from "checked, and none differ" and must not collapse into it.
@@ -240,6 +295,30 @@ export function BulkFieldsMatrix<Row>({
     setSelected(new Set());
     announce(`Selection cleared. Showing ${rows.length} ${entityNoun}.`);
   }, [selectionResetKey, rows.length, entityNoun, announce]);
+
+  /**
+   * Drop checked ids that are no longer on screen (#3293).
+   *
+   * `selectionResetKey` covers a cohort change the MOUNT knows about — the admin moved
+   * the filter. It cannot see a background refetch replacing `rows` underneath an
+   * unchanged filter, which is exactly what a deep-link arrival races: the roster is
+   * invalidated by the save that produced the link. Without this, `selected` keeps ids
+   * the user can no longer see, the action bar reads "Apply to 3 selected" over nine
+   * visible unchecked rows, and an Apply writes to rows nobody chose — the hazard the
+   * reset effect below already names, arriving through a door it does not watch.
+   *
+   * Pruning rather than clearing: the rows that ARE still present were genuinely chosen,
+   * and clearing on any refetch would make the matrix unusable on a polling surface.
+   */
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const present = new Set(allKeys);
+      const next = new Set<string>();
+      for (const id of prev) if (present.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [allKeys]);
 
   const runApply = useCallback(
     async (value: BulkFieldValue) => {

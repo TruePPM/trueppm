@@ -49,8 +49,18 @@ export function LocationSwitcher() {
   if (isMobile) {
     // Non-interactive wayfinding: Project › Leaf (program omitted to save width;
     // switching happens through the rail drawer).
+    //
+    // `shrink-[9999]` states the phone order of sacrifice (#3505). The bar's right
+    // region is no longer `shrink-0` below md — it has to be able to give, or the
+    // status strip pushes past the bar instead of scrolling (rule 290) — but the
+    // moment both are shrinkable, flexbox distributes the squeeze *proportionally*
+    // and the two labels here would keep width while the health chip scrolled away
+    // under the pinned chrome. The overwhelming weight restores the sequence
+    // #1788 chose: this non-interactive wayfinding, whose labels truncate cleanly,
+    // collapses first, and only the residue reaches the strip. Not on the desktop
+    // branch below, where the weights are the other way round by design.
     return (
-      <nav aria-label="Location" className="flex min-w-0 items-center">
+      <nav aria-label="Location" className="flex min-w-0 shrink-[9999] items-center">
         {model.project?.currentName && (
           <>
             <span className="max-w-[8rem] truncate text-sm font-medium text-chrome-text-secondary">

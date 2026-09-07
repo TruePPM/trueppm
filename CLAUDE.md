@@ -302,7 +302,17 @@ cannot be regenerated, and therefore depend on the originals being retained:
 - the GiST index on `projects_task.wbs_path` — `RunSQL` (powers ltree subtree /
   ancestor queries);
 - the composite `(project_id, history_date)` index on `projects_historicaltask` —
-  a raw `CREATE INDEX` operation.
+  a raw `CREATE INDEX` operation;
+- the functional index on `UPPER(auth_user.email::text)` (`profiles.0009`) — a raw
+  `CREATE INDEX` operation. `auth.User` is a `django.contrib` model we do not own,
+  so `Meta.indexes` is unavailable and the index exists **DB-side only**, with no
+  `state_operations`. It backs the `email__iexact` lookups on the login fallback,
+  password reset, OIDC account linking, workspace invites and inbound Jira
+  assignee mapping; Django compiles `iexact` to `UPPER(email::text) = UPPER(%s)`,
+  so a plain btree on the column would not be used and cannot substitute for it.
+  `revoke_api_tokens` is the one call site it does **not** help — it matches
+  `username` OR `email` in a single query, and an OR can only use indexes when
+  both sides have one.
 
 Trigram **GIN** indexes are declared in model `Meta` and regenerate automatically;
 only the raw `RunSQL` and extension operations rely on the originals being kept.

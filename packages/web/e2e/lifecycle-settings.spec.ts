@@ -392,7 +392,18 @@ test.describe('Program lifecycle settings (#530)', () => {
 
     await expect(dialog.getByRole('button', { name: /Confirm transfer/i })).toBeDisabled();
 
-    // Two pickers render (new sponsor + optional new PM); pick the sponsor only.
+    // The two pickers are labeled by the concept each sets, in the server's
+    // program-scoped role vocabulary (`_PROGRAM_ROLE_LABELS`) rather than the
+    // project-scoped `Role` enum keys — and the display FK is "program lead",
+    // never "program manager", which named both at once here before #3513.
+    await expect(dialog).toContainText('New Program Admin');
+    await expect(dialog).toContainText('New program lead');
+    await expect(dialog).toContainText('step down to Program Manager');
+    await expect(dialog).not.toContainText(/demoted/i);
+    await expect(dialog).not.toContainText(/new program manager/i);
+
+    // Two pickers render (new Program Admin + optional new program lead); pick
+    // the first only.
     await dialog.getByRole('button', { name: 'Assign' }).first().click();
     // Listbox portals to document.body (useAnchoredPopover, #1966) — scope to page.
     await page.getByRole('option', { name: 'bob' }).click();

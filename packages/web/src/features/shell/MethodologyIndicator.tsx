@@ -1,5 +1,6 @@
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useShellStore } from '@/stores/shellStore';
 import { methodologyStatusLabel } from '@/lib/methodologyLabel';
 import { Tooltip } from '@/components/Tooltip';
@@ -55,8 +56,14 @@ export function MethodologyIndicator() {
   const projectId = useProjectId();
   const project = useProject(projectId);
   const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
+  const projectUnavailable = useProjectUnavailable(projectId);
 
-  if (!projectId || !sidebarCollapsed) return null;
+  // …and not on a project the caller cannot open (#3469). This badge reads the same
+  // `?? 'HYBRID'` literal the rail's subtitle did, and it renders in exactly the
+  // state where that subtitle is off screen (collapsed rail) — so suppressing the
+  // rail alone would leave this as the ONLY methodology claim visible, on a project
+  // that is not there.
+  if (!projectId || !sidebarCollapsed || projectUnavailable) return null;
 
   // Server-resolved preset (web-rule 196) — the same value the rail subtitle
   // reads, so the two surfaces can never drift on which methodology is "current".

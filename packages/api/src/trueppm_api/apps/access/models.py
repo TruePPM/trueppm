@@ -62,6 +62,11 @@ class Role(models.IntegerChoices):
     carries the last-Owner guard invariant throughout the codebase. The human-
     readable label is "Project Admin" for API consumers.
 
+    The labels above are **project-scoped**. A program names the same two top
+    ordinals differently — see :data:`PROGRAM_ROLE_LABELS` below, which is the
+    single source of that vocabulary; any new member added here must be added
+    there too or the mapping test fails.
+
     NEVER compare against a raw integer literal (e.g. ``if role < 1``) — always
     use the symbolic name (``if role < Role.MEMBER``) so the comparison stays
     correct if ordinals change.
@@ -72,6 +77,48 @@ class Role(models.IntegerChoices):
     SCHEDULER = 200, "Resource Manager"
     ADMIN = 300, "Project Manager"
     OWNER = 400, "Project Admin"
+
+
+# Program-context labels for the shared ``Role`` enum (#1794, #3503). The enum
+# labels are project-scoped ("Project Admin", "Project Manager"); a program
+# surface must read the role as it applies to the *program*, not to some
+# project. Every role the enum defines is mapped so a future enum value can't
+# silently fall back to a project label without a matching test failing. The
+# project-side ``Role.label`` values are intentionally left unchanged.
+#
+# This lives beside ``Role`` rather than in a serializer module because two
+# apps read it — ``access`` (membership rows) and ``projects`` (the program
+# card) — and one rule rendered twice must have one definition (ADR-0133).
+PROGRAM_ROLE_LABELS: dict[Role, str] = {
+    Role.VIEWER: "Viewer",
+    Role.MEMBER: "Team Member",
+    Role.SCHEDULER: "Resource Manager",
+    Role.ADMIN: "Program Manager",
+    Role.OWNER: "Program Admin",
+}
+
+
+def program_role_label(role: int | None) -> str | None:
+    """Program-context display label for a role ordinal.
+
+    Returns ``None`` for ``None`` (no membership) and for any ordinal the
+    ``Role`` enum does not define. That second branch is not defensive padding:
+    ADR-0072 reserves the 2-99, 101-199, 201-299 and 301-399 bands for
+    Enterprise custom roles, ``ProgramMembership.role`` is a plain
+    ``IntegerField`` whose ``choices`` PostgreSQL does not enforce, and a bare
+    ``Role(350)`` raises ``ValueError`` — which DRF does not convert, so it
+    500s the WHOLE response rather than just this field (the failure mode
+    #3419 fixed on the project side). ``None`` is honest: the OSS edition
+    genuinely has no name for that ordinal, and every caller decides for itself
+    how to render the gap.
+    """
+    if role is None or role not in Role.values:
+        return None
+    # ``.get``, not ``[]``: the map is exhaustive over ``Role`` and
+    # ``test_every_role_has_a_program_label`` is what keeps it that way, but a
+    # ``KeyError`` raised here would 500 the whole response — reintroducing, for a
+    # new-enum-member input, exactly the failure shape the guard above removes.
+    return PROGRAM_ROLE_LABELS.get(Role(role))
 
 
 class ProjectMembership(VersionedModel):
@@ -246,7 +293,12 @@ class ProgramMembership(VersionedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.user} — {self.program} ({Role(self.role).label})"
+        # Program vocabulary, not ``Role.label`` — this row is a membership of a
+        # *program*, and the admin/log line that renders it should not call the
+        # holder a "Project Admin" (#3503). Falls back to the raw ordinal for an
+        # Enterprise custom-band role the OSS enum cannot name (ADR-0072).
+        label = program_role_label(self.role) or f"Role {self.role}"
+        return f"{self.user} — {self.program} ({label})"
 
 
 class UserDefinedMentionGroup(VersionedModel):
