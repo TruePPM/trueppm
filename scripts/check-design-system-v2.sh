@@ -94,13 +94,37 @@ if [ "${1:-}" = "--self-test" ]; then
   # shellcheck disable=SC2064  # expand now, not at trap time
   trap "rm -rf '$st_tmp'" EXIT
   st_rc=0
+  # A CRASH IS NOT A REJECTION (#3351). This used to read any non-zero exit as
+  # "correctly rejected", so when check 4f shelled out to a python3 that does not
+  # exist in the `alpine:3.20` CI image, the gate died at 127 before running a single
+  # check and three of seven fixtures reported OK — for a gate that had not run at
+  # all. The four that failed were exactly the four expect-PASS cases, which is the
+  # signature of a crash rather than of an over-matching pattern, and it cost a round
+  # trip to tell those apart. So: require the gate to have produced its own count
+  # line in BOTH directions (it is echoed after every count and before every verdict,
+  # so its absence means the script never reached the verdict), and require exit 1 —
+  # the gate's own failure code — rather than merely non-zero.
   st_probe() { # <name> <expect-pass|expect-fail> <dir>
-    if bash "$0" "$3" >/dev/null 2>&1; then
+    local st_out st_ec
+    st_out="$(bash "$0" "$3" 2>&1)" && st_ec=0 || st_ec=$?
+    if ! printf '%s\n' "$st_out" | grep -q '^design-system-v2: '; then
+      {
+        echo "SELF-TEST FAILED: $1 — the gate exited $st_ec without producing its count line."
+        echo "  It crashed instead of running (missing interpreter, syntax error, unset var). Output:"
+        printf '%s\n' "$st_out" | sed 's/^/    /'
+      } >&2
+      st_rc=1
+      return
+    fi
+    if [ "$st_ec" -eq 0 ]; then
       if [ "$2" = "expect-pass" ]; then echo "SELF-TEST OK: $1 accepted."
       else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; st_rc=1; fi
-    else
+    elif [ "$st_ec" -eq 1 ]; then
       if [ "$2" = "expect-fail" ]; then echo "SELF-TEST OK: $1 correctly rejected."
       else echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; st_rc=1; fi
+    else
+      echo "SELF-TEST FAILED: $1 — the gate exited $st_ec, which is neither pass (0) nor a gate failure (1)." >&2
+      st_rc=1
     fi
   }
   st_fixture() { # <name> -> creates $st_tmp/<name> (+ the shell subtree check 4 scans)
@@ -292,13 +316,18 @@ BASELINE_TINY_TEXT=0
 # VelocityQuery`), which this pattern cannot see — the blind spot filed as #3351.
 # So do not read a drop here as evidence that a specific branch fixed something;
 # run the counter against an exported `origin/main` tree before claiming a gain.
-# 56 -> 55 at #3351 (ProgramCalendarPage's `useProgram` destructure gained isError).
-# That gain WAS verified the way the note above demands: `git archive origin/main`
-# into a temp tree counted 56, this branch counts 55, and the one line that left the
-# list is the one this branch edited. #3351 also added check 4f below, which is what
-# catches the OTHER destructure on that same page — the `data`-only one this counter
-# is structurally unable to see.
-BASELINE_QUERY_ERROR=55
+# 55 -> 54 at #3351 (ProgramCalendarPage's `useProgram` destructure gained isError).
+# This number was re-measured twice, and the first measurement was WRONG in exactly the
+# way the note above warns about. The branch was cut when main counted 56; by the time
+# the count was taken main had moved 16 commits and someone else's merge had already
+# banked 56 -> 55, so "56 -> 55" would have credited this branch with a gain it did not
+# make. Comparing an `origin/main` export against a branch is NOT apples-to-apples once
+# main moves. The measurement that is: revert the single edited file inside the merged
+# working tree and re-run — same tree, same git context, one file differing. That reads
+# 55 with the file reverted and 54 with the fix, so the delta this branch owns is 1.
+# #3351 also added check 4f below, which is what catches the OTHER destructure on that
+# same page — the `data`-only one this counter is structurally unable to see.
+BASELINE_QUERY_ERROR=54
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary
@@ -579,101 +608,138 @@ query_error_offenders() {
 #     guard is NOT counted — it degrades a value rather than stalling the surface
 #     (BoardView, ScheduleView, SchedulePulse, ProductBacklogPage, MobileGroomingPage
 #     and Sidebar are all this shape, and all correctly silent).
+# The detector is POSIX awk, NOT python3 (#3351). The `lint:design-system-v2` job runs
+# on `alpine:3.20` with `apk add --no-cache bash grep` and nothing else, so a python3
+# implementation exits 127 there — and because `st_probe` read any non-zero exit as
+# "correctly rejected", the crash made every expect-fail fixture pass vacuously while
+# the gate had not run at all. awk is in busybox, so it needs no new job dependency.
+# Written to POSIX/busybox awk: no gensub, no ENDFILE, no `\s`/`\b` (word boundaries
+# are spelled out as `[^A-Za-z0-9_$]`), and no GNU-only grep constructs.
+SKELETON_STALL_AWK='
+function countch(s, c,   n, i, len) {
+  n = 0; len = length(s)
+  for (i = 1; i <= len; i++) if (substr(s, i, 1) == c) n++
+  return n
+}
+# Everything after the LAST ")" on a line — for an `if (…) {` this is the ` {`, and
+# for a single-statement `if (…) return <x/>;` it is the statement itself.
+function after_last_paren(s,   p, last, rest) {
+  last = 0
+  for (;;) {
+    rest = substr(s, last + 1)
+    p = index(rest, ")")
+    if (p == 0) break
+    last = last + p
+  }
+  if (last == 0) return s
+  return substr(s, last + 1)
+}
+function add_idents(s, guard,   rest, tok) {
+  rest = s
+  while (match(rest, /[A-Za-z_$][A-Za-z0-9_$]*/)) {
+    tok = substr(rest, RSTART, RLENGTH)
+    guard[tok] = 1
+    rest = substr(rest, RSTART + RLENGTH)
+  }
+}
+# `data` bindings off a use*() destructure that reads no error/isError — and no
+# isLoading either, because check 4e already counts that population and double
+# counting would make both numbers unreadable.
+function collect_bindings(bn, bl,   i, line, m, b1, b2, body, tail, hook, w, name, cnt, seen) {
+  cnt = 0
+  for (i = 1; i <= nl; i++) {
+    line = L[i]
+    if (!match(line, /(const|let)[ \t]+\{[^}]*\}[ \t]*=[ \t]*use[A-Z][A-Za-z0-9_]*[ \t]*\(/)) continue
+    m = substr(line, RSTART, RLENGTH)
+    b1 = index(m, "{"); b2 = index(m, "}")
+    if (b1 == 0 || b2 == 0 || b2 <= b1) continue
+    body = substr(m, b1 + 1, b2 - b1 - 1)
+    tail = substr(m, b2)
+    if (!match(tail, /use[A-Z][A-Za-z0-9_]*/)) continue
+    hook = substr(tail, RSTART, RLENGTH)
+    if (hook in prim) continue
+    w = " " body " "
+    if (w ~ /[^A-Za-z0-9_$](isError|error|isLoading)[^A-Za-z0-9_$]/) continue
+    name = ""
+    if (match(w, /[^A-Za-z0-9_$]data[ \t]*:[ \t]*[A-Za-z_$][A-Za-z0-9_$]*/)) {
+      name = substr(w, RSTART, RLENGTH)
+      sub(/^[^A-Za-z0-9_$]data[ \t]*:[ \t]*/, "", name)
+    } else if (w ~ /[^A-Za-z0-9_$]data[^A-Za-z0-9_$]/) {
+      name = "data"
+    }
+    if (name == "" || (name in seen)) continue
+    seen[name] = 1
+    cnt++; bn[cnt] = name; bl[cnt] = i
+  }
+  return cnt
+}
+# Identifiers named in the condition of an `if` whose body renders a skeleton.
+function collect_guards(guard,   i, j, k, d, o, bd, bo, cond, blk, seg) {
+  i = 1
+  while (i <= nl) {
+    if (L[i] !~ /^[ \t]*if[ \t]*\(/) { i++; continue }
+    d = 0; o = 0; cond = ""; j = i
+    while (j <= nl) {
+      d += countch(L[j], "(")
+      if (index(L[j], "(") > 0) o = 1
+      d -= countch(L[j], ")")
+      cond = cond "\n" L[j]
+      if (o && d == 0) break
+      j++
+    }
+    if (j > nl) break
+    seg = after_last_paren(L[j])
+    if (index(seg, "{") == 0) {
+      # Braceless `if (…) return <x/>;`. The body is the statement itself — walking
+      # braces here would run to EOF and match an `animate-pulse` anywhere later in
+      # the file, which is a false positive waiting to happen. A braceless guard
+      # spanning more than the next line is not a shape this tree writes.
+      blk = seg
+      if (seg ~ /^[ \t]*$/ && j < nl) blk = seg "\n" L[j + 1]
+    } else {
+      bd = 0; bo = 0; blk = ""; k = j
+      while (k <= nl) {
+        if (k > j) seg = L[k]
+        bd += countch(seg, "{")
+        if (index(seg, "{") > 0) bo = 1
+        bd -= countch(seg, "}")
+        blk = blk "\n" L[k]
+        if (bo && bd == 0) break
+        k++
+      }
+    }
+    if (index(blk, "animate-pulse") > 0) add_idents(cond, guard)
+    i = j + 1
+  }
+}
+function flush(f,   i, nbind, bn, bl, guard) {
+  nbind = collect_bindings(bn, bl)
+  if (nbind == 0) return
+  collect_guards(guard)
+  for (i = 1; i <= nbind; i++)
+    if (bn[i] in guard)
+      printf "%s:%d: `%s` gates a skeleton but its query reads no error\n", f, bl[i], bn[i]
+}
+BEGIN {
+  # React own primitives also match use[A-Z]; a useMemo has no error to handle.
+  split("useMemo useCallback useState useReducer useRef useContext useEffect", p, " ")
+  for (i in p) prim[p[i]] = 1
+  nl = 0; prevfile = ""
+}
+# busybox awk has no ENDFILE, so each file is flushed when the NEXT one starts.
+FNR == 1 { if (nl > 0) flush(prevfile); nl = 0; delete L; prevfile = FILENAME }
+{ L[++nl] = $0 }
+END { if (nl > 0) flush(prevfile) }
+'
+
 skeleton_stall_offenders() {
-  python3 - "$WEB_SRC" <<'PY' | drop_ignored_lines
-import os, re, sys
-
-root = sys.argv[1]
-EXCLUDE = re.compile(r"\.test\.|\.spec\.|\.stories\.")
-# A single-line object destructure off a `use[A-Z]…()` call.
-DESTRUCTURE = re.compile(r"\b(?:const|let)\s*\{([^}]*)\}\s*=\s*(use[A-Z][A-Za-z0-9_]*)\s*\(")
-# React's own primitives also match `use[A-Z]`; a useMemo has no error to handle.
-REACT_PRIMS = {"useMemo", "useCallback", "useState", "useReducer", "useRef",
-               "useContext", "useEffect"}
-IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
-
-
-def error_blind_data_bindings(lines):
-    """name -> line number, for `data` bindings off a query that reads no error."""
-    out = {}
-    for i, line in enumerate(lines, 1):
-        m = DESTRUCTURE.search(line)
-        if not m:
-            continue
-        body, hook = m.group(1), m.group(2)
-        if hook in REACT_PRIMS:
-            continue
-        # error/isError -> handled. isLoading -> check 4e's population, not ours.
-        if re.search(r"\bisError\b|\berror\b|\bisLoading\b", body):
-            continue
-        alias = re.search(r"\bdata\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*)", body)
-        if alias:
-            out.setdefault(alias.group(1), i)
-        elif re.search(r"\bdata\b", body):
-            out.setdefault("data", i)
-    return out
-
-
-def skeleton_guard_identifiers(lines):
-    """Identifiers named in the condition of an `if` whose body renders a skeleton."""
-    idents = set()
-    n, i = len(lines), 0
-    while i < n:
-        if not re.match(r"\s*if\s*\(", lines[i]):
-            i += 1
-            continue
-        # Walk the condition to its balanced closing paren (guards wrap across lines).
-        depth, opened, j, cond = 0, False, i, []
-        while j < n:
-            for ch in lines[j]:
-                if ch == "(":
-                    depth += 1
-                    opened = True
-                elif ch == ")":
-                    depth -= 1
-            cond.append(lines[j])
-            if opened and depth == 0:
-                break
-            j += 1
-        # Then walk the block body to its balanced closing brace.
-        bdepth, bopened, k, body = 0, False, j, []
-        while k < n:
-            seg = lines[k].split(")")[-1] if k == j else lines[k]
-            for ch in seg:
-                if ch == "{":
-                    bdepth += 1
-                    bopened = True
-                elif ch == "}":
-                    bdepth -= 1
-            body.append(lines[k])
-            if bopened and bdepth == 0:
-                break
-            k += 1
-        if "animate-pulse" in "\n".join(body):
-            idents |= set(IDENT.findall("\n".join(cond)))
-        i = j + 1
-    return idents
-
-
-for dirpath, _, files in os.walk(root):
-    for f in sorted(files):
-        if not f.endswith(".tsx"):
-            continue
-        path = os.path.join(dirpath, f)
-        if EXCLUDE.search(path):
-            continue
-        try:
-            lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
-        except OSError:
-            continue
-        bindings = error_blind_data_bindings(lines)
-        if not bindings:
-            continue
-        guarded = skeleton_guard_identifiers(lines)
-        for name, ln in sorted(bindings.items(), key=lambda kv: kv[1]):
-            if name in guarded:
-                print(f"{path}:{ln}: `{name}` gates a skeleton but its query reads no error")
-PY
+  local files
+  files="$(find "$WEB_SRC" -type f -name "*.tsx" 2>/dev/null | g -vE "$EXCLUDE" | sort)"
+  # No .tsx under the root is a legitimately empty scan; awk with no file operands
+  # would read stdin and hang. The expect-fail self-test fixture is what proves the
+  # detector still fires, so an empty list here cannot disarm it silently.
+  [ -z "$files" ] && return 0
+  printf "%s\n" "$files" | tr "\n" "\0" | xargs -0 awk "$SKELETON_STALL_AWK" | drop_ignored_lines
 }
 
 # Self-test for the three pattern+filter pipelines above. Same contract as

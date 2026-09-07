@@ -935,18 +935,13 @@ lint:design-system-v2:
   # in component source (ratchet against a committed baseline). This is the
   # enforcement that makes "all future work inherits the v2 golden standard" real.
   # See docs/design/v2-golden-standard.md. ~2s.
-  #
-  # Needs python3 (#3351): check 4f (skeleton_stall_offenders) walks the AST-ish
-  # destructure/guard matching in Python, not grep — bash+grep alone cannot see
-  # whether an identifier bound in a query destructure recurs in an `if` guard
-  # whose body renders a skeleton.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash grep python3
+    - apk add --no-cache bash grep
   script:
     # Self-test FIRST: the DS-v2 ratchet's matcher also sees quoted issue refs as
     # hex, so both the detection and its carve-out have to be proven live (#3195).
