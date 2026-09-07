@@ -241,7 +241,7 @@ export function ProgramArchivePage() {
               ? ['Reversible — returns the program to its previous state.']
               : [
                   'Baselines, audit log, time entries, and attachments are retained.',
-                  'Reversible by any Owner.',
+                  'Reversible by any Program Admin.',
                 ]
           }
           onClick={onToggleClose}
@@ -252,11 +252,11 @@ export function ProgramArchivePage() {
         <LifecycleCard
           title="Transfer sponsorship"
           tone="warning"
-          description="Assign a new sponsor and optionally a new program manager. The current sponsor is demoted to Admin."
+          description="Hand the Program Admin role to another member and optionally reassign the program lead. You step down to Program Manager."
           actionLabel="Transfer sponsorship…"
           notes={[
-            'New sponsor must already be a program member.',
-            'You are demoted to Admin when the transfer completes.',
+            'The new Program Admin must already be a program member.',
+            'You step down to Program Manager when the transfer completes.',
           ]}
           onClick={() => setTransferOpen(true)}
           busy={transfer.isPending}
@@ -290,14 +290,22 @@ export function ProgramArchivePage() {
         />
       </div>
 
+      {/* One vocabulary per concept (#3513). "Sponsorship" is the action's
+          established name (endpoint, WS event, docs), so the first sentence binds it
+          to the role it actually moves and every later mention uses the server's
+          program-scoped role labels (`_PROGRAM_ROLE_LABELS`: ordinal 300 → "Program
+          Manager", 400 → "Program Admin") rather than the raw `Role` enum keys, which
+          are project-scoped and which the user never sees. "Program lead" names the
+          display FK, which grants nothing — it must not share a phrase with the
+          ordinal-300 tier. */}
       {transferOpen && programId ? (
         <TransferOwnershipDialog
           scope="program"
           scopeId={programId}
           title="Transfer sponsorship"
-          description="The selected member becomes the program Owner (sponsor). You are demoted to Admin. Optionally rotate the program manager too. The new sponsor must already be a program member."
-          ownerPickerLabel="new sponsor"
-          leadPickerLabel="new program manager"
+          description="Sponsorship is the Program Admin role: the selected member becomes Program Admin and you step down to Program Manager."
+          ownerPickerLabel="new Program Admin"
+          leadPickerLabel="new program lead"
           error={transferError}
           busy={transfer.isPending}
           onCancel={() => setTransferOpen(false)}
