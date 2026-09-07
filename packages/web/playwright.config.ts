@@ -1,9 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { previewPort } from './e2e/ports';
+
 /**
  * Playwright E2E configuration.
  *
- * Local: runs against `vite preview` (production build served at :4173).
+ * Local: runs against `vite preview` (production build served at :4173, or the
+ *        port `TRUEPPM_E2E_PORT` names — see the port note below).
  *        Build first: `npm run build && npx playwright test`
  *
  * CI: web:e2e job builds the app then starts preview automatically via webServer.
@@ -17,13 +20,25 @@ import { defineConfig, devices } from '@playwright/test';
  * CI (Linux) happens to route localhost→127.0.0.1 throughout and stays green,
  * which is exactly why this never surfaced there. Forcing IPv4 end-to-end makes
  * local runs work and keeps CI identical. (#1116)
+ *
+ * Port: NOT a constant, deliberately. `reuseExistingServer` below identifies an
+ * existing server by port alone, so a hardcoded 4173 makes every git worktree on
+ * the machine share one preview server and silently assert against whichever
+ * checkout started it. `previewPort()` reads the per-worktree `TRUEPPM_E2E_PORT`
+ * that `scripts/wt new` writes into `.envrc`; unset, it is 4173, so the main
+ * checkout and every CI job are byte-identical to before. The full rationale is
+ * in `e2e/ports.ts` — read it before collapsing this back to a literal. (#3514)
  */
+const PORT = previewPort();
+const ORIGIN = `http://127.0.0.1:${PORT}`;
+
 export default defineConfig({
   testDir: './e2e',
   // Integration specs require a live Django stack and run only in the
   // main-only `web:integration` job via playwright.integration.config.ts.
   // marketing-shots is an opt-in capture run driven by
-  // playwright.marketing.config.ts; it expects a live dev server on :5173.
+  // playwright.marketing.config.ts; it expects a live dev server you started
+  // yourself (:5173, or TRUEPPM_E2E_DEV_PORT).
   testIgnore: ['integration/**', 'marketing-shots.spec.ts'],
   fullyParallel: true,
   // Fail fast on focused tests (.only) in CI — prevents accidental partial runs.
@@ -41,7 +56,7 @@ export default defineConfig({
   workers: process.env.CI ? 4 : undefined,
   reporter: process.env.CI ? 'line' : 'html',
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: ORIGIN,
     trace: 'on-first-retry',
     // Emulate `prefers-reduced-motion: reduce` for every spec. The app gates all
     // decorative animation behind Tailwind's `motion-safe:` variant (drawer
@@ -74,9 +89,18 @@ export default defineConfig({
     // In CI the build step runs before this config; locally run `npm run build` once.
     // `--host 127.0.0.1` forces an IPv4 bind so the readiness probe below can reach
     // it on macOS (see the host note in the file header).
-    command: 'npm run preview -- --host 127.0.0.1',
-    url: 'http://127.0.0.1:4173',
+    //
+    // `--port` and `url` must both come from PORT: a preview served on one port
+    // while `baseURL`/`url` name another is the same silent-wrong-server failure
+    // the per-worktree port exists to close. `--strictPort` is load-bearing for
+    // the same reason — without it vite quietly increments to the next free port
+    // when ours is taken, and the run then probes (or asserts against) a server
+    // that is not the one it started.
+    command: `npm run preview -- --host 127.0.0.1 --port ${PORT} --strictPort`,
+    url: ORIGIN,
     // Reuse an already-running preview server locally; always start fresh in CI.
+    // With PORT per worktree the only server this can ever adopt is THIS
+    // worktree's own, which is what makes the reuse safe rather than a lottery.
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     // Mocked specs intercept all /api/* and /ws/* at the browser; the vite

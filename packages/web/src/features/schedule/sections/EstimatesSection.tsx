@@ -3,7 +3,7 @@ import { useActiveSprint } from '@/hooks/useSprints';
 import { ROLE_SCHEDULER, ROLE_ADMIN, canEditTask } from '@/lib/roles';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import type { Task } from '@/types';
-import { EstimatesTab } from '../EstimatesTab';
+import { EstimatesTab, type SprintReadState } from '../EstimatesTab';
 import { PhaseUncertaintyBlock } from '../PhaseUncertaintyBlock';
 
 /**
@@ -33,7 +33,12 @@ export function EstimatesSection({ taskId, projectId, userRole, canEdit }: Drawe
   const effectiveCanEdit = canEdit ?? canEditTask(userRole);
   const userIsScheduler = effectiveCanEdit && userRole != null && userRole >= ROLE_SCHEDULER;
   const userIsAdmin = effectiveCanEdit && userRole != null && userRole >= ROLE_ADMIN;
-  const { sprint: activeSprint } = useActiveSprint(projectId);
+  const {
+    sprint: activeSprint,
+    isLoading: sprintsLoading,
+    error: sprintsError,
+    refetch: refetchSprints,
+  } = useActiveSprint(projectId);
 
   if (!task) return null;
 
@@ -44,6 +49,21 @@ export function EstimatesSection({ taskId, projectId, userRole, canEdit }: Drawe
 
   const sprintIsActive = !!task.sprintId && activeSprint?.id === task.sprintId;
 
+  // Rule 392 / #3455: `activeSprint === null` is "no active sprint" AND "the
+  // sprint read did not resolve", so `sprintIsActive === false` alone cannot
+  // tell the control what to SAY about being disabled. Scope the unknown to a
+  // task that actually has a sprint — a sprint-less task is never unknown, it
+  // is simply not in one — and hand EstimatesTab the resolution state rather
+  // than folding it into `sprintIsActive`, so the withhold stays fail-closed
+  // (rule 379) while the explanation stops claiming a fact the read never had.
+  const sprintReadState: SprintReadState = !task.sprintId
+    ? 'resolved'
+    : sprintsError != null
+      ? 'failed'
+      : sprintsLoading
+        ? 'unresolved'
+        : 'resolved';
+
   return (
     <EstimatesTab
       task={task}
@@ -52,6 +72,8 @@ export function EstimatesSection({ taskId, projectId, userRole, canEdit }: Drawe
       userIsScheduler={userIsScheduler}
       userIsAdmin={userIsAdmin}
       sprintIsActive={sprintIsActive}
+      sprintReadState={sprintReadState}
+      onRetrySprintRead={refetchSprints}
     />
   );
 }
