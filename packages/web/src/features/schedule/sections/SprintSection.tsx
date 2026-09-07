@@ -12,6 +12,7 @@ import {
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
 import { isPhaseTask } from '@/lib/isPhaseTask';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { GuardrailNotice } from './GuardrailNotice';
 import { GuardrailBlock } from './GuardrailBlock';
 
@@ -29,13 +30,14 @@ const LABEL_CLASS =
  * Rendered only for leaf, non-milestone tasks (canRender guard in index.ts).
  * Shows the current sprint with a dropdown to change it, and a "Remove" button
  * when the task is already in a sprint. If no PLANNED or ACTIVE sprints exist,
- * renders an empty-state nudge toward the Sprints tab.
+ * renders an empty-state nudge toward the Sprints tab — but only once the read
+ * has actually resolved; a failed read gets the error state instead (#3455).
  */
 export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const itl = useIterationLabel(projectId);
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
-  const { sprints, isLoading } = useSprints(projectId);
+  const { sprints, isLoading, error, refetch } = useSprints(projectId);
   const { mutate: updateTask, isPending } = useUpdateTask();
 
   // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
@@ -127,6 +129,18 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
         <div className={LABEL_CLASS}>{itl.singular}</div>
         {isLoading ? (
           <div className="h-9 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
+        ) : error ? (
+          // rule 246 / 392, #3455: a FAILED sprints read is not "no sprints" and
+          // not "Not assigned" — `sprints` is `[]` either way, so both branches
+          // below would state something about the project this render cannot
+          // know. Sits ABOVE the read-only branch on purpose: a Viewer got the
+          // worse of the two lies, a flat "Not assigned" about a task that may
+          // well be committed.
+          <QueryErrorState
+            variant="inline"
+            message={`Couldn't load ${itl.lowerPlural}.`}
+            onRetry={() => refetch?.()}
+          />
         ) : !editable ? (
           // Read-only: show the assigned iteration name as static text (the
           // state badge / dates / remove control render separately below).

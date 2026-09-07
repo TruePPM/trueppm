@@ -98,7 +98,7 @@ function renderPanel(opts: {
     tasks = [],
     tasksUnloaded = false,
   } = opts;
-  useActiveSprintMock.mockReturnValue({ sprint, isLoading: false });
+  useActiveSprintMock.mockReturnValue({ sprint, isLoading: false, error: null });
   useScheduleTasksMock.mockReturnValue({
     tasks: tasksUnloaded ? undefined : tasks,
   } as unknown as ReturnType<typeof useScheduleTasks>);

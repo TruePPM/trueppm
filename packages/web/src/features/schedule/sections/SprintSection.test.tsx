@@ -16,9 +16,16 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 
 let mockSprints: ApiSprint[] = [];
 let mockSprintsLoading = false;
+let mockSprintsError: Error | null = null;
+const mockRefetchSprints = vi.fn();
 vi.mock('@/hooks/useSprints', () => ({
-  useSprints: () => ({ sprints: mockSprints, isLoading: mockSprintsLoading, error: null }),
-  useActiveSprint: () => ({ sprint: null }),
+  useSprints: () => ({
+    sprints: mockSprints,
+    isLoading: mockSprintsLoading,
+    error: mockSprintsError,
+    refetch: mockRefetchSprints,
+  }),
+  useActiveSprint: () => ({ sprint: null, isLoading: false, error: null }),
 }));
 
 /** The variables SprintSection passes to `updateTask`. */
@@ -127,6 +134,8 @@ beforeEach(() => {
   setTasks();
   mockSprints = [];
   mockSprintsLoading = false;
+  mockSprintsError = null;
+  mockRefetchSprints.mockClear();
   mockIsPending = false;
   mockMutate = vi.fn<(vars: UpdateVars, callbacks?: MutateCallbacks) => void>();
 });
@@ -145,6 +154,78 @@ describe('SprintSection', () => {
     setTasks(baseTask);
     renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
     expect(screen.getByText(/No active or planned sprints/i)).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Failed sprints read (#3455, rules 246 + 392)
+  //
+  // `sprints` is `[]` on a failed read exactly as on an empty project, so the
+  // empty-state nudge and the read-only "Not assigned" line both state
+  // something about the project that this render cannot know.
+  // -------------------------------------------------------------------------
+  describe('failed sprints read (#3455)', () => {
+    it('renders the inline error state instead of the create-a-sprint nudge', () => {
+      setTasks(baseTask);
+      mockSprintsError = new Error('sprints unavailable');
+      renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
+
+      expect(screen.getByText(/Couldn't load sprints\./i)).toBeInTheDocument();
+      expect(screen.queryByText(/No active or planned sprints/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: /Sprint assignment/i })).not.toBeInTheDocument();
+    });
+
+    it('re-runs just the sprints query from Retry', () => {
+      setTasks(baseTask);
+      mockSprintsError = new Error('sprints unavailable');
+      renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Retry/i }));
+      expect(mockRefetchSprints).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the error to a read-only viewer rather than a flat "Not assigned"', () => {
+      // The Viewer got the worse of the two lies: a task that may well be
+      // committed to a running sprint rendered as unassigned.
+      setTasks({ ...baseTask, sprintId: 'sprint-1' });
+      mockSprintsError = new Error('sprints unavailable');
+      renderWithProviders(
+        <SprintSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} canEdit={false} />,
+      );
+
+      expect(screen.getByText(/Couldn't load sprints\./i)).toBeInTheDocument();
+      expect(screen.queryByText(/Not assigned/i)).not.toBeInTheDocument();
+    });
+
+    it('announces politely — the drawer around it is still working', () => {
+      // rule 246: `inline` is role="status", not role="alert" — one dead widget
+      // on a live surface must not interrupt.
+      setTasks(baseTask);
+      mockSprintsError = new Error('sprints unavailable');
+      renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
+
+      expect(screen.getByRole('status')).toHaveTextContent(/Couldn't load sprints\./i);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('still shows the empty-state nudge when the read RESOLVED with no sprints', () => {
+      // Polarity pair for the first test: same `[]`, but answered — the nudge is
+      // a fact here, so it must survive the fix.
+      setTasks(baseTask);
+      renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
+
+      expect(screen.getByText(/No active or planned sprints/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Couldn't load sprints\./i)).not.toBeInTheDocument();
+    });
+
+    it('keeps showing the skeleton, not the error, while the read is in flight', () => {
+      setTasks(baseTask);
+      mockSprintsLoading = true;
+      renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
+
+      expect(screen.getByLabelText(/Loading sprints/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Couldn't load sprints\./i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No active or planned sprints/i)).not.toBeInTheDocument();
+    });
   });
 
   it('renders the sprint selector when assignable sprints exist', () => {
