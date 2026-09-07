@@ -9,7 +9,7 @@ dev dependencies.
 ## Safe by construction
 
 Parallel agents can self-serve `wt new` / `wt remove` without a human
-coordinating who owns which checkout. Four **structural** guards — not process
+coordinating who owns which checkout. Five **structural** guards — not process
 discipline — stop one session from stomping another's worktree:
 
 1. **Fresh branches don't track `origin/main`.** `wt new` creates the branch
@@ -35,6 +35,14 @@ discipline — stop one session from stomping another's worktree:
 4. **A worktree-private stash.** `git stash` is *not* worktree-scoped — see
    [Stashing](#stashing) below. `wt stash` keeps entries under
    `refs/wt-stash/<worktree>` so one session cannot consume another's.
+5. **Per-worktree Playwright ports.** `.envrc` exports
+   `TRUEPPM_E2E_PORT` and `TRUEPPM_E2E_DEV_PORT`, so two worktrees can run
+   `npx playwright test` at the same time and each provably serves its **own**
+   build. Without them Playwright's `reuseExistingServer` — which identifies a
+   running server by port alone — silently adopts whichever worktree started
+   the shared `:4173` preview, so a local run asserts against another branch's
+   bundle, *including in the direction that passes*. See
+   [Playwright ports](#playwright-ports).
 
 Those local guards stop two *worktrees* from editing the same files. A second,
 distinct hazard is two *agents* independently implementing the **same issue** and
@@ -200,7 +208,10 @@ For each `wt new`:
   the Docker stack you brought up in the main checkout (`make pre-push`
   inside a worktree needs to find the running `trueppm-api-1` container), and
   `TRUEPPM_TEST_DB=test_trueppm_wt_<slug>` so this worktree's `pytest` uses an
-  isolated test database (see [Safe by construction](#safe-by-construction)).
+  isolated test database, and `TRUEPPM_E2E_PORT` / `TRUEPPM_E2E_DEV_PORT` so its
+  Playwright runs get their own servers (see
+  [Safe by construction](#safe-by-construction) and
+  [Playwright ports](#playwright-ports)).
 - **`.wt-owner`** — a marker recording who created the worktree and when. It
   powers the `wt prune` grace window and the `AGE` column in `wt list`. Like
   `.envrc` and the symlinks, it's excluded from the `wt remove`/`wt prune`
@@ -282,6 +293,87 @@ rather than inventing a name. And it will not touch a database with an open
 connection, so a sweep run while another session is mid-`pytest` legitimately
 reports fewer drops than orphans; that case is counted as *kept*, not missing,
 and does not trip the reconciliation.
+
+## Playwright ports
+
+Each worktree's `.envrc` exports two ports:
+
+```bash
+export TRUEPPM_E2E_PORT=43822        # vite preview  — playwright.config.ts
+export TRUEPPM_E2E_DEV_PORT=44822    # vite dev      — playwright.integration.config.ts
+```
+
+`playwright.marketing.config.ts` deliberately does **not** read either. It has no
+`webServer` block, so it cannot silently adopt a server the way
+`reuseExistingServer` does, and the thing it targets is the shared `make up`
+docker stack — one service on `:5173` by design, not a per-worktree process.
+Pointing it at a worktree port would break the documented `make screenshots`
+flow to fix a collision it cannot have. The caveat that remains is real and
+belongs to the shared stack: run `make screenshots` from a worktree and you
+capture whatever tree that stack is serving.
+
+`packages/web/e2e/ports.ts` is the single reader. `playwright.config.ts` feeds
+`TRUEPPM_E2E_PORT` to **`baseURL`, `webServer.url` and the `--port` handed to
+`npm run preview`** together — a preview served on one port while the run
+asserts against another is the same failure in a new coat. `--strictPort` is
+part of that: without it vite quietly increments off a busy port and the config
+then probes a server it did not start.
+
+**Why this exists.** Playwright's `reuseExistingServer: !process.env.CI` is
+right in intent — a local iteration loop should not pay a rebuild per run — but
+"an existing server" is identified by **port alone**, and the port used to be a
+constant every checkout on the machine shared. So a run in one worktree
+routinely asserted against a *sibling worktree's* bundle, with no warning
+anywhere in the output. Three of six branches in the 2026-09-06 parallel batch
+hit it (#3467, #3470, #3471, #3472, #3476); one produced a convincing false
+failure twice, because the sibling bundle is a real build of the same app and
+its failures name real selectors. The direction that matters more is the one
+that **passes**: a green assertion against another branch's build proves
+nothing, and nothing in the output tells the two cases apart.
+
+**How the port is chosen.** `wt new` derives an offset from a CRC-32 of the same
+slug that names the worktree's test database, so a branch lands on the same
+ports every time it is recreated, then linear-probes forward until both derived
+ports are unclaimed by any sibling worktree's `.envrc` *and* unbound by any live
+process. The probe is what makes a collision structurally impossible rather than
+merely unlikely — a bare hash over 800 slots is a birthday problem, and at ~25
+concurrent worktrees the chance of some pair colliding is around one in four.
+
+| Range | Used for |
+| --- | --- |
+| `43100`–`43899` | `vite preview` (`TRUEPPM_E2E_PORT`) |
+| `44100`–`44899` | `vite dev` (`TRUEPPM_E2E_DEV_PORT`) |
+
+The band sits below macOS's ephemeral range (`net.inet.ip.portrange.first` =
+49152, so nothing outbound can transiently claim one) and above the crowded
+3000–9000 development band; it collides with nothing this repo runs (4173,
+5173, 8000, 5432, 6379, 8080). Override the bases with
+`TRUEPPM_WT_PREVIEW_PORT_BASE` / `TRUEPPM_WT_DEV_PORT_BASE` and the span with
+`TRUEPPM_WT_PORT_SPAN` if a machine needs a different neighbourhood.
+
+**Unset, nothing changes.** The main checkout and every CI job leave both
+variables unset and get `:4173` / `:5173` with the same reuse semantics as
+before, which is why this is invisible to `web:e2e` and `web:integration`.
+
+**Worktrees created before this landed** carry no port exports and therefore
+share the defaults. Either add the two lines to `.envrc` by hand, or recreate
+the worktree.
+
+**Freeing a stuck port.** A preview server orphaned by a killed run holds its
+port. Do **not** reach for `lsof -ti :4173 | xargs -r kill` — BSD `xargs` (which
+is what macOS ships) has no `-r`, so on a developer machine that pipeline is a
+silent no-op that reports success. Two forms that work on both platforms:
+
+```bash
+# By port, guarded on a non-empty match rather than on xargs -r:
+pids=$(lsof -ti tcp:"$TRUEPPM_E2E_PORT" -sTCP:LISTEN) && [ -n "$pids" ] && kill $pids
+
+# Or by command line, which needs no guard at all:
+pkill -f "vite preview .* --port $TRUEPPM_E2E_PORT"
+```
+
+Kill only your own worktree's port. Another worktree's preview server belongs to
+another session's run.
 
 ## Stashing
 
