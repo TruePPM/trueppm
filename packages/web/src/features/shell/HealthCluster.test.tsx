@@ -24,11 +24,18 @@ const methodology = vi.hoisted<{ current: Methodology }>(() => ({ current: 'WATE
 // `projectLoaded: false` models the pre-load tick, where the component falls back
 // to the richest (HYBRID) cluster.
 const projectLoaded = vi.hoisted<{ current: boolean }>(() => ({ current: true }));
+// The HTTP status `GET /projects/{id}/` failed with, or `null` for a healthy read.
+// 404/403 is the "you cannot open this project" shape `useProjectUnavailable`
+// keys on (#3469); anything else must NOT suppress the cluster.
+const projectErrorStatus = vi.hoisted<{ current: number | null }>(() => ({ current: null }));
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({
     data: projectLoaded.current ? { id: 'p', methodology: methodology.current } : undefined,
     isLoading: false,
-    error: null,
+    error:
+      projectErrorStatus.current === null
+        ? null
+        : { isAxiosError: true, response: { status: projectErrorStatus.current } },
   }),
 }));
 
@@ -150,6 +157,7 @@ const VELOCITY: ProjectVelocity = {
 beforeEach(() => {
   projectId.current = 'test-project-id';
   projectLoaded.current = true;
+  projectErrorStatus.current = null;
   methodology.current = 'WATERFALL';
   stats.current = FIXTURE_SHELL_STATS;
   activeSprint.current = makeSprint({});
@@ -937,5 +945,39 @@ describe('HealthCluster added time', () => {
       const dialog = await openPopover(user);
       expect(within(dialog).queryByText('Added time')).not.toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * Unavailable-project suppression (#3469).
+ *
+ * The cluster is mounted by `TopBar`, ABOVE the `<Outlet />` that `ProjectShell`
+ * renders `ProjectNotFound` into — so on a project the caller cannot open it kept
+ * rendering. Every one of its inputs degrades to a plausible literal rather than to
+ * nothing (`stats` absent ⇒ `deriveChipState(0, 0)` ⇒ a confident "On track"), which
+ * is why the fix is suppression at the source and not a repair downstream.
+ */
+describe('HealthCluster — project unavailable', () => {
+  it.each([404, 403])('renders nothing when the project query fails with %i', (status) => {
+    projectErrorStatus.current = status;
+    // The state that made this visible: no stats, so the chip would otherwise
+    // assert "On track" for a project that is not there.
+    stats.current = undefined;
+    projectLoaded.current = false;
+    render();
+    expect(screen.queryByTestId('health-cluster')).not.toBeInTheDocument();
+  });
+
+  it('still renders when the project query fails with a non-access status', () => {
+    // A 500 is a transient server fault, not "this project is not yours" — the
+    // route keeps rendering the project, so the chrome must too.
+    projectErrorStatus.current = 500;
+    render();
+    expect(screen.getByTestId('health-cluster')).toBeInTheDocument();
+  });
+
+  it('renders normally when the project query succeeds', () => {
+    render();
+    expect(screen.getByTestId('health-cluster')).toBeInTheDocument();
   });
 });

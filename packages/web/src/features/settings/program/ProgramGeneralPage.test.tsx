@@ -30,6 +30,14 @@ vi.mock('../hooks/useWorkspaceSettings', () => ({
   useWorkspaceSettings: () => useWorkspaceSettings(),
 }));
 
+// The post-save align offer (#3293) partitions the program's projects client-side.
+// Stub the list hook so the offer's own network read never fires here; its states are
+// covered exhaustively in MethodologyAlignOffer.test.tsx.
+const useProgramProjects = vi.fn();
+vi.mock('@/hooks/useProgramProjects', () => ({
+  useProgramProjects: () => useProgramProjects() as unknown,
+}));
+
 // The lead MemberPicker fetches the program roster; stub it so the test makes no
 // network call. The resting lead row renders from the record's lead_detail, so an
 // empty roster is fine here (the picker behavior itself is covered by
@@ -201,6 +209,16 @@ describe('ProgramGeneralPage (settings)', () => {
     mutateAsync.mockResolvedValue(undefined);
     useWorkspaceSettings.mockReturnValue({
       data: { methodologyOverridePolicy: 'suggest' },
+    });
+    useProgramProjects.mockReturnValue({
+      data: [
+        { id: 'pr-1', name: 'Artemis IV', methodology: 'HYBRID' },
+        { id: 'pr-2', name: 'Cascade Migration', methodology: 'AGILE' },
+      ],
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
     });
     seedMutate.mockReset();
     exportSeedState.isPending = false;
@@ -981,5 +999,176 @@ describe('ProgramGeneralPage (settings)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
     expect(screen.getByRole('alert')).toHaveTextContent('Export queue is unavailable');
+  });
+});
+
+/**
+ * The post-save "Align the N" offer (#3293, D17–D21).
+ *
+ * The hint beside the picker says a program's methodology does not reach the projects
+ * already in it. This says which ones that leaves. Its whole correctness is *when* it
+ * mounts: it reports a fact about a write, so it must not appear for a write that did
+ * not happen, did not land, or was not this field.
+ */
+describe('ProgramGeneralPage — methodology align offer (#3293)', () => {
+  beforeEach(() => {
+    useProgram.mockReset();
+    mutateAsync.mockReset();
+    mutateAsync.mockResolvedValue(undefined);
+    useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'suggest' } });
+    useProgramProjects.mockReturnValue({
+      data: [
+        { id: 'pr-1', name: 'Artemis IV', methodology: 'HYBRID' },
+        { id: 'pr-2', name: 'Cascade Migration', methodology: 'AGILE' },
+      ],
+      isPending: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    });
+    startMutate.mockReset();
+    startMutate.mockImplementation((_vars, opts) => opts?.onSuccess?.(makeJob()));
+    startState.isPending = false;
+    startState.error = null;
+    jobState.data = undefined;
+    useSettingsSaveStore.getState().reset();
+  });
+
+  async function saveMethodology(to: string) {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: to }));
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    return user;
+  }
+
+  it('does not mount on load — it reports on a save, not on a state', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    expect(screen.queryByTestId('methodology-align-offer')).toBeNull();
+  });
+
+  it('mounts after a successful methodology save and names the projects that differ', async () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    await saveMethodology('Waterfall');
+
+    const offer = screen.getByTestId('methodology-align-offer');
+    expect(offer).toHaveTextContent(/^Saved\./);
+    // Both fixture projects run something other than Waterfall.
+    expect(offer).toHaveTextContent(/0 of 2 projects in this program run as Waterfall; 2 do not/i);
+    expect(
+      screen.getByRole('link', { name: 'Align the 2 projects that differ' }),
+    ).toHaveAttribute('href', '/programs/p-1/settings?bulk=methodology&only=deviating#projects');
+  });
+
+  // D17 — "never when some other field on the page was the thing that moved". The page
+  // is one form with one save; without this the offer would fire on a code or health
+  // edit and report a partition nobody asked about.
+  it('does not mount when a different field was the thing that moved', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    await user.clear(screen.getByLabelText('Program code'));
+    await user.type(screen.getByLabelText('Program code'), 'PH3');
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(mutateAsync).toHaveBeenCalled();
+    expect(screen.queryByTestId('methodology-align-offer')).toBeNull();
+  });
+
+  // "Saved." must never appear over a write that did not land.
+  it('does not mount when the save fails', async () => {
+    mutateAsync.mockRejectedValue(new Error('403'));
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: 'Waterfall' }));
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave().catch(() => undefined);
+    });
+    expect(screen.queryByTestId('methodology-align-offer')).toBeNull();
+  });
+
+  // D17 — "never while dirty". A resolved partition beside a live save bar reads as a
+  // claim about what is on screen, and it is a claim about what was on screen before.
+  it('goes away as soon as the form is dirty again', async () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    const user = await saveMethodology('Waterfall');
+    expect(screen.getByTestId('methodology-align-offer')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: 'Agile' }));
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    expect(screen.queryByTestId('methodology-align-offer')).toBeNull();
+  });
+
+  /**
+   * Web-rule 335. The panel MOUNTS, so it cannot be its own live region — a region that
+   * enters the accessibility tree with its text already inside is announced
+   * inconsistently. The page therefore owns a region that is mounted ALWAYS and EMPTY,
+   * and the offer writes into it: the sentence is a mutation of an existing node.
+   *
+   * This is also why `aria-describedby` alone was never sufficient: the save is
+   * committed from the shell save bar, which unmounts when `dirty` flips false, so focus
+   * is on `document.body` and never on a radio when the offer appears.
+   */
+  it('keeps an empty live region mounted before any save, then speaks the outcome into it', async () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    const live = screen.getByTestId('methodology-align-live');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toBeEmptyDOMElement();
+    // The panel itself must NOT be a second live region racing this one.
+    expect(screen.queryByTestId('methodology-align-offer')).toBeNull();
+
+    await saveMethodology('Waterfall');
+    expect(screen.getByTestId('methodology-align-offer')).not.toHaveAttribute('role');
+    expect(live).toHaveTextContent(
+      'Saved. 0 of 2 projects in this program run as Waterfall; 2 do not. Existing projects keep their own methodology. Use the Align the 2 link to change them.',
+    );
+  });
+
+  /**
+   * Web-rule 335(a) — the belt-and-braces half, not the announcement. It costs one
+   * attribute and makes the counts reachable from the control for anyone who navigates
+   * back to it.
+   */
+  it('is reachable from the radiogroup via aria-describedby while it is mounted', async () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    const group = screen.getByRole('radiogroup', { name: 'Methodology' });
+    expect(group.getAttribute('aria-describedby')).not.toContain(
+      'program-methodology-align-offer',
+    );
+
+    await saveMethodology('Waterfall');
+    const describedBy = screen.getByRole('radiogroup', { name: 'Methodology' })
+      .getAttribute('aria-describedby');
+    expect(describedBy).toContain('program-methodology-align-offer');
+    // The hint is still described too — the offer joins it, it does not replace it.
+    expect(describedBy?.split(' ').length).toBe(2);
+  });
+
+  // No offer under a workspace `inherit` lock: the picker is read-only, so the control
+  // cannot go dirty and there is no methodology save to report on.
+  it('offers nothing under a workspace inherit lock', async () => {
+    useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'inherit' } });
+    useProgram.mockReturnValue({
+      data: makeProgram({ methodology: 'HYBRID', effective_methodology: 'WATERFALL' }),
+    });
+    renderPage();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: 'Agile' }));
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(screen.queryByTestId('methodology-align-offer')).toBeNull();
   });
 });

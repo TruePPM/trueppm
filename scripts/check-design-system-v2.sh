@@ -41,6 +41,13 @@
 #      renders a failed fetch as an empty surface (rule 246). RATCHET — the "is this
 #      a primary surface?" judgement is not mechanizable, but the population size is,
 #      and nobody was counting it across #1764/#1937/#1942/#2858.
+#   4f. a `data`-only query destructure whose value gates a loading skeleton (rule
+#      246, the half 4e cannot see). 4e keys on `isLoading`, so `const { data: ws } =
+#      useWorkspaceSettings()` is invisible to it even when `ws === undefined` gates
+#      an `animate-pulse` early return — and unlike `isLoading`, that term never
+#      clears on a failed GET, so the page pulses forever. ZERO TOLERANCE (#3351):
+#      the tree holds none, and a skeleton gated on an error-blind query value has
+#      no "the parent owns the error" defence to weigh.
 #   4c. a bare text node as a `<Suspense fallback>` — rule 248 wants a skeleton that
 #      mirrors the surface's shape, never a naked "Loading…" line, so the layout
 #      does not jump when the chunk lands. ZERO TOLERANCE (#2431/#2433).
@@ -87,13 +94,37 @@ if [ "${1:-}" = "--self-test" ]; then
   # shellcheck disable=SC2064  # expand now, not at trap time
   trap "rm -rf '$st_tmp'" EXIT
   st_rc=0
+  # A CRASH IS NOT A REJECTION (#3351). This used to read any non-zero exit as
+  # "correctly rejected", so when check 4f shelled out to a python3 that does not
+  # exist in the `alpine:3.20` CI image, the gate died at 127 before running a single
+  # check and three of seven fixtures reported OK — for a gate that had not run at
+  # all. The four that failed were exactly the four expect-PASS cases, which is the
+  # signature of a crash rather than of an over-matching pattern, and it cost a round
+  # trip to tell those apart. So: require the gate to have produced its own count
+  # line in BOTH directions (it is echoed after every count and before every verdict,
+  # so its absence means the script never reached the verdict), and require exit 1 —
+  # the gate's own failure code — rather than merely non-zero.
   st_probe() { # <name> <expect-pass|expect-fail> <dir>
-    if bash "$0" "$3" >/dev/null 2>&1; then
+    local st_out st_ec
+    st_out="$(bash "$0" "$3" 2>&1)" && st_ec=0 || st_ec=$?
+    if ! printf '%s\n' "$st_out" | grep -q '^design-system-v2: '; then
+      {
+        echo "SELF-TEST FAILED: $1 — the gate exited $st_ec without producing its count line."
+        echo "  It crashed instead of running (missing interpreter, syntax error, unset var). Output:"
+        printf '%s\n' "$st_out" | sed 's/^/    /'
+      } >&2
+      st_rc=1
+      return
+    fi
+    if [ "$st_ec" -eq 0 ]; then
       if [ "$2" = "expect-pass" ]; then echo "SELF-TEST OK: $1 accepted."
       else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; st_rc=1; fi
-    else
+    elif [ "$st_ec" -eq 1 ]; then
       if [ "$2" = "expect-fail" ]; then echo "SELF-TEST OK: $1 correctly rejected."
       else echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; st_rc=1; fi
+    else
+      echo "SELF-TEST FAILED: $1 — the gate exited $st_ec, which is neither pass (0) nor a gate failure (1)." >&2
+      st_rc=1
     fi
   }
   st_fixture() { # <name> -> creates $st_tmp/<name> (+ the shell subtree check 4 scans)
@@ -133,6 +164,60 @@ if [ "${1:-}" = "--self-test" ]; then
   d="$(st_fixture shadow)"
   printf 'const cls = "rounded-lg border border-neutral-border shadow-lg px-3";\n' > "$d/Widget.tsx"
   st_probe "off-token shadow utility" expect-fail "$d"
+
+  # REJECT: a `data`-only query destructure gating a loading skeleton (check 4f,
+  # #3351). This is the shape check 4e is structurally blind to — note the absence
+  # of `isLoading` in the destructure, which is exactly why QUERY_ERROR_PAT does not
+  # match it. If this case starts being ACCEPTED, the widening has been undone.
+  d="$(st_fixture skeletonstall)"
+  {
+    printf 'export function Page() {\n'
+    printf '  const { data: ws } = useWorkspaceSettings();\n'
+    printf '  if (ws === undefined) {\n'
+    printf '    return <div className="h-16 rounded-card motion-safe:animate-pulse" />;\n'
+    printf '  }\n'
+    printf '  return <div>{ws.name}</div>;\n'
+    printf '}\n'
+  } > "$d/Page.tsx"
+  st_probe "data-only destructure gating a skeleton" expect-fail "$d"
+
+  # ACCEPT: the fixed shape — the same guard, but the query reads isError and the
+  # failure returns an error state above the skeleton. The negative direction
+  # matters as much as the positive: a check that rejects everything is as useless
+  # as one that rejects nothing, and would make every settings page unlandable.
+  d="$(st_fixture skeletonhandled)"
+  {
+    printf 'export function Page() {\n'
+    printf '  const { data: ws, isError: wsFailed, refetch } = useWorkspaceSettings();\n'
+    printf '  if (wsFailed) {\n'
+    printf '    return <QueryErrorState onRetry={() => void refetch()} />;\n'
+    printf '  }\n'
+    printf '  if (ws === undefined) {\n'
+    printf '    return <div className="h-16 rounded-card motion-safe:animate-pulse" />;\n'
+    printf '  }\n'
+    printf '  return <div>{ws.name}</div>;\n'
+    printf '}\n'
+  } > "$d/Page.tsx"
+  st_probe "data-only destructure with an isError branch" expect-pass "$d"
+
+  # ACCEPT: a `data`-only destructure whose value is read in the RENDER BODY only,
+  # never in the skeleton guard. A failed fetch degrades one value here instead of
+  # stalling the surface, which is the documented near-miss shape (BoardView,
+  # ScheduleView, Sidebar, …). Counting these would be noise and get the check
+  # deleted, so the exclusion is asserted rather than left to the reader.
+  d="$(st_fixture skeletonbodyonly)"
+  {
+    printf 'export function Page() {\n'
+    printf '  const { data: ws } = useWorkspaceSettings();\n'
+    printf '  const { isLoading, isError } = useThing();\n'
+    printf '  if (isError) return <QueryErrorState />;\n'
+    printf '  if (isLoading) {\n'
+    printf '    return <div className="h-16 rounded-card motion-safe:animate-pulse" />;\n'
+    printf '  }\n'
+    printf '  return <div>{ws?.name ?? "—"}</div>;\n'
+    printf '}\n'
+  } > "$d/Page.tsx"
+  st_probe "data-only destructure read only in the render body" expect-pass "$d"
 
   [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
@@ -231,7 +316,18 @@ BASELINE_TINY_TEXT=0
 # VelocityQuery`), which this pattern cannot see — the blind spot filed as #3351.
 # So do not read a drop here as evidence that a specific branch fixed something;
 # run the counter against an exported `origin/main` tree before claiming a gain.
-BASELINE_QUERY_ERROR=56
+# 55 -> 54 at #3351 (ProgramCalendarPage's `useProgram` destructure gained isError).
+# This number was re-measured twice, and the first measurement was WRONG in exactly the
+# way the note above warns about. The branch was cut when main counted 56; by the time
+# the count was taken main had moved 16 commits and someone else's merge had already
+# banked 56 -> 55, so "56 -> 55" would have credited this branch with a gain it did not
+# make. Comparing an `origin/main` export against a branch is NOT apples-to-apples once
+# main moves. The measurement that is: revert the single edited file inside the merged
+# working tree and re-run — same tree, same git context, one file differing. That reads
+# 55 with the file reverted and 54 with the fix, so the delta this branch owns is 1.
+# #3351 also added check 4f below, which is what catches the OTHER destructure on that
+# same page — the `data`-only one this counter is structurally unable to see.
+BASELINE_QUERY_ERROR=54
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary
@@ -477,6 +573,175 @@ query_error_offenders() {
   g -rInE "$QUERY_ERROR_PAT" "$WEB_SRC" --include="*.tsx" 2>/dev/null | query_error_filter
 }
 
+# Rule 246, check 4f — the half of the rule QUERY_ERROR_PAT is structurally blind to
+# (#3351). That pattern keys on `isLoading`, so a `data`-ONLY destructure —
+#
+#   const { data: ws } = useWorkspaceSettings();          // no isLoading, no error
+#   …
+#   if (loading || ws === undefined) return <Skeleton/>;  // never clears on a 500
+#
+# — is invisible to it, even though the failure mode is strictly worse: `isLoading`
+# at least settles to false, whereas `ws === undefined` is true forever. #3298 fixed
+# exactly this on ProjectMethodologyPage, whose sibling `data`-only line the gate
+# reported nothing about while reporting the file as an offender for the line above
+# it. The gate went green through five repeats of this bug class (#1764, #2656,
+# #2858, #2998, #3298) partly on that blindness.
+#
+# Why this one is ZERO TOLERANCE where 4e is a ratchet: 4e counts every query
+# destructure that ignores errors, most of which are inline widgets whose parent
+# owns the failure — a judgement no scan can make, hence the ratchet. This check
+# asks a much narrower and fully mechanical question: does the identifier bound by
+# an error-blind query destructure appear in the CONDITION of an early return whose
+# body renders `animate-pulse`? A skeleton is the page's own claim that data is
+# still coming; gating one on a value that a failed fetch pins at `undefined` is a
+# stall with no semantic defence. The tree holds ZERO such sites once
+# ProgramCalendarPage is fixed, so there is nothing to grandfather.
+#
+# Scope and honest limits (do not read a 0 as more than it is):
+#   * `if (…)` early returns only. A skeleton chosen by a ternary or by a child
+#     component's own guard is not seen.
+#   * The condition's identifiers are taken literally — `ws === undefined`,
+#     `!program` and `ws` all count as "appears in the guard".
+#   * Destructures that DO take `isLoading` are excluded here on purpose: 4e already
+#     counts those, and double-counting would make both numbers unreadable.
+#   * A `data`-only destructure whose value is read in the render body but not in a
+#     guard is NOT counted — it degrades a value rather than stalling the surface
+#     (BoardView, ScheduleView, SchedulePulse, ProductBacklogPage, MobileGroomingPage
+#     and Sidebar are all this shape, and all correctly silent).
+# The detector is POSIX awk, NOT python3 (#3351). The `lint:design-system-v2` job runs
+# on `alpine:3.20` with `apk add --no-cache bash grep` and nothing else, so a python3
+# implementation exits 127 there — and because `st_probe` read any non-zero exit as
+# "correctly rejected", the crash made every expect-fail fixture pass vacuously while
+# the gate had not run at all. awk is in busybox, so it needs no new job dependency.
+# Written to POSIX/busybox awk: no gensub, no ENDFILE, no `\s`/`\b` (word boundaries
+# are spelled out as `[^A-Za-z0-9_$]`), and no GNU-only grep constructs.
+SKELETON_STALL_AWK='
+function countch(s, c,   n, i, len) {
+  n = 0; len = length(s)
+  for (i = 1; i <= len; i++) if (substr(s, i, 1) == c) n++
+  return n
+}
+# Everything after the LAST ")" on a line — for an `if (…) {` this is the ` {`, and
+# for a single-statement `if (…) return <x/>;` it is the statement itself.
+function after_last_paren(s,   p, last, rest) {
+  last = 0
+  for (;;) {
+    rest = substr(s, last + 1)
+    p = index(rest, ")")
+    if (p == 0) break
+    last = last + p
+  }
+  if (last == 0) return s
+  return substr(s, last + 1)
+}
+function add_idents(s, guard,   rest, tok) {
+  rest = s
+  while (match(rest, /[A-Za-z_$][A-Za-z0-9_$]*/)) {
+    tok = substr(rest, RSTART, RLENGTH)
+    guard[tok] = 1
+    rest = substr(rest, RSTART + RLENGTH)
+  }
+}
+# `data` bindings off a use*() destructure that reads no error/isError — and no
+# isLoading either, because check 4e already counts that population and double
+# counting would make both numbers unreadable.
+function collect_bindings(bn, bl,   i, line, m, b1, b2, body, tail, hook, w, name, cnt, seen) {
+  cnt = 0
+  for (i = 1; i <= nl; i++) {
+    line = L[i]
+    if (!match(line, /(const|let)[ \t]+\{[^}]*\}[ \t]*=[ \t]*use[A-Z][A-Za-z0-9_]*[ \t]*\(/)) continue
+    m = substr(line, RSTART, RLENGTH)
+    b1 = index(m, "{"); b2 = index(m, "}")
+    if (b1 == 0 || b2 == 0 || b2 <= b1) continue
+    body = substr(m, b1 + 1, b2 - b1 - 1)
+    tail = substr(m, b2)
+    if (!match(tail, /use[A-Z][A-Za-z0-9_]*/)) continue
+    hook = substr(tail, RSTART, RLENGTH)
+    if (hook in prim) continue
+    w = " " body " "
+    if (w ~ /[^A-Za-z0-9_$](isError|error|isLoading)[^A-Za-z0-9_$]/) continue
+    name = ""
+    if (match(w, /[^A-Za-z0-9_$]data[ \t]*:[ \t]*[A-Za-z_$][A-Za-z0-9_$]*/)) {
+      name = substr(w, RSTART, RLENGTH)
+      sub(/^[^A-Za-z0-9_$]data[ \t]*:[ \t]*/, "", name)
+    } else if (w ~ /[^A-Za-z0-9_$]data[^A-Za-z0-9_$]/) {
+      name = "data"
+    }
+    if (name == "" || (name in seen)) continue
+    seen[name] = 1
+    cnt++; bn[cnt] = name; bl[cnt] = i
+  }
+  return cnt
+}
+# Identifiers named in the condition of an `if` whose body renders a skeleton.
+function collect_guards(guard,   i, j, k, d, o, bd, bo, cond, blk, seg) {
+  i = 1
+  while (i <= nl) {
+    if (L[i] !~ /^[ \t]*if[ \t]*\(/) { i++; continue }
+    d = 0; o = 0; cond = ""; j = i
+    while (j <= nl) {
+      d += countch(L[j], "(")
+      if (index(L[j], "(") > 0) o = 1
+      d -= countch(L[j], ")")
+      cond = cond "\n" L[j]
+      if (o && d == 0) break
+      j++
+    }
+    if (j > nl) break
+    seg = after_last_paren(L[j])
+    if (index(seg, "{") == 0) {
+      # Braceless `if (…) return <x/>;`. The body is the statement itself — walking
+      # braces here would run to EOF and match an `animate-pulse` anywhere later in
+      # the file, which is a false positive waiting to happen. A braceless guard
+      # spanning more than the next line is not a shape this tree writes.
+      blk = seg
+      if (seg ~ /^[ \t]*$/ && j < nl) blk = seg "\n" L[j + 1]
+    } else {
+      bd = 0; bo = 0; blk = ""; k = j
+      while (k <= nl) {
+        if (k > j) seg = L[k]
+        bd += countch(seg, "{")
+        if (index(seg, "{") > 0) bo = 1
+        bd -= countch(seg, "}")
+        blk = blk "\n" L[k]
+        if (bo && bd == 0) break
+        k++
+      }
+    }
+    if (index(blk, "animate-pulse") > 0) add_idents(cond, guard)
+    i = j + 1
+  }
+}
+function flush(f,   i, nbind, bn, bl, guard) {
+  nbind = collect_bindings(bn, bl)
+  if (nbind == 0) return
+  collect_guards(guard)
+  for (i = 1; i <= nbind; i++)
+    if (bn[i] in guard)
+      printf "%s:%d: `%s` gates a skeleton but its query reads no error\n", f, bl[i], bn[i]
+}
+BEGIN {
+  # React own primitives also match use[A-Z]; a useMemo has no error to handle.
+  split("useMemo useCallback useState useReducer useRef useContext useEffect", p, " ")
+  for (i in p) prim[p[i]] = 1
+  nl = 0; prevfile = ""
+}
+# busybox awk has no ENDFILE, so each file is flushed when the NEXT one starts.
+FNR == 1 { if (nl > 0) flush(prevfile); nl = 0; delete L; prevfile = FILENAME }
+{ L[++nl] = $0 }
+END { if (nl > 0) flush(prevfile) }
+'
+
+skeleton_stall_offenders() {
+  local files
+  files="$(find "$WEB_SRC" -type f -name "*.tsx" 2>/dev/null | g -vE "$EXCLUDE" | sort)"
+  # No .tsx under the root is a legitimately empty scan; awk with no file operands
+  # would read stdin and hang. The expect-fail self-test fixture is what proves the
+  # detector still fires, so an empty list here cannot disarm it silently.
+  [ -z "$files" ] && return 0
+  printf "%s\n" "$files" | tr "\n" "\0" | xargs -0 awk "$SKELETON_STALL_AWK" | drop_ignored_lines
+}
+
 # Self-test for the three pattern+filter pipelines above. Same contract as
 # hex_pat_self_test: a ratchet whose pattern matches nothing reports 0 and PASSES,
 # so a narrowed pattern disarms the check silently instead of failing it — which is
@@ -590,8 +855,9 @@ tiny_text=$(tiny_text_offenders | wc -l | tr -d ' ')
 bare_suspense=$(bare_suspense_fallback_offenders | wc -l | tr -d ' ')
 sem_tint=$(sem_tint_offenders | wc -l | tr -d ' ')
 query_error=$(query_error_offenders | wc -l | tr -d ' ')
+skeleton_stall=$(skeleton_stall_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR)"
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0)"
 
 if (( arb > BASELINE_ARBITRARY )); then
   {
@@ -686,6 +952,15 @@ if (( query_error > BASELINE_QUERY_ERROR )); then
   fail=1
 elif (( query_error < BASELINE_QUERY_ERROR )); then
   echo "::notice:: unhandled query errors dropped to $query_error — lower BASELINE_QUERY_ERROR in $(basename "$0") to $query_error to lock the gain."
+fi
+
+if (( skeleton_stall > 0 )); then
+  {
+    echo "::error:: $skeleton_stall query value(s) gating a loading skeleton whose query reads no error/isError (rule 246, #3351)."
+    echo "  A failed fetch pins the value at undefined, so the guard NEVER clears and the surface pulses forever — no error, no retry. Destructure isError + refetch and render <QueryErrorState/> ABOVE the skeleton guard (see ProgramCalendarPage / ProjectMethodologyPage). Offenders:"
+    skeleton_stall_offenders | sed 's/^/    /'
+  } >&2
+  fail=1
 fi
 
 if (( fail )); then

@@ -867,3 +867,107 @@ describe('BulkFieldsMatrix — narrow viewport card list (#3295, D40)', () => {
     expect(screen.queryByTestId('bulk-fields-narrow-wall')).toBeNull();
   });
 });
+
+/**
+ * Arrival props (#3293, D41) — a deep link may seed the checked rows, the chosen field
+ * and one live-region line. Every seed is mount-time only, and the one thing it cannot
+ * seed is a staged value, so Apply stays disabled until the caller's user picks one.
+ *
+ * These cases live here rather than on the mount because the two guards below are
+ * branches of the SHARED component, and its other mount (WorkspaceProgramsPage) can
+ * reach them too. The page-level tests exercise the happy path with 3 unlocked rows and
+ * touch neither.
+ */
+describe('BulkFieldsMatrix — deep-link arrival seeds (#3293)', () => {
+  const MANY: Row[] = Array.from({ length: 250 }, (_, i) => ({
+    id: `r${i}`,
+    name: `Project ${i}`,
+    methodology: 'AGILE',
+    inheritedMethodology: 'HYBRID',
+    iterationLabel: null,
+    effectiveIterationLabel: 'Sprint',
+  }));
+
+  it('seeds the checked rows, the field, and the live region — but stages nothing', () => {
+    renderMatrix({
+      initialSelection: ['r2'],
+      initialFieldKey: 'iteration_label',
+      arrivalNote: '1 of 2 projects shown, 1 selected, Iteration label',
+    });
+    expect(screen.getByLabelText('Select Orbital')).toBeChecked();
+    expect(screen.getByLabelText('Select Apollo')).not.toBeChecked();
+    expect(screen.getByLabelText('Field to set')).toHaveValue('iteration_label');
+    expect(screen.getByTestId('bulk-fields-apply')).toBeDisabled();
+    expect(
+      screen.getByText('1 of 2 projects shown, 1 selected, Iteration label'),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * The selection cap is what makes the caller's "Align the first 200" copy true. It is
+   * a SEPARATE literal from the caller's own (`APPLY_CAP` in MethodologyAlignOffer), and
+   * a comment is the only thing tying the two together — so the clamp itself has to be
+   * asserted here, or a future edit to `maxRows` silently makes that copy a lie.
+   */
+  it('clamps a seeded selection to maxRows rather than checking every id it was handed', () => {
+    renderMatrix({ rows: MANY, initialSelection: MANY.map((r) => r.id) });
+    expect(screen.getByTestId('bulk-fields-apply')).toHaveTextContent('Apply to 200 selected');
+    expect(screen.getByLabelText('Select Project 199')).toBeChecked();
+    expect(screen.getByLabelText('Select Project 200')).not.toBeChecked();
+  });
+
+  /**
+   * A background refetch can replace `rows` without the mount's cohort key changing —
+   * exactly what a deep-link arrival races, since the save that produced the link
+   * invalidated the roster. `selectionResetKey` cannot see that: it tracks the FILTER,
+   * which did not move. Left unpruned, the bar reads "Apply to 2 selected" over rows
+   * nobody can see and an Apply writes to them.
+   */
+  it('prunes checked rows that are no longer on screen, keeping the ones that remain', () => {
+    const { rerender } = render(
+      <BulkFieldsMatrix<Row>
+        rows={ROWS}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={makeFields()}
+        canEdit
+        apply={apply}
+        isApplying={false}
+        entityNoun="projects"
+        initialSelection={['r1', 'r2']}
+        selectionResetKey="unchanged"
+      />,
+    );
+    expect(screen.getByTestId('bulk-fields-apply')).toHaveTextContent('Apply to 2 selected');
+
+    // The refetch lands: r1 is gone from the cohort, r2 is still there.
+    rerender(
+      <BulkFieldsMatrix<Row>
+        rows={[ROWS[1]]}
+        rowKey={(r) => r.id}
+        rowLabel={(r) => r.name}
+        rowNoun="Project"
+        fields={makeFields()}
+        canEdit
+        apply={apply}
+        isApplying={false}
+        entityNoun="projects"
+        initialSelection={['r1', 'r2']}
+        selectionResetKey="unchanged"
+      />,
+    );
+    expect(screen.getByTestId('bulk-fields-apply')).toHaveTextContent('Apply to 1 selected');
+    expect(screen.getByLabelText('Select Orbital')).toBeChecked();
+  });
+
+  /**
+   * The locked/unknown-`initialFieldKey` guard is deliberately NOT asserted here, and
+   * that is a finding rather than an omission: it has no DOM-observable effect. A
+   * `<select>` handed a `value` matching no `<option>` falls back to the first option in
+   * both jsdom and the browser, and `field` independently falls back to
+   * `editableFields[0]`, so removing the guard changes nothing a test can see — it only
+   * stops React state from holding a key the picker cannot show. Asserting the rendered
+   * value would pass with the guard deleted, which is a test that proves nothing.
+   */
+});

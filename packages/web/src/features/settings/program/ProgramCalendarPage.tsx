@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useDirtyForm } from '../hooks/useDirtyForm';
@@ -232,9 +233,14 @@ function CalendarOverrideControl({
 
 export function ProgramCalendarPage() {
   const { programId } = useParams<{ programId: string }>();
-  const { data: program, isLoading: programLoading } = useProgram(programId);
+  const {
+    data: program,
+    isLoading: programLoading,
+    isError: programFailed,
+    refetch: refetchProgram,
+  } = useProgram(programId);
   const updateProgram = useUpdateProgram();
-  const { data: ws } = useWorkspaceSettings();
+  const { data: ws, isError: wsFailed, refetch: refetchWs } = useWorkspaceSettings();
   const { calendars, isLoading: calendarsLoading, error: calendarsError } = useCalendars();
 
   // null = inherit the workspace calendar (ADR-0441).
@@ -282,6 +288,35 @@ export function ProgramCalendarPage() {
     onReset: handleReset,
     apiReady: !!program && canEdit,
   });
+
+  // A failed GET must read as broken, not as a stuck skeleton (rule 246, #3351).
+  // Both reads are checked because the skeleton below waits on BOTH, and neither
+  // term ever clears on failure: `programLoading` settles to false but `!program`
+  // stays true, and `ws === undefined` stays true forever. The calendar library
+  // is deliberately NOT in this branch — `calendarsError` is already surfaced in
+  // the picker itself ("Couldn't load calendars"), so a dead calendar GET degrades
+  // one control rather than stalling the block.
+  // `inline` (polite) because this is one section inside Program settings, whose
+  // sibling sections still work.
+  if (programFailed || wsFailed) {
+    return (
+      <div>
+        <SettingsPageTitle title="Working calendar" />
+        <div className="px-6 py-8">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load this program's working calendar."
+            // Retry only what actually failed — re-running a request that
+            // succeeded would evict a warm cache entry for no reason.
+            onRetry={() => {
+              if (programFailed) void refetchProgram();
+              if (wsFailed) void refetchWs();
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // Gate on all three: program, workspace settings, and the calendar library.
   // Until all resolve, `effective`/`inherited`/`lockedByPolicy` would fall back
