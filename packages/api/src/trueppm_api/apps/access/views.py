@@ -42,6 +42,7 @@ from trueppm_api.apps.access.permissions import (
     McpScope,
     _membership_role,
     _program_membership_role,
+    assert_project_not_archived,
 )
 from trueppm_api.apps.access.serializers import (
     ExternalStakeholderSerializer,
@@ -134,6 +135,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    archived_write_exempt = {
+        "destroy": (
+            "self-removal must survive archiving; removing another member is still "
+            "refused, in the destroy body where `is_self` is known"
+        )
+    }
 
     def get_permissions(self) -> list[BasePermission]:
         """Express the Owner-only create/partial_update gate at the permission layer.
@@ -146,13 +153,17 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         is deliberately excluded — any member may self-remove (the last-Owner guard
         prevents stranding a project), so it must not require Owner.
         """
-        perms: list[BasePermission] = [
-            IsAuthenticated(),
-            IsProjectMember(),
-            IsProjectNotArchived(),
-        ]
+        perms: list[BasePermission] = [IsAuthenticated(), IsProjectMember()]
         if self.action in ("create", "partial_update"):
             perms.append(IsProjectOwner())
+        if self.action != "destroy":
+            # `destroy` is the one action that must survive archiving, and only for the
+            # self-removal case (#3414). `IsProjectNotArchived` fires in `has_permission`
+            # on this route — before the object is fetched and long before `is_self` is
+            # known — so leaving it on the chain would close the "any member may
+            # self-remove" path documented above. The archived refusal for removing
+            # SOMEONE ELSE is re-asserted in the `destroy` body, where `is_self` exists.
+            perms.append(IsProjectNotArchived())
         return perms
 
     def get_queryset(self) -> QuerySet[ProjectMembership]:
@@ -476,6 +487,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             if actor_role is None:
                 raise PermissionDenied("You are not a member of this project.")
         else:
+            # Removing another member is an ordinary roster write, so it obeys the
+            # archived read-only contract (#3414). Checked here rather than by keeping
+            # `IsProjectNotArchived` on the chain because `has_permission` runs before
+            # `is_self` is known, and refusing there would also close self-removal —
+            # which must survive archiving the way share-link and token revocation do.
+            assert_project_not_archived(project.pk)
             # Removing another member requires Owner.
             actor_role = self._require_actor_role(request, project.pk, Role.OWNER)
             # Owner may only remove members with a lower role than themselves.
@@ -622,12 +639,13 @@ class UserDefinedMentionGroupViewSet(
 
     def destroy(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         project = self._get_project_or_404()
-        # IsProjectNotArchived bypasses the archived check for any action named
-        # "destroy" (its bypass set is matched by action name, for ProjectViewSet's
-        # own delete). This nested viewset also names its delete "destroy", so the
-        # archived read-only invariant must be re-asserted explicitly here — every
-        # other write action (create/update/add-member/…) is already blocked by the
-        # permission because it is not in that bypass set.
+        # Defense in depth. `IsProjectNotArchived` used to bypass the check for ANY
+        # action named "destroy" — the exemption was matched by action name, for
+        # ProjectViewSet's own delete — and this nested viewset names its delete
+        # "destroy" too, so the invariant had to be re-asserted here or it was lost.
+        # #3414 scoped the bypass to ProjectViewSet, so the permission class now covers
+        # this route on its own; the check below is retained per ADR-0184's additive
+        # doctrine rather than deleted as redundant.
         if project.is_archived:
             raise PermissionDenied(
                 "This project is archived and cannot be modified. Unarchive it first."
@@ -754,10 +772,13 @@ class ProgramUserDefinedMentionGroupViewSet(
          ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``
          ``…/{pk}/mute/``  ``…/{pk}/unmute/``
 
-    Permission matrix (ADR-0248 §3):
-      list / retrieve            — any program member (Viewer+)
-      create / update / destroy  — Program Owner  (group lifecycle is an owner act)
-      add-member / remove-member — Program Admin+  (roster curation)
+    Permission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in
+    parentheses because "Program Admin" is ``Role.OWNER`` (400) here, not
+    ``Role.ADMIN`` (#3503):
+      list / retrieve            — any program member (Viewer+, 1)
+      create / update / destroy  — Program Admin (400)  (group lifecycle is an
+                                   owner act)
+      add-member / remove-member — Program Manager+ (300)  (roster curation)
       mute / unmute              — any member (their own subscription only)
     """
 

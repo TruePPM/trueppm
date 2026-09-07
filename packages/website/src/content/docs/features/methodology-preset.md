@@ -41,14 +41,19 @@ The default for new projects is **Hybrid** — every tab visible. Existing proje
 The preset communicates *"this is not how we work here"*, not *"this is not allowed."* Power users who know what they want can always reach a hidden view by direct URL. Mobile or API consumers are unaffected. Hiding lowers cognitive load at onboarding without restricting the system.
 
 :::note[Ships in 0.4]
-The explanatory empty state and the flip-warning below ship in **TruePPM 0.4**, the first beta. In `v0.3.0-alpha.3`, the latest release, landing on a hidden view by direct URL shows the same cold-start empty state a project actually using that workflow would see — including its "start using this" call to action — with no indication the project is configured otherwise.
+The explanatory empty state, the mismatch banner and the flip-warning below all ship in **TruePPM 0.4**, the first beta. In `v0.3.0-alpha.3`, the latest release, landing on a hidden view by direct URL shows the same view a project actually using that workflow would see — an empty one offers its "start using this" call to action, a populated one just renders the work — with no indication in either case that the project is configured otherwise.
 :::
 
-Landing on a hidden view by direct URL never blocks the route, but it also never pretends the view is the project's normal workflow. `/sprints` and `/backlog` on a Waterfall project (and `/schedule` and `/calendar` on an Agile one) show a distinct empty state that names the mismatch, points the primary action at the view the project's methodology actually uses, and demotes "use this anyway" to a secondary action that opens **Settings → Methodology** — so enabling the hidden surface is a deliberate configuration change, never an incidental click.
+Landing on a hidden view by direct URL never blocks the route, but it also never pretends the view is the project's normal workflow. `/sprints` and `/backlog` on a Waterfall project (and `/schedule` and `/calendar` on an Agile one) show a distinct empty state that names the mismatch, points the primary action at the view the project's methodology actually uses, and demotes "use this anyway" to a secondary action that opens **Settings → How this team works** — so enabling the hidden surface is a deliberate configuration change, never an incidental click.
 
-Flipping a project's methodology never touches existing data. If a project already has sprints and its methodology changes to Waterfall, the Sprints view keeps rendering them — with a banner explaining that they sit outside the project's current workflow — rather than showing the empty state as if they never existed.
+Flipping a project's methodology never touches existing data, and a hidden view that still holds work says so. Wherever a hidden surface is **not** empty, it renders the work as usual under a banner naming the mismatch — the same four surfaces the empty state covers, and their mobile counterparts:
 
-The Settings → Methodology picker will also warn before any save that hides work the project already has, naming the counts so the choice is made with the consequence in view. It covers **both** directions that hide something, and every view each one takes away:
+- **Waterfall** — Sprints names how many sprints are already committed; Backlog names how many stories are already groomed.
+- **Agile** — Schedule and Calendar state that the project already has a schedule.
+
+The banner is read-only and always sits above the real content: the work is never hidden, because the route was never blocked. It offers a single **Review methodology** action, which opens **Settings → How this team works**. It cannot be dismissed — it states a standing fact about the project's configuration rather than reporting an event, and it disappears on its own as soon as either half stops being true (the preset changes back, or the work is gone). You will never see the banner and the empty state at once: an empty hidden surface gets the empty state, a populated one gets the banner.
+
+The Settings → How this team works picker will also warn before any save that hides work the project already has, naming the counts so the choice is made with the consequence in view. It covers **both** directions that hide something, and every view each one takes away:
 
 - **Switching to Waterfall** hides Backlog and Sprints. The warning names how many sprints are already committed and how many items sit in the product backlog — either one on its own is enough to raise it, so a groomed backlog on a project that has never run a sprint is not waved through.
 - **Switching to Agile** hides Schedule and Calendar. The warning names how many tasks are on the schedule and how many dependency links the project holds, since the dependency network and the critical path are drawn nowhere else.
@@ -116,6 +121,23 @@ To change projects that already exist, use the bulk matrix under **Program setti
 Projects**, or each project's own **Methodology** setting. A workspace **Inherit** lock is
 the one case where a parent's value does reach every scope, because it overrides each
 scope's own value at resolution time rather than copying anything.
+
+:::note[Ships in 0.4]
+Saving a program methodology tells you nothing about the projects already in the program
+in the current release — you have to open the Projects matrix and read the rows yourself.
+:::
+
+In 0.4, saving a program's methodology will report what that save did and did not reach:
+
+> Saved. 9 of 12 projects in this program run as Waterfall; 3 do not. Existing projects
+> keep their own methodology. **Align the 3**
+
+**Align the 3** will open the Projects matrix with those three rows already checked and
+**Methodology** already chosen — but nothing will be staged and **Apply** will stay
+disabled, so the change is still yours to make. When every project already matches, the
+message will say so ("All 12 projects in this program already run as Waterfall") rather
+than showing nothing, because silence there is the state that reads as a successful
+cascade.
 
 The **effective** methodology will be resolved on the server, so every client reads the
 same value. The view-tab matrix above is driven by the *effective*

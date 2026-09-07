@@ -41,6 +41,7 @@ import { ROLE_MEMBER } from '@/lib/roles';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
+import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
 import { Button } from '@/components/Button';
 import { CalendarIcon } from '@/components/Icons';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
@@ -309,6 +310,25 @@ export function CalendarView() {
           task={selectedTask}
           projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
+        />
+      )}
+
+      {/* A methodology flip to AGILE hides Calendar from the nav
+          (methodologyTabs.ts) but never touches the dates it holds (#2619) —
+          without this, a project with real scheduled work renders the ordinary
+          populated calendar with nothing saying the surface now sits outside its
+          workflow. Sits ABOVE the height-filling grid container rather than
+          inside it: a child there would fight `flex-1 min-h-0`.
+
+          Carries its own resolved-data guard (rule 392) because it is outside
+          the ternary below that owns `error` / `isLoading` — an in-flight or
+          failed fetch reads `tasks.length === 0`, which is "unknown", not "this
+          project has no schedule to warn about". */}
+      {!isLoading && !error && tasks.length > 0 && effectiveMethodology === 'AGILE' && (
+        <MethodologyMismatchBanner
+          projectId={projectId}
+          className="mx-3 mt-2"
+          message="This project is configured as Agile, but it already has a schedule — these dates stay reachable even though they sit outside its workflow."
         />
       )}
 

@@ -1215,6 +1215,20 @@ class GroupProjectView(IdempotencyMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    # Exempt from the archived-write invariant (#3414). This is a WORKSPACE surface —
+    # mounted under `/workspace/groups/`, gated by `IsWorkspaceAdmin`, and the resource
+    # written is the group's access list; the project is a link target. Archiving freezes
+    # a plan's contents, not who may read it, and an admin must be able to add or remove
+    # an archived project from a group while reorganizing access.
+    #
+    # Note the asymmetry with `ProjectMembershipViewSet`, which DOES carry
+    # `IsProjectNotArchived`: the two surfaces disagree about whether access
+    # administration is a project write. Reconciling them is a product decision, not a
+    # side effect of this invariant — see the MR for #3414.
+    archived_write_exempt = (
+        "workspace-level group access administration: the write is the group's access "
+        "list and archiving freezes a plan's contents, not who may read it"
+    )
 
     def _get_group_or_404(self, group_id: str) -> Group:
         return get_object_or_404(Group, pk=group_id, is_deleted=False)

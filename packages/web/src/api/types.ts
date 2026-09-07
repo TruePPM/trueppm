@@ -146,6 +146,24 @@ export type ProgramCalendarSource = 'program' | 'workspace' | 'system_default';
 export type CalendarOverridePolicy = 'inherit' | 'suggest' | 'enforce';
 
 /**
+ * Which tier supplied the timezone a project's quiet-hours window is read in
+ * (issue #3377), reported read-only as `quiet_hours_timezone_source` on
+ * `GET /api/v1/projects/<id>/notification-preferences/`. Mirrors the OpenAPI
+ * `QuietHoursTimezoneSourceEnum`.
+ *
+ * The chain resolves top-down and stops at the first usable value: the
+ * project's own `timezone`, the workspace default, the server's Django
+ * `TIME_ZONE`, then UTC. It is reported because the winning tier is not
+ * derivable from the values — a project and a workspace set to the same zone
+ * are indistinguishable from outside.
+ *
+ * In normal operation only `project` and `workspace` occur; `server` (no
+ * workspace row yet) and `fallback` (no tier usable at all) are degradation
+ * signals.
+ */
+export type QuietHoursTimezoneSource = 'project' | 'workspace' | 'server' | 'fallback';
+
+/**
  * Program health override. ``AUTO`` defers to the (future) rollup; the explicit
  * values are PM overrides. Mirrors ``apps.projects.models.Health`` (issue #523).
  */

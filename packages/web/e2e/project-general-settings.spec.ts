@@ -448,7 +448,7 @@ test.describe('Project Settings → General', () => {
     page,
   }) => {
     const captures: Captures = {};
-    const message = 'You need at least Project Manager role on ‘Beacon’ to add this project to it.';
+    const message = 'You need at least Program Manager role on ‘Beacon’ to add this project to it.';
     await setup(page, captures, {
       programs: FIXTURE_PROGRAMS,
       patchStatus: 400,

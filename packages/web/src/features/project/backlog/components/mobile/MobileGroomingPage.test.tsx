@@ -150,6 +150,56 @@ describe('MobileGroomingPage (issue 1044)', () => {
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
+  // #2619 finding A — the mobile half of the populated-backlog signal. Without
+  // it a phone user on a groomed backlog flipped to WATERFALL sees the ordinary
+  // page with nothing saying the stories now sit outside the workflow.
+  it('warns on a POPULATED backlog under WATERFALL, and still renders the cards', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    render(<MobileGroomingPage />);
+    expect(
+      screen.getByText(
+        /This project is configured as Waterfall, but 3 stories already are groomed here/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review methodology' })).toBeInTheDocument();
+    expect(screen.getByText('Failover handling')).toBeInTheDocument();
+    // Disjointness: the banner and the empty state never co-occur.
+    expect(
+      screen.queryByText("Backlog isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on a populated backlog under HYBRID', () => {
+    h.effectiveMethodology = 'HYBRID';
+    render(<MobileGroomingPage />);
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on an EMPTY backlog under WATERFALL — that is the empty state\'s job', () => {
+    h.data = { ...makeBacklog(), epics: [], ungrouped: [] };
+    h.effectiveMethodology = 'WATERFALL';
+    render(<MobileGroomingPage />);
+    expect(screen.getByText("Backlog isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  // Rule 392 — this page's own early returns sit above the banner.
+  it('shows no banner while the backlog query is in flight under WATERFALL', () => {
+    h.isLoading = true;
+    h.data = undefined;
+    h.effectiveMethodology = 'WATERFALL';
+    render(<MobileGroomingPage />);
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner after the backlog query failed under WATERFALL', () => {
+    h.isError = true;
+    h.data = undefined;
+    h.effectiveMethodology = 'WATERFALL';
+    render(<MobileGroomingPage />);
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
   it('renders epic-grouped cards plus the ungrouped bucket', () => {
     render(<MobileGroomingPage />);
     expect(screen.getByRole('heading', { name: 'Product backlog' })).toBeInTheDocument();

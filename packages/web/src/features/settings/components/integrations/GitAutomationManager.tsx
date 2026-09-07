@@ -269,6 +269,15 @@ const DELIVERY_OUTCOMES: Record<string, { label: string; tone: 'ok' | 'problem' 
     tone: 'problem',
     hint: 'Turn the toggle on for cards to move.',
   },
+  project_archived: {
+    label: 'Delivery arrived while the project was archived',
+    tone: 'problem',
+    // The one refusal with a single unambiguous fix, so the hint states it outright
+    // rather than hedging the way `bad_signature` has to. Recording the reason here
+    // is the entire justification for refusing this delivery through the receiver's
+    // uniform 404 instead of a 403 the provider could read.
+    hint: 'Archived projects are read-only, so cards do not move. Unarchive the project and automation resumes — nothing needs reconfiguring.',
+  },
   unknown_provider: {
     label: 'Unrecognized provider',
     tone: 'problem',

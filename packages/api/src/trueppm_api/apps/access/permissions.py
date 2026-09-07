@@ -43,6 +43,18 @@ def _get_project_id_from_obj(obj: Any) -> Any | None:
         return obj.project_id
     if hasattr(obj, "project"):
         return obj.project_id
+    # NOTE (#3414): a `task_id -> task.project_id` hop was added here and then removed,
+    # because it was dead on arrival. Every task-scoped model that reaches this helper —
+    # TaskResource, AcceptanceCriterion, TaskRecurrenceRule, SprintTaskOutcome,
+    # CrossProjectSlipConflict — already exposes a `project_id` **property** that walks
+    # the relation itself, so the branch above returns first and the hop never ran.
+    # The only models it did reach (RiskTask, PokerSession, TimeEntry, ActiveTimer,
+    # TaskActivityEvent, …) are served by views that never route them through an
+    # object-level project check, and resolving them would have flipped eleven
+    # fail-closed classes from "deny" to "role-based grant" on those rows — a widening,
+    # in the middle of a tightening. If a task-scoped model ever does need this, give it
+    # a `project_id` property like its siblings rather than widening the resolver.
+    #
     # Dependency — look through predecessor__project_id
     if hasattr(obj, "predecessor_id"):
         predecessor = getattr(obj, "predecessor", None)
@@ -1064,7 +1076,11 @@ class IsProgramScheduler(BasePermission):
     open GET to every member — a Viewer or plain Member is denied 403.
     """
 
-    message = "You need at least Scheduler role on this program."
+    # "Resource Manager" is the label for ``Role.SCHEDULER`` in both vocabularies;
+    # "Scheduler" is the code name and appears on no surface, so a refusal naming
+    # it sends the reader looking for a role that does not exist (#3503). Matches
+    # ``IsProjectScheduler.message``, which already says Resource Manager.
+    message = "You need at least Resource Manager role on this program."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
@@ -1123,13 +1139,18 @@ class IsProgramEditor(BasePermission):
 
 
 class IsProgramAdmin(BasePermission):
-    """Allow Project Manager (3) or above on a program.
+    """Allow Program Manager (``Role.ADMIN``, 300) or above on a program.
 
     Used for: updating program metadata, adding/removing projects from the
     program, managing membership.
+
+    The tier is named in **program** vocabulary because this class only ever
+    refuses on a program surface, and a refusal that names a role the surface
+    does not offer is unactionable (#3503). It is the same ordinal a project
+    calls "Project Manager".
     """
 
-    message = "You need at least Project Manager role on this program."
+    message = "You need at least Program Manager role on this program."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
@@ -1149,9 +1170,13 @@ class IsProgramAdmin(BasePermission):
 
 
 class IsProgramOwner(BasePermission):
-    """Allow only Program Owner (4). Used for: program delete."""
+    """Allow only Program Admin (``Role.OWNER``, 400). Used for: program delete.
 
-    message = "Only the Program Owner can perform this action."
+    "Program Admin" is the program label for the ordinal ``OWNER``; "Owner" is
+    the code name, not a role a user is shown anywhere (#3503).
+    """
+
+    message = "Only the Program Admin can perform this action."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
@@ -1220,31 +1245,56 @@ class IsProjectNotArchived(BasePermission):
 
     message = "This project is archived and cannot be modified. Unarchive it first."
 
-    # Action names on ProjectViewSet that must bypass the archived check —
-    # otherwise an Owner could never unarchive (catch-22), delete, or restore the row.
-    # NOTE: this is matched on the action *name* only, not the viewset class. It is safe
-    # today because only ProjectViewSet applies IsProjectNotArchived to these actions;
-    # a same-named action (e.g. ResourceViewSet.restore) is unaffected because that
-    # viewset never includes IsProjectNotArchived. If a future viewset both applies this
-    # permission AND names an action in this set, scope the check by viewset before then.
+    # Action names that must bypass the archived check on the PROJECT ROW ITSELF —
+    # otherwise an Owner could never unarchive (catch-22), delete, or restore it.
     #
-    # #3354 added the class to three more viewsets — PasteManyOperationViewSet,
-    # CascadeClassificationOperationViewSet and TemplateApplicationViewSet — so the
-    # "only ProjectViewSet" premise above is now a statement about these four action
-    # names, not about the class's reach. All three are ReadOnlyModelViewSets whose
-    # only extra action is `undo`, so none of them names anything in this set and the
-    # bypass stays unreachable from them. The live hazard is a later change promoting
-    # one of them to a ModelViewSet: that mints a `destroy` route which would silently
-    # inherit an archived bypass, with no test covering it. Scope this by viewset
-    # class before doing that.
+    # **Scoped by viewset class, not by action name alone (#3414).** It used to match
+    # the name only, with a comment saying to scope it "before" a second viewset named
+    # one of these actions. That moment had already passed: `destroy` is a router-minted
+    # action on every ModelViewSet, and by 0.4 twenty project-scoped viewsets carried
+    # this class AND exposed `destroy` — tasks, risks, dependencies, comments,
+    # attachments, notes, links, labels, phases, baselines, memberships, custom fields,
+    # api-tokens, project/task resources, mention groups, sprints, retro items — plus
+    # `TaskViewSet.restore`. Every one of those DELETEs answered 204 on an archived
+    # project, because the bypass fires in `has_permission` AND `has_object_permission`,
+    # so nothing downstream re-checked. The invariant that was supposed to catch this
+    # (`test_no_viewset_but_projectviewset_exposes_an_archive_bypass_action`) read the
+    # action map off `initkwargs`, where DRF never puts it — it had been asserting over
+    # an empty set since the day it was written.
+    #
+    # `_bypasses_archive_check` therefore requires the view to BE the project viewset.
+    # Anything else — a `destroy` on a task, a `restore` on a resource — goes through
+    # the archived check like any other write.
     _ARCHIVE_BYPASS_ACTIONS: frozenset[str] = frozenset(
         {"unarchive", "destroy", "archive", "restore"}
     )
 
+    @staticmethod
+    def _bypasses_archive_check(view: APIView) -> bool:
+        """Is this the project-lifecycle escape hatch, rather than a same-named action?
+
+        Tested against the imported class object, not against ``__name__`` — a future
+        ``ProjectViewSet`` in another app cannot inherit the exemption by naming
+        collision. ``isinstance`` rather than ``type(view) is``, deliberately: a subclass
+        of this viewset still serves ``Project`` rows, which is the only thing the
+        exemption is about, and an edition-specific subclass registered against the
+        ADR-0030 routing hook would otherwise lose the ability to unarchive.
+
+        Imported inside the function because ``projects.views`` imports this module — a
+        module-level import would be a cycle. The action-name test runs first, so the
+        import is reached only on the four lifecycle actions, and after the first call
+        it is a ``sys.modules`` dict hit.
+        """
+        if getattr(view, "action", None) not in IsProjectNotArchived._ARCHIVE_BYPASS_ACTIONS:
+            return False
+        from trueppm_api.apps.projects.views import ProjectViewSet
+
+        return isinstance(view, ProjectViewSet)
+
     def has_permission(self, request: Request, view: APIView) -> bool:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
-        if getattr(view, "action", None) in self._ARCHIVE_BYPASS_ACTIONS:
+        if self._bypasses_archive_check(view):
             return True
         project_pk = _project_pk_from_view(view)
         if project_pk is None:
@@ -1258,7 +1308,7 @@ class IsProjectNotArchived(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
-        if getattr(view, "action", None) in self._ARCHIVE_BYPASS_ACTIONS:
+        if self._bypasses_archive_check(view):
             return True
         from trueppm_api.apps.projects.models import Project
 

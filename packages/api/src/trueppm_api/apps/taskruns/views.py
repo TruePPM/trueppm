@@ -32,6 +32,16 @@ class ProjectTaskRunViewSet(
     """
 
     serializer_class = TaskRunSerializer
+    # Exempt from the archived-write invariant (#3414). `cancel` is the viewset's only
+    # unsafe method and it writes no project data — it sets a Valkey cancel flag and
+    # revokes a Celery task. A run can still be in flight when the project is archived
+    # (archiving does not drain the queue), and gating the stop signal would leave an
+    # Admin unable to halt a job on a plan they just froze — the same catch-22 the
+    # `unarchive` bypass exists to avoid.
+    archived_write_exempt = (
+        "cancel signals an in-flight run to stop and writes no project state; blocking "
+        "it would strand a run started before the archive with no way to halt it"
+    )
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action == "cancel":

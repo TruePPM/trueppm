@@ -184,13 +184,16 @@ would be rejected when you submit.
   pool keep their relative intake order in the project; an unranked item stays
   unranked and sorts last. Requires at least Team Member role on both the
   program and the target project.
-- **Projects** — the projects currently in this program. Click a project name
-  to navigate to it. The `Remove` action detaches the project (it becomes
-  standalone, untouched). When the program has a **target date** set, it shows at
-  the top of this tab. Each project row carries a standup-style count of its
-  **overdue** tasks (past their scheduled finish) and **at-risk** tasks (five or
-  fewer working days of float), so the tab reads like a morning dashboard rather
-  than a plain directory.
+- **Projects** — the projects currently in this program. Every project in the
+  program is listed, but only the ones you are a member of are links — because
+  program membership does not carry into projects (see above), a project you
+  hold no membership on is plain text marked **No access**, and a project owner
+  has to add you before you can open it. The `Remove` action detaches the
+  project (it becomes standalone, untouched). When the program has a **target
+  date** set, it shows at the top of this tab. Each project row carries a
+  standup-style count of its **overdue** tasks (past their scheduled finish) and
+  **at-risk** tasks (five or fewer working days of float), so the tab reads like
+  a morning dashboard rather than a plain directory.
 - **Resources** — *(added in 0.3)* within-program resource contention. Surfaces
   people staffed across more than one of the program's projects in overlapping
   windows, broken down by project, with an over-allocation flag when someone is
@@ -237,10 +240,11 @@ Deeper program configuration lives under **/programs/:id/settings**:
   (FS / SS / FF / SF), which risk fields are mandatory, and escalation thresholds.
 - **Lifecycle** — close or reopen the program, transfer sponsorship to another
   member, and split the program into sub-programs. Transfer sponsorship opens a
-  member picker: the chosen member becomes the Program Admin (Owner), the current
-  one is demoted to Program Manager, and you can optionally move the program's
-  lead — the "new program manager" picker — in the same step. The new sponsor must already be a program member. **Split into sub-programs**
-  (Owner only) opens a dialog where you name one or more new sub-programs you'll own
+  member picker: the chosen member becomes **Program Admin**, you step down to
+  **Program Manager**, and you can optionally reassign the **program lead** in the
+  same step — the lead is a display field and grants no access, unlike the two
+  roles. The new Program Admin must already be a program member. **Split into sub-programs**
+  (Program Admin only) opens a dialog where you name one or more new sub-programs you'll own
   and assign each of the program's projects to one of them; any project you leave
   unassigned stays on the original program, which is closed (read-only) after the
   split. Only the `Project → program` link moves — each project keeps its full

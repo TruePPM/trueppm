@@ -4852,6 +4852,9 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "description": "Caller is not a project Admin, or the project is archived (#3414). Declared on the method, not the class: the class-level annotation covers GET too, and GET stays available while archived."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -4944,6 +4947,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Caller is not a project Admin, or the project is archived (#3414) — minting a credential is a write. Nothing is stranded by the refusal: the receiver refuses an archived project's deliveries outright."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -5057,7 +5063,7 @@
                         "description": "Malformed webhook payload (signature verified)."
                     },
                     "404": {
-                        "description": "The uniform refusal for every pre-verification failure — no automation, disabled, no secret set, unrecognized provider, or an invalid signature. Deliberately indistinguishable so the endpoint cannot be used to discover which projects have automation configured."
+                        "description": "The uniform refusal for every pre-verification failure — no automation, an archived project, disabled, no secret set, unrecognized provider, or an invalid signature. Deliberately indistinguishable so the endpoint cannot be used to discover which projects have automation configured."
                     },
                     "413": {
                         "description": "Payload above the 1 MB webhook body cap."
@@ -14443,7 +14449,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/": {
             "get": {
                 "operationId": "v1_programs_mention_groups_list",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -14528,7 +14534,7 @@
             },
             "post": {
                 "operationId": "v1_programs_mention_groups_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14641,7 +14647,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/": {
             "get": {
                 "operationId": "v1_programs_mention_groups_retrieve",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14708,7 +14714,7 @@
             },
             "patch": {
                 "operationId": "v1_programs_mention_groups_partial_update",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14827,7 +14833,7 @@
             },
             "delete": {
                 "operationId": "v1_programs_mention_groups_destroy",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14889,7 +14895,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/add-member/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_add_member_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Add a program member to this @mention group",
                 "parameters": [
                     {
@@ -15011,7 +15017,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/mute/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_mute_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Mute this @mention group for yourself",
                 "parameters": [
                     {
@@ -15080,7 +15086,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/remove-member/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_remove_member_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Remove a member from this @mention group",
                 "parameters": [
                     {
@@ -15202,7 +15208,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/unmute/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_unmute_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Unmute this @mention group for yourself",
                 "parameters": [
                     {
@@ -16127,6 +16133,9 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "description": "Caller lacks Admin on the webhook's scope. On a PROJECT webhook the same status is also how an archived project refuses (#3414); the program-scoped route has no archived state. Declared once because this handler is shared by both viewsets."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -16798,6 +16807,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Caller lacks the Resource Manager role on the target project, or that project is archived (#3414). The project is named only in the request body here, so the refusal comes from the view rather than a permission class — the status and body are the same either way."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -18209,6 +18221,17 @@
                             }
                         },
                         "description": "Result object: `{updated, unchanged, unknown, tasks}`. `updated`/`unchanged` are the criterion ids whose `met` flag was flipped or already matched; `unknown` are ids that belong to another project (never touched — IDOR boundary). `tasks` is a per-task report `{task, dor_ready, criteria_met, criteria_total}`, where `dor_ready` reports whether that task's Definition-of-Ready gate is now clear. Authenticates with a project-scoped API token (`projectApiTokenAuth`), not a user session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The token does not carry the `legacy:full` scope, or the project is archived (#3414) — flipping a criterion writes `met`/`met_by`/`met_at` and broadcasts, so it is a plan write and an archived plan is read-only. A CI job seeing this should stop retrying: neither cause is transient."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -20491,6 +20514,17 @@
                         },
                         "description": "OSS simulation cap exceeded (n_simulations above MC_SIMULATION_CAP or too many tasks)."
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Caller is not a member of the project, or the project is archived — a run refreshes the project's forecast cache and, for Scheduler+, appends a drift-history row, so it is a write."
+                    },
                     "404": {
                         "content": {
                             "application/json": {
@@ -22248,7 +22282,7 @@
         "/api/v1/projects/{id}/schedule/": {
             "post": {
                 "operationId": "v1_projects_schedule_create",
-                "description": "Manually trigger a CPM recalculation for a project.\n\nRequires the requesting user to hold at least the Scheduler role on the\nproject.  The request is written to the transactional outbox and dispatched\nimmediately if the broker is available; otherwise the Beat drain task picks\nit up within 30 seconds.\n\nReturns 404 if the project does not exist.",
+                "description": "Manually trigger a CPM recalculation for a project.\n\nRequires the requesting user to hold at least the Resource Manager role on the\nproject.  The request is written to the transactional outbox and dispatched\nimmediately if the broker is available; otherwise the Beat drain task picks\nit up within 30 seconds.\n\nReturns 404 if the project does not exist.",
                 "summary": "Trigger a CPM recalculation for a project",
                 "parameters": [
                     {
@@ -22287,7 +22321,7 @@
                         "description": "Recalculation queued via the outbox; body is {\"queued\": true}."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project, or the project is archived (archived plans are read-only, and a recalculation rewrites every task's dates). Both causes answer the same status — branch on `detail`, not on 403 alone."
                     },
                     "404": {
                         "description": "Project not found."
@@ -22529,7 +22563,7 @@
         "/api/v1/projects/{id}/status-summary/": {
             "get": {
                 "operationId": "v1_projects_status_summary_retrieve",
-                "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nP80 is the most recent persisted MonteCarloRun's p80 for this project, or\nnull when no run has been recorded. Null means \"no forecast exists\", not\n\"not computed yet\" — a client may render \"P80 —\" for it without having to\nguess which of the two it is looking at.",
+                "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nhealth_band comes from :func:`compute_health_band` — the manual\nProject.health override when the PM has reported one, otherwise the\ncounts. It is on the payload because the shell chip fetches this endpoint\nand nothing else: without it the chip could only ever see the counts\nbranch, and contradicted the PM's own report (#3501).\n\nP80 is the most recent persisted MonteCarloRun's p80 for this project, or\nnull when no run has been recorded. Null means \"no forecast exists\", not\n\"not computed yet\" — a client may render \"P80 —\" for it without having to\nguess which of the two it is looking at.",
                 "summary": "Get the project status summary",
                 "parameters": [
                     {
@@ -26577,7 +26611,7 @@
         "/api/v1/projects/{project_pk}/import/csv/": {
             "post": {
                 "operationId": "v1_projects_import_csv_create",
-                "description": "Upload and import a CSV/Excel spreadsheet into an existing project.\n\nRequires the Scheduler role. The import runs asynchronously through the\ntransactional outbox; the 202 response carries ``import_request_id`` — not a\nCelery task id, which does not exist until the on_commit dispatch fires\n(ADR-0632 decision 6).",
+                "description": "Upload and import a CSV/Excel spreadsheet into an existing project.\n\nRequires the Resource Manager role. The import runs asynchronously through the\ntransactional outbox; the 202 response carries ``import_request_id`` — not a\nCelery task id, which does not exist until the on_commit dispatch fires\n(ADR-0632 decision 6).",
                 "summary": "Import a CSV/Excel spreadsheet into an existing project",
                 "parameters": [
                     {
@@ -26652,7 +26686,7 @@
                         "description": "Missing or invalid upload (wrong type/too large), or an unknown `date_order`. The order is persisted on the import request so a drain re-dispatch replays the convention the operator confirmed."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -26722,7 +26756,7 @@
                         "description": "The import's outbox row: lifecycle state, result summary, the date convention it ran under, and the caller's authority over the undo."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project."
                     },
                     "404": {
                         "description": "No such import for this project."
@@ -26901,7 +26935,7 @@
                         "description": "Missing, oversized, or unreadable upload, or an unknown `date_order`."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -35819,6 +35853,9 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "description": "Caller is not a project Admin, or the project is archived (#3414) — archived plans are read-only, so a webhook cannot be added, edited, deleted or test-fired on one. Reading the webhook and its deliveries still works."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -36366,6 +36403,9 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "description": "Caller lacks Admin on the webhook's scope. On a PROJECT webhook the same status is also how an archived project refuses (#3414); the program-scoped route has no archived state. Declared once because this handler is shared by both viewsets."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -36421,7 +36461,7 @@
         "/api/v1/projects/health-summary/": {
             "get": {
                 "operationId": "v1_projects_health_summary_list",
-                "description": "Compact \"my projects\" health triage for the My Work page (ADR-0401).\n\nReturns one row per project the caller is a member of (excluding archived),\neach carrying a derived ``health_band`` plus the same at-risk / critical task\ncounts the single-project status-summary uses, so a PM overseeing many\nprojects can see \"which of mine is on fire?\" without opening each.\n\nScope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a\ncross-program or portfolio rollup (that governance surface stays Enterprise,\nADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.\n\nAt-risk / critical use the status_summary semantics: incomplete tasks with\ntotal_float <= 5 working days → at_risk_count; incomplete is_critical=True →\ncritical_count. ``distinct=True`` on both conditional counts matches the\nannotate-over-reverse-FK convention of ProgramViewSet.projects — defensive\nagainst fan-out if a second to-many join is ever added to this queryset (the\nmembership scope is a ``pk__in`` subquery, not a join, so today there is only\nthe one ``tasks`` join).\n\nhealth_band is derived: the manual Project.health override wins when set (not\nAUTO); otherwise counts-first — critical_count > 0 → critical, else\nat_risk_count > 0 → at_risk, else on_track.",
+                "description": "Compact \"my projects\" health triage for the My Work page (ADR-0401).\n\nReturns one row per project the caller is a member of (excluding archived),\neach carrying a derived ``health_band`` plus the same at-risk / critical task\ncounts the single-project status-summary uses, so a PM overseeing many\nprojects can see \"which of mine is on fire?\" without opening each.\n\nScope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a\ncross-program or portfolio rollup (that governance surface stays Enterprise,\nADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.\n\nAt-risk / critical use the status_summary semantics: incomplete tasks with\ntotal_float <= 5 working days → at_risk_count; incomplete is_critical=True →\ncritical_count. ``distinct=True`` on both conditional counts matches the\nannotate-over-reverse-FK convention of ProgramViewSet.projects — defensive\nagainst fan-out if a second to-many join is ever added to this queryset (the\nmembership scope is a ``pk__in`` subquery, not a join, so today there is only\nthe one ``tasks`` join).\n\nhealth_band comes from :func:`compute_health_band` — the same rule the\nsingle-project status-summary calls, so the two cannot disagree about one\nproject (#3501).",
                 "summary": "Health summary across the caller's own projects (ADR-0401, #1941)",
                 "parameters": [
                     {
@@ -39637,6 +39677,24 @@
                             }
                         },
                         "description": "The conflict is no longer open — it already carries a resolution. The body is a JSON **array** of messages, not an object: the guard raises ``ValidationError`` on a bare string and DRF wraps a string detail in a list. Verified against the resolution guard in ``acknowledge`` (#3319)."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "detail"
+                                    ]
+                                }
+                            }
+                        },
+                        "description": "The caller lacks Admin or the Scrum Master / Product Owner facet on the downstream project, or that project is archived (#3414) — acknowledging persists `acknowledged_by`/`acknowledged_at` and broadcasts, so it is a write on a frozen plan."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -44148,6 +44206,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Caller lacks the Resource Manager role on the target project, or that project is archived (#3414). The project is named only in the request body here, so the refusal comes from the view rather than a permission class — the status and body are the same either way."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -55019,7 +55080,7 @@
                         "nullable": true
                     },
                     "last_refusal_outcome": {
-                        "description": "Why the last REFUSED delivery was refused. The caller saw only an opaque 404. Diagnostic, not evidence: the endpoint is public, so this may record unauthenticated traffic rather than your provider.\n\n* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature",
+                        "description": "Why the last REFUSED delivery was refused. The caller saw only an opaque 404. Diagnostic, not evidence: the endpoint is public, so this may record unauthenticated traffic rather than your provider.\n\n* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature\n* `project_archived` - project_archived",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/LastRefusalOutcomeEnum"
@@ -55213,6 +55274,15 @@
                 "required": [
                     "name"
                 ]
+            },
+            "HealthBandEnum": {
+                "enum": [
+                    "on_track",
+                    "at_risk",
+                    "critical"
+                ],
+                "type": "string",
+                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical"
             },
             "HealthEnum": {
                 "enum": [
@@ -55674,10 +55744,11 @@
                     "no_secret",
                     "unknown_provider",
                     "secret_unreadable",
-                    "bad_signature"
+                    "bad_signature",
+                    "project_archived"
                 ],
                 "type": "string",
-                "description": "* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature"
+                "description": "* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature\n* `project_archived` - project_archived"
             },
             "LifecycleEnum": {
                 "enum": [
@@ -61444,7 +61515,7 @@
                     "my_role_label": {
                         "type": "string",
                         "nullable": true,
-                        "description": "Human role label in *program* context (#1794).\n\nThe shared ``Role`` enum labels are project-scoped — OWNER reads\n\"Project Admin\" and ADMIN reads \"Project Manager\", which is wrong on a\nprogram card (users read \"I'm an admin of some project\" rather than\n\"my role on this program\"). ``_PROGRAM_ROLE_LABELS`` remaps every role\nthe enum defines to its program-appropriate wording; the project-side\n``Role.label`` values are deliberately left untouched so project\nsurfaces keep reading \"Project Admin\"/\"Project Manager\".",
+                        "description": "Human role label in *program* context (#1794).\n\nThe shared ``Role`` enum labels are project-scoped — OWNER reads\n\"Project Admin\" and ADMIN reads \"Project Manager\", which is wrong on a\nprogram card (users read \"I'm an admin of some project\" rather than\n\"my role on this program\"). ``access.models.program_role_label`` remaps\nevery role the enum defines to its program-appropriate wording; the\nproject-side ``Role.label`` values are deliberately left untouched so\nproject surfaces keep reading \"Project Admin\"/\"Project Manager\".",
                         "readOnly": true
                     },
                     "is_pinned": {
@@ -61804,6 +61875,7 @@
                     },
                     "role_label": {
                         "type": "string",
+                        "description": "Display name for ``role`` in **program** vocabulary.\n\nOrdinal 400 reads \"Program Admin\" and 300 reads \"Program Manager\" — the\nsame names ``Program.my_role_label`` uses, from the same map. An ordinal\noutside the five OSS roles has no name and reads ``\"Role <ordinal>\"``.",
                         "readOnly": true
                     },
                     "role_title": {
@@ -63900,7 +63972,7 @@
                         "type": "string"
                     },
                     "health_band": {
-                        "type": "string"
+                        "$ref": "#/components/schemas/HealthBandEnum"
                     },
                     "at_risk_count": {
                         "type": "integer"
@@ -63992,6 +64064,7 @@
                     },
                     "role_label": {
                         "type": "string",
+                        "description": "Display name for ``role`` in **project** vocabulary.\n\nOrdinal 400 reads \"Project Admin\" and 300 reads \"Project Manager\". The\nidentically-named field on a *program* membership deliberately names the\nsame two ordinals \"Program Admin\" and \"Program Manager\" — see\n``ProgramMembershipReadSerializer.get_role_label``. One ordinal, two\ncontainers, two names.",
                         "readOnly": true
                     },
                     "joined_at": {
@@ -64652,6 +64725,14 @@
                     "task_count": {
                         "type": "integer"
                     },
+                    "health_band": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/HealthBandEnum"
+                            }
+                        ],
+                        "description": "The project's health band. The manual Project.health override when the PM has reported one (not AUTO), otherwise derived from the counts below: critical_count > 0 → critical, else at_risk_count > 0 → at_risk, else on_track. A client MUST print this value rather than re-deriving a band from the counts — the counts alone cannot see the override.\n\n* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical"
+                    },
                     "at_risk_count": {
                         "type": "integer"
                     },
@@ -64694,6 +64775,7 @@
                     "at_risk_tasks",
                     "critical_count",
                     "critical_tasks",
+                    "health_band",
                     "last_saved",
                     "monte_carlo_p80",
                     "recalculated_at",

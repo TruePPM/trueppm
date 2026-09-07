@@ -148,6 +148,7 @@ import { ImportModal } from '@/components/import/ImportModal';
 import { CsvImportWizard } from '@/components/import/CsvImportWizard';
 import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
+import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
 import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { GanttIcon, FilePdfIcon } from '@/components/Icons';
@@ -6581,6 +6582,27 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
   return (
     <>
+      {/* A methodology flip to AGILE hides Schedule from the nav
+          (methodologyTabs.ts) but never touches the dates it holds (#2619) —
+          without this, a project with a real CPM schedule renders the ordinary
+          populated surface with nothing saying it now sits outside the project's
+          workflow. Above the split pane and outside `canvasScrollRef`, so the
+          one signal on this surface cannot be scrolled off screen.
+
+          Gated on `allTasks` (UNFILTERED), never `visibleTasks` — this is a
+          statement about the project, not about the active filter, and a filter
+          hiding every row would otherwise silence it (rule 388). It is also what
+          lets the copy stay count-free honestly: `visibleTasks` and Calendar's
+          dated set are different denominators for the same fact. The desktop
+          early returns above have already resolved `isLoading` / `error`, so
+          `allTasks` here can never be a loading `[]` (rule 392). */}
+      {allTasks.length > 0 && effectiveMethodology === 'AGILE' && (
+        <MethodologyMismatchBanner
+          projectId={projectId}
+          className="mx-6 mt-2"
+          message="This project is configured as Agile, but it already has a schedule — these dates stay reachable even though they sit outside its workflow."
+        />
+      )}
       <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
         {/* ONE outline, on BOTH surfaces (#2960). Grid and Timeline are two
             surfaces over the same row model: the same `visibleTasks`, the same

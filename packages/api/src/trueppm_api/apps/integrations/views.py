@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
+from django.db.models import F
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -107,6 +108,12 @@ GIT_DELIVERY_NO_SECRET = "no_secret"
 GIT_DELIVERY_UNKNOWN_PROVIDER = "unknown_provider"
 GIT_DELIVERY_SECRET_UNREADABLE = "secret_unreadable"
 GIT_DELIVERY_BAD_SIGNATURE = "bad_signature"
+#: The project is archived, so the receiver refuses to move its cards (#3414).
+#: A *refusal*, not a delivery outcome: it is decided before the signature is
+#: verified, so it answers the same bare 404 as every other pre-verification
+#: refusal and cannot tell an unauthenticated caller that the project exists,
+#: is configured, or is archived.
+GIT_DELIVERY_PROJECT_ARCHIVED = "project_archived"
 GIT_DELIVERY_MALFORMED = "malformed_payload"
 GIT_DELIVERY_IGNORED = "ignored"
 GIT_DELIVERY_DUPLICATE = "duplicate"
@@ -537,12 +544,25 @@ class TaskLinkViewSet(
 
 
 def _git_webhook_url(request: Request, project_pk: Any) -> str:
-    """Absolute URL of a project's inbound Git-webhook receiver (admin pastes this)."""
+    """Absolute URL of a project's inbound Git-webhook receiver (admin pastes this).
+
+    Prefers the explicit ``TRUEPPM_PUBLIC_API_BASE_URL`` for the same reason
+    ``sso.views._derive_redirect_uri`` does (#3515): this value leaves the system
+    — an admin copies it into GitHub/GitLab — so it must be the origin the
+    operator chose, not the ``Host`` header of whoever happened to ask. Behind a
+    proxy that rewrites ``Host`` the request-derived form yields an unreachable
+    internal name and fails silently forever, since the wrong URL only shows up
+    as webhooks that never arrive. Falls back to the request's absolute URI for
+    zero-config single-origin dev, where the two agree.
+    """
+    from django.conf import settings
     from django.urls import reverse
 
-    return request.build_absolute_uri(
-        reverse("git-webhook", kwargs={"project_pk": str(project_pk)})
-    )
+    path = reverse("git-webhook", kwargs={"project_pk": str(project_pk)})
+    base = (getattr(settings, "TRUEPPM_PUBLIC_API_BASE_URL", "") or "").rstrip("/")
+    if base:
+        return f"{base}{path}"
+    return request.build_absolute_uri(path)
 
 
 class _WebhookRefusal(Exception):
@@ -684,7 +704,8 @@ def _webhook_body_within_cap(request: Request) -> bool:
         404: OpenApiResponse(
             description=(
                 "The uniform refusal for every pre-verification failure — no automation, "
-                "disabled, no secret set, unrecognized provider, or an invalid signature. "
+                "an archived project, disabled, no secret set, unrecognized provider, or "
+                "an invalid signature. "
                 "Deliberately indistinguishable so the endpoint cannot be used to discover "
                 "which projects have automation configured."
             )
@@ -763,6 +784,11 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
                 project_id=project_pk,
                 project__is_deleted=False,
             )
+            # The archived flag rides the join the ``project__is_deleted`` filter
+            # already forces, so this costs one extra column and no extra query — it
+            # deliberately does NOT ``select_related("project")``, for the 51-unused-
+            # columns reason recorded just below (#3414).
+            .annotate(project_is_archived=F("project__is_archived"))
             # ``configured_by`` — not ``project``. ``project`` is never dereferenced
             # on this path (the filter needs the join, not the columns) and pulling it
             # cost 51 unused columns on every anonymous POST, including the ones that
@@ -776,6 +802,15 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
         if automation is None:
             # Nothing to record against — no project, or automation never touched.
             raise _WebhookRefusal("no_automation", provider=provider)
+        if automation.project_is_archived:
+            # Archived projects are hard read-only (#530), and moving a board card is a
+            # write. The receiver cannot be gated with ``IsProjectNotArchived``: this
+            # endpoint is ``AllowAny`` and a permission-class 403 would publish archived
+            # state — admin-only state — to anyone holding the project UUID, re-opening
+            # the disclosure #2881 closed. Refusing through the same funnel keeps the
+            # response byte-identical to every other refusal while still recording the
+            # reason where an Owner/Admin can read it.
+            raise _WebhookRefusal(GIT_DELIVERY_PROJECT_ARCHIVED, automation.pk, provider)
         if not automation.enabled:
             raise _WebhookRefusal(GIT_DELIVERY_DISABLED, automation.pk, provider)
         if not automation.has_secret:
@@ -922,7 +957,10 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
     # The PUT sets ``enabled`` to an explicit value on the per-project singleton, so a
     # replay converges to the same state (naturally idempotent — no replayable resource).
     idempotency_exempt = True
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    # IsProjectNotArchived gates the PUT only — the class returns True for GET/HEAD, so
+    # an admin can still read an archived project's automation config. It fires in
+    # `has_permission` because the route names `project_pk` (#3414).
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
     # Reveals whether a webhook secret is set / lets an admin flip the toggle; scope it
     # under the shared credential bucket (#1551) so config-probing is rate-bounded.
     throttle_classes = [ScopedRateThrottle]
@@ -960,7 +998,19 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
     # no body. This is a plain ``APIView``: there is no ``serializer_class`` for
     # drf-spectacular to infer a writable shape from, so nothing supplies this but
     # the annotation.
-    @extend_schema(request=GitAutomationUpdateSerializer)
+    @extend_schema(
+        request=GitAutomationUpdateSerializer,
+        responses={
+            200: GitAutomationConfigSerializer,
+            403: OpenApiResponse(
+                description=(
+                    "Caller is not a project Admin, or the project is archived (#3414). "
+                    "Declared on the method, not the class: the class-level annotation "
+                    "covers GET too, and GET stays available while archived."
+                )
+            ),
+        },
+    )
     def put(self, request: Request, project_pk: str) -> Response:
         serializer = GitAutomationUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -977,7 +1027,16 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
 @extend_schema(
     tags=["integrations"],
     request=None,
-    responses={201: GitAutomationSecretSerializer},
+    responses={
+        201: GitAutomationSecretSerializer,
+        403: OpenApiResponse(
+            description=(
+                "Caller is not a project Admin, or the project is archived (#3414) — "
+                "minting a credential is a write. Nothing is stranded by the refusal: "
+                "the receiver refuses an archived project's deliveries outright."
+            )
+        ),
+    },
 )
 class GitAutomationRotateSecretView(IdempotencyMixin, APIView):
     """``POST .../git-automation/rotate-secret/`` — mint a new webhook secret (#329).
@@ -992,7 +1051,10 @@ class GitAutomationRotateSecretView(IdempotencyMixin, APIView):
     # cannot mint a parallel credential. This is a deliberate admin action, not a
     # retry-prone client mutation.
     idempotency_exempt = True
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    # Minting a credential on an archived project is a write (#3414). Nothing is
+    # stranded by refusing it: the receiver now refuses an archived project's
+    # deliveries outright, so there is no live webhook left to rotate away from.
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
     # Mints and returns a fresh plaintext webhook secret; scope it under the shared
     # credential bucket (#1551) so secret rotation cannot be hammered.
     throttle_classes = [ScopedRateThrottle]
