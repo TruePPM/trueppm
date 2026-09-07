@@ -7,6 +7,7 @@ gate ("a fresh install can load the hybrid-large project") holds.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -84,6 +85,44 @@ def test_every_bundled_sample_imports(owner: Any, key: str) -> None:
     projects = Project.objects.filter(program=program)
     assert projects.exists()
     assert all(p.is_sample for p in projects)
+
+
+@pytest.mark.parametrize("key", sorted(SAMPLES))
+def test_bundled_sample_in_flight_tasks_keep_authored_progress(owner: Any, key: str) -> None:
+    """#3486: every IN_PROGRESS task in every fixture loads at its authored percent.
+
+    Read from the fixture rather than a hard-coded table so the assertion cannot
+    rot when a sample's content changes: whatever the document declares is what
+    the loaded row must report. Before the replay finalize pass every one of
+    these landed at 0% with ``remaining_points == story_points``, because a task
+    that ends in flight is born at the base of the progression and nothing walked
+    the numbers back.
+    """
+    document = json.loads(SAMPLES[key].path.read_text())
+    program = load_sample(key, owner=owner, create_users=True)
+
+    checked = 0
+    for project_data in document["projects"]:
+        project = Project.objects.get(program=program, name=project_data["name"])
+        for task_data in project_data["tasks"]:
+            if task_data.get("status") != "IN_PROGRESS":
+                continue
+            task = Task.objects.get(project=project, wbs_path=task_data["wbs_path"])
+            # A task the timeline walked past IN_PROGRESS is a different fixture
+            # bug, not this one; assert only on rows that did land in flight.
+            if str(task.status) != "IN_PROGRESS":
+                continue
+            checked += 1
+            if "percent_complete" in task_data:
+                assert task.percent_complete == task_data["percent_complete"], (
+                    f"{key}/{project_data['slug']}/{task_data['wbs_path']}"
+                )
+            if "remaining_points" in task_data:
+                assert task.remaining_points == task_data["remaining_points"], (
+                    f"{key}/{project_data['slug']}/{task_data['wbs_path']}"
+                )
+    # Guard against a vacuous pass: every bundled sample authors in-flight work.
+    assert checked > 0
 
 
 def test_samples_endpoint_lists_all(owner: Any) -> None:
