@@ -336,20 +336,54 @@ export function resolveGripWidth(coarse: boolean): number {
  * Horizontal space the row's columns give up so the grip has a **lane of its
  * own**, rather than a hit area laid over somebody else's control.
  *
- * Zero on a fine pointer: a 14px grip overlays the row's left edge, a mouse can
- * aim at it, and no column loses width. On a coarse pointer the grip is 44px —
- * wide enough to swallow the whole WBS column, whose outdent/indent nudges live
- * at its right edge — so the columns move over instead. A 44px target that only
+ * The grip's full width, at **every** pointer class. A 44px target that only
  * reaches the floor by covering its neighbour has not met the floor; it has
- * moved the failure somewhere the tester will not look.
+ * moved the failure somewhere the tester will not look — and a 14px one that
+ * covers its neighbour has not been made harmless by being small.
  *
  * Applied as a leading flex spacer, **not** as row padding: the grip is
  * `position: absolute; left: 0`, and an absolutely positioned child resolves
  * `left: 0` against its containing block's *padding* box — so padding would move
  * the grip along with the columns and reserve nothing.
+ *
+ * ## Why the fine branch was zero, and why that stopped being true (#3078)
+ *
+ * It returned `0` for a mouse, on the reasoning that "a 14px grip overlays the
+ * row's left edge, a mouse can aim at it, and no column loses width". That was
+ * correct **when it was written**: the row's left edge was empty, the ⇤/⇥
+ * nudges lived inside the WBS cell behind that cell's own padding, and the only
+ * thing under the grip was blank space.
+ *
+ * #3026 moved the nudges out of the WBS cell into a lane of their own at the
+ * row's left edge — which is where the grip had been parked precisely because
+ * nothing was there. Neither change is wrong alone; together they put a
+ * `z-10 absolute left-0` 14px grip directly on top of a 16px ⇤ outdent button,
+ * covering all but 2px of it. The grip and the nudges are both revealed by
+ * `group-hover` **and `group-focus-within`**, so the collision is not a
+ * hover-only flicker: clicking a row focuses it, and the grip then sits on the
+ * outdent for as long as that row stays selected. It also *takes the clicks* —
+ * the grip's `onPointerDown` starts a drag, so the ⇤ was unreachable by pointer
+ * on the row the user was working on, on the surface whose entire justification
+ * is that restructuring must not be keyboard-only knowledge.
+ *
+ * The design says each of these controls gets its own lane and that you **pay
+ * the honest width for a pair of targets rather than letting one cover the
+ * other** (web rule 328, from `design_handoff_trueppm_v4/README.md` "Reading
+ * structure"). Reserving the lane only on a coarse pointer built half of that:
+ * the rule is about controls not overlapping, and two controls overlap at 14px
+ * exactly as they do at 44px. So the reserve now follows `resolveGripWidth` at
+ * both pointer classes, and the fine-pointer outline pays 14px for the grip it
+ * has always drawn there.
+ *
+ * The counter-argument that kept it at zero — the Timeline's ~268px outline is
+ * narrow and 14px is 5% of it — is real but does not survive being priced
+ * against the alternative, which is not "a tidier row" but a control that
+ * cannot be clicked. The lever for a narrow outline is which columns are shown
+ * (Display ▸ Columns), not overlapping two controls and hoping the pointer
+ * lands in the 2px seam.
  */
 export function resolveGripReserve(coarse: boolean): number {
-  return coarse ? GRIP_WIDTH_COARSE : 0;
+  return resolveGripWidth(coarse);
 }
 
 /**

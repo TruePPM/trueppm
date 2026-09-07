@@ -211,23 +211,28 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     expect(box?.width ?? 0).toBeGreaterThan(0);
   });
 
-  test('a fine pointer reserves the nudge lane too — the first lane a mouse pays for (#3026)', async ({
+  test('a fine pointer reserves BOTH lanes — the grip\'s and the nudges\' (#3026, #3078)', async ({
     page,
   }) => {
-    // `resolveGripReserve(false)` is 0, so before #3026 the fine-pointer outline
-    // reserved nothing at all and `resolveOutlineLeftReserve(false, true)` was a
-    // constant zero. The nudges are in flow and always drawn, so the desktop
-    // outline is now a lane wider — three 16px controls and two 2px gaps, 52px
-    // since the ◆ milestone toggle joined the cluster (#3257) — asserted here
-    // because the coarse spec's equivalent cannot see a regression that only
-    // zeroes the fine branch.
+    // Before #3026 the fine-pointer outline reserved nothing at all and
+    // `resolveOutlineLeftReserve(false, true)` was a constant zero. The nudges
+    // are in flow and always drawn, so the desktop outline gained a lane —
+    // three 16px controls and two 2px gaps, 52px since the ◆ milestone toggle
+    // joined the cluster (#3257) — asserted here because the coarse spec's
+    // equivalent cannot see a regression that only zeroes the fine branch.
+    //
+    // #3078 added the grip's own 14px to it. Until then the grip drew inside
+    // this same 52px, on top of the ⇤, because `resolveGripReserve(false)` was
+    // 0 — so the total was 52 and the row still lined up with the header while
+    // one control sat on another. The number is now 66, and the test below
+    // pins the property the number is only a proxy for.
     const header = page.getByRole('row', { name: 'Item list columns' });
     const headerWbs = await header.getByRole('columnheader', { name: /Work breakdown/ }).boundingBox();
     const outlineBox = await page.getByRole('treegrid', { name: 'Item list' }).boundingBox();
     expect(headerWbs).not.toBeNull();
     expect(outlineBox).not.toBeNull();
-    // The WBS column starts a full lane in from the panel's left edge.
-    expect((headerWbs?.x ?? 0) - (outlineBox?.x ?? 0)).toBeCloseTo(52, 0);
+    // The WBS column starts both lanes in from the panel's left edge: 14 + 52.
+    expect((headerWbs?.x ?? 0) - (outlineBox?.x ?? 0)).toBeCloseTo(66, 0);
 
     // …and the rows agree with the header, which is the thing the shared reserve
     // exists to guarantee.
@@ -235,6 +240,74 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
       .getByRole('gridcell', { name: /^WBS/ })
       .boundingBox();
     expect(rowWbs?.x).toBeCloseTo(headerWbs?.x ?? -1, 0);
+  });
+
+  test('the drag grip never covers the \u21e4 outdent, on the SELECTED row (#3078)', async ({
+    page,
+  }) => {
+    // The defect this file exists to keep out, asserted the only way it can be
+    // seen: by hit-testing, in a browser, on a row that is actually selected.
+    //
+    // Why every other layer was blind to it. The grip is `absolute left-0
+    // z-10`, so it takes no space and shifts nothing — the header and the rows
+    // agreed on every width while the grip lay on top of the \u21e4. jsdom computes
+    // no layout, so a vitest render sees two elements that both "exist". And a
+    // bounding-box assertion in this file would have passed too, because the
+    // \u21e4's own box was always the right size; it was simply underneath
+    // something. `elementFromPoint` is the question the user is asking.
+    //
+    // On the SELECTED row specifically, because that is the state the report
+    // was made from and the one a `hover()`-based test would miss the point of:
+    // both the grip and the nudges reveal on `group-hover` AND
+    // `group-focus-within`, so clicking a row to work on it pins the collision
+    // in place for as long as the row stays selected. A transient hover overlap
+    // would be a blemish; this made the control unusable on the row the user
+    // had chosen.
+    const row = outlineRow(page, 'Survey');
+    await row.getByRole('gridcell', { name: /Survey/ }).first().click();
+
+    const outdent = row.getByRole('button', { name: /^Outdent Survey/ });
+    await expect(outdent).toBeVisible();
+
+    // Sampled ACROSS the button's width, not at its corners. The failure mode
+    // is one control lying over another horizontally — the grip covered the
+    // left 14px of a 16px button and left a 2px seam on the right — so a single
+    // centre probe is exactly the sample that can land in the seam and report
+    // success. A corner probe is the opposite mistake: `rounded-control` clips
+    // hit-testing to the radius, so a 2px corner inset tests the border radius
+    // rather than the stacking, and it fails on correct code (it did, here,
+    // before this was reshaped).
+    //
+    // `elementFromPoint` returns the topmost node, so `contains` accepts a hit
+    // on the button's own glyph child while rejecting anything above it.
+    const FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9];
+    const verdict = await outdent.evaluate((el, fractions) => {
+      const r = el.getBoundingClientRect();
+      return fractions.map((f) => {
+        const hit = document.elementFromPoint(r.left + r.width * f, r.top + r.height / 2);
+        return {
+          atWidthFraction: f,
+          ownedByOutdent: hit != null && el.contains(hit),
+          coveredBy: hit?.closest('[data-testid]')?.getAttribute('data-testid') ?? null,
+        };
+      });
+    }, FRACTIONS);
+
+    // Asserted on the array rather than as a count, so a failure prints WHICH
+    // part of the button is buried and under what. Before the fix the first
+    // four probes reported `row-reorder-grip`, and only the 0.9 sample — the
+    // 2px seam past the grip's right edge — belonged to the button.
+    expect(verdict.map((v) => v.coveredBy)).not.toContain('row-reorder-grip');
+    expect(verdict.filter((v) => !v.ownedByOutdent)).toEqual([]);
+
+    // …and the grip is still there, at full strength, in its own lane — the
+    // collision is resolved by giving it room, not by hiding it on the row
+    // where the user is most likely to want to drag.
+    const grip = row.locator('[data-testid="row-reorder-grip"]');
+    await expect(grip).toBeVisible();
+    const [gripBox, outdentBox] = await Promise.all([grip.boundingBox(), outdent.boundingBox()]);
+    expect(gripBox?.x ?? 0).toBeLessThan(outdentBox?.x ?? 0);
+    expect((gripBox?.x ?? 0) + (gripBox?.width ?? 0)).toBeLessThanOrEqual((outdentBox?.x ?? 0) + 0.5);
   });
 
   test('the insert `+` draws NO tap box on a fine pointer, and stays a 16px mark (#3029)', async ({

@@ -125,8 +125,13 @@ describe('scheduleSurface — column profile (#2960)', () => {
 // ---------------------------------------------------------------------------
 
 describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', () => {
-  it('gives an authorable outline a grip lane on a coarse pointer and none on a fine one', () => {
-    expect(resolveOutlineGripReserve(false, true)).toBe(0);
+  it('gives an authorable outline a grip lane at BOTH pointer classes (#3078)', () => {
+    // The fine branch was 0 until #3078, on the reasoning that a 14px grip
+    // overlaying the row's left edge costs no column anything. It stopped being
+    // free when #3026 moved the ⇤/⇥/◆ lane to that same edge: the grip is
+    // `z-10 absolute left-0`, so it covered 14 of the ⇤'s 16px and took its
+    // clicks. The lane is now the grip's width at either class.
+    expect(resolveOutlineGripReserve(false, true)).toBe(14);
     expect(resolveOutlineGripReserve(true, true)).toBe(44);
   });
 
@@ -149,9 +154,9 @@ describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', (
     expect(columns + resolveOutlineLeftReserve(false, true)).toBe(
       268 + resolveOutlineLeftReserve(false, true),
     );
-    // The fine pointer now reserves something for the first time: the grip
-    // overlays at 14px and costs nothing, but the nudges are in flow.
-    expect(resolveOutlineGripReserve(false, true)).toBe(0);
+    // The fine pointer reserves both lanes: the nudges are in flow, and since
+    // #3078 the grip has a lane of its own here too rather than lying on them.
+    expect(resolveOutlineGripReserve(false, true)).toBeGreaterThan(0);
     expect(resolveOutlineLeftReserve(false, true)).toBeGreaterThan(0);
     expect(resolveOutlineLeftReserve(true, true)).toBeGreaterThan(
       resolveOutlineLeftReserve(false, true),
