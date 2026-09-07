@@ -32,6 +32,7 @@ import {
   isPinnedByActuals,
   PINNED_DRAG_EXPLANATION,
 } from '@/features/schedule/pinnedByActuals';
+import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -100,11 +101,7 @@ export function useDragCpm({
 
       // Update aria-live directly via DOM ref (rule 30)
       if (ariaLiveRef.current && msg.worstMilestone) {
-        const { name, deltaDays } = msg.worstMilestone;
-        ariaLiveRef.current.textContent =
-          deltaDays > 0
-            ? `${name} slips ${deltaDays} day${deltaDays === 1 ? '' : 's'}`
-            : `${name} on schedule`;
+        ariaLiveRef.current.textContent = milestoneDeltaAnnouncement(msg.worstMilestone);
       }
     };
 

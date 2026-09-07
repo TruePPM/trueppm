@@ -66,6 +66,23 @@ export interface CpmTask {
    * no-op there. Falls back to `durationDays` when absent.
    */
   remainingDuration?: number | null;
+  /**
+   * ISO date string — the PM-committed `planned_start` (SNET). An additional
+   * early-start LOWER bound the server applies to every task
+   * (`engine.py::_forward_pass`), snapped to the next working day.
+   *
+   * Carrying it became load-bearing with issue #3535. While the pass only ever
+   * pushed tasks forward, a task's current start already satisfied its own SNET
+   * and the constraint was redundant — `cpmEngine.ts`'s header said exactly
+   * that, and said it "would matter if this pass ever learned to pull tasks
+   * earlier". It has: without this field a pull-in would slide a task straight
+   * through a date its PM pinned.
+   *
+   * Optional for the same reason the progress fields are: a caller that knows
+   * nothing about SNET gets the no-constraint behavior rather than a silently
+   * wrong one. `buildSubgraph` always sends it.
+   */
+  plannedStart?: string | null;
 }
 
 /** Dependency edge in the subgraph. */

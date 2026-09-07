@@ -28,6 +28,9 @@ function task(
     actualStart: opts.actualStart ?? null,
     actualFinish: opts.actualFinish ?? null,
     remainingDuration: opts.remainingDuration ?? null,
+    // SNET (#3535). Absent by default, so every case written before the pass
+    // learned to pull tasks earlier keeps exercising the unconstrained path.
+    plannedStart: opts.plannedStart ?? null,
   };
 }
 
@@ -558,5 +561,153 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
     // B lands exactly on A's finish, which is what FF means.
     expect(byId('B').earlyFinish).toBe('2026-03-06');
     expect(byId('B').earlyStart).toBe('2026-01-05');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bidirectional relaxation (issue #3535)
+//
+// The pass used to write a successor's new window only when it was LATER than
+// the incoming one, so every "we finished early, pull it in" drag showed no
+// downstream movement at all. Relaxing in both directions is what the server's
+// forward pass already does; these cases pin the floors that stop it from
+// pulling something back that must not move.
+// ---------------------------------------------------------------------------
+
+describe('runCpmForwardPass — relaxation is bidirectional', () => {
+  it('pulls a zero-slack successor earlier when its predecessor is dragged earlier', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('B', '2024-01-11', '2024-01-12'),
+    ];
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B')], 'A', '2024-01-01');
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    // Pre-#3535: 2024-01-11 / 2024-01-12 / 0 — frozen at the stale slot.
+    expect(b.earlyStart).toBe('2024-01-04');
+    expect(b.earlyFinish).toBe('2024-01-05');
+    expect(b.deltaDays).toBe(-7);
+  });
+
+  it('paints a coherent bar on a pull-in — the span start moves with the finish', () => {
+    // The span floor used to be the span the task ARRIVED with, which is a
+    // correct floor only while dates move forward. On a pull-in it pinned the
+    // bar's left edge at the stale position while the finish moved back,
+    // producing a bar that ended before it began.
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('B', '2024-01-11', '2024-01-12'),
+    ];
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B')], 'A', '2024-01-01');
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    expect(new Date(b.earlyStart).getTime()).toBeLessThanOrEqual(
+      new Date(b.earlyFinish).getTime(),
+    );
+  });
+
+  it('will not pull a task back through its own planned_start (SNET)', () => {
+    // The floor the old file header called out as the thing that "would matter
+    // if this pass ever learned to pull tasks earlier". It has.
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('B', '2024-01-11', '2024-01-12', { plannedStart: '2024-01-09' }),
+    ];
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B')], 'A', '2024-01-01');
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    // The network alone would allow 2024-01-04; the PM pinned 2024-01-09.
+    expect(b.earlyStart).toBe('2024-01-09');
+    expect(b.earlyFinish).toBe('2024-01-10');
+  });
+
+  it('snaps a planned_start that lands on a weekend to the next working day', () => {
+    // Mirrors the server's `_next_working_day(task.planned_start, cal)`.
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('B', '2024-01-11', '2024-01-12', { plannedStart: '2024-01-06' }), // Saturday
+    ];
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B')], 'A', '2024-01-01');
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    expect(b.earlyStart).toBe('2024-01-08'); // the following Monday, not Sat/Sun
+  });
+
+  it('will not pull a started task back before its recorded actual start', () => {
+    // ADR-0132 §2: actuals are truth. This floor was documented as "redundant
+    // while this pass only pushes tasks forward" — it is now load-bearing.
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('B', '2024-01-11', '2024-01-12', { actualStart: '2024-01-10' }),
+    ];
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B')], 'A', '2024-01-01');
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    expect(b.earlyStart).toBe('2024-01-10');
+  });
+
+  it('never moves a pinned successor, in either direction', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('B', '2024-01-11', '2024-01-12', {
+        isComplete: true,
+        actualStart: '2024-01-11',
+        actualFinish: '2024-01-12',
+      }),
+    ];
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B')], 'A', '2024-01-01');
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    expect(b.earlyStart).toBe('2024-01-11');
+    expect(b.earlyFinish).toBe('2024-01-12');
+    expect(b.deltaDays).toBe(0);
+  });
+
+  it('leaves a task alone when every predecessor edge left the subgraph', () => {
+    // `latestConstraint` returns -Infinity here. The old `>` guard rejected it
+    // by accident; with an unconditional write it has to be rejected on
+    // purpose, or the task lands at the epoch.
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('Orphan', '2024-02-05', '2024-02-06'),
+    ];
+    const edges: CpmEdge[] = [edge('Missing', 'Orphan')];
+    const { results } = runCpmForwardPass(tasks, edges, 'A', '2024-01-01');
+    const orphan = results.find((r) => r.taskId === 'Orphan')!;
+
+    expect(orphan.earlyStart).toBe('2024-02-05');
+    expect(orphan.earlyFinish).toBe('2024-02-06');
+  });
+
+  it('headlines a milestone that moves EARLIER, not only one that slips', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('M', '2024-01-11', '2024-01-11', {
+        isMilestone: true,
+        name: 'Go Live',
+        durationDays: 0,
+      }),
+    ];
+    const { worstMilestone } = runCpmForwardPass(tasks, [edge('A', 'M')], 'A', '2024-01-01');
+
+    // Pre-#3535: null — the scan seeded its best at 0 and only accepted a
+    // LARGER delta, so -7 lost to "nothing moved".
+    expect(worstMilestone).not.toBeNull();
+    expect(worstMilestone!.name).toBe('Go Live');
+    expect(worstMilestone!.deltaDays).toBe(-7);
+  });
+
+  it('still reports no milestone when nothing moved', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2024-01-08', '2024-01-10'),
+      task('M', '2024-02-01', '2024-02-01', {
+        isMilestone: true,
+        name: 'Go Live',
+        durationDays: 0,
+      }),
+    ];
+    // M has no predecessor in the subgraph, so the drag cannot move it.
+    const { worstMilestone } = runCpmForwardPass(tasks, [], 'A', '2024-01-01');
+    expect(worstMilestone).toBeNull();
   });
 });
