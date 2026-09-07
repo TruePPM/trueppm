@@ -191,9 +191,16 @@ test.describe('Project Activity → Agents sub-view', () => {
     await setup(page, { fail: true });
     await page.goto(`${BASE_URL}/activity?view=agents`);
 
-    await expect(page.getByText(/Couldn't load agent activity/i)).toBeVisible();
+    // `QueryErrorState variant="inline"` renders role="status" — scope the Retry to
+    // it, not the page: a page-wide locator is satisfied by any other component's
+    // error-state Retry and would keep passing if this surface stopped offering one
+    // (the #3401 class). Asserting the container first keeps that non-vacuous.
+    const errorState = page
+      .getByRole('status')
+      .filter({ hasText: /Couldn't load agent activity/i });
+    await expect(errorState).toBeVisible();
     await expect(page.getByText(/No agent activity yet/i)).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Retry/i })).toBeVisible();
+    await expect(errorState.getByRole('button', { name: /^Retry$/i })).toBeVisible();
   });
 
   test('arrow keys move focus across the tabs without switching sub-view', async ({ page }) => {

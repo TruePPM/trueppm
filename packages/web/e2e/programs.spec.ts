@@ -663,8 +663,12 @@ test.describe('Programs — shell nav', () => {
     const aliceRow = page.locator('li').filter({ hasText: 'alice' }).first();
     await expect(aliceRow).toBeVisible();
     await expect(aliceRow.getByText('(you)')).toBeVisible();
-    // The role badge in the row uses the role label as exact text.
-    await expect(aliceRow.getByText('Project Admin', { exact: true })).toBeVisible();
+    // The role badge names the ordinal in PROGRAM vocabulary (#3476). The
+    // fixture's `role_label` is deliberately the project-scoped string the API
+    // actually sends for a program membership (#3503), so this assertion is also
+    // what proves the client re-scopes it rather than echoing the wire.
+    await expect(aliceRow.getByText('Program Admin', { exact: true })).toBeVisible();
+    await expect(aliceRow.getByText('Project Admin', { exact: true })).toHaveCount(0);
   });
 });
 
@@ -1166,11 +1170,16 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
     });
 
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
-    const errorState = page.getByText(/Couldn't load this program's projects/i);
+    // `QueryErrorState variant="inline"` renders role="status"; scoping to it (not
+    // just the text node) gives the Retry below a real container. A page-wide Retry
+    // locator would click any other component's error-state Retry (the #3401 class).
+    const errorState = page
+      .getByRole('status')
+      .filter({ hasText: /Couldn't load this program's projects/i });
     await expect(errorState).toBeVisible();
 
     // Retry re-runs just the failed request; the second attempt succeeds.
-    await page.getByRole('button', { name: /retry/i }).click();
+    await errorState.getByRole('button', { name: /^Retry$/i }).click();
     await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
   });
 });

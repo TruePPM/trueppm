@@ -15,6 +15,12 @@ same way the demo seeds resolve it (#1350): ``TRUEPPM_DEMO_PASSWORD`` if set, el
 ``"demo"`` under ``DEBUG``, else a random token printed once — so a fixed weak
 password can never silently reach a public instance. Without the flag the personas
 are created with unusable passwords, exactly as before.
+
+Because the load is idempotent, the flag applies to persona accounts a previous run
+already created, not only to rows this run mints (#3484). It still never overwrites
+a password a real user set, and never touches a staff/superuser account — and the
+report lists only the accounts the printed password verifiably opens, naming any it
+refused, so the command cannot claim a login state it did not produce.
 """
 
 from __future__ import annotations
@@ -96,13 +102,36 @@ class Command(BaseCommand):
             )
 
     def _report_personas(self, sample_key: str, password: str | None, source: str | None) -> None:
-        """Print the real, sample-namespaced persona usernames + the login password.
+        """Print the persona usernames the printed password actually opens.
 
         This is the fix's payoff (#1760): the evaluation guide told readers to
         "Sign in as Alex", but the seeded username is ``atlas-alex`` and the
         password was unusable. Echo both so the walkthrough actually works.
+
+        The list is built by **checking each account against the password we are
+        about to print**, not by echoing the sample's ``accounts[]`` and trusting
+        the import to have honored it. That is the #3484 defect: the importer only
+        passworded rows it *created*, so every reload printed fifteen logins that
+        did not work. The importer now covers pre-existing persona rows as well,
+        but it still (correctly) refuses a real account that already has its own
+        password and any staff/superuser row — so the report must be able to say
+        so rather than assert a state the command did not produce.
         """
         accounts = sample_accounts(sample_key)
+        usernames = [a.get("username", "") for a in accounts if a.get("username")]
+        by_username = {u.username: u for u in User.objects.filter(username__in=usernames)}
+
+        enabled: list[tuple[str, str]] = []
+        refused: list[tuple[str, str]] = []
+        for account in accounts:
+            username = account.get("username", "")
+            display = account.get("display_name", "")
+            user = by_username.get(username)
+            if user is not None and password is not None and user.check_password(password):
+                enabled.append((username, display))
+            else:
+                refused.append((username, self._persona_refusal_reason(user)))
+
         # ``TRUEPPM_DEMO_PASSWORD`` (operator opt-in) and DEBUG's "demo" are safe to
         # echo; a randomly generated production token is also printed once because
         # there is no other way to recover it — but it is never a re-derivable value.
@@ -110,11 +139,38 @@ class Command(BaseCommand):
             detail = f"password set via {DEMO_PASSWORD_ENV}"
         else:
             detail = f"password={password!r}"
-        self.stdout.write(self.style.SUCCESS(f"  Persona logins enabled ({detail}):"))
-        for account in accounts:
-            username = account.get("username", "")
-            display = account.get("display_name", "")
-            self.stdout.write(f"    {username}  ({display})")
+
+        if enabled:
+            self.stdout.write(self.style.SUCCESS(f"  Persona logins enabled ({detail}):"))
+            for username, display in enabled:
+                self.stdout.write(f"    {username}  ({display})")
+        else:
+            self.stdout.write(self.style.WARNING("  No persona logins were enabled."))
+
+        if refused:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  {len(refused)} persona account(s) left untouched — "
+                    f"the password above does not open them:"
+                )
+            )
+            for username, reason in refused:
+                self.stdout.write(f"    {username}  ({reason})")
+            self.stdout.write(
+                "  To take one of these over deliberately, set its password yourself: "
+                "python manage.py changepassword <username>"
+            )
+
+    @staticmethod
+    def _persona_refusal_reason(user: Any) -> str:
+        """Why a persona account is not openable with the password just printed."""
+        if user is None:
+            return "no such account"
+        if user.is_staff or user.is_superuser:
+            return "privileged account — never re-passworded"
+        if user.has_usable_password():
+            return "pre-existing account with its own password"
+        return "password not applied"
 
     def _resolve_demo_password(self) -> tuple[str, str]:
         """Resolve the persona login password and its source (mirrors #1350).
@@ -180,8 +236,12 @@ class Command(BaseCommand):
             # nosemgrep: unvalidated-password
             owner.set_password(None)
             owner.save(update_fields=["password"])
+        # Read the state back rather than asserting the create branch's intent: on a
+        # reload the row already exists and this never touched it, so hard-coding
+        # "(unusable password)" was the same false claim as #3484's persona report.
+        state = "usable password" if owner.has_usable_password() else "unusable password"
         self.stdout.write(
             f"No superuser found; owning the sample with its own persona "
-            f"{lead['username']!r} (unusable password)."
+            f"{lead['username']!r} ({state})."
         )
         return owner

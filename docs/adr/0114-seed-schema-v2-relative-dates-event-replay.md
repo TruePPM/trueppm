@@ -3,6 +3,20 @@
 ## Status
 Accepted
 
+> **Superseded in part — 2026-09-06: the `time.log` premise no longer holds.**
+> This ADR defers the `time.log` event on the stated ground that "**no
+> `TimeEntry`/work-log model exists** anywhere in the codebase" (Context) and
+> that the model is "owned by #926" (§2, Alternatives D, Consequences).
+> **#926 is closed and the model shipped** — `TimeEntry` lives in
+> `packages/api/src/trueppm_api/apps/timetracking/models.py`. The decision to
+> keep `time.log` out of **v2.0** stands and is not revisited here; what has
+> changed is its blocker. Adding the event to the taxonomy is now tracked on its
+> own as
+> [#3490](https://gitlab.com/trueppm/trueppm/-/issues/3490) (seed schema v2.1 —
+> `time.log` → `TimeEntry` and `TimesheetSubmission`), not as work waiting on
+> #926. The paragraphs below are left as written: they record why v2.0 drew the
+> line where it did.
+
 ## Context
 ADR-0109 shipped the canonical JSON seed format (`schema_version: "1.0"`) and the
 `validate_seed → import_seed → export_program` machinery behind the one-click sample
@@ -258,6 +272,8 @@ only deferred action (still blocked on the #926 time-entry model).
     owned by #926 (and consumed by #754 cost/EVM). When #926 lands, a `time.log` action can
     be added to the taxonomy and Atlas re-seeded with time history. Documented here so the
     omission is a decision, not an oversight.
+    *(2026-09-06: #926 has landed — see the superseded note under Status. The
+    follow-up this paragraph anticipates is now [#3490](https://gitlab.com/trueppm/trueppm/-/issues/3490).)*
   - *Migration collision* — the new `Project.recalculated_at` lands at `projects/0067`;
     unmerged #1092 also claims 0067. Renumber whichever merges second (known repo pattern).
   - *Risk taxonomy* — the issue's "identified/analyzed/mitigated/realized" lifecycle does
