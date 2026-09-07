@@ -212,6 +212,47 @@ test.describe('Program working calendar', () => {
     expect(patchBody).toMatchObject({ calendar: CAL_B });
   });
 
+  // #3351 — the page destructured only `data` off useWorkspaceSettings, so a failed
+  // GET /workspace/ pinned `ws` at undefined and the skeleton guard never cleared:
+  // two placeholders pulsing forever with no error and no retry. Same defect #3298
+  // fixed on ProjectMethodologyPage, and invisible to the rule-246 gate (which keyed
+  // on `isLoading`) until check 4f was added alongside this fix.
+  test('a failed workspace GET renders an error + Retry, not a perpetual skeleton', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) => r.fulfill(json(program())));
+
+    let attempts = 0;
+    await page.route('**/api/v1/workspace/', async (r) => {
+      attempts += 1;
+      // The query client retries a 5xx once, so the initial load makes two
+      // attempts — fail both, then serve the request the Retry button fires.
+      if (attempts <= 2) {
+        await r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'boom' }),
+        });
+        return;
+      }
+      await r.fulfill(json(workspace({ calendar: CAL_A })));
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/calendar`);
+
+    const cal = page.locator('[data-settings-section="calendar"]');
+    await expect(cal.getByText("Couldn't load this program's working calendar.")).toBeVisible();
+    // The section heading survives the error branch — <SettingsSection
+    // aria-labelledby> targets the id this strip mints (rule 246).
+    await expect(cal.getByRole('heading', { name: 'Working calendar' })).toBeVisible();
+    // Load-bearing: "an error is shown" would also pass if the skeleton rendered too.
+    await expect(cal.locator('[class*="animate-pulse"]')).toHaveCount(0);
+
+    await cal.getByRole('button', { name: 'Retry' }).click();
+    await expect(cal.getByRole('combobox', { name: 'Working calendar override' })).toBeVisible();
+  });
+
   test('locked state — INHERIT policy disables the picker and shows the workspace value', async ({ page }) => {
     await baseSetup(page);
     await page.route('**/api/v1/workspace/', (r) =>
