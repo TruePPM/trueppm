@@ -20,7 +20,8 @@ from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Count, Exists, IntegerField, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -785,11 +786,35 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             is_deleted=False,
         ).values("role")[:1]
 
+        # Live member headcount as a correlated Subquery, NOT an aggregate over the
+        # ``memberships`` join (#3471). The visibility scope below is an ``Exists``
+        # probe rather than a ``memberships__user=user`` join filter for the same
+        # reason: a join filter narrows the joined rows to the caller's OWN
+        # membership *before* any aggregate over that relation runs, so
+        # ``Count("memberships", filter=...)`` counted exactly one row for every
+        # program and the directory said "1 member" on a program with 16. An
+        # ``Exists`` is a semi-join — it decides row visibility without constraining
+        # the rows an aggregate would see — and keeping the count in its own
+        # subquery also stops ``memberships`` fanning out against the ``projects``
+        # join that ``project_count`` needs.
+        member_count_sq = (
+            ProgramMembership.objects.filter(program=OuterRef("pk"), is_deleted=False)
+            .order_by()
+            .values("program")
+            .annotate(c=Count("pk"))
+            .values("c")
+        )
+
         qs = (
-            Program.objects.filter(
-                is_deleted=False,
-                memberships__user=user,
-                memberships__is_deleted=False,
+            Program.objects.filter(is_deleted=False)
+            .filter(
+                Exists(
+                    ProgramMembership.objects.filter(
+                        program=OuterRef("pk"),
+                        user=user,
+                        is_deleted=False,
+                    )
+                )
             )
             # select_related on ``lead`` so ProgramSerializer.lead_detail does not
             # incur one extra User query per program on list responses (#523).
@@ -811,11 +836,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     distinct=True,
                     filter=Q(projects__is_deleted=False) & not_draft_q("projects"),
                 ),
-                member_count=Count(
-                    "memberships",
-                    distinct=True,
-                    filter=Q(memberships__is_deleted=False),
-                ),
+                member_count=Coalesce(Subquery(member_count_sq, output_field=IntegerField()), 0),
                 _is_sample=Exists(
                     Project.objects.filter(program=OuterRef("pk"), is_sample=True, is_deleted=False)
                 ),

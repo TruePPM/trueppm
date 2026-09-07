@@ -162,7 +162,7 @@ export function CapacityPreflight({ capacity, points }: Props) {
               >
                 {m.initials}
               </span>
-              <span className="truncate flex-1">{m.member_name}</span>
+              <span className="truncate flex-1 min-w-0">{m.member_name}</span>
               <span
                 className={`tppm-mono text-xs ${m.is_over ? 'text-semantic-critical' : 'text-neutral-text-primary'}`}
               >

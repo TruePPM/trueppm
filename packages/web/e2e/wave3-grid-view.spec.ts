@@ -258,6 +258,22 @@ test.describe('Grid view responsive layout (#1701)', () => {
   });
 });
 
+async function openGridFlat(page: import('@playwright/test').Page) {
+  await setup(page);
+  await page.goto(`${BASE_URL}/grid`);
+  await page.getByRole('button', { name: 'Flat list' }).click();
+  await expect(page.getByRole('grid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
+}
+
+async function armTheStrip(page: import('@playwright/test').Page) {
+  await openGridFlat(page);
+  await page.getByLabel('Select all tasks').check();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const strip = page.getByRole('alertdialog');
+  await expect(strip).toBeVisible();
+  return { strip, bar: page.getByTestId('confirm-delete-shrink-bar') };
+}
+
 test.describe('bulk-delete confirm strip — pausable dwell (#3394)', () => {
   /**
    * The strip is `role="alertdialog"`, focuses Confirm on mount, and declines the
@@ -278,18 +294,6 @@ test.describe('bulk-delete confirm strip — pausable dwell (#3394)', () => {
    */
   const playState = (bar: import('@playwright/test').Locator) =>
     bar.evaluate((el) => getComputedStyle(el).animationPlayState);
-
-  async function armTheStrip(page: import('@playwright/test').Page) {
-    await setup(page);
-    await page.goto(`${BASE_URL}/grid`);
-    await page.getByRole('button', { name: 'Flat list' }).click();
-    await expect(page.getByRole('grid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
-    await page.getByLabel('Select all tasks').check();
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    const strip = page.getByRole('alertdialog');
-    await expect(strip).toBeVisible();
-    return { strip, bar: page.getByTestId('confirm-delete-shrink-bar') };
-  }
 
   test('auto-cancels after the dwell when left alone, despite focusing itself', async ({ page }) => {
     const { strip, bar } = await armTheStrip(page);
@@ -337,3 +341,112 @@ test.describe('bulk-delete confirm strip — pausable dwell (#3394)', () => {
 // in Flat / Outline / Grouped without resorting to a deep multi-step e2e
 // flow. Three sequential navigations at this depth deterministically land on
 // the login page (documented auth flake; same as wave3-task-form-modal).
+
+test.describe('bulk-delete confirm strip — target size (#3446)', () => {
+  /**
+   * Confirm and Cancel are 28px boxes in a fixed 36px toolbar row. Web rule 5 is a
+   * 44×44 floor at every breakpoint with no desktop carve-out, and the row cannot
+   * grow — a taller confirm row makes the whole toolbar jump 8px every time the
+   * strip arms. So the 44px is a transparent `before:` pad (rule 253(c)), and these
+   * assert **the hit area**, not the rendered box or the class list.
+   *
+   * The measurement is a 1px `elementFromPoint` scan through the column the button
+   * sits in: the run of y-values that resolve to that button IS the hit area, pads
+   * and stacking order included, and it is the only thing here that would have read
+   * 28 before this change. `getComputedStyle(el, '::before')` cannot substitute — it
+   * reports the declared inset and knows nothing about whether the ChipStrip below
+   * paints over the overhang and takes the taps back.
+   */
+  async function hitBandHeight(
+    page: import('@playwright/test').Page,
+    button: import('@playwright/test').Locator,
+    label: string,
+  ) {
+    const box = await button.boundingBox();
+    expect(box).not.toBeNull();
+    if (!box) throw new Error('no box');
+    return page.evaluate(
+      ({ x, cy, label: want }) => {
+        const hits = (y: number) => {
+          const el = document.elementFromPoint(x, y);
+          const btn = el instanceof Element ? el.closest('button') : null;
+          return !!btn && btn.textContent?.trim() === want;
+        };
+        if (!hits(cy)) return 0;
+        // Bisect to the real edge rather than counting 1px samples. A whole-pixel
+        // scan quantizes by ±1 depending on where the row lands on the subpixel
+        // grid, which is a 43-or-44 coin flip against a floor of 44 — a latent
+        // flake, not a measurement. Each edge converges from INSIDE the band, so
+        // the result is a hair short of the truth and is rounded at the assertion.
+        const edge = (dir: 1 | -1) => {
+          let good = cy;
+          let bad = cy + dir * 80;
+          for (let i = 0; i < 30; i += 1) {
+            const mid = (good + bad) / 2;
+            if (hits(mid)) good = mid;
+            else bad = mid;
+          }
+          return good;
+        };
+        return edge(1) - edge(-1);
+      },
+      { x: Math.round(box.x + box.width / 2), cy: box.y + box.height / 2, label },
+    );
+  }
+
+  test('Confirm delete carries a 44px vertical hit area on a 28px box', async ({ page }) => {
+    await armTheStrip(page);
+    const confirm = page.getByRole('button', { name: 'Confirm delete', exact: true });
+    const box = await confirm.boundingBox();
+    expect(box).not.toBeNull();
+    // Non-vacuity: if the visible box had simply grown to 44 the row would have
+    // jumped, which the last test in this block forbids. The pad has to be what is
+    // doing the work, so the painted control must still be short.
+    expect(box!.height).toBeLessThan(44);
+    expect(Math.round(await hitBandHeight(page, confirm, 'Confirm delete'))).toBeGreaterThanOrEqual(44);
+  });
+
+  test('Cancel carries the same 44px band, and is already wide enough', async ({ page }) => {
+    await armTheStrip(page);
+    const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+    const box = await cancel.boundingBox();
+    expect(box).not.toBeNull();
+    // Cancel is the short label — if any control here were under 44 wide it is this
+    // one, which is why the pad is vertical-only rather than a symmetric inset that
+    // would overlap the 12px gap to Confirm.
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeLessThan(44);
+    expect(Math.round(await hitBandHeight(page, cancel, 'Cancel'))).toBeGreaterThanOrEqual(44);
+  });
+
+  test('the toolbar does not change height when the strip arms and disarms', async ({ page }) => {
+    await openGridFlat(page);
+    const list = page.getByRole('grid', { name: 'Item list' });
+    const before = (await list.boundingBox())!;
+
+    await page.getByLabel('Select all tasks').check();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    const armed = (await list.boundingBox())!;
+    // The list's top edge is the toolbar's bottom edge — if the confirm row were
+    // taller than the idle row, everything below it would shift down by exactly the
+    // difference, which is the jump this fix is not allowed to introduce.
+    expect(Math.abs(armed.y - before.y)).toBeLessThanOrEqual(1);
+
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('alertdialog')).toBeHidden();
+    const after = (await list.boundingBox())!;
+    expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+  });
+
+  test('returning to idle hands focus to the bulk Delete button (#3445)', async ({ page }) => {
+    // The browser half of rule 368(d). No `Tab` and no `.focus()` between the exit
+    // and the assertion — a round-trip that focuses Delete itself would pass against
+    // the defect. Cancel is the exit used here because it is the one a pointer user
+    // takes; the dwell and Escape exits are pinned in `GridView.test.tsx`.
+    await armTheStrip(page);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('alertdialog')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeFocused();
+  });
+});

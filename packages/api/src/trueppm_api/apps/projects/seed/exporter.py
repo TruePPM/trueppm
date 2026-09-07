@@ -297,8 +297,9 @@ class _Exporter:
         # Every user referenced anywhere in the export needs an account so it
         # re-imports. Membership roles come from ProgramMembership. A single-
         # project export (#967) has no parent program, so the roster is empty and
-        # only the users the project actually references (task assignees, resource
-        # accounts, risk owners) are emitted — without program-level roles.
+        # no account carries a program-level role — but the project's own live
+        # members are still emitted (#3457), alongside the users it references
+        # through task assignments, resource accounts and risk ownership.
         roles, users = self._collect_account_users()
         accounts = [self._account_entry(uid, user, roles) for uid, user in users.items()]
         return sorted(accounts, key=lambda a: a["slug"])
@@ -307,8 +308,9 @@ class _Exporter:
         """Gather every user referenced by the export, in a stable order.
 
         Insertion order (program roster, then task assignees, risk owners,
-        resource accounts) fixes slug-allocation order, so the roster must be
-        walked in exactly this sequence for the round-trip to stay byte-stable.
+        resource accounts, then live project members) fixes slug-allocation
+        order, so the roster must be walked in exactly this sequence for the
+        round-trip to stay byte-stable.
         """
         users: dict[Any, Any] = {}
         roles = self._program_roster(users)
@@ -329,6 +331,36 @@ class _Exporter:
         for res in self._all_resources():
             if res.user_id is not None:
                 users[res.user_id] = res.user
+        # Live *project* members, last (#3457). Project and program membership are
+        # independent grants (ADR-0070 §RBAC), so a user revoked from the program
+        # can still hold a live ProjectMembership. Now that the roster no longer
+        # carries revoked members, such a user would reach _member_blocks with no
+        # slug and their project grant would be silently dropped from the
+        # document — access lost rather than access leaked, but lost all the same.
+        # Appended after every existing source rather than inserted beside the
+        # roster: this can only add users that would otherwise carry no slug at
+        # all, so no already-allocated slug moves and the byte-stable fixpoint is
+        # untouched. One query, then regrouped and walked in ``self.projects``
+        # order and by username, because insertion order fixes slug allocation
+        # and a database's natural row order does not.
+        #
+        # Ordered by ``user__username`` and NOT by ``user_id``: the slug is
+        # derived from the username and two usernames can slugify to the same
+        # base, in which case ``_SlugAllocator`` suffixes them ``-2``/``-3`` in
+        # *call* order. ``username`` round-trips verbatim through the document;
+        # the user PK does not — a re-import mints new users in ``accounts[]``
+        # order — so ordering on the id would let a colliding pair swap suffixes
+        # on re-export and break the byte-identical fixpoint (#616).
+        members_by_project: dict[Any, list[Any]] = {}
+        for pm in (
+            ProjectMembership.objects.filter(project__in=self.projects, is_deleted=False)
+            .select_related("user")
+            .order_by("user__username")
+        ):
+            members_by_project.setdefault(pm.project_id, []).append(pm)
+        for proj in self.projects:
+            for pm in members_by_project.get(proj.pk, ()):
+                users.setdefault(pm.user_id, pm.user)
         return roles, users
 
     def _program_roster(self, users: dict[Any, Any]) -> dict[Any, int]:
@@ -336,13 +368,36 @@ class _Exporter:
 
         A single-project export (#967) has no parent program, so the roster is
         empty and no program-level roles apply.
+
+        Both ``ProgramMembership`` reads floor on ``is_deleted=False`` (#3457),
+        matching the project-side twin in ``_member_blocks``. A revoked membership
+        is a tombstone that still owns the ``(program, user)`` slot, and the
+        importer's grant deliberately clears that tombstone (``is_deleted: False``)
+        so a seed grant always confers access (#3410) — so any revoked member left
+        in the roster is handed their role back on import. The floor has to be
+        here, on the export side: a revoked member must not be in the document at
+        all.
+
+        The ``lead`` read below is **deliberately not floored**, and must not be
+        "fixed" for symmetry. ``Program.lead`` is a display FK distinct from the
+        OWNER membership, ``_program_block`` emits its slug unconditionally, and
+        ``validate_seed`` requires ``$.program.lead`` to resolve to an
+        ``accounts[]`` entry — so dropping a lead whose *membership* was revoked
+        would emit a document that fails the exporter's own validator. It confers
+        nothing either way: the account is emitted without a ``role`` key, and the
+        importer's grant skips a roleless account.
         """
         if self.program is None:
             return {}
-        roles = {m.user_id: m.role for m in ProgramMembership.objects.filter(program=self.program)}
+        roles = {
+            m.user_id: m.role
+            for m in ProgramMembership.objects.filter(program=self.program, is_deleted=False)
+        }
         if self.program.lead_id is not None:
             users[self.program.lead_id] = self.program.lead
-        for m in ProgramMembership.objects.filter(program=self.program).select_related("user"):
+        for m in ProgramMembership.objects.filter(
+            program=self.program, is_deleted=False
+        ).select_related("user"):
             users[m.user_id] = m.user
         return roles
 
@@ -509,9 +564,16 @@ class _Exporter:
         Only users already carrying an account slug are emitted. ``_user_slug``
         *allocates* on first call, and allocation order is what keeps the export
         byte-stable (see ``_collect_account_users``), so minting one here would
-        reorder the roster. Every seeded project member also holds a
-        ``ProgramMembership`` and is therefore already slugged; a member without
-        an account entry could not be re-imported anyway.
+        reorder the roster; a member without an account entry could not be
+        re-imported anyway.
+
+        This used to lean on "every project member also holds a
+        ``ProgramMembership``, so is already slugged". That premise is false —
+        the two grants are independent (ADR-0070 §RBAC), and once the roster
+        stopped carrying revoked members (#3457) a program-revoked, still-live
+        project member had no slug and was dropped here in silence. So
+        ``_collect_account_users`` now slugs live project members explicitly, as
+        its last source; do not restore the assumption.
         """
         rows = ProjectMembership.objects.filter(project=project, is_deleted=False).select_related(
             "user"

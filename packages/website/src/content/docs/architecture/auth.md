@@ -45,6 +45,45 @@ line, a support screenshot, a browser extension with page-script access. The
 refresh token is rotated on every use and the prior one blacklisted, so a
 stolen refresh token is a single-use window, not a standing credential.
 
+## Which identifier authenticates
+
+The sign-in form asks for an email address, and Django's `ModelBackend` matches
+on the username column. Those are the same string for some accounts and not for
+others — an invited user chooses a username when they accept — so from **0.4**
+the login view will resolve the submitted identifier itself: it tries the
+username first, unchanged, and only if that fails looks for the one account
+whose email matches. On `v0.3.0-alpha.3` (the latest release) only the username
+is matched.
+
+Three properties of that fallback are load-bearing rather than incidental, and
+each exists because the email column carries no uniqueness constraint:
+
+- **Username first, always.** The email branch can only ever add a way in. An
+  account whose username happens to be email-shaped keeps its own login, and is
+  never displaced by a different account holding that string as its email.
+- **Ambiguity fails closed.** An address on two accounts refuses both, mirroring
+  the same decision the [OIDC account-linking path](#authorization-code--pkce-and-the-durable-identity-binding)
+  already makes: picking one of two accounts would sign someone into an identity
+  they did not name, which is worse than asking them to use their username.
+- **The refusal carries no information.** "No account with this email" and
+  "wrong password" return the same status and the same body, and the miss path
+  spends the same password-hash work as the hit path, so the endpoint cannot be
+  used to test which addresses have accounts.
+
+One account also keeps **one** guess budget. The per-account login throttle runs
+before the view and can only key on the identifier as submitted, so an account
+answering to two identifiers would otherwise have two independent budgets; the
+view therefore checks and charges the resolved account's own bucket before it
+spends a second password comparison. Recording without checking would have capped
+only the email-first order, which is the worse failure — a protection that looks
+complete and holds in one direction.
+
+The resolution lives in the login **view**, not in `AUTHENTICATION_BACKENDS`. A
+backend would widen every `authenticate()` caller in the process — the Django
+admin login among them — and would sit upstream of the view's own
+post-authentication policy seam, which is where an Enterprise deployment can
+refuse password login for an account governed by enforced SSO.
+
 ## Why `django-allauth` is a library here, not the login flow
 
 TruePPM's SSO design went through two generations, and the reasoning for the

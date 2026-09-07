@@ -300,7 +300,12 @@ describe('Sidebar rail — Tier 1 "You"', () => {
     mockUseProjectId.mockReturnValue('p1');
     mockUseRole.mockReturnValue({ role: 300, roleLabel: 'Project Manager', isLoading: false });
     renderRail();
-    expect(screen.getByText('Project Manager')).toBeInTheDocument();
+    // The tier folds on a project route (#3473), so the role line arrives with the
+    // disclosure. `toBeVisible` and not `toBeInTheDocument`: the folded rows stay
+    // in the DOM under `[hidden]`, so the document-presence assertion this test
+    // used to make now passes in BOTH states and proves nothing.
+    fireEvent.click(screen.getByRole('button', { name: /Show personal destinations/ }));
+    expect(screen.getByText('Project Manager')).toBeVisible();
   });
 
   it('omits the role line off a project, where useCurrentUserRole resolves to null (#1919)', () => {
@@ -330,6 +335,118 @@ describe('Sidebar rail — Tier 1 "You"', () => {
     renderRail();
     expect(screen.getByRole('link', { name: 'Notifications, 150 unread' })).toBeInTheDocument();
     expect(screen.getByText('99+')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The personal tier folds to one row on an in-context route (#3473) so Tier 2 —
+ * the only tier that can grow, and the only nav home the project/program views
+ * have — gets the height back.
+ *
+ * `toBeVisible`, never `toBeInTheDocument`: the folded rows stay mounted inside a
+ * `[hidden]` subtree so the disclosure keeps one stable `aria-controls` target,
+ * which means a document-presence assertion passes in both states and would be
+ * vacuous here.
+ */
+describe('Sidebar rail — Tier 1 folds on an in-context route (#3473)', () => {
+  const summary = () => screen.getByRole('button', { name: /personal destinations/ });
+
+  it('folds to a summary row on a project route, hiding the four destinations', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    renderRail();
+
+    expect(summary()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Timesheet', hidden: true })).not.toBeVisible();
+    expect(screen.getByRole('link', { name: 'My Assets', hidden: true })).not.toBeVisible();
+    expect(screen.getByRole('link', { name: 'Notifications', hidden: true })).not.toBeVisible();
+  });
+
+  it('folds on a program route too — the same tier is squeezed there (#1920)', () => {
+    mockUseProgramId.mockReturnValue('prog1');
+    renderRail();
+
+    expect(summary()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Timesheet', hidden: true })).not.toBeVisible();
+  });
+
+  it('keeps BOTH counts on the summary row, in its accessible name not just a badge', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    mockUseUnreadCount.mockReturnValue({ count: 4, isLoading: false });
+    renderRail();
+
+    // "is anything waiting for me" (ADR-0979 §2) is the one thing the fold may not
+    // cost. Digits alone would read as "Anika K. 3 4" to a screen reader.
+    expect(
+      screen.getByRole('button', { name: 'Your work, 3 due today, 4 unread. Show personal destinations' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps its VISIBLE label inside its accessible name (WCAG 2.5.3)', () => {
+    // The accessible name has to carry the counts, so the visible label must be a
+    // substring of it or a speech-input user has no utterance for the control.
+    // This is why the row reads "Your work" and not the user's name — see the
+    // comment on the button. The footer states the name anyway.
+    mockUseProjectId.mockReturnValue('p1');
+    renderRail();
+
+    const row = summary();
+    const visible = row.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    expect(visible).toContain('Your work');
+    expect(row.getAttribute('aria-label')).toContain('Your work');
+    expect(visible).not.toContain('Anika K.');
+  });
+
+  it('discloses the destinations and the project-scoped role line on click', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    mockUseRole.mockReturnValue({ role: 300, roleLabel: 'Project Manager', isLoading: false });
+    renderRail();
+
+    fireEvent.click(summary());
+
+    expect(summary()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: 'My Work, 3 due today' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Timesheet' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'My Assets' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Notifications' })).toBeVisible();
+    expect(screen.getByText('Project Manager')).toBeVisible();
+  });
+
+  it('re-folds on a second click', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    renderRail();
+
+    fireEvent.click(summary());
+    fireEvent.click(summary());
+    expect(summary()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Timesheet', hidden: true })).not.toBeVisible();
+  });
+
+  it('does NOT fold off a project or program route — the pinned tier is short', () => {
+    mockUseProjectId.mockReturnValue(undefined);
+    mockUseProgramId.mockReturnValue(undefined);
+    renderRail();
+
+    expect(screen.queryByRole('button', { name: /personal destinations/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Timesheet' })).toBeVisible();
+    expect(screen.getAllByText('Anika K.').length).toBeGreaterThan(0);
+  });
+
+  it('does NOT fold in the mobile drawer — the whole tier column scrolls as one (#1688)', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    renderRail({ isDrawer: true });
+
+    expect(screen.queryByRole('button', { name: /personal destinations/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Timesheet' })).toBeVisible();
+  });
+
+  it('does NOT fold on the 64px rail — there is no room for a summary row label', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
+    renderRail();
+
+    expect(screen.queryByRole('button', { name: /personal destinations/ })).not.toBeInTheDocument();
+    // ADR-0979 §2: the icon rail keeps its destination rows and their counts.
+    expect(screen.getByRole('link', { name: 'My Work, 3 due today' })).toBeVisible();
   });
 });
 
@@ -1545,6 +1662,9 @@ describe('Sidebar desktop rail never fires the drawer-close callback', () => {
     mockUseProjectId.mockReturnValue('p1');
     renderRail({ onClose });
 
+    // On a project route the personal tier is folded (#3473), so its rows are in
+    // a `[hidden]` subtree and out of the accessibility tree until disclosed.
+    fireEvent.click(screen.getByRole('button', { name: /Show personal destinations/ }));
     fireEvent.click(screen.getByRole('link', { name: 'My Work, 3 due today' }));
     fireEvent.click(screen.getByRole('link', { name: 'Board' }));
     fireEvent.click(screen.getByRole('link', { name: 'Personal settings' }));

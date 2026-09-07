@@ -182,10 +182,14 @@ def import_seed(
             generic ``import_seed`` path) imported resources are created fresh so
             a seed can never bind a pre-existing global resource — and the real
             user it may carry — into the importer's program (#1004).
-        persona_password: when set (and ``is_sample``), newly-created persona
-            accounts are given this as a usable login password so an evaluator can
-            actually sign in as each persona (#1760). ``None`` (the default) leaves
-            created personas with an unusable password, as before. Only the
+        persona_password: when set (and ``is_sample``), persona accounts are given
+            this as a usable login password so an evaluator can actually sign in as
+            each persona (#1760). Applies both to accounts this run creates and to
+            pre-existing persona rows that carry **no usable password of their own**
+            (#3484 — a reload is the common case, and skipping those made the CLI
+            report a login it had not enabled). A real account's password is never
+            overwritten, and staff/superuser rows are never touched. ``None`` (the
+            default) leaves personas with an unusable password, as before. Only the
             server-curated sample path passes this; the caller is responsible for
             never letting a fixed weak value reach a public instance (see the
             ``load_sample_project --with-personas`` DEBUG/env gate, mirroring #1350).
@@ -670,14 +674,15 @@ class _SeedImporter:
                 # when the operator opted into loginable personas via
                 # ``--with-personas`` (#1760); ``None`` yields an unusable password
                 # (create_user's default), so no dormant weak login is ever minted
-                # implicitly. Applied only to accounts this import *creates* — a
-                # pre-existing ``user`` is never re-passworded.
+                # implicitly.
                 user = User.objects.create_user(
                     username=username,
                     email=account.get("email", ""),
                     first_name=account.get("display_name", "").split(" ")[0],
                     password=self.persona_password if self.is_sample else None,
                 )
+            elif user is not None:
+                self._enable_existing_persona_login(user)
             # #1057: on the generic import path (create_users=False, the REST
             # default) a seed's accounts[].username is attacker-controlled and may
             # collide with a *pre-existing* real user. Binding that user here would
@@ -695,6 +700,55 @@ class _SeedImporter:
             ):
                 user = None
             self.users[account["slug"]] = user
+
+    def _enable_existing_persona_login(self, user: Any) -> None:
+        """Give a *pre-existing* persona account the requested demo password (#3484).
+
+        Loading a sample is idempotent, so the second run is the common one: the
+        persona rows already exist from an earlier plain ``load_sample_project``
+        (or from the demo compose stack), and only the *creation* branch above ever
+        applied ``persona_password``. ``--with-personas`` therefore printed
+        "Persona logins enabled" over fifteen accounts whose ``has_usable_password()``
+        was still False and whose ``POST /auth/token/`` still 401'd — the command
+        asserted a state it had not produced.
+
+        Two conditions bound this, and they are what keep it out of the #1057
+        account-hijack case:
+
+        * ``is_sample`` — the usernames come from a **server-curated** bundled
+          fixture, not from a caller-supplied seed. ``persona_password`` is only
+          ever non-None on that path (the REST ``load-sample`` action never passes
+          it), so no caller can steer which username gets a password.
+        * the account must have **no usable password of its own**. That is the
+          discriminator for "the importer minted this row", since an interactively
+          registered account always carries one. Nothing a real user set is ever
+          overwritten, which is the invariant
+          ``test_persona_password_never_repasswords_existing_user`` pins.
+
+        Privileged accounts are refused outright even when unusable: handing a
+        known password to a staff/superuser row would be a full takeover, and the
+        sample's OWNER persona can legitimately be the program owner on a stack
+        with no superuser (``_resolve_owner``'s third fallback).
+
+        The residual the two conditions do not cover: an **SSO-provisioned** account
+        also carries an unusable password (``sso.services`` calls
+        ``set_unusable_password`` on JIT signup), so one holding a username that
+        collides with a sample persona slug would be given a local password here.
+        It is accepted rather than guarded, because the preconditions are narrow —
+        an operator explicitly running ``--with-personas``, on an SSO instance,
+        where a federated user holds a ``<sample-key>-<name>`` username — and
+        because the command now names every account it enabled, so the operator
+        sees it rather than being told fifteen logins work.
+        """
+        if not (self.is_sample and self.create_users and self.persona_password):
+            return
+        if user.is_staff or user.is_superuser or user.has_usable_password():
+            return
+        # Seeded demo persona, not an interactive signup, so password validators
+        # do not apply — the value is already gated behind DEBUG/env by the caller.
+        # nosemgrep: unvalidated-password
+        user.set_password(self.persona_password)
+        user.save(update_fields=["password"])
 
     def _resolve_calendars(self) -> None:
         for cal in self.payload.get("calendars", []):

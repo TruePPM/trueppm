@@ -1,4 +1,4 @@
-import { CheckIcon, LockIcon, MilestoneIcon, RadioDotIcon, WarningIcon } from '@/components/Icons';
+import { CheckIcon, MilestoneIcon, RadioDotIcon, WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
 
 import { BurnChart } from '@/features/reports/BurnChart';
@@ -9,6 +9,7 @@ import {
   sprintDayOf,
 } from '@/features/sprints/sprintMath';
 import { VelocitySparkline } from '@/features/sprints/VelocitySparkline';
+import { VelocityTeamPrivateNote } from '@/features/sprints/VelocityTeamPrivateNote';
 import { VelocityForecastLine } from '@/features/sprints/VelocityForecastLine';
 import { SprintForecastChips } from '@/features/sprints/SprintForecastChips';
 import { PromoteMilestoneDialog } from '@/features/sprints/PromoteMilestoneDialog';
@@ -475,9 +476,7 @@ function VelocityCard({ projectId, velocity, isLoading, targetMilestoneId }: Vel
         Velocity
       </h3>
       {suppressed ? (
-        <p className="text-xs text-neutral-text-secondary" data-testid="velocity-suppressed">
-          <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />Velocity is team-private (visible to the team).
-        </p>
+        <VelocityTeamPrivateNote />
       ) : (
         <>
           <VelocitySparkline velocity={velocity} isLoading={isLoading} />
