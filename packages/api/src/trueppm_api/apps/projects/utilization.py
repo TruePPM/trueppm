@@ -30,8 +30,11 @@ Design decisions:
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 from collections import defaultdict
+from collections.abc import Sequence
+from decimal import Decimal
 from typing import Any
 
 from django.db.models import DateField
@@ -117,6 +120,137 @@ def first_working_day(project: Any) -> datetime.date:
     # start_date rather than raise; the floor guard is advisory, not load-bearing,
     # and a hard error here would block all task edits on a misconfigured calendar.
     return start
+
+
+# ---------------------------------------------------------------------------
+# Peak concurrent allocation — the calendar-aware overallocation verdict for
+# write-time callers that compare units against Resource.max_units (#3534)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class Allocation:
+    """One commitment of a resource: ``units`` held across an inclusive day span.
+
+    ``start`` / ``end`` are ``None`` for a task that carries no CPM span yet —
+    see :func:`peak_concurrent_units` for how an undated commitment is folded in.
+    """
+
+    units: Decimal
+    start: datetime.date | None
+    end: datetime.date | None
+
+
+def _first_working_day_in(
+    working_days_mask: int,
+    exception_ranges: list[tuple[datetime.date, datetime.date]],
+    start: datetime.date,
+    end: datetime.date,
+) -> datetime.date | None:
+    """First working day inside the inclusive ``[start, end]`` span, or ``None``.
+
+    Bounded by ``_MAX_FLOOR_SCAN_DAYS`` so a degenerate calendar (empty weekday
+    bitmask, or exceptions blanketing the span) cannot spin across a multi-year
+    span — the same guard ``first_working_day`` applies.
+    """
+    d = start
+    for _ in range(_MAX_FLOOR_SCAN_DAYS):
+        if d > end:
+            return None
+        if _is_working_day(working_days_mask, exception_ranges, d):
+            return d
+        d += datetime.timedelta(days=1)
+    return None
+
+
+def peak_concurrent_units(
+    allocations: Sequence[Allocation],
+    working_days_mask: int,
+    exception_ranges: list[tuple[datetime.date, datetime.date]],
+) -> tuple[Decimal, datetime.date | None]:
+    """Return ``(peak units held on any single working day, that day)``.
+
+    This is the overallocation question a project-lifetime ``Sum(units)`` cannot
+    answer: three 0.8-unit tasks that never share a calendar day are a peak of
+    0.8, not 2.4 (#3534). It is the same verdict the daily engine above reaches
+    in hours, kept in units here because write-time callers compare directly
+    against ``Resource.max_units`` and never need a calendar's ``hours_per_day``.
+
+    Undated commitments — a task with no ``scheduled_start``/``early_start``
+    span, which the daily engine simply drops — are folded in as a **baseline
+    present on every day** rather than dropped. An unscheduled task has no window
+    that could prove it does not overlap, so counting it as concurrent keeps the
+    warning conservative on a project whose CPM has never run, which is exactly
+    when the first assignments are made.
+
+    Only working days are considered, under the *resource's* calendar: two tasks
+    that touch only across a weekend are not a real conflict, and the heat map
+    already refuses to color one. ``(baseline, None)`` comes back when nothing is
+    dated — there is no busiest day to name, only a floor.
+
+    Args:
+        allocations: Every commitment the resource holds in the scope being
+            checked. Units are summed as-is; the caller decides what counts.
+        working_days_mask: ``Calendar.working_days`` bitmask for the resource.
+        exception_ranges: Pre-fetched ``(start, end)`` non-working ranges.
+
+    Returns:
+        ``(peak, day)`` where ``day`` is ``None`` if the peak is the undated
+        baseline rather than a dated overlap.
+    """
+    baseline = Decimal("0")
+    # (units, span_start, span_end) — narrowed to non-null dates so the sweep below
+    # needs no per-element None handling.
+    dated: list[tuple[Decimal, datetime.date, datetime.date]] = []
+    for alloc in allocations:
+        if alloc.start is None or alloc.end is None or alloc.end < alloc.start:
+            baseline += alloc.units
+        else:
+            dated.append((alloc.units, alloc.start, alloc.end))
+
+    if not dated:
+        return baseline, None
+
+    # The peak of a sum of boxcars is always attained on the first working day of
+    # some allocation's span: if day D is a working-day maximum, let S be the
+    # allocations covering D and s the latest start among them. Every member of S
+    # spans [s, D], so the first working day at or after s is <= D, lies inside
+    # every member of S, and therefore carries at least as much load as D. That
+    # makes one candidate per allocation sufficient — no day-by-day walk of the
+    # union span, which could be years wide with no window to clamp it to.
+    candidates: list[datetime.date] = []
+    for _units, span_start, span_end in dated:
+        day = _first_working_day_in(working_days_mask, exception_ranges, span_start, span_end)
+        if day is not None:
+            candidates.append(day)
+    if not candidates:
+        # Degenerate calendar: no span contains a working day at all. Falling back
+        # to raw span starts keeps a genuine overlap detectable rather than
+        # silently reporting the undated baseline as the peak.
+        candidates = [span_start for _units, span_start, _span_end in dated]
+
+    # Sweep the candidate days in order, opening and closing spans as they are
+    # reached. O(n log n) rather than re-scanning every span per candidate: one
+    # resource can legitimately carry thousands of assignments in a project, and
+    # this runs inside a write request.
+    by_start = sorted(dated, key=lambda row: row[1])
+    by_end = sorted(dated, key=lambda row: row[2])
+    opened = closed = 0
+    running = Decimal("0")
+
+    peak = baseline
+    peak_day: datetime.date | None = None
+    for day in sorted(set(candidates)):
+        while opened < len(by_start) and by_start[opened][1] <= day:
+            running += by_start[opened][0]
+            opened += 1
+        while closed < len(by_end) and by_end[closed][2] < day:
+            running -= by_end[closed][0]
+            closed += 1
+        total = baseline + running
+        if total > peak:
+            peak, peak_day = total, day
+    return peak, peak_day
 
 
 def compute_utilization(
@@ -480,6 +614,24 @@ def _resolve_resource_calendar(
         )
     hrs = float(project_cal.hours_per_day) if project_cal else _DEFAULT_HOURS_PER_DAY
     return proj_mask, hrs, proj_exceptions, False
+
+
+def resolve_working_calendar(
+    resource: Any, project: Any
+) -> tuple[int, list[tuple[datetime.date, datetime.date]]]:
+    """Return ``(working-days bitmask, non-working ranges)`` for *resource* on *project*.
+
+    The same "resource calendar wins" resolution the daily engine applies,
+    published for callers that need only the working-day question and not a load
+    figure — :func:`peak_concurrent_units` takes exactly this pair. ``project`` may
+    be ``None``, in which case the Mon-Fri default stands in, matching the engine.
+    """
+    project_cal = getattr(project, "calendar", None)
+    proj_mask, proj_exceptions, proj_cal_id = _resolve_project_calendar(project_cal)
+    mask, _hours, exception_ranges, _differs = _resolve_resource_calendar(
+        resource, project_cal, proj_mask, proj_exceptions, proj_cal_id
+    )
+    return mask, exception_ranges
 
 
 def _init_resource_row(

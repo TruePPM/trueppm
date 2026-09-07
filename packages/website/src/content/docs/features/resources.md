@@ -88,9 +88,28 @@ assignment:
 - **Partial** — some requirements met, some short on proficiency.
 - **Missing** — the resource lacks one or more required skills (listed explicitly).
 
-Separately, if a resource's committed allocation across active tasks exceeds their max
-units, the assignment comes back with an **overallocation** warning. Both checks are
-**soft** — they inform the assigner but never block the assignment, so you stay in control.
+Separately, if a resource's committed allocation on any single working day exceeds their
+max units, the assignment comes back with an **overallocation** warning naming that day.
+Both checks are **soft** — they inform the assigner but never block the assignment, so you
+stay in control.
+
+The overallocation check windows by date against the same calendar-aware engine as the
+heatmap, so the two cannot disagree about who is overcommitted: three 80% tasks that never
+share a working day are 80% allocated, not 240%. Two consequences are worth knowing:
+
+- **Non-working days are not conflicts.** Spans that meet only across a weekend, or only
+  on a calendar exception, do not stack. A resource's own calendar wins over the
+  project's, exactly as it does on the heatmap.
+- **A task with no scheduled dates counts against every day.** An unscheduled task has no
+  window that could rule out an overlap, so it is treated as concurrent with everything
+  else. This keeps the warning meaningful on a project whose schedule has not been
+  calculated yet — which is often when the first assignments are made.
+
+:::note[Ships in 0.4]
+Date windowing on the overallocation warning ships in 0.4. Through 0.3 the warning sums a
+resource's units across every active task in the project with no date window, so
+non-overlapping work reports as overallocated.
+:::
 
 ## Team utilization on the project Overview
 

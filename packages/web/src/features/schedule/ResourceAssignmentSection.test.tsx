@@ -107,7 +107,7 @@ describe('ResourceAssignmentSection — overallocation warning (#97)', () => {
             code: 'resource_overallocated',
             resource_id: 'r1',
             resource_name: 'Alice',
-            detail: 'Alice is allocated 150% across active tasks (capacity: 100%).',
+            detail: 'Alice is allocated 150% on 2026-09-09 (capacity: 100%).',
           },
         ],
       });
@@ -140,7 +140,7 @@ describe('ResourceAssignmentSection — overallocation warning (#97)', () => {
             code: 'resource_overallocated',
             resource_id: 'r1',
             resource_name: 'Alice',
-            detail: 'Alice is allocated 150% across active tasks (capacity: 100%).',
+            detail: 'Alice is allocated 150% on 2026-09-09 (capacity: 100%).',
           },
         ],
       });

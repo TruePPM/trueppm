@@ -7,7 +7,8 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import models, transaction
-from django.db.models import ProtectedError, QuerySet, Sum
+from django.db.models import DateField, ProtectedError, QuerySet
+from django.db.models.functions import Coalesce
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -35,7 +36,12 @@ from trueppm_api.apps.access.permissions import (
     _membership_role,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.models import Task, TaskActivityEventType
+from trueppm_api.apps.projects.models import Project, Task, TaskActivityEventType
+from trueppm_api.apps.projects.utilization import (
+    Allocation,
+    peak_concurrent_units,
+    resolve_working_calendar,
+)
 from trueppm_api.apps.resources.models import (
     Proficiency,
     ProjectResource,
@@ -650,26 +656,37 @@ _BARE_ASSIGNEE_DEFAULT_UNITS = Decimal("1.0")
 def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str, str]]:
     """Return a warnings list if the resource is overallocated on active tasks.
 
-    Sums ``units`` across all non-COMPLETE TaskResource rows for the resource
-    within the given project. If the total exceeds ``resource.max_units``, a
-    single warning entry is returned so the caller can include it in the 201
-    response without blocking the save (ADR-0028 — soft warning, not a hard error).
+    Overallocation is the **peak units the resource holds on any single working
+    day** across non-COMPLETE, committed tasks in the project, compared against
+    ``resource.max_units``. If the peak exceeds capacity a single warning entry is
+    returned so the caller can include it in the 201 response without blocking the
+    save (ADR-0028 — soft warning, not a hard error).
+
+    This was previously a project-lifetime ``Sum(units)`` with no date window at
+    all, so three 0.8-unit tasks that never share a calendar day reported as 240%
+    allocated — 18 of 41 real (resource, project) pairs on the seeded workspace
+    produced a warning with no calendar-day conflict anywhere (#3534). Every
+    sibling read — the heat map (``projects.utilization``), the board badge, the
+    weekly digest — already windows by day, so the write-time warning was the one
+    place in the product that did not ask whether the work overlaps. It now shares
+    the engine's own calendar resolution and ``peak_concurrent_units``, which means
+    "resource calendar wins" and non-working days are not conflicts here either.
 
     A task whose only assignment signal is a bare ``Task.assignee`` (no
     TaskResource row) previously contributed **zero** load here, silently
     understating this resource's real allocation (#3047 — the read-side half
     of the #2718/#2900 write/seed fixes). When ``resource.user`` links the
     Resource to the User account ``Task.assignee`` points at, those tasks are
-    now folded into the total at ``_BARE_ASSIGNEE_DEFAULT_UNITS`` and flagged
-    with a separate ``assignment_not_unit_tracked`` warning, so the caller
-    knows the total includes an estimate rather than a real
-    ``TaskResource.units`` figure. Resources with no linked user account
-    (teams, equipment, or legacy rows predating the FK) cannot be correlated
-    to ``Task.assignee`` and are unaffected — same as before this fix.
+    now folded in at ``_BARE_ASSIGNEE_DEFAULT_UNITS`` over their own span and
+    flagged with a separate ``assignment_not_unit_tracked`` warning, so the caller
+    knows the peak includes an estimate rather than a real ``TaskResource.units``
+    figure. Resources with no linked user account (teams, equipment, or legacy
+    rows predating the FK) cannot be correlated to ``Task.assignee`` and are
+    unaffected — same as before this fix.
 
     Args:
         resource: The Resource being assigned.
-        project_id: The project UUID to scope the utilisation sum.
+        project_id: The project UUID to scope the utilisation peak.
 
     Returns:
         A list of warning dicts (overallocation and/or unit-tracking caveat),
@@ -679,49 +696,87 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     # excluded. BACKLOG via Task.committed (ADR-0057), COMPLETE via the
     # historical exclude (units are no longer demanding capacity).
     committed_tasks = Task.committed.filter(project_id=project_id).exclude(status="COMPLETE")
-    task_resource_qs = TaskResource.objects.filter(
-        resource=resource,
-        task_id__in=committed_tasks.values_list("pk", flat=True),
+
+    # Span, not remaining-work window: Coalesce(scheduled_start, early_start)
+    # .. early_finish, identical to the utilization engine (ADR-0752 / #2623).
+    # A task the CPM has never dated comes back as (None, None) and is folded in
+    # by peak_concurrent_units as an every-day baseline rather than dropped.
+    assignment_rows = list(
+        TaskResource.objects.filter(
+            resource=resource,
+            task_id__in=committed_tasks.values_list("pk", flat=True),
+        )
+        .annotate(
+            _span_start=Coalesce(
+                "task__scheduled_start", "task__early_start", output_field=DateField()
+            )
+        )
+        .values_list("task_id", "units", "_span_start", "task__early_finish")
     )
-    total: Decimal = task_resource_qs.aggregate(total=Sum("units"))["total"] or Decimal("0")
+    allocations = [
+        Allocation(units=units, start=span_start, end=span_end)
+        for _task_id, units, span_start, span_end in assignment_rows
+    ]
 
     warnings: list[dict[str, str]] = []
 
     # Bare-assignee fallback: only resources linked to a user account can be
     # correlated to Task.assignee at all.
-    bare_assignee_tasks: list[Task] = []
+    bare_assignee_rows: list[tuple[object, object, object]] = []
     if resource.user_id is not None:
-        unit_tracked_task_ids = set(task_resource_qs.values_list("task_id", flat=True))
-        bare_assignee_tasks = list(
-            committed_tasks.filter(assignee_id=resource.user_id).exclude(
-                pk__in=unit_tracked_task_ids
+        unit_tracked_task_ids = {row[0] for row in assignment_rows}
+        bare_assignee_rows = list(
+            committed_tasks.filter(assignee_id=resource.user_id)
+            .exclude(pk__in=unit_tracked_task_ids)
+            .annotate(
+                _span_start=Coalesce("scheduled_start", "early_start", output_field=DateField())
             )
+            .values_list("pk", "_span_start", "early_finish")
         )
 
-    if bare_assignee_tasks:
-        total += Decimal(len(bare_assignee_tasks)) * _BARE_ASSIGNEE_DEFAULT_UNITS
+    if bare_assignee_rows:
+        allocations.extend(
+            Allocation(
+                units=_BARE_ASSIGNEE_DEFAULT_UNITS,
+                start=span_start,  # type: ignore[arg-type]
+                end=span_end,  # type: ignore[arg-type]
+            )
+            for _pk, span_start, span_end in bare_assignee_rows
+        )
         warnings.append(
             {
                 "code": "assignment_not_unit_tracked",
                 "resource_id": str(resource.pk),
                 "resource_name": resource.name,
                 "detail": (
-                    f"{resource.name} is assigned to {len(bare_assignee_tasks)} "
+                    f"{resource.name} is assigned to {len(bare_assignee_rows)} "
                     "task(s) with no tracked allocation units; the capacity "
                     "figures below assume full-time allocation for those tasks."
                 ),
-                "task_ids": ",".join(str(t.pk) for t in bare_assignee_tasks),
+                "task_ids": ",".join(str(pk) for pk, _s, _e in bare_assignee_rows),
             }
         )
 
-    if total > resource.max_units:
+    project = (
+        Project.objects.select_related("calendar")
+        .prefetch_related("calendar__exceptions")
+        .filter(pk=project_id)
+        .first()
+    )
+    mask, exception_ranges = resolve_working_calendar(resource, project)
+    peak, peak_day = peak_concurrent_units(allocations, mask, exception_ranges)
+
+    if peak > resource.max_units:
+        # Name the day when there is one. A peak carried entirely by undated
+        # tasks has no day to point at, only a floor that applies to every day.
+        when = f"on {peak_day.isoformat()}" if peak_day is not None else "on their busiest day"
         warnings.append(
             {
                 "code": "resource_overallocated",
                 "resource_id": str(resource.pk),
                 "resource_name": resource.name,
                 "detail": (
-                    f"{resource.name} is allocated {total:.0%} across active tasks "
+                    f"{resource.name} is allocated {peak:.0%} {when} "
                     f"(capacity: {resource.max_units:.0%})."
                 ),
             }
@@ -1128,8 +1183,13 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         # Fetch the resource (with skills prefetched) once and reuse it for both
         # the overallocation check and the skill-fit check, instead of lazy-loading
         # obj.resource and then re-fetching the same row with prefetch (#821).
-        resource_with_skills = Resource.objects.prefetch_related("skills__skill").get(
-            pk=obj.resource_id
+        # select_related/prefetch the resource calendar too: _check_overallocation
+        # resolves the resource's working days (ADR-0031 "resource calendar wins"),
+        # which would otherwise be two lazy queries per POST.
+        resource_with_skills = (
+            Resource.objects.select_related("calendar")
+            .prefetch_related("skills__skill", "calendar__exceptions")
+            .get(pk=obj.resource_id)
         )
         warnings: list[dict[str, object]] = [
             dict(w) for w in _check_overallocation(resource_with_skills, project_id)
