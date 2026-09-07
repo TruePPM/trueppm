@@ -14443,7 +14443,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/": {
             "get": {
                 "operationId": "v1_programs_mention_groups_list",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -14528,7 +14528,7 @@
             },
             "post": {
                 "operationId": "v1_programs_mention_groups_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14641,7 +14641,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/": {
             "get": {
                 "operationId": "v1_programs_mention_groups_retrieve",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14708,7 +14708,7 @@
             },
             "patch": {
                 "operationId": "v1_programs_mention_groups_partial_update",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14827,7 +14827,7 @@
             },
             "delete": {
                 "operationId": "v1_programs_mention_groups_destroy",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -14889,7 +14889,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/add-member/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_add_member_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Add a program member to this @mention group",
                 "parameters": [
                     {
@@ -15011,7 +15011,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/mute/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_mute_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Mute this @mention group for yourself",
                 "parameters": [
                     {
@@ -15080,7 +15080,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/remove-member/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_remove_member_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Remove a member from this @mention group",
                 "parameters": [
                     {
@@ -15202,7 +15202,7 @@
         "/api/v1/programs/{program_pk}/mention-groups/{id}/unmute/": {
             "post": {
                 "operationId": "v1_programs_mention_groups_unmute_create",
-                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in\nparentheses because \"Program Admin\" is ``Role.OWNER`` (400) here, not\n``Role.ADMIN`` (#3503):\n  list / retrieve            — any program member (Viewer+, 1)\n  create / update / destroy  — Program Admin (400)  (group lifecycle is an\n                               owner act)\n  add-member / remove-member — Program Manager+ (300)  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "summary": "Unmute this @mention group for yourself",
                 "parameters": [
                     {
@@ -22248,7 +22248,7 @@
         "/api/v1/projects/{id}/schedule/": {
             "post": {
                 "operationId": "v1_projects_schedule_create",
-                "description": "Manually trigger a CPM recalculation for a project.\n\nRequires the requesting user to hold at least the Scheduler role on the\nproject.  The request is written to the transactional outbox and dispatched\nimmediately if the broker is available; otherwise the Beat drain task picks\nit up within 30 seconds.\n\nReturns 404 if the project does not exist.",
+                "description": "Manually trigger a CPM recalculation for a project.\n\nRequires the requesting user to hold at least the Resource Manager role on the\nproject.  The request is written to the transactional outbox and dispatched\nimmediately if the broker is available; otherwise the Beat drain task picks\nit up within 30 seconds.\n\nReturns 404 if the project does not exist.",
                 "summary": "Trigger a CPM recalculation for a project",
                 "parameters": [
                     {
@@ -22287,7 +22287,7 @@
                         "description": "Recalculation queued via the outbox; body is {\"queued\": true}."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project."
                     },
                     "404": {
                         "description": "Project not found."
@@ -26577,7 +26577,7 @@
         "/api/v1/projects/{project_pk}/import/csv/": {
             "post": {
                 "operationId": "v1_projects_import_csv_create",
-                "description": "Upload and import a CSV/Excel spreadsheet into an existing project.\n\nRequires the Scheduler role. The import runs asynchronously through the\ntransactional outbox; the 202 response carries ``import_request_id`` — not a\nCelery task id, which does not exist until the on_commit dispatch fires\n(ADR-0632 decision 6).",
+                "description": "Upload and import a CSV/Excel spreadsheet into an existing project.\n\nRequires the Resource Manager role. The import runs asynchronously through the\ntransactional outbox; the 202 response carries ``import_request_id`` — not a\nCelery task id, which does not exist until the on_commit dispatch fires\n(ADR-0632 decision 6).",
                 "summary": "Import a CSV/Excel spreadsheet into an existing project",
                 "parameters": [
                     {
@@ -26652,7 +26652,7 @@
                         "description": "Missing or invalid upload (wrong type/too large), or an unknown `date_order`. The order is persisted on the import request so a drain re-dispatch replays the convention the operator confirmed."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -26722,7 +26722,7 @@
                         "description": "The import's outbox row: lifecycle state, result summary, the date convention it ran under, and the caller's authority over the undo."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project."
                     },
                     "404": {
                         "description": "No such import for this project."
@@ -26901,7 +26901,7 @@
                         "description": "Missing, oversized, or unreadable upload, or an unknown `date_order`."
                     },
                     "403": {
-                        "description": "Caller lacks the Scheduler role on the project."
+                        "description": "Caller lacks the Resource Manager role on the project."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -61453,7 +61453,7 @@
                     "my_role_label": {
                         "type": "string",
                         "nullable": true,
-                        "description": "Human role label in *program* context (#1794).\n\nThe shared ``Role`` enum labels are project-scoped — OWNER reads\n\"Project Admin\" and ADMIN reads \"Project Manager\", which is wrong on a\nprogram card (users read \"I'm an admin of some project\" rather than\n\"my role on this program\"). ``_PROGRAM_ROLE_LABELS`` remaps every role\nthe enum defines to its program-appropriate wording; the project-side\n``Role.label`` values are deliberately left untouched so project\nsurfaces keep reading \"Project Admin\"/\"Project Manager\".",
+                        "description": "Human role label in *program* context (#1794).\n\nThe shared ``Role`` enum labels are project-scoped — OWNER reads\n\"Project Admin\" and ADMIN reads \"Project Manager\", which is wrong on a\nprogram card (users read \"I'm an admin of some project\" rather than\n\"my role on this program\"). ``access.models.program_role_label`` remaps\nevery role the enum defines to its program-appropriate wording; the\nproject-side ``Role.label`` values are deliberately left untouched so\nproject surfaces keep reading \"Project Admin\"/\"Project Manager\".",
                         "readOnly": true
                     },
                     "is_pinned": {
@@ -61813,6 +61813,7 @@
                     },
                     "role_label": {
                         "type": "string",
+                        "description": "Display name for ``role`` in **program** vocabulary.\n\nOrdinal 400 reads \"Program Admin\" and 300 reads \"Program Manager\" — the\nsame names ``Program.my_role_label`` uses, from the same map. An ordinal\noutside the five OSS roles has no name and reads ``\"Role <ordinal>\"``.",
                         "readOnly": true
                     },
                     "role_title": {
@@ -64001,6 +64002,7 @@
                     },
                     "role_label": {
                         "type": "string",
+                        "description": "Display name for ``role`` in **project** vocabulary.\n\nOrdinal 400 reads \"Project Admin\" and 300 reads \"Project Manager\". The\nidentically-named field on a *program* membership deliberately names the\nsame two ordinals \"Program Admin\" and \"Program Manager\" — see\n``ProgramMembershipReadSerializer.get_role_label``. One ordinal, two\ncontainers, two names.",
                         "readOnly": true
                     },
                     "joined_at": {

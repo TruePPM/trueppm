@@ -312,9 +312,9 @@ def transfer_program_sponsorship(
             is_deleted=False,
         )
     except ProgramMembership.DoesNotExist as exc:
-        raise ValidationError("Only an existing program Owner can transfer sponsorship.") from exc
+        raise ValidationError("Only an existing Program Admin can transfer sponsorship.") from exc
     if actor_row.role != Role.OWNER:
-        raise ValidationError("Only an existing program Owner can transfer sponsorship.")
+        raise ValidationError("Only an existing Program Admin can transfer sponsorship.")
 
     try:
         target = ProgramMembership.objects.select_for_update().get(
