@@ -85,6 +85,8 @@ table versus the bars. **Both layouts render the same rows** — the same order,
 nesting, the same collapsed phases, the same fold carets, mode gutters, drag grips and
 insert points. What changes is only how many columns the outline gives you:
 
+![The Schedule view in Timeline layout: a compact task list with the full-width Gantt chart, critical path, summary rollups, and the P50/P80/P95 forecast bar](../../../assets/screenshots/schedule-timeline.webp)
+
 - **Grid** (default) — the full item-list table (WBS, Item, Links, Dur, Start, Finish, %,
   Owner) sits to the left of the bars, with a draggable splitter between them.
 - **Timeline** — the outline narrows to **WBS + Item**, and Links, Duration, Start,

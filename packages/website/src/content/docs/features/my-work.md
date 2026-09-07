@@ -19,6 +19,8 @@ Open it from **My Work**, pinned at the top of the sidebar (with a due-today cou
 
 Each row shows:
 
+![My Work for a team member on the Atlas sample: needs-attention and sprint tiles, today's blocked task, the ship-date forecast, and the active sprint](../../../assets/screenshots/my-work.webp)
+
 - **Task name** — clicks open the task in its project's Schedule view
 - **Project · sprint** — the project the task belongs to, and the active sprint if it's in one
 - **Program marker** — a small colored square and the program name, so you can tell at a glance which program a task belongs to. My Work spans every program you contribute to, so this cross-program cue lives on each row. A task on a project that isn't part of a program shows a neutral square with no name.

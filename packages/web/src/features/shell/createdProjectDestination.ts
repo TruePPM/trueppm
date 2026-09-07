@@ -13,9 +13,20 @@ import type { CreatedProjectIntent } from './NewProjectModal';
  * call site that happened to be updated.
  *
  * - `importCsv` → the Schedule with the CSV/Excel wizard already open.
- * - AGILE + `templateApplied` → the product backlog, with `?seeding=1` so
- *   `ProductBacklogPage` treats a momentarily-empty backlog as "still filling" from
- *   the fire-and-forget template apply (ADR-0789 §4) rather than genuinely empty.
+ * - AGILE + `templateApplicationId` → the product backlog, with
+ *   `?templateApplication=<id>` so `ProductBacklogPage` polls the application's
+ *   REAL status (#3422, amending ADR-0800 §4): "still filling" while it is
+ *   `pending`/`running`, and a stated failure when it is `failed`. Until #3422 this
+ *   branch carried `?seeding=1` — a boolean fixed at navigation time, which by
+ *   construction could not carry a status the server writes later, so a failed
+ *   apply pulsed a skeleton for 10s and then fell silent (the exact gap #3348
+ *   closed on the Schedule).
+ * - AGILE + `templateApplied` with NO id → the plain product backlog. The dispatch
+ *   itself was refused (the sheet already toasted it) and there is nothing to poll,
+ *   so the backlog is genuinely empty and must read as its own empty state — the
+ *   same landing as `blank`, for the same reason. `?seeding=1` is retired rather
+ *   than kept for this case: a skeleton with no job behind it can only ever time
+ *   out, and a state whose only exit is a timer is the thing rule 374 warns about.
  * - Non-AGILE + `templateApplicationId` → the Schedule, with the seed banner
  *   polling that application for its `result_summary` counts (ADR-0799 §1). Gated
  *   on the id rather than on `templateApplied` because a failed dispatch leaves
@@ -46,7 +57,9 @@ export function createdProjectDestination(
 ): string {
   if (intent?.importCsv) return `/projects/${projectId}/schedule?import=csv`;
   if (intent?.templateApplied && intent.methodology === 'AGILE') {
-    return `/projects/${projectId}/product-backlog?seeding=1`;
+    return intent.templateApplicationId
+      ? `/projects/${projectId}/product-backlog?templateApplication=${intent.templateApplicationId}`
+      : `/projects/${projectId}/product-backlog`;
   }
   if (intent?.templateApplicationId && intent.methodology !== 'AGILE') {
     return `/projects/${projectId}/schedule?templateApplication=${intent.templateApplicationId}`;

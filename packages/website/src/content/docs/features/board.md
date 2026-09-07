@@ -10,6 +10,8 @@ The **Board** tab is the primary execution surface in TruePPM. It presents the p
 
 The board has two zones:
 
+![The Platform Core board with the active sprint panel open: sprint goal, velocity, capacity and WIP tiles above the phase columns, with the backlog inbox on the left](../../../assets/screenshots/board.webp)
+
 - **Backlog** — `BACKLOG` cards live in a dedicated surface *beside* the working columns, not as a column of their own. Backlog is intake — undated, unrefined, not-yet-committed work — so it stays phase-agnostic and visible while you work the active board. Three layout variants are available from the toolbar's segmented control: **Rail** (left-side band, the default), **Drawer**, and **Queue**.
 - **Working columns** — the committed-work columns, rendered as **phase swimlanes** (one lane per phase in the WBS). Columns are configurable per project — labels, visibility, WIP limits, and accent colors — and default to:
 

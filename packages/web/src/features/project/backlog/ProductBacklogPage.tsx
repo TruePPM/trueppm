@@ -27,7 +27,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate } from 'react-router';
 import { useCreateIntentStore } from '@/stores/createIntentStore';
 import {
   DndContext,
@@ -93,6 +93,13 @@ import { StoryDetailDrawer } from './components/StoryDetailDrawer';
 import { TypeBadge } from './components/TypeBadge';
 import { NotInSprintStrip } from './NotInSprintStrip';
 import { BacklogSeedingState } from './BacklogSeedingState';
+import { SeedFailureBanner } from '@/features/schedule/SeedFailureBanner';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import {
+  resolveBacklogSeeding,
+  useBacklogSeed,
+  type BacklogSeedState,
+} from './hooks/useBacklogSeed';
 import {
   useAutoRank,
   useCreateEpic,
@@ -562,10 +569,38 @@ function backlogSubtitle(allStories: Task[], hasScore: boolean): string {
 
 export function ProductBacklogPage() {
   const breakpoint = useBreakpoint();
-  return breakpoint === 'sm' ? <MobileGroomingPage /> : <DesktopGroomingView />;
+  const projectId = useProjectId();
+  // The `?templateApplication=` landing (#3422) lives HERE, above the breakpoint
+  // split, for the same reason `ScheduleView` mounts `SeedFailureBanner` above
+  // `ScheduleMainArea`'s `isMobile` return: a failed apply is a failed apply on a
+  // phone too, and the mobile page's "The product backlog is empty" card would
+  // otherwise read as "the apply failed" without ever being able to confirm it.
+  const seed = useBacklogSeed(projectId);
+  const { role: currentRole } = useCurrentUserRole(projectId);
+  return (
+    <div className="flex h-full flex-col">
+      {/* The failure counterpart of the seeding skeleton (#3422, reusing #3348's
+          banner). Renders only on a terminal `failed`, and deliberately leaves the
+          empty state BELOW untouched (rule 381(b)): a failed apply is a total
+          rollback, so the empty backlog is genuinely empty and its own "add a story"
+          affordance is the "continue with an empty project" path. */}
+      {projectId && seed.applicationId && !seed.failureDismissed && (
+        <SeedFailureBanner
+          projectId={projectId}
+          applicationId={seed.applicationId}
+          currentRole={currentRole}
+          onRetried={seed.handleRetried}
+          onDismiss={seed.dismissFailure}
+        />
+      )}
+      <div className="min-h-0 flex-1">
+        {breakpoint === 'sm' ? <MobileGroomingPage /> : <DesktopGroomingView seed={seed} />}
+      </div>
+    </div>
+  );
 }
 
-function DesktopGroomingView() {
+function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
   const projectId = useProjectId();
   const navigate = useNavigate();
   const itl = useIterationLabel(projectId);
@@ -586,25 +621,6 @@ function DesktopGroomingView() {
   // The sprint currently being planned (issue 1291) — drives the planning rail and
   // the per-row commit toggle. Deduped against the board's ['sprints'] query.
   const plannedSprint = useSprintsByState(projectId).planned[0] ?? null;
-
-  // `?seeding=1` (#2734, ADR-0800): set by `createdProjectDestination` when an AGILE
-  // project's Start-sheet template application just fired. `NewProjectModal` never
-  // waits on the apply (ADR-0789 §4, fire-and-forget), so this page's backlog can be
-  // genuinely empty for a moment after landing here. Rather than poll the template
-  // application, this rides the WS invalidation that already refetches
-  // `['product-backlog', projectId]` on every task broadcast
-  // (`useProjectWebSocket.ts`) — the first seeded row's arrival flips `allEmpty`
-  // below and the seeding branch stops rendering on its own. The timeout is only a
-  // fallback for a dispatch failure (already toast-surfaced by the sheet), so a
-  // failed apply never strands the user on a "setting up" message forever.
-  const [searchParams] = useSearchParams();
-  const isSeeding = searchParams.get('seeding') === '1';
-  const [seedingTimedOut, setSeedingTimedOut] = useState(false);
-  useEffect(() => {
-    if (!isSeeding) return;
-    const timer = setTimeout(() => setSeedingTimedOut(true), 10_000);
-    return () => clearTimeout(timer);
-  }, [isSeeding]);
 
   // Grooming filter (issue 1044): search + DoR facet + unestimated toggle. While
   // any filter is active, drag-reorder is suspended (a filtered subset persisted
@@ -778,6 +794,9 @@ function DesktopGroomingView() {
   const hasScore = scoring.model !== 'none';
   const allEmpty = backlog.epics.length === 0 && backlog.ungrouped.length === 0;
   const allStories = [...backlog.epics.flatMap((g) => g.stories), ...backlog.ungrouped];
+  // Counts every story, never the filtered subset — a filter hiding every row of a
+  // populated backlog is a filter result and keeps its own no-results state.
+  const backlogSeeding = resolveBacklogSeeding(seed, allStories.length);
   // `selectedId` addresses either a story row or an epic header — their ids are disjoint,
   // so resolve against both and render whichever drawer matches.
   const { story: selectedStory, epic: selectedEpic } = resolveSelection(
@@ -1132,22 +1151,23 @@ function DesktopGroomingView() {
                 primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
               />
             )}
-            {/* #2734, ADR-0800: while a just-applied template's rows are still streaming
-                in, show the seeding skeleton instead of the ordinary empty-backlog CTA —
-                a genuinely-empty backlog and a not-yet-arrived one must not read the same
-                to a user who just watched the sheet say "Created". */}
-            {allEmpty && effectiveMethodology !== 'WATERFALL' && isSeeding && !seedingTimedOut && (
+            {/* #2734, ADR-0800 (amended by #3422): while a just-applied template's rows
+                are still streaming in, show the seeding skeleton instead of the ordinary
+                empty-backlog CTA — a genuinely-empty backlog and a not-yet-arrived one
+                must not read the same to a user who just watched the sheet say
+                "Created". `backlogSeeding` reads the application's REAL status, so a
+                terminal `failed` falls through to the CTA at once — under the failure
+                banner the page mounts above this view — instead of pulsing out a timer. */}
+            {allEmpty && effectiveMethodology !== 'WATERFALL' && backlogSeeding && (
               <BacklogSeedingState />
             )}
-            {allEmpty &&
-              effectiveMethodology !== 'WATERFALL' &&
-              (!isSeeding || seedingTimedOut) && (
-                <EmptyState
-                  icon={ListIcon}
-                  title="No stories yet"
-                  description="Pull items from the program backlog, or add a story below to start grooming."
-                />
-              )}
+            {allEmpty && effectiveMethodology !== 'WATERFALL' && !backlogSeeding && (
+              <EmptyState
+                icon={ListIcon}
+                title="No stories yet"
+                description="Pull items from the program backlog, or add a story below to start grooming."
+              />
+            )}
 
             {/* No-results state when a filter is active but nothing matches (issue 1044).
                 Distinct from the all-empty state above, which stays reachable. */}

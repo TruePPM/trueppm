@@ -83,8 +83,8 @@ the gallery.
 
 For a waterfall or hybrid template, applying it lands you straight on the
 **Schedule** with the skeleton already scheduled, not on an empty Overview you
-have to leave to find it. An agile template still lands on Overview today — its
-own backlog landing is separate, later work.
+have to leave to find it. An agile template lands on the **Product Backlog** the
+same way, with its epics and stories standing.
 
 Because seeding runs in the background, the Schedule can be genuinely empty for a
 moment after you land on it. While the rows are still being written it shows a
@@ -92,9 +92,10 @@ brief **"Setting up your schedule…"** skeleton instead of the ordinary empty
 state — so a project whose template is still applying never reads as one that
 failed to apply, and never invites you to type a first row into a plan that is
 about to be overwritten. The skeleton clears itself the moment the first rows
-arrive. This mirrors the "Setting up your backlog…" state an agile template shows
-on the product backlog. An apply that genuinely *does* fail says so in as many
-words — see [When an apply doesn't finish](#when-an-apply-doesnt-finish) below.
+arrive. The product backlog shows the matching **"Setting up your backlog…"**
+state for an agile template, and clears it the same way. An apply that genuinely
+*does* fail says so in as many words, on whichever surface you landed — see
+[When an apply doesn't finish](#when-an-apply-doesnt-finish) below.
 
 Once the rows have landed, a banner across the top states what just happened and
 gives you the fastest way to disagree with it:
@@ -121,8 +122,9 @@ after a row is seeded, whether or not you ever open the banner again.
 
 Sometimes an apply fails — the template was deleted while the job sat in the
 queue, the project was archived after you asked for it, or the server hit an
-error part way through. The Schedule tells you, instead of leaving you on an
-empty project wondering whether anything happened at all:
+error part way through. The surface you landed on tells you — the Schedule for a
+waterfall or hybrid template, the Product Backlog for an agile one — instead of
+leaving you on an empty project wondering whether anything happened at all:
 
 > **Couldn't apply "House shape".** Nothing was written. This project is exactly
 > as empty as it was before.
@@ -140,15 +142,16 @@ You have three ways forward:
   **Project Manager** and above, and only while the template still exists — if it
   has since been deleted, the banner says so rather than offering a button that
   cannot work.
-- **Keep the empty project.** The ordinary blank schedule is right there under the
-  banner with the first row waiting for you. Nothing was written, so this project
-  is no different from any other new one.
+- **Keep the empty project.** The ordinary blank schedule — or empty backlog — is
+  right there under the banner with the first row waiting for you. Nothing was
+  written, so this project is no different from any other new one.
 - **Start again from a different template** by creating a new project from the
   gallery. Applying a *different* template to a project that already exists is not
   something you can do yet.
 
 Dismiss the banner with **×** once you have decided. It appears on phones too,
-above the "No items yet" card.
+above the "No items yet" card on the Schedule and the empty-backlog card on the
+Product Backlog.
 
 ### The Next strip
 
