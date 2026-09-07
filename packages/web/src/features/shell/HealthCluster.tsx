@@ -25,7 +25,7 @@ import {
   type AddedTimeShortForm,
 } from '@/features/project/addedTime';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
-import { deriveHealthBand, HEALTH_BAND_LABEL, type HealthBand } from '@/lib/healthBand';
+import { HEALTH_BAND_LABEL, type HealthBand } from '@/lib/healthBand';
 
 interface Props {
   /** Selects + scrolls to a task and routes to the schedule (owned by TopBar). */
@@ -66,12 +66,18 @@ function LockGlyph() {
 }
 
 // ---------------------------------------------------------------------------
-// Chip state word — derived from the project-wide at-risk / critical counts on
-// `useShellStats`, NOT from the methodology segment set. `status-summary`
-// carries `at_risk_count` / `critical_count` for every methodology, so an Agile
+// Chip state word — the SERVER's band, read off `status-summary`'s `health_band`
+// (`useShellStats`), NOT derived here and NOT taken from the methodology segment
+// set. `status-summary` carries the band for every methodology, so an Agile
 // project whose cluster shows Sprint/Points/Velocity still reads "Critical" on
-// the chip when it has a real critical task (rule 6 — the WORD is the non-color
+// the chip when the project is critical (rule 6 — the WORD is the non-color
 // signal; the dot only reinforces it).
+//
+// The chip must NOT re-derive the band from `at_risk_count` / `critical_count`:
+// those counts cannot see the manual `Project.health` override, so a chip that
+// computed its own band printed "On track" over a project whose PM had reported
+// it Critical, and disagreed with the my-projects triage list about the same
+// project (#3501). The server folds the override in; this component prints it.
 //
 // The word is the SERVER band word (`HEALTH_BAND_LABEL`), never a chip-private
 // synonym. The chip used to render "At risk" for the critical band and
@@ -102,8 +108,7 @@ const CHIP_DOT_CLASS: Record<HealthBand, string> = {
   on_track: 'bg-semantic-on-track',
 };
 
-function deriveChipState(criticalCount: number, atRiskCount: number): ChipState {
-  const band = deriveHealthBand(criticalCount, atRiskCount);
+function deriveChipState(band: HealthBand): ChipState {
   return {
     band,
     word: HEALTH_BAND_LABEL[band],
@@ -690,9 +695,11 @@ function DrillRows({
 /**
  * v2 methodology-adaptive project health surface (ADR-0128 §B, progressive
  * disclosure — issue 1644). A single all-width **status chip** shows the
- * worst-state band word (On track / At risk / Critical — the one health
- * vocabulary, rule 7 / ADR-0126), a health dot, and an
- * optional P80 forecast fragment. Clicking it opens a **health popover** whose
+ * project's band word (On track / At risk / Critical — the one health
+ * vocabulary, rule 7 / ADR-0126) as the server decided it, a health dot, and an
+ * optional P80 forecast fragment. Deliberately not "worst-state": the server's
+ * `health_band` puts the PM's manual report ahead of the counts, so the word can
+ * be BETTER than the worst signal in the rows below it (#3501). Clicking it opens a **health popover** whose
  * rows are exactly the methodology's `healthClusterModel` segments — forecast
  * band, at-risk/critical drills, sprint/points/velocity — with the ADR-0104
  * velocity privacy wall honored.
@@ -708,9 +715,11 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   const { data: project } = useProject(projectId);
   // Same predicate `ProjectShell` renders `ProjectNotFound` on (#3469). Every
   // input below degrades to a plausible literal on a failed fetch — `stats`
-  // missing means `deriveChipState(0, 0)`, i.e. a confident "On track" for a
-  // project that is not there — so the chip has to be suppressed at the source
-  // rather than repaired downstream.
+  // missing means `stats?.healthBand ?? 'on_track'`, i.e. a confident "On
+  // track" for a project that is not there — so the chip has to be suppressed
+  // at the source rather than repaired downstream. (#3469 wrote this against
+  // the counts derivation `deriveChipState(0, 0)`; #3501 moved the word to the
+  // server band and the same hole moved with it, which is #3525.)
   const projectUnavailable = useProjectUnavailable(projectId);
   const { data: stats } = useShellStats();
   const { sprint: activeSprint } = useActiveSprint(projectId);
@@ -831,9 +840,18 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     now: new Date(),
   });
 
-  // The chip word is derived from the project-wide counts, independent of which
-  // segments this methodology renders (see deriveChipState).
-  const chip = deriveChipState(stats?.criticalCount ?? 0, stats?.atRiskCount ?? 0);
+  // The chip word is the server's band for the whole project, independent of
+  // which segments this methodology renders (see deriveChipState). The band is
+  // never computed from the counts.
+  //
+  // `on_track` is the pre-load fallback, and it is the reassuring word — which
+  // is the failure direction #3501 was filed about, so state what makes it safe:
+  // `health_band` is a REQUIRED field on the response, and the web bundle ships
+  // in the same artifact as the API that serves it, so "loaded but no band" is
+  // not a state this client can reach. It is the fallback and not a neutral
+  // fourth word because the vocabulary has exactly three (rule 396) — a chip
+  // that printed "Unknown" for one render tick would be inventing one.
+  const chip = deriveChipState(stats?.healthBand ?? 'on_track');
 
   // P80 fragment on the chip: shown only when the methodology cluster has a
   // forecast segment (omitted entirely for pure Agile). The value text stays
@@ -1004,7 +1022,11 @@ export function HealthCluster({ onTaskNavigate }: Props) {
               pos ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}
           >
-            {/* Header — worst-state dot + word, same read as the chip. */}
+            {/* Header — the project's band dot + word, same read as the chip.
+                Not necessarily the worst state in the rows beneath it: a manual
+                report outranks the counts, so a Critical header can sit over
+                "0 tasks" rows. The popover does not yet say which of the two it
+                is showing — #3525. */}
             <div className="flex items-center gap-2 px-2 py-1.5 mb-1 border-b border-neutral-border">
               <span
                 aria-hidden="true"

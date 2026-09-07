@@ -4,6 +4,10 @@ export const FIXTURE_SHELL_STATS: ShellStats = {
   taskCount: 42,
   criticalPathCount: 3,
   monteCarlop80: '2026-11-03',
+  // The server's band for this fixture's counts with no manual override
+  // (critical_count 1 → critical). A spec exercising the override sets this
+  // independently of the counts — that divergence is the point (#3501).
+  healthBand: 'critical',
   atRiskCount: 2,
   criticalCount: 1,
   atRiskTasks: [

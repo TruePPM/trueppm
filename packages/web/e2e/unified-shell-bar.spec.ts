@@ -30,10 +30,12 @@ const FIXTURE_PROJECTS = [
 // would test a chip 8px narrower (#3470 — before it, the at-risk band rendered
 // the retired "On watch" at 54.48px, which is why the counts used to be
 // non-zero here). These specs run at 1024px and up, where "On track" fits; the
-// phone guard in `mobile-chrome-clip.spec.ts` cannot pin it yet (#3505).
+// phone guard in `mobile-chrome-clip.spec.ts` cannot pin it yet (#3505). The
+// word is chosen by `health_band` since #3501, not by the counts.
 const STATUS_SUMMARY = {
   task_count: 12,
   critical_path_count: 0,
+  health_band: 'on_track' as const,
   monte_carlo_p80: '2026-09-07',
   at_risk_count: 0,
   critical_count: 0,

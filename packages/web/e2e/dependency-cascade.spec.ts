@@ -178,6 +178,7 @@ test.describe('Dependency cascade refresh (#314)', () => {
         body: JSON.stringify({
           task_count: 3,
           critical_path_count: 2,
+          health_band: 'on_track',
           monte_carlo_p80: null,
           at_risk_count: 0,
           critical_count: 0,

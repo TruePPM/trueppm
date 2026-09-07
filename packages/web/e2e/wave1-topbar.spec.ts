@@ -27,6 +27,10 @@ const FIXTURE_PROJECTS = [
 const HEALTH_STATUS_SUMMARY = {
   task_count: 5,
   critical_path_count: 1,
+  // The band is a server field (#3501) — the chip prints it and no longer works
+  // one out from the counts. `critical` is what this project's counts and its
+  // AUTO health produce on the server.
+  health_band: 'critical',
   monte_carlo_p80: '2026-11-03',
   at_risk_count: 2,
   critical_count: 1,
@@ -42,6 +46,7 @@ const HEALTH_STATUS_SUMMARY = {
 const EMPTY_STATUS_SUMMARY = {
   task_count: 3,
   critical_path_count: 0,
+  health_band: 'on_track',
   monte_carlo_p80: null,
   at_risk_count: 0,
   critical_count: 0,
@@ -192,9 +197,9 @@ test.describe('Wave 1 — TopBar health chip + popover (desktop)', () => {
   test('the status chip renders with the worst-state word and P80 fragment', async ({ page }) => {
     const chip = page.getByTestId('health-cluster');
     await expect(chip).toBeVisible();
-    // critical_count = 1 → the `critical` band → "Critical" (#3470: the chip
-    // prints the server band word, not a chip-private synonym); monte_carlo_p80
-    // = 2026-11-03 → "Nov 3".
+    // health_band = 'critical' → "Critical" (#3470: the chip prints the server
+    // band word, not a chip-private synonym; #3501: it prints the server's band,
+    // not one derived from the counts); monte_carlo_p80 = 2026-11-03 → "Nov 3".
     await expect(chip).toContainText('Critical');
     // The retired word must not come back on either band.
     await expect(chip).not.toContainText('On watch');
@@ -291,7 +296,7 @@ test.describe('TopBar health chip (mobile — all-width, no dropdown)', () => {
   test('the status chip is visible on a phone and shows the state word', async ({ page }) => {
     const chip = page.getByTestId('health-cluster');
     await expect(chip).toBeVisible();
-    // critical_count = 1 → the `critical` band word (#3470).
+    // health_band = 'critical' → the critical band word (#3470/#3501).
     await expect(chip).toContainText('Critical');
     // The removed phone-only "Health ▾" dropdown must not exist.
     await expect(page.getByRole('button', { name: /project health summary/i })).toHaveCount(0);
