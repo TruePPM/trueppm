@@ -33,6 +33,10 @@ function newClient() {
 
 const SUMMARY = {
   task_count: 12,
+  // Deliberately DISAGREES with the two counts below (which alone would give
+  // `critical`). The band is the server's, folding in the manual `Project.health`
+  // report, and this hook must copy it rather than reconcile it (#3501).
+  health_band: 'at_risk' as const,
   monte_carlo_p80: '2026-11-03',
   at_risk_count: 3,
   critical_count: 5,
@@ -56,6 +60,7 @@ describe('useShellStats', () => {
     expect(getMock).toHaveBeenCalledWith('/projects/proj-1/status-summary/');
     const s = result.current.data;
     expect(s?.taskCount).toBe(12);
+    expect(s?.healthBand).toBe('at_risk');
     expect(s?.monteCarlop80).toBe('2026-11-03');
     expect(s?.atRiskCount).toBe(3);
     expect(s?.criticalCount).toBe(5);

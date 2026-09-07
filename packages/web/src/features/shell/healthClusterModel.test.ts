@@ -7,6 +7,9 @@ const STATS: ShellStats = {
   taskCount: 42,
   criticalPathCount: 3,
   monteCarlop80: '2026-11-03',
+  // The model does not read the band — it selects the methodology segments — but
+  // `ShellStats` requires it (#3501).
+  healthBand: 'critical',
   atRiskCount: 2,
   criticalCount: 1,
   atRiskTasks: [{ id: 't4', wbs: '1.3', name: 'Frontend Build' }],

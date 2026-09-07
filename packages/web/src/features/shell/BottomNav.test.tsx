@@ -276,3 +276,40 @@ describe('BottomNav', () => {
     expect(within(dialog).queryByRole('link', { name: /^Sprints$/i })).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Unavailable-project suppression (#3469) — the mobile counterpart of the rail's
+ * project tier, and it fell into the same trap: every field degrades to a literal
+ * (`effective_methodology ?? 'HYBRID'`), so on a project the caller cannot open it
+ * drew a complete, working-looking tab set whose every tap re-lands on
+ * "This project isn't available". `md:hidden`, so a desktop-viewport e2e cannot
+ * reach it — this suite is the coverage.
+ */
+describe('BottomNav — project unavailable', () => {
+  it.each([404, 403])('renders nothing when the project query fails with %i', (status) => {
+    mockUseProject.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: { isAxiosError: true, response: { status } },
+    });
+    renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/overview'] });
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+  });
+
+  it('still renders on a transient server error', () => {
+    // A 500 is not "not yours" — the route keeps rendering, so the nav must too.
+    mockUseProject.mockReturnValue({
+      data: {
+        id: 'proj-1',
+        methodology: 'HYBRID',
+        effective_methodology: 'HYBRID',
+        effective_surface_visibility: { reporting: true },
+        iteration_label: null,
+      },
+      isLoading: false,
+      error: { isAxiosError: true, response: { status: 500 } },
+    });
+    renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/overview'] });
+    expect(screen.getAllByRole('navigation').length).toBeGreaterThan(0);
+  });
+});

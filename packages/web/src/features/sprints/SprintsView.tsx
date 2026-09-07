@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -65,6 +65,7 @@ import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
 import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
+import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
@@ -776,7 +777,15 @@ export function SprintsView() {
           committed to sprints would see them vanish from the nav with no signal
           they still exist. */}
           {!isLoading && !error && effectiveMethodology === 'WATERFALL' && sprints.length > 0 && (
-            <MethodologyMismatchBanner projectId={projectId} itl={itl} count={sprints.length} />
+            <MethodologyMismatchBanner
+              projectId={projectId}
+              className="mx-6 mt-2"
+              message={`This project is configured as Waterfall, but ${sprints.length} ${
+                sprints.length === 1 ? itl.lower : itl.lowerPlural
+              } already ${
+                sprints.length === 1 ? 'is' : 'are'
+              } committed here — they stay reachable even though they sit outside its workflow.`}
+            />
           )}
 
           <CapacityWarningsAlert
@@ -1091,48 +1100,6 @@ function CapacityWarningsAlert({
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
       >
         Dismiss
-      </button>
-    </div>
-  );
-}
-
-/**
- * Explains why sprints are visible on a project now configured as WATERFALL
- * (issue #2619). A methodology flip hides the DELIVER nav group but never
- * touches sprint data — including sprints a team already committed to — so
- * without this notice they become reachable only by URL with no on-screen
- * signal they still exist. Read-only; routes to Settings → Methodology so
- * reintegrating them is a deliberate choice, never a silent fix.
- */
-function MethodologyMismatchBanner({
-  projectId,
-  itl,
-  count,
-}: {
-  projectId: string | undefined;
-  itl: IterationLabel;
-  count: number;
-}) {
-  const navigate = useNavigate();
-  const noun = count === 1 ? itl.lower : itl.lowerPlural;
-  return (
-    <div
-      role="status"
-      className="mx-6 mt-2 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg
-    text-semantic-at-risk px-3 py-2 text-xs flex items-center justify-between gap-3 flex-wrap"
-    >
-      <p>
-        This project is configured as Waterfall, but {count} {noun} already{' '}
-        {count === 1 ? 'is' : 'are'} committed here — they stay reachable even though they sit
-        outside its workflow.
-      </p>
-      <button
-        type="button"
-        onClick={() => projectId && void navigate(`/projects/${projectId}/settings#how-this-team-works`)}
-        className="shrink-0 text-xs font-semibold underline hover:no-underline
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
-      >
-        Review methodology
       </button>
     </div>
   );

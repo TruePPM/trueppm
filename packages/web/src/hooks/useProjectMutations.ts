@@ -233,6 +233,24 @@ export function useUpdateProject(projectId: string | null | undefined) {
     onSuccess: () => {
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        // `Project.timezone` is an input to a value the server computes on a
+        // DIFFERENT endpoint: the notification-preference document reports the
+        // resolved `quiet_hours_timezone` and the tier that supplied it (#3377).
+        // Nothing optimistically recomputes that chain, and no event reports it,
+        // so without this the editor's own Notifications page keeps captioning
+        // the quiet-hours window with the pre-edit zone until the 30s staleTime
+        // lapses — stating a wrong zone, which is worse than stating none
+        // (web-rule 331(d): a key is reported by anything that moves an input of
+        // its response, whatever the endpoint is named). #3397.
+        void queryClient.invalidateQueries({
+          queryKey: ['project-notification-preferences', projectId],
+        });
+        // The `health` field on this PATCH decides the shell chip's word, via
+        // `status-summary`'s server-computed `health_band` (#3501). The socket
+        // echo invalidates it for every other viewer; this does it for the
+        // person who just saved, whose own top bar would otherwise keep the old
+        // word for the 30s `staleTime` and then only if something refetched.
+        void queryClient.invalidateQueries({ queryKey: ['shellStats', projectId] });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
@@ -328,6 +346,12 @@ export function useArchiveProject(projectId: string | null | undefined) {
     onSuccess: () => {
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        // The `health` field on this PATCH decides the shell chip's word, via
+        // `status-summary`'s server-computed `health_band` (#3501). The socket
+        // echo invalidates it for every other viewer; this does it for the
+        // person who just saved, whose own top bar would otherwise keep the old
+        // word for the 30s `staleTime` and then only if something refetched.
+        void queryClient.invalidateQueries({ queryKey: ['shellStats', projectId] });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
@@ -346,6 +370,12 @@ export function useUnarchiveProject(projectId: string | null | undefined) {
     onSuccess: () => {
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        // The `health` field on this PATCH decides the shell chip's word, via
+        // `status-summary`'s server-computed `health_band` (#3501). The socket
+        // echo invalidates it for every other viewer; this does it for the
+        // person who just saved, whose own top bar would otherwise keep the old
+        // word for the 30s `staleTime` and then only if something refetched.
+        void queryClient.invalidateQueries({ queryKey: ['shellStats', projectId] });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },

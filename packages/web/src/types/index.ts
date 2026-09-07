@@ -2,6 +2,7 @@
 // Update when API schema changes, then verify against generated src/api/types.ts.
 
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
+import type { HealthBand } from '@/lib/healthBand';
 
 // Re-export so consumers can pull the union from '@/types' alongside Task.
 export type { ExternalLinkStatus };
@@ -643,6 +644,19 @@ export interface Project {
    */
   programId: string | null;
   /**
+   * The *requesting user's* own role ordinal on this project (Viewer 1 … Owner
+   * 400, see `@/lib/roles`), or `null` when they hold no membership. Never 0 —
+   * absence is always `null` (ADR-0072 Amendment 1).
+   *
+   * Optional because only the program-projects roster annotates it (#3357).
+   * That roster is program-scoped, not membership-scoped, so it is the one list
+   * shape that can contain rows the viewer cannot open: `GET /projects/{id}/` is
+   * queryset-scoped to `ProjectMembership`, so `myRole === null` means the
+   * project's own route will 404 (#3469). Treat `undefined` as "unknown", never
+   * as "no access" — the other list shapes simply do not carry it.
+   */
+  myRole?: number | null;
+  /**
    * Whether the *requesting user* has pinned this project (#2390, ADR-0627).
    *
    * Self-scoped: it is this viewer's own preference and never reports anyone
@@ -1138,6 +1152,13 @@ export interface ShellStats {
   criticalPathCount: number;
   /** P80 completion date as ISO string */
   monteCarlop80: string | null;
+  /**
+   * The project's health band as the server decided it (`status-summary`'s
+   * `health_band`, #3501). Carries the manual `Project.health` override, which
+   * `atRiskCount` / `criticalCount` cannot express — so a surface that prints a
+   * band reads this and never re-derives one from the counts.
+   */
+  healthBand: HealthBand;
   atRiskCount: number;
   criticalCount: number;
   /** Tasks with health = at-risk (up to 5 shown in badge popover) */

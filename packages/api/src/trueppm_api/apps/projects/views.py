@@ -3297,6 +3297,18 @@ class ProjectViewSet(
                 name="ProjectStatusSummary",
                 fields={
                     "task_count": serializers.IntegerField(),
+                    "health_band": serializers.ChoiceField(
+                        choices=["on_track", "at_risk", "critical"],
+                        help_text=(
+                            "The project's health band. The manual Project.health "
+                            "override when the PM has reported one (not AUTO), "
+                            "otherwise derived from the counts below: critical_count "
+                            "> 0 → critical, else at_risk_count > 0 → at_risk, else "
+                            "on_track. A client MUST print this value rather than "
+                            "re-deriving a band from the counts — the counts alone "
+                            "cannot see the override."
+                        ),
+                    ),
                     "at_risk_count": serializers.IntegerField(),
                     "critical_count": serializers.IntegerField(),
                     "at_risk_tasks": inline_serializer(
@@ -3355,6 +3367,12 @@ class ProjectViewSet(
         At-risk: incomplete tasks with total_float <= 5 working days (or
         negative float, which means already late).
         Critical: incomplete tasks where is_critical=True.
+
+        health_band comes from :func:`compute_health_band` — the manual
+        Project.health override when the PM has reported one, otherwise the
+        counts. It is on the payload because the shell chip fetches this endpoint
+        and nothing else: without it the chip could only ever see the counts
+        branch, and contradicted the PM's own report (#3501).
 
         P80 is the most recent persisted MonteCarloRun's p80 for this project, or
         null when no run has been recorded. Null means "no forecast exists", not
@@ -3440,6 +3458,14 @@ class ProjectViewSet(
         return Response(
             {
                 "task_count": task_count,
+                # The band is a SERVER fact, not something the shell can work out
+                # from the two counts below it (#3501). Only the server sees the
+                # manual `Project.health` override, so a chip that re-derived a
+                # band from the counts printed "On track" over a project its own
+                # PM had reported Critical, and disagreed with the my-projects
+                # triage list about the same project. Same callable as
+                # `health_summary` — one rule, called twice (ADR-0133).
+                "health_band": compute_health_band(project.health, at_risk_count, critical_count),
                 # `critical_path_count` was an exact alias of `critical_count`
                 # (same aggregate). Dropped pre-0.3 so the public status-summary
                 # contract carries the count once (#1325).
@@ -3463,7 +3489,13 @@ class ProjectViewSet(
                 fields={
                     "id": serializers.UUIDField(),
                     "name": serializers.CharField(),
-                    "health_band": serializers.CharField(),
+                    # The same three values status-summary declares, and now
+                    # provably so: both actions call `compute_health_band`. A bare
+                    # CharField here handed a generated SDK a free-form `str` for
+                    # one endpoint and a typed enum for its twin (#3501).
+                    "health_band": serializers.ChoiceField(
+                        choices=["on_track", "at_risk", "critical"]
+                    ),
                     "at_risk_count": serializers.IntegerField(),
                     "critical_count": serializers.IntegerField(),
                 },
@@ -3492,9 +3524,9 @@ class ProjectViewSet(
         membership scope is a ``pk__in`` subquery, not a join, so today there is only
         the one ``tasks`` join).
 
-        health_band is derived: the manual Project.health override wins when set (not
-        AUTO); otherwise counts-first — critical_count > 0 → critical, else
-        at_risk_count > 0 → at_risk, else on_track.
+        health_band comes from :func:`compute_health_band` — the same rule the
+        single-project status-summary calls, so the two cannot disagree about one
+        project (#3501).
         """
         from django.db.models import Count, Q
 
@@ -3528,28 +3560,12 @@ class ProjectViewSet(
             .order_by("name")
         )
 
-        override = {
-            Health.ON_TRACK.value: "on_track",
-            Health.AT_RISK.value: "at_risk",
-            Health.CRITICAL.value: "critical",
-        }
-
-        def compute_band(health: str, at_risk: int, critical: int) -> str:
-            manual = override.get(health)  # None when AUTO
-            if manual is not None:
-                return manual
-            if critical > 0:
-                return "critical"
-            if at_risk > 0:
-                return "at_risk"
-            return "on_track"
-
         return Response(
             [
                 {
                     "id": str(row["id"]),
                     "name": row["name"],
-                    "health_band": compute_band(
+                    "health_band": compute_health_band(
                         row["health"], row["at_risk_count"], row["critical_count"]
                     ),
                     "at_risk_count": row["at_risk_count"],
@@ -11111,6 +11127,43 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 # Project overview endpoints (ADR-0030)
 # ---------------------------------------------------------------------------
+
+
+#: The manual ``Project.health`` override mapped onto the health-band vocabulary.
+#: ``AUTO`` is deliberately absent — it is the "no report" value, not a fourth band.
+_HEALTH_OVERRIDE_BAND: dict[str, str] = {
+    Health.ON_TRACK.value: "on_track",
+    Health.AT_RISK.value: "at_risk",
+    Health.CRITICAL.value: "critical",
+}
+
+
+def compute_health_band(health: str, at_risk_count: int, critical_count: int) -> str:
+    """The project health band: manual override first, then the task counts.
+
+    One rule, called from every surface that prints a band (ADR-0133), so the
+    shell chip, the my-projects triage list and any future consumer cannot
+    disagree about the same project. The override wins because it is a PM's
+    deliberate report: a PM who marks a clean plan Critical knows something the
+    float numbers do not, and a surface that silently recomputes "On track" over
+    that report contradicts the person who filed it (#3501).
+
+    Args:
+        health: The raw ``Project.health`` value. ``AUTO`` means "no report".
+        at_risk_count: Incomplete tasks with <= 5 working days of total float.
+        critical_count: Incomplete tasks on the critical path.
+
+    Returns:
+        One of ``"on_track"``, ``"at_risk"``, ``"critical"``.
+    """
+    manual = _HEALTH_OVERRIDE_BAND.get(health)  # None when AUTO
+    if manual is not None:
+        return manual
+    if critical_count > 0:
+        return "critical"
+    if at_risk_count > 0:
+        return "at_risk"
+    return "on_track"
 
 
 def _spi_health_band(spi: float) -> str:

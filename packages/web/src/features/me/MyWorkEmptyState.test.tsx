@@ -120,3 +120,33 @@ describe('MyWorkEmptyState v2 (#499 / ADR-0129)', () => {
     expect(screen.getByRole('button', { name: 'Explore a demo project' })).toBeDisabled();
   });
 });
+
+/**
+ * Flavor B for a caller who is only here via a program (#3469).
+ *
+ * The count fix stops calling a program Owner with no `ProjectMembership` a
+ * brand-new user — correctly — but flavor B's copy assumes project membership
+ * ("when a teammate assigns you a task") and its links point at Jira and the docs.
+ * Without a route to the program they run, the fix moves them from the wrong page
+ * to a different wrong page.
+ */
+describe('MyWorkEmptyState — reachable only via a program (#3469)', () => {
+  it('adds the Browse programs link to flavor B', () => {
+    renderWithRouter(<MyWorkEmptyState hasProjects reachableOnlyViaProgram />);
+    expect(screen.getByRole('heading', { name: /all caught up/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Browse programs/i })).toBeInTheDocument();
+    // Still flavor B, not the onboarding flavor.
+    expect(screen.queryByRole('button', { name: /Create your first project/i })).toBeNull();
+  });
+
+  it('leaves flavor B untouched for everyone else', () => {
+    renderWithRouter(<MyWorkEmptyState hasProjects />);
+    expect(screen.getByRole('heading', { name: /all caught up/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Browse programs/i })).toBeNull();
+  });
+
+  it('is inert on flavor A, which already carries the link', () => {
+    renderWithRouter(<MyWorkEmptyState hasProjects={false} reachableOnlyViaProgram />);
+    expect(screen.getAllByRole('link', { name: /Browse programs/i })).toHaveLength(1);
+  });
+});

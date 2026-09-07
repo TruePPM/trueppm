@@ -83,7 +83,7 @@ The imported project starts with the same **methodology** a project created thro
 **New project** would: the program's methodology when you import into a program,
 otherwise the workspace default. The import dialog names it before you confirm. As
 with any new project this is a one-time seed, not a lock — change it afterward under
-the project's **Settings → Methodology**, and see
+the project's **Settings → How this team works**, and see
 [Methodology presets](/features/methodology-preset/) for how program and workspace
 defaults cascade.
 

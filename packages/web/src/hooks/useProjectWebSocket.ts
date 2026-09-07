@@ -18,6 +18,10 @@
  *   dependency_created / dependency_updated / dependency_deleted → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *   risk_created / risk_updated / risk_deleted → invalidate risks
+ *   project_created / project_updated / project_deleted / project_hard_deleted /
+ *     project_archived / project_unarchived / project_transferred
+ *                     → invalidate project + projects + shellStats (the shell health
+ *                       chip prints the server band, which reads Project.health, #3501)
  *   comment_created → invalidate riskComments (risk comments only — task comments use task_comment_*)
  *   task_comment_created / task_comment_updated / task_comment_deleted / task_comment_reaction_added / task_comment_reaction_removed / task_comment_ack_changed → invalidate task-comments[taskId]
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
@@ -966,6 +970,16 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
     () => {
       void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      // `shellStats` too, because the top bar's health chip word is now the
+      // server's `health_band` and that folds in the manual `Project.health`
+      // report a `project_updated` carries (#3501). Without this, a PM filing a
+      // status flips the Overview chip and leaves the top bar on the old word
+      // for every viewer — the same screen-vs-screen contradiction #3501 was
+      // filed to remove, back through the write path. Added to THIS handler
+      // rather than a second `on()`: registration is last-write-wins, so a
+      // second `on('project_updated', …)` would silently drop the two
+      // invalidations above (rule 331).
+      void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
     },
   );
 }

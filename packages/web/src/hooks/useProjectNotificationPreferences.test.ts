@@ -12,6 +12,7 @@ import {
   type ProjectNotificationMatrix,
   type ProjectNotificationPreferences,
 } from './useProjectNotificationPreferences';
+import type { QuietHoursTimezoneSource } from '@/api/types';
 
 /** The wire payload — `paused` is optional so the ?? default can be exercised. */
 interface ApiPayload {
@@ -22,6 +23,9 @@ interface ApiPayload {
   quiet_hours_enabled: boolean;
   quiet_hours_from: string;
   quiet_hours_until: string;
+  /** #3377 — the resolved zone the window is read in, and the tier that won. */
+  quiet_hours_timezone?: string;
+  quiet_hours_timezone_source?: QuietHoursTimezoneSource;
 }
 
 const { getMock, patchMock } = vi.hoisted(() => ({
@@ -60,6 +64,8 @@ function payload(overrides: Partial<ApiPayload> = {}): ApiPayload {
     quiet_hours_enabled: false,
     quiet_hours_from: '22:00:00',
     quiet_hours_until: '07:00:00',
+    quiet_hours_timezone: 'Asia/Tokyo',
+    quiet_hours_timezone_source: 'project',
     ...overrides,
   };
 }
@@ -74,6 +80,8 @@ function cachedPreferences(
     quietHoursEnabled: false,
     quietHoursFrom: '22:00:00',
     quietHoursUntil: '07:00:00',
+    quietHoursTimezone: 'Asia/Tokyo',
+    quietHoursTimezoneSource: 'project',
     ...overrides,
   };
 }
@@ -118,8 +126,38 @@ describe('useProjectNotificationPreferences — loading', () => {
       quietHoursEnabled: false,
       quietHoursFrom: '22:00:00',
       quietHoursUntil: '07:00:00',
+      quietHoursTimezone: 'Asia/Tokyo',
+      quietHoursTimezoneSource: 'project',
     });
     expect(result.current.error).toBeNull();
+  });
+
+  it.each([
+    ['project', 'Asia/Tokyo'],
+    ['workspace', 'Europe/Berlin'],
+    ['server', 'America/New_York'],
+    ['fallback', 'UTC'],
+  ] as const)('maps the %s timezone tier onto the view model', async (source, zone) => {
+    getMock.mockResolvedValue({
+      data: payload({ quiet_hours_timezone: zone, quiet_hours_timezone_source: source }),
+    });
+    const { result } = mount(newQc());
+    await waitFor(() => expect(result.current.preferences).toBeDefined());
+    expect(result.current.preferences?.quietHoursTimezone).toBe(zone);
+    expect(result.current.preferences?.quietHoursTimezoneSource).toBe(source);
+  });
+
+  it('leaves the timezone undefined when the response predates #3377', async () => {
+    // Not UTC, and not the empty string: a document cached before the fields
+    // shipped makes NO claim about the zone, and the page must render nothing
+    // rather than assert a zone the server never sent.
+    getMock.mockResolvedValue({
+      data: payload({ quiet_hours_timezone: undefined, quiet_hours_timezone_source: undefined }),
+    });
+    const { result } = mount(newQc());
+    await waitFor(() => expect(result.current.preferences).toBeDefined());
+    expect(result.current.preferences?.quietHoursTimezone).toBeUndefined();
+    expect(result.current.preferences?.quietHoursTimezoneSource).toBeUndefined();
   });
 
   it('carries a paused project through as the kill-switch state', async () => {
@@ -284,6 +322,12 @@ describe('useProjectNotificationPreferences — optimistic update', () => {
     expect(cached?.quietHoursUntil).toBe('07:00:00');
     expect(cached?.quietHoursEnabled).toBe(false);
     expect(cached?.paused).toBe(false);
+    // The zone is server-owned and read-only, so the optimistic write must
+    // carry it through untouched: dropping it would blank the caption for the
+    // whole in-flight PATCH, i.e. exactly while the user is editing the window
+    // the caption explains (#3397).
+    expect(cached?.quietHoursTimezone).toBe('Asia/Tokyo');
+    expect(cached?.quietHoursTimezoneSource).toBe('project');
 
     act(() => {
       resolvePatch({ data: payload({ quiet_hours_from: '23:15' }) });
