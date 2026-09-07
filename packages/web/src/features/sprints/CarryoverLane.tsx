@@ -74,7 +74,7 @@ function CarryoverRow({ item, canPull, isPulling, iterationLower, onPull }: RowP
           ? `T-${item.promoted_task_short_id}`
           : '—'}
       </span>
-      <span className="flex-1 text-sm text-neutral-text-primary truncate" title={item.text}>
+      <span className="flex-1 min-w-0 text-sm text-neutral-text-primary truncate" title={item.text}>
         {item.text}
       </span>
       <span className="tppm-mono text-xs text-neutral-text-disabled w-16 text-right shrink-0">
