@@ -49,10 +49,12 @@ set its own value.
 ### Access
 
 Reading a program's settings requires membership on the program. **Writing them
-requires the program Admin or Owner role** — the program API gates
-`PATCH /api/v1/programs/:id/` and the dedicated policy actions at Admin. Program
-roles are the 5-role model (Owner, Admin, Scheduler, Member, Viewer) and are
-**separate from project roles**; see [Roles & Permissions](/administration/rbac/).
+requires the Program Manager role or above** — the program API gates
+`PATCH /api/v1/programs/:id/` and the dedicated policy actions at the Admin tier.
+Program roles are the 5-role model (Owner, Admin, Scheduler, Member, Viewer),
+named on program surfaces as Program Admin, Program Manager, Resource Manager,
+Team Member, and Viewer, and are **separate from project roles**; see
+[Roles & Permissions](/administration/rbac/).
 
 A **closed** program (see [Lifecycle](#lifecycle)) is read-only shell-wide: every
 Add/Edit/Remove-style control across these settings sections is disabled or
@@ -73,7 +75,7 @@ here affect every project in the program.
 | Accent color | Program accent swatch used in nav and health chrome. |
 | Description | Free-text summary of the program's purpose. |
 | Target date | The program's headline target finish date. |
-| Program manager | The program lead — the person accountable for the program. |
+| Program lead | The one person named as accountable for the program. A display field only — it grants no access. Permissions come from a member's program role (Program Admin, Program Manager, Resource Manager, Team Member, Viewer), set under **Access**. |
 | Health | Manual health override (On track / At risk / Critical), or **Auto** to let the [rollup](#rollup-kpis) compute it. |
 | Methodology | Planning model new projects created in this program start with. It seeds new projects only — projects already in the program keep their own. See [Methodology presets](/features/methodology-preset/). |
 | Iteration terminology | What the program calls its iteration container (Sprint, Iteration, Cycle…). Inherits the workspace default. |
@@ -221,11 +223,11 @@ Writes are additionally blocked once the program is closed (reads still work).
 
 | Method | Path | Access |
 |---|---|---|
-| `GET` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
-| `POST` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
-| `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
-| `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
-| `GET` | `/api/v1/programs/{id}/mention-reach/` | Program Admin+ |
+| `GET` | `/api/v1/programs/{id}/external-stakeholders/` | Program Manager+ |
+| `POST` | `/api/v1/programs/{id}/external-stakeholders/` | Program Manager+ |
+| `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Manager+ |
+| `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Manager+ |
+| `GET` | `/api/v1/programs/{id}/mention-reach/` | Program Manager+ |
 
 ## Rollup KPIs
 
@@ -236,7 +238,7 @@ variance, Critical task count, Milestone health, At-risk tasks, Risk score, P80
 date, Cost variance (CV), and Budget utilization. An **Aggregation policy**
 controls how the member projects' health combines into the single program health
 shown when General → Health is set to **Auto**. Editing the rollup config
-requires the program Admin role. See [Program rollup](/features/settings/program-rollup/).
+requires the Program Manager role or above. See [Program rollup](/features/settings/program-rollup/).
 
 Three of those signals have no data source yet and are **shown but locked**:
 **Cost variance (CV)** and **Budget utilization** need project cost data, and
@@ -306,7 +308,9 @@ lifecycle actions (#530). Every action here is logged and reviewable in the
 [workspace audit log](/administration/audit-log/):
 
 - **Close / Reopen** — end the program's active phase, or reopen a closed program.
-- **Transfer sponsorship** — reassign the program to a new manager.
+- **Transfer sponsorship** — hand the **Program Admin** role to another member. You
+  step down to **Program Manager**, and can optionally reassign the **program lead**
+  in the same step. The new Program Admin must already be a program member.
 - **Split into sub-programs** — divide the program's projects into new programs.
 - **Delete program** — permanently remove the program. This is a destructive,
   confirmation-gated action; before deleting, consider exporting first — see

@@ -26,11 +26,13 @@ const NUDGE_PX = 140;
  *   actually has content beyond it. A right-only fade is wrong here (unlike the
  *   board's, `useHasScrollRight`): Tab-to-focus can leave this strip scrolled to
  *   an arbitrary offset, so content hides to the *left* just as readily.
- * - **A pointer-only path exists.** Chevron nudges are the mouse user's way to
- *   scroll: a vertical-wheel mouse has no horizontal gesture, and with the
- *   scrollbar hidden there is nothing to drag. They are `tabIndex={-1}` because
- *   they are a convenience — the keyboard path is Tab, which every segment
- *   already answers.
+ * - **A pointer-only path exists, and it is scoped to the pointer that needs it.**
+ *   Chevron nudges are the mouse user's way to scroll: a vertical-wheel mouse has
+ *   no horizontal gesture, and with the scrollbar hidden there is nothing to drag.
+ *   They are `tabIndex={-1}` because they are a convenience — the keyboard path is
+ *   Tab, which every segment already answers — and they render only under
+ *   `pointer: fine`, because a touch pointer swipes and a 20px overlay on a phone
+ *   is both under the touch floor and a mis-hit on the chip beneath it (#3505).
  * - **Keyboard reachability is structural.** Segments stay ordinary focusable
  *   controls in document order; the browser scrolls a focused one into view. The
  *   region takes no `tabindex` of its own (that would mint a redundant tab stop,
@@ -88,6 +90,21 @@ export function StatusClusterScroller({ children }: { children: ReactNode }) {
     // gives up a single pixel, and the health chip vanishes with no scroll
     // affordance because there is nothing left to scroll inside. Past the floor
     // the breadcrumb truncates, which is the correct order of sacrifice.
+    //
+    // **Below md the floor is structural, not a utility, and adding one there is
+    // dead CSS** (#3505). Since #3505 the phone bar's right region can be squeezed
+    // (it was `shrink-0` before, so this strip was never under pressure on a
+    // phone), which reads like it now needs its own sub-md floor. It does not: the
+    // region deliberately keeps its automatic minimum size — see `TopBar`, where
+    // *not* writing `min-w-0` on the region is what keeps the pinned chrome from
+    // being squeezed off the right edge — and that minimum is computed from the
+    // region's min-content, which *includes this strip's own min-content
+    // contribution*. The strip therefore bottoms out at roughly one health chip
+    // whatever the viewport does. Measured at 375 / 320 / 280px: the wrapper reads
+    // 92 / 80.83 / 80.83px with `min-w-0` and byte-identical numbers with a
+    // `min-w-8` floor added, because 32px is never reached. A floor written here
+    // would document a guarantee that some other box is already making — and would
+    // start binding, wrongly, the day the region ever gains `min-w-0`.
     // `[&:has(>div:empty)]:hidden` removes the wrapper — and therefore its gap —
     // on a route where every status child self-gates to null.
     <div
@@ -109,7 +126,17 @@ export function StatusClusterScroller({ children }: { children: ReactNode }) {
       {/* Edge affordances — decorative and pointer-transparent; the fade is never
           the only path to a scrolled-out segment (Tab always is). Rendered only
           while that side actually overflows, and overlaid rather than in-flow, so
-          they cost no layout in either state. */}
+          they cost no layout in either state.
+
+          The **fades render on every pointer type; the chevrons only on a fine
+          one** (#3505). The chevrons answer a question only a mouse has: a
+          vertical-wheel mouse cannot scroll horizontally and, with the scrollbar
+          hidden, has nothing to drag. A touch pointer swipes. Since #3505 the
+          strip can also be squeezed on a phone, where a 20px chevron overlaying
+          the last fifth of a 90px health chip is both under the 44px touch floor
+          (rule 5/247) and a mis-hit waiting to happen — a tap meant for the chip
+          nudging the strip instead. The fade stays either way, so the "there is
+          more here" signal is not what is being gated. */}
       {edges.left && (
         <>
           <span
@@ -122,7 +149,7 @@ export function StatusClusterScroller({ children }: { children: ReactNode }) {
             tabIndex={-1}
             aria-label="Scroll status left"
             onClick={() => nudge(-1)}
-            className="absolute inset-y-0 left-0 z-20 flex w-5 items-center justify-center text-chrome-text-secondary hover:text-chrome-text-primary"
+            className="absolute inset-y-0 left-0 z-20 hidden w-5 items-center justify-center text-chrome-text-secondary hover:text-chrome-text-primary [@media(pointer:fine)]:flex"
           >
             <Chevron dir="left" />
           </button>
@@ -141,7 +168,7 @@ export function StatusClusterScroller({ children }: { children: ReactNode }) {
             tabIndex={-1}
             aria-label="Scroll status right"
             onClick={() => nudge(1)}
-            className="absolute inset-y-0 right-0 z-20 flex w-5 items-center justify-center text-chrome-text-secondary hover:text-chrome-text-primary"
+            className="absolute inset-y-0 right-0 z-20 hidden w-5 items-center justify-center text-chrome-text-secondary hover:text-chrome-text-primary [@media(pointer:fine)]:flex"
           >
             <Chevron dir="right" />
           </button>

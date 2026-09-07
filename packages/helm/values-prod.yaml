@@ -28,6 +28,11 @@
 #                                      crash-loop the migrate init container
 #   ingress.hosts[0].host / .tls / .className
 #   env.TRUEPPM_FRONTEND_BASE_URL      email deep-links are omitted without it
+#   env.TRUEPPM_PUBLIC_API_BASE_URL    pins the OIDC redirect_uri and the Git-
+#                                      webhook URL to your public origin instead
+#                                      of the request's Host header (#3515);
+#                                      required with SSO, and the fix if your
+#                                      edge does not preserve Host
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Two API + two Celery worker pods. The web tier follows this automatically
@@ -73,6 +78,14 @@ env:
   # deep-links entirely — they still send, so this fails quietly.
   #   TRUEPPM_FRONTEND_BASE_URL: "https://trueppm.example.com"
   TRUEPPM_FRONTEND_BASE_URL: ""
+
+  # Public origin of the API. Pins the OIDC redirect_uri you allow-list in your
+  # IdP and the Git-webhook URL an admin pastes into GitHub/GitLab, instead of
+  # deriving them from the request's Host header (#3515). Without it those two
+  # follow whatever Host reaches the pod, which is correct only while your edge
+  # preserves it.
+  #   TRUEPPM_PUBLIC_API_BASE_URL: "https://trueppm.example.com"
+  TRUEPPM_PUBLIC_API_BASE_URL: ""
 
 # REQUIRED. The four values settings.prod refuses to start without live here, in
 # a Secret you create — never in plaintext above. See packages/helm/README.md

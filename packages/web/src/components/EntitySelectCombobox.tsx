@@ -40,6 +40,13 @@ interface EntitySelectComboboxProps {
   /** Render-gate: when true, the value renders as static text with no trigger. */
   disabled?: boolean;
   triggerLabel?: { set: string; unset: string };
+  /**
+   * `aria-describedby` for the trigger — pass the id of the owning `FieldRow`'s
+   * visible hint (via its render-prop `describedBy`). The hint is an adjacent
+   * `<div>` with no implicit association, so without this the control announces
+   * hint-less to a screen reader (web-rule 269, WCAG 1.3.1 / 4.1.2).
+   */
+  describedBy?: string;
 }
 
 function Avatar({ initials }: { initials: string }) {
@@ -63,6 +70,7 @@ export function EntitySelectCombobox({
   isLoading = false,
   disabled = false,
   triggerLabel = { set: 'Change', unset: 'Assign' },
+  describedBy,
 }: EntitySelectComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -201,6 +209,7 @@ export function EntitySelectCombobox({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-describedby={describedBy}
         onClick={() => setOpen((o) => !o)}
         className="ml-1 rounded-control text-[12px] font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >

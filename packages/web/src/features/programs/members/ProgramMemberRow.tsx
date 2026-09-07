@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ProgramMembership } from '@/api/types';
 import { ROLE_OWNER } from '@/lib/roles';
+import { roleLabel } from '@/lib/roleLabels';
 import { RolePicker } from '@/features/settings/members/RolePicker';
 
 interface Props {
@@ -22,6 +23,15 @@ interface Props {
  * sole-owner guard prevents the only OWNER from leaving — both rules match
  * the project version, since the API enforces the same invariants on both
  * membership tables.
+ *
+ * The vocabulary does NOT match the project version (#3476). This is a program
+ * surface, so ordinal 400 reads "Program Admin", not "Project Admin" — the name
+ * `ProgramSerializer.my_role_label` already uses on the program card. Both the
+ * picker and the badge that replaces it derive from `roleLabel(role, 'program')`
+ * so they cannot disagree; `membership.role_label` is passed only as the fallback
+ * for an ordinal outside the five OSS roles (an Enterprise custom-band role).
+ * Re-scoping client-side is the narrow fix: the endpoint still serializes the
+ * project label for a program membership, which is #3503.
  */
 export function ProgramMemberRow({
   membership,
@@ -77,10 +87,16 @@ export function ProgramMemberRow({
             onChange={(newRole) => onChangeRole(membership.id, newRole)}
             disabled={isUpdatingRole}
             id={`program-role-${membership.id}`}
+            scope="program"
+            valueLabel={role_label}
+            // Explicit name rather than `aria-labelledby` at the name cell: that
+            // cell holds `{username}` next to a `(you)` span, and accname trims
+            // each text node before joining, so it would compute "alice(you)".
+            ariaLabel={`Role for ${user_detail.username}`}
           />
         ) : (
           <span className="inline-flex items-center rounded-full border border-neutral-border bg-neutral-surface-raised px-2.5 py-0.5 text-xs font-medium text-neutral-text-secondary">
-            {role_label}
+            {roleLabel(role, 'program', role_label)}
           </span>
         )}
       </div>
@@ -140,8 +156,8 @@ export function ProgramMemberRow({
 
       {isSelf && isSoleOwner && (
         <span
-          className="shrink-0 text-xs text-neutral-text-disabled"
-          title="You're the only Owner — assign another before leaving"
+          className="shrink-0 text-xs text-neutral-text-secondary"
+          title={`You're the only ${roleLabel(ROLE_OWNER, 'program')} — assign another before leaving`}
         >
           Can&apos;t leave
         </span>

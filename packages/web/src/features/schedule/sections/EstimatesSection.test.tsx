@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { EstimatesSection } from './EstimatesSection';
 import type { Task, ApiSprint } from '@/types';
@@ -15,8 +15,16 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 }));
 
 let mockActiveSprint: ApiSprint | null = null;
+let mockSprintsLoading = false;
+let mockSprintsError: Error | null = null;
+const mockRefetchSprints = vi.fn();
 vi.mock('@/hooks/useSprints', () => ({
-  useActiveSprint: () => ({ sprint: mockActiveSprint }),
+  useActiveSprint: () => ({
+    sprint: mockActiveSprint,
+    isLoading: mockSprintsLoading,
+    error: mockSprintsError,
+    refetch: mockRefetchSprints,
+  }),
 }));
 
 vi.mock('@/api/client', () => ({
@@ -155,6 +163,97 @@ describe('EstimatesSection', () => {
     renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
     expect(screen.getByLabelText(/Remaining \(pts\)/i)).toBeDisabled();
     mockActiveSprint = null;
+  });
+
+  // -------------------------------------------------------------------------
+  // Unresolved sprint read (#3455, rule 392)
+  //
+  // `activeSprint === null` means BOTH "not in the active sprint" and "we could
+  // not find out". The control is withheld in both cases (fail-closed, rule
+  // 379); what must differ is what it says about itself. These four pin the
+  // polarity pair — resolved-not-active vs failed — against each other so a
+  // later "make these consistent" refactor has to confront the asymmetry.
+  // -------------------------------------------------------------------------
+  describe('unresolved sprint read (#3455)', () => {
+    beforeEach(() => {
+      mockActiveSprint = null;
+      mockSprintsLoading = false;
+      mockSprintsError = null;
+      mockRefetchSprints.mockClear();
+    });
+
+    afterEach(() => {
+      mockActiveSprint = null;
+      mockSprintsLoading = false;
+      mockSprintsError = null;
+    });
+
+    it('keeps remaining points disabled and explains the failure when the sprint read failed', () => {
+      mockTasks.splice(0, mockTasks.length, sprintTask);
+      mockSprintsError = new Error('sprints unavailable');
+      renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
+
+      expect(screen.getByLabelText(/Remaining \(pts\)/i)).toBeDisabled();
+      expect(screen.getByText(/Couldn't check whether the sprint is active/i)).toBeInTheDocument();
+      // The false all-clear must be GONE — it reads as a fact about the sprint.
+      expect(
+        screen.queryByText(/Remaining effort can be updated while the sprint is active/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it('retries just the sprint read from the failure copy', () => {
+      mockTasks.splice(0, mockTasks.length, sprintTask);
+      mockSprintsError = new Error('sprints unavailable');
+      renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Retry/i }));
+      expect(mockRefetchSprints).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays quiet while the sprint read is still in flight', () => {
+      mockTasks.splice(0, mockTasks.length, sprintTask);
+      mockSprintsLoading = true;
+      renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
+
+      expect(screen.getByLabelText(/Remaining \(pts\)/i)).toBeDisabled();
+      // Neither claim is available yet: no failure notice, and no "…while the
+      // sprint is active", which would assert the sprint is NOT active.
+      expect(
+        screen.queryByText(/Couldn't check whether the sprint is active/i),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Remaining effort can be updated while the sprint is active/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it('still shows the plain not-active copy once the read RESOLVES with no active sprint', () => {
+      // The other half of the polarity pair: same disabled control, but here the
+      // read answered, so naming the sprint state is a fact and not a guess.
+      mockTasks.splice(0, mockTasks.length, sprintTask);
+      renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
+
+      expect(screen.getByLabelText(/Remaining \(pts\)/i)).toBeDisabled();
+      expect(
+        screen.getByText(/Remaining effort can be updated while the sprint is active/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/Couldn't check whether the sprint is active/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it('does not treat a sprint-LESS task as unknown when the read fails', () => {
+      // A task with no sprintId has nothing to look up, so the fieldset does not
+      // render at all — an unscoped `isLoading || error` would have made every
+      // backlog task "unknown" (rule 392: scope the unknown to the lookup).
+      mockTasks.splice(0, mockTasks.length, baseTask);
+      mockSprintsError = new Error('sprints unavailable');
+      renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
+
+      expect(screen.queryByLabelText(/Remaining \(pts\)/i)).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Couldn't check whether the sprint is active/i),
+      ).not.toBeInTheDocument();
+    });
   });
 
   describe('summary task routing (#403)', () => {
