@@ -110,8 +110,8 @@ describe('ProgramArchivePage lifecycle (#967)', () => {
     const confirm = screen.getByRole('button', { name: /Confirm transfer/i });
     expect(confirm).toBeDisabled();
 
-    // The dialog renders two pickers (new sponsor + optional new PM); pick the
-    // first (sponsor) only — the lead stays unset and must not be sent.
+    // The dialog renders two pickers (new Program Admin + optional new program
+    // lead); pick the first only — the lead stays unset and must not be sent.
     const assignTriggers = screen.getAllByRole('button', { name: 'Assign' });
     await user.click(assignTriggers[0]);
     await user.click(await screen.findByRole('option', { name: 'bob.martin' }));
@@ -123,6 +123,36 @@ describe('ProgramArchivePage lifecycle (#967)', () => {
       { programId: 'p-1', new_owner_user_id: 'u-2', new_lead_user_id: undefined },
       expect.objectContaining({ onSuccess: expect.any(Function) as unknown }),
     );
+  });
+
+  it('Transfer sponsorship names each tier once, in program vocabulary (#3513)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    // The lifecycle card carries the same vocabulary as the dialog it opens.
+    const card = screen.getByRole('heading', { name: 'Transfer sponsorship' }).closest('div');
+    expect(card).not.toBeNull();
+    expect(card!).toHaveTextContent('You step down to Program Manager');
+    expect(card!).not.toHaveTextContent(/demoted/i);
+
+    await user.click(screen.getByRole('button', { name: 'Transfer sponsorship…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Transfer sponsorship' });
+
+    // Ordinal 400 and 300 read as the server's program-scoped labels
+    // (`_PROGRAM_ROLE_LABELS`), not as the project-scoped `Role` enum keys, and
+    // the display FK is "program lead" — never "program manager", which named
+    // both concepts at once in this dialog before #3513.
+    expect(dialog).toHaveTextContent('Program Admin');
+    expect(dialog).toHaveTextContent('step down to Program Manager');
+    expect(dialog).toHaveTextContent('program lead');
+    expect(dialog).not.toHaveTextContent(/demoted/i);
+    expect(dialog).not.toHaveTextContent(/new program manager/i);
+    // The raw code register ("Owner") must not appear beside a program label.
+    expect(dialog).not.toHaveTextContent(/\bOwner\b/);
+
+    // Both picker rows are labeled by the concept they set.
+    expect(screen.getByText('New Program Admin')).toBeInTheDocument();
+    expect(screen.getByText(/New program lead/)).toBeInTheDocument();
   });
 
   it('Transfer sponsorship dialog cancels without mutating', async () => {

@@ -237,10 +237,11 @@ Deeper program configuration lives under **/programs/:id/settings**:
   (FS / SS / FF / SF), which risk fields are mandatory, and escalation thresholds.
 - **Lifecycle** — close or reopen the program, transfer sponsorship to another
   member, and split the program into sub-programs. Transfer sponsorship opens a
-  member picker: the chosen member becomes the Program Admin (Owner), the current
-  one is demoted to Program Manager, and you can optionally move the program's
-  lead — the "new program manager" picker — in the same step. The new sponsor must already be a program member. **Split into sub-programs**
-  (Owner only) opens a dialog where you name one or more new sub-programs you'll own
+  member picker: the chosen member becomes **Program Admin**, you step down to
+  **Program Manager**, and you can optionally reassign the **program lead** in the
+  same step — the lead is a display field and grants no access, unlike the two
+  roles. The new Program Admin must already be a program member. **Split into sub-programs**
+  (Program Admin only) opens a dialog where you name one or more new sub-programs you'll own
   and assign each of the program's projects to one of them; any project you leave
   unassigned stays on the original program, which is closed (read-only) after the
   split. Only the `Project → program` link moves — each project keeps its full

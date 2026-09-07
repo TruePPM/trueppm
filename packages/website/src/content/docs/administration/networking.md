@@ -171,9 +171,13 @@ controller, or a cloud load balancer — owns the certificate.
 |---|---|---|---|---|
 | **Compose + bundled nginx** (`TLS_MODE=letsencrypt` / `selfsigned`) | the stack's nginx, on `:443` | nothing to configure — `nginx/app.conf.template` already sets `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto` and the WebSocket upgrade headers | leave `false` — nginx already 301s `:80` → `:443` | the nginx template (`max-age=63072000; includeSubDomains`) |
 | **Compose behind an external LB** (`TLS_MODE=none`) | your load balancer | LB → nginx: `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`, `Upgrade`, `Connection`. **See the caveat below** — the HTTP template overwrites `X-Forwarded-Proto` | leave `false` — the LB does the redirect | the load balancer |
-| **Helm + ingress-nginx** | the `Ingress` (`ingress.tls[].secretName`) | ingress-nginx sets `X-Forwarded-For` / `X-Forwarded-Proto` itself; add the WebSocket timeout annotations from [WebSockets](#websockets-behind-a-proxy) | leave `false` — set `nginx.ingress.kubernetes.io/ssl-redirect: "true"` instead (it is the controller default when a TLS block exists) | ingress-nginx (`hsts: true` in its ConfigMap) and `web.securityHeaders.strictTransportSecurity` for the SPA document |
-| **Helm behind a cloud LB** (ALB / GCLB), Ingress in HTTP mode | the cloud load balancer | the LB must send `X-Forwarded-Proto: https`. ALB and GCLB both do. Keep the backend protocol on **HTTP/1.1** so the WebSocket upgrade survives | leave `false` | the cloud LB, plus `web.securityHeaders.strictTransportSecurity` |
+| **Helm + ingress-nginx** | the `Ingress` (`ingress.tls[].secretName`) | ingress-nginx sets `X-Forwarded-For` / `X-Forwarded-Proto` and preserves `Host` itself; add the WebSocket timeout annotations from [WebSockets](#websockets-behind-a-proxy) | leave `false` — set `nginx.ingress.kubernetes.io/ssl-redirect: "true"` instead (it is the controller default when a TLS block exists) | ingress-nginx (`hsts: true` in its ConfigMap) and `web.securityHeaders.strictTransportSecurity` for the SPA document |
+| **Helm behind a cloud LB** (ALB / GCLB), Ingress in HTTP mode | the cloud load balancer | the LB must send `X-Forwarded-Proto: https` and preserve `Host`. ALB and GCLB both do by default. Keep the backend protocol on **HTTP/1.1** so the WebSocket upgrade survives | leave `false` | the cloud LB, plus `web.securityHeaders.strictTransportSecurity` |
 | **Helm + cert-manager** | the `Ingress`, with the Secret provisioned automatically | as ingress-nginx above | leave `false` | as ingress-nginx above |
+
+Every row needs the original `Host` preserved, not just the two Compose ones.
+`X-Forwarded-Host` is **ignored** — see the caution below for what to do when
+your edge rewrites `Host`.
 
 `TRUEPPM_SECURE_SSL_REDIRECT` stays `false` in every supported topology. Turn it
 on only when TruePPM receives the original scheme reliably *and* nothing in
@@ -182,38 +186,61 @@ paths (`/api/v1/health/`, `/api/v1/readyz`, `/api/v1/edition/`) are exempt from
 the redirect regardless, so enabling it never breaks a health check. See
 [TLS redirect posture](/administration/configuration/#tls-redirect-posture).
 
-:::caution[Two ways `X-Forwarded-Proto` goes wrong]
-`settings.prod` sets `SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")`
-and trusts that header **unconditionally** — it does not check who sent it. Two
-consequences:
+:::caution[The scheme comes from the proxy; the host does not]
+TruePPM takes the **scheme** from your proxy and the **host** from the request,
+and the asymmetry is deliberate. `settings.prod` sets
+`SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")` and
+`USE_X_FORWARDED_HOST = False`.
 
-**1. The API Service must not be reachable directly.** Anything that can open a
-socket to the API pod on `:8000` can assert `X-Forwarded-Proto: https` and be
-believed. The chart's NetworkPolicy restricts ingress to the *datastore* pods
-only; it deliberately does not restrict ingress to the API pods, so this is
-yours to enforce — see [Ports and firewall](#ports-and-firewall).
+**1. `X-Forwarded-Proto` is trusted unconditionally** — TruePPM does not check
+who sent it, because the container only ever speaks plain HTTP on `:8000` and
+has no other way to learn the original scheme. So **the API Service must not be
+reachable directly**: anything that can open a socket to the API pod can assert
+`X-Forwarded-Proto: https` and be believed. The chart's NetworkPolicy restricts
+ingress to the *datastore* pods only; it deliberately does not restrict ingress
+to the API pods, so this is yours to enforce — see
+[Ports and firewall](#ports-and-firewall).
 
-**2. The Compose HTTP template rewrites the header.** `nginx/app-http.conf.template`
-(selected by `TLS_MODE=none`, the template you use behind an external LB) sets
-`proxy_set_header X-Forwarded-Proto $scheme`. On that path `$scheme` is `http`,
-so nginx **replaces** your load balancer's `https` with `http`. Django then
-believes the request was insecure: it emits no HSTS, builds `http://` absolute
-URLs (which is what an unset `TRUEPPM_PUBLIC_API_BASE_URL` uses for the OIDC
-`redirect_uri`), and would 301-loop if `TRUEPPM_SECURE_SSL_REDIRECT` were on.
+**2. `X-Forwarded-Host` is ignored, so your edge must preserve `Host`.** Every
+proxy TruePPM ships already does (`proxy_set_header Host $host`), and none sets
+`X-Forwarded-Host`. Trusting it would mean believing a header that, on every
+supported topology, only the client could have written — `Host` is the routing
+key at the edge, so a value that does not route never arrives, whereas
+`X-Forwarded-Host` routes fine and would be believed anyway. There is
+deliberately no setting to turn this on.
 
-The fix is to honor the inbound header when there is one. Add a `map` to your
-copy of the template and use it in place of `$scheme` on every `proxy_set_header
-X-Forwarded-Proto` line:
+If your edge rewrites `Host` to an internal service name and you cannot change
+it, set **`TRUEPPM_PUBLIC_API_BASE_URL`** to your public origin. That pins the
+two absolute URLs TruePPM would otherwise derive from the request — the OIDC
+`redirect_uri` and the inbound Git-webhook URL an admin pastes into
+GitHub/GitLab. Without it, both render with the internal name and fail silently:
+the webhook simply never arrives. (Email links are unaffected — they come from
+`TRUEPPM_FRONTEND_BASE_URL`, never from the request.)
+
+Whatever `Host` does arrive must be in `ALLOWED_HOSTS` — see
+[Host names you must include](/administration/configuration/#host-names-you-must-include).
+:::
+
+:::note[The Compose HTTP template no longer overwrites the scheme]
+If you copied `nginx/app-http.conf.template` (selected by `TLS_MODE=none`, the
+template used behind an external load balancer) before this was fixed, your copy
+may still contain `proxy_set_header X-Forwarded-Proto $scheme` — which replaces
+your load balancer's `https` with `http`, so TruePPM emits no HSTS, builds
+`http://` absolute URLs, and would 301-loop if `TRUEPPM_SECURE_SSL_REDIRECT` were
+on. The shipped template now honors an inbound value through a `map` and falls
+back to `$scheme` only when none is present:
 
 ```nginx
 map $http_x_forwarded_proto $forwarded_proto {
-    default $http_x_forwarded_proto;   # trust the LB when it sent one
-    ''      $scheme;                   # otherwise use our own scheme
+    default $scheme;
+    ~.      $http_x_forwarded_proto;
 }
 ```
 
-Only do this when the LB is the *only* way in — an untrusted client that can
-reach nginx directly can now set the header too.
+Re-copy the template, or add the `map` and use `$forwarded_proto` on every
+`proxy_set_header X-Forwarded-Proto` line. Either way this is only safe when the
+load balancer is the *only* way in — a client that reaches nginx directly can set
+the header too.
 :::
 
 The missing `X-Forwarded-For` has a quieter failure. DRF's per-IP throttles read
