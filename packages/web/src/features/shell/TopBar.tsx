@@ -184,23 +184,38 @@ export function TopBar({ onHamburgerClick }: Props) {
           promise the pinned group is named for. (Both inner groups keep their own
           `min-w-0`; it is only the outer region that must retain its floor.)
 
-          The **shrink weight** is held to md and up. The scroll container itself
-          exists at every width but is inert below md, because there the region is
-          `shrink-0` and its children therefore always get their natural width.
-          That is deliberate: #1788 tuned the phone bar around a rigid cluster (the
-          health chip drops its P80 fragment, the sync badge its word, the brand
-          its wordmark, and the whole row fits 375px), and on a phone the
-          *breadcrumb* is the right thing to give — it is non-interactive
-          wayfinding whose two labels truncate cleanly, whereas a scrolling cluster
-          at 375px puts the health chip half under the pinned chrome. The overflow
-          rule is a desktop-width rule because the width budget it answers
-          (#2483 §5.1) is measured at 1024/1280/1440.
+          The **shrink weight is graded, not gated** (#3505). It used to be held
+          to md and up — the region was `shrink-0` below it, so the scroll
+          container existed on a phone but was inert, and its children always got
+          their natural width. The premise was that #1788 had tuned the phone bar
+          to *fit* 375px with a rigid cluster; it had not. Once the breadcrumb is
+          squeezed to zero — which it is on any project route at 375px — a rigid
+          region simply keeps growing past the bar, and the only reason nothing
+          looked wrong is that the `px-3` right padding absorbed the excess. The
+          account chip's 44px touch pseudo-element (`-inset-[6px]`, rule 5/247)
+          then reaches 6px further still, and *that* is what tips `scrollWidth`
+          past `clientWidth`: the header overflowed by 2px on the widest band word
+          and by 8px on the word before it, with the chip's own box clipped off a
+          375px screen in the second case. A strip that pushes instead of
+          scrolling is precisely what rule 290 forbids, and the phone was the one
+          width where it was allowed to.
+
+          So the region shrinks at **every** width; what the breakpoint changes is
+          the *order of sacrifice*, which is the part #1788 got right. Below md the
+          location switcher carries `shrink-[9999]` (see `LocationSwitcher`) and
+          this region carries the default weight of 1, so the breadcrumb collapses
+          essentially first and the status strip only gives up the residue — on a
+          phone the breadcrumb is non-interactive wayfinding whose two labels
+          truncate cleanly, and it is the right thing to spend. At md+ the weights
+          invert to the #2483 §5.1 budget measured at 1024/1280/1440: the region
+          takes `shrink-[9999]` and the switcher keeps its natural width. Either
+          way the strip, not the bar, absorbs the overflow.
 
           The gap tokens are repeated on the wrapper and both groups so the rhythm
           is byte-identical to the flat row this replaces — tighter below md so the
           phone-surfaced controls (#1770 quick-log, +New, sync, bell, user) fit a
           375px width without clipping (#1788), full gap-3 at md+. */}
-      <div className="ml-auto flex shrink-0 md:shrink-[9999] items-center gap-1.5 md:gap-3">
+      <div className="ml-auto flex shrink md:shrink-[9999] items-center gap-1.5 md:gap-3">
         {/* Status cluster — the half that absorbs growth. `StatusClusterScroller`
             owns the whole overflow contract (rule 290): zero-layout scrollbar,
             both edge fades, the pointer-only chevron nudges, the motion gate, the

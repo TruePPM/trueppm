@@ -226,6 +226,13 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/wasm-scheduler/**/*
+        # The wasm:* jobs run *inside* the ci-wasm image, so a change to its
+        # definition changes what they execute — the same reason helm:template
+        # lists scripts/helm-structure-check.sh below. Without this entry the
+        # jobs are skipped on the very MR that edits the image, and the change
+        # is first exercised on main, where a break reds the branch for
+        # whoever pushes next (#3536).
+        - .gitlab/ci-images/wasm.Dockerfile
         - .gitlab-ci.yml
 
 .rules-helm: &rules-helm

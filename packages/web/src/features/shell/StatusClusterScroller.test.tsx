@@ -63,6 +63,11 @@ describe('StatusClusterScroller (#2533, rule 290)', () => {
     // …and the strip has a floor, so shrink pressure can never erase it before
     // the breadcrumb yields (rule 290b).
     expect(wrapper.className).toContain('md:min-w-[6rem]');
+    // Below md there is deliberately NO floor utility: the shell bar's right
+    // region keeps its automatic minimum size, whose min-content already includes
+    // this strip's, so a sub-md `min-w-*` here would be dead CSS asserting a
+    // guarantee another box makes (#3505 — measured inert at 375/320/280px).
+    expect(wrapper.className).toContain('min-w-0');
   });
 
   it('gates its motion (rule 70) — reduced motion still scrolls, just without easing', () => {
@@ -120,6 +125,29 @@ describe('StatusClusterScroller (#2533, rule 290)', () => {
     // Convenience only — the keyboard path is Tab through the segments.
     for (const name of ['Scroll status left', 'Scroll status right']) {
       expect(screen.getByRole('button', { name })).toHaveAttribute('tabindex', '-1');
+    }
+  });
+
+  it('shows the chevrons only to a fine pointer, but never gates the fades on it', () => {
+    const { scroller } = renderScroller();
+    simulateOverflow(scroller, { scrollWidth: 600, clientWidth: 300, scrollLeft: 120 });
+
+    // A touch pointer swipes, so the nudge answers a question it does not have —
+    // and since #3505 the strip can be squeezed on a phone, where a 20px overlay
+    // sits under the touch floor (rule 5/247) on top of the health chip and turns
+    // a tap meant for the chip into a scroll. JSDOM resolves no media queries, so
+    // this pins the class shape only (rule 330c); the rendered effect is the
+    // e2e's (`mobile-chrome-clip.spec.ts`).
+    for (const name of ['Scroll status left', 'Scroll status right']) {
+      const chevron = screen.getByRole('button', { name });
+      expect(chevron.className).toContain('hidden');
+      expect(chevron.className).toContain('[@media(pointer:fine)]:flex');
+    }
+    // The "there is more here" signal is not what is being gated — the fades are
+    // decorative and pointer-transparent, and render on every pointer type.
+    for (const side of ['left', 'right']) {
+      const fade = screen.getByTestId(`shell-status-cluster-fade-${side}`);
+      expect(fade.className).not.toContain('pointer:fine');
     }
   });
 
