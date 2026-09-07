@@ -84,6 +84,7 @@ from trueppm_api.apps.scheduling.serializers import (
     VelocitySuggestionSerializer,
 )
 from trueppm_api.apps.scheduling.services import (
+    build_sched_graph,
     build_sched_tasks,
     enqueue_recalculate,
     forecast_diagnostic,
@@ -554,8 +555,15 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     vectorised, the worst-case wall time stays within the request budget, so
     moving to a Celery job (extra latency, result polling, a new failure surface)
     would add cost without removing a real risk. A project that breaches the edge
-    cap is rejected by the engine as InvalidScheduleInput (a ValueError) and
-    surfaces below as a clean 400 rather than a stalled worker.
+    cap is rejected as InvalidScheduleInput (a ValueError) and surfaces below as a
+    clean 400 rather than a stalled worker.
+
+    That argument depends on cap *order*, which #3527 had to preserve deliberately.
+    Summary expansion moved onto this path, and it walks the edge list — so it now
+    runs behind ``build_sched_graph``'s own O(1) ``MAX_DEPENDENCIES`` length check
+    rather than waiting for ``_validate_project``, which the engine does not reach
+    until ``monte_carlo()`` is already called. Without that, the expensive per-edge
+    step would run ahead of the cheap guard that is supposed to bound it.
 
     Request body (all optional):
         n_simulations (int): Number of simulation runs. Defaults to
@@ -650,6 +658,24 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     included_ids = {str(t.id) for t in db_tasks}
     sched_deps = _build_sched_deps(pk, included_ids)
 
+    # Shared graph shaping (#3527): summary (phase) rows are grouping nodes, not
+    # schedulable work (ADR-0105), so they are stripped and their edges fanned down
+    # to leaves before the simulation — exactly as the deterministic CPM pass does.
+    # Sharing only build_sched_tasks was not enough: every phase used to enter the
+    # simulation as a never-started, unconstrained block floored at the data date,
+    # and the longest one became the simulated finish. That made the forecast flat,
+    # unrelated to the network, and pushed *further out* by recording real progress.
+    # Inside a try, like every other engine call here: build_sched_graph raises
+    # InvalidScheduleInput (a ValueError) for a Start-to-Start/Start-to-Finish link
+    # from a summary, a breached edge cap, or a malformed WBS. The project exception
+    # handler only reclassifies malformed-UUID ValueErrors, so an unguarded raise
+    # would be a 500 — and this endpoint promises a clean 400 for exactly these.
+    try:
+        graph = build_sched_graph(db_tasks, sched_tasks, sched_deps)
+    except (CyclicDependencyError, ValueError) as exc:
+        # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
+        return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
     # Agile-aware Monte Carlo (#411, ADR-0065/0106): feed the team's completed-sprint
     # throughput to the engine so SCRUM/story-point tasks sample sprints-to-completion
     # from real velocity variance. Without this the engine's velocity path can never
@@ -674,8 +700,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         id=str(project.pk),
         name=project.name,
         start_date=project.start_date,
-        tasks=sched_tasks,
-        dependencies=sched_deps,
+        tasks=graph.tasks,
+        dependencies=graph.dependencies,
         calendar=sched_calendar,
         status_date=mc_status_date,
         velocity_samples=velocity_samples or None,
@@ -749,7 +775,12 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         # Computed from the already-loaded committed task set + estimation mode +
         # velocity signal — no extra query.
         "forecast_diagnostic": forecast_diagnostic(
-            db_tasks,
+            # The LEAF rows, not every committed row (#3527): the diagnostic explains
+            # what the simulation did, and a summary is not in the simulated network.
+            # Counting phases made `tasks_total` overstate the run and let a
+            # fully-complete project miss `all_complete` — a summary's stored
+            # percent_complete is 0, so every phase read as incomplete work.
+            graph.leaf_db_tasks,
             suggest_approve=suggest_approve,
             has_velocity_signal=bool(velocity_samples),
             deterministic=(mc_result.p50 == mc_result.p80 == mc_result.p95),
@@ -779,7 +810,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         mc_result=mc_result,
         n_simulations=n_simulations,
         cpm_finish=cpm_finish,
-        task_count=len(db_tasks),
+        # The size of the network actually simulated (#3527) — summaries are
+        # stripped before the run, so counting them here would describe an input
+        # the engine never saw.
+        task_count=len(graph.tasks),
         result_dict=result_dict,
         status_date=mc_status_date,
         plan_version=plan_version,
@@ -1132,8 +1166,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 description=(
                     "Invalid input: malformed/absent params, both or neither of "
                     "duration_delta/new_duration, task_id not a committed task in this "
-                    "project, a milestone (zero-duration) target, a cyclic dependency, or an "
-                    "out-of-range project span."
+                    "project, a milestone (zero-duration) target, a summary (phase) target "
+                    "whose span is rolled up from its children and so cannot be perturbed, "
+                    "a cyclic dependency, or an out-of-range project span."
                 ),
             ),
             402: OpenApiResponse(
@@ -1225,10 +1260,38 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 
         suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
         baseline_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
-        perturbed_tasks = _perturb_task_durations(baseline_tasks, task_id, delta_days)
 
         included_ids = {str(t.id) for t in db_tasks}
         sched_deps = _build_sched_deps(pk, included_ids)
+
+        # Same leaf-only shaping the real forecast uses (#3527, ADR-0105) — a what-if
+        # answered against a network containing phantom phases is not a what-if about
+        # this project's schedule.
+        try:
+            graph = build_sched_graph(db_tasks, baseline_tasks, sched_deps)
+        except (CyclicDependencyError, ValueError) as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # A summary has no duration of its own — its span is rolled up from its leaves
+        # — so it is absent from the network built above, and perturbing it would
+        # silently change nothing. Refuse rather than hand back an unmoved forecast as
+        # though the delta had been applied. Checked after the shaping because that is
+        # what defines "is a summary" here, and before any simulation runs.
+        if str(target_db.id) in graph.summary_ids:
+            return Response(
+                {
+                    "detail": (
+                        "A summary task's duration is rolled up from its children and "
+                        "cannot be perturbed; pick one of its leaf tasks instead."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        leaf_tasks = graph.tasks
+        leaf_deps = graph.dependencies
+        perturbed_tasks = _perturb_task_durations(leaf_tasks, task_id, delta_days)
 
         velocity_samples, sprint_length_days = scheduler_velocity_inputs(
             project.pk, sched_calendar.working_days
@@ -1251,7 +1314,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 name=project.name,
                 start_date=project.start_date,
                 tasks=tasks,
-                dependencies=sched_deps,
+                dependencies=leaf_deps,
                 calendar=sched_calendar,
                 status_date=status_date,
                 velocity_samples=velocity_samples or None,
@@ -1263,10 +1326,10 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             # baseline + perturbed CPM and simulation — through the same helper the
             # real forecast uses, so the span name and attributes cannot drift.
             with monte_carlo_span(pk, simulation_count=n_simulations):
-                baseline_cpm = schedule(_make_project(baseline_tasks, cpm_status_date))
+                baseline_cpm = schedule(_make_project(leaf_tasks, cpm_status_date))
                 perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
                 baseline_mc = monte_carlo(
-                    _make_project(baseline_tasks, mc_status_date),
+                    _make_project(leaf_tasks, mc_status_date),
                     runs=n_simulations,
                     seed=WHATIF_MC_SEED,
                     max_runs=cap,
@@ -2211,16 +2274,26 @@ _MC_DERIVATION_QUANTITIES = frozenset({"p50", "p80", "p95"})
 def _build_cpm_sched_project(project: Project, pk: str) -> Any:
     """Assemble the scheduler ``Project`` for a deterministic CPM derivation run.
 
-    Mirrors the input construction of :func:`run_monte_carlo` exactly — the same
-    shared converters (``compose_project_calendar`` / ``build_sched_tasks``), the same
-    committed-only task set, the same cross-project/non-committed edge drop, and the
-    same data-date and velocity inputs — so the schedule the derivation explains is
-    the *same* schedule the forecast is anchored on. Keeping one construction path
-    is what stops the derivation from explaining a different network than the one
-    the engine actually scheduled.
+    Mirrors the input construction of ``scheduling.tasks._run_schedule`` — the
+    **deterministic pass that computes the stored schedule** — through the same shared
+    converters (``compose_project_calendar`` / ``build_sched_tasks`` /
+    ``build_sched_graph``), the same committed-only task set, the same
+    cross-project/non-committed edge drop, and the same data-date and velocity inputs.
+    A derivation explains a value a user is reading off a task row, and that value came
+    from ``_run_schedule``; matching anything else explains a network nobody was shown.
+
+    This docstring used to name :func:`run_monte_carlo` as the thing to mirror, which
+    is how it inherited that endpoint's defect wholesale: before #3527 neither applied
+    the ADR-0105 summary strip, so the mirror was faithful and both were wrong. Naming
+    the deterministic pass instead makes the next drift detectable, because
+    ``_run_schedule`` is the only one of the three whose output is persisted and
+    therefore independently checkable.
+
+    A summary row is consequently absent from the returned graph, and a derivation
+    request naming one now gets the ``UnknownTaskError`` 404 — correct, because a
+    summary's dates are rolled up from its leaves and were never produced by a CPM pass
+    that could be explained.
     """
-    from trueppm_scheduler.models import Dependency as SchedDependency
-    from trueppm_scheduler.models import DependencyType as SchedDependencyType
     from trueppm_scheduler.models import Project as SchedProject
 
     from trueppm_api.apps.projects.services import scheduler_velocity_inputs
@@ -2231,32 +2304,24 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
     sched_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
 
     included_ids = {str(t.id) for t in db_tasks}
-    db_deps = list(
-        Dependency.objects.filter(predecessor__project_id=pk).select_related(
-            "predecessor", "successor"
-        )
-    )
-    sched_deps = [
-        SchedDependency(
-            predecessor_id=str(d.predecessor_id),
-            successor_id=str(d.successor_id),
-            dep_type=SchedDependencyType(d.dep_type),
-            lag=timedelta(days=d.lag),
-        )
-        for d in db_deps
-        if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
-    ]
+    # Was a second, byte-identical copy of _build_sched_deps' body (#3527). Behaviour
+    # was the same, so nothing was wrong today — but a duplicated edge filter is the
+    # very drift class this issue is an instance of, and the next change to the edge
+    # rules (soft-deleted dependencies, #3532) would have had to find both.
+    sched_deps = _build_sched_deps(pk, included_ids)
 
     velocity_samples, sprint_length_days = scheduler_velocity_inputs(
         project.pk, sched_calendar.working_days
     )
 
+    graph = build_sched_graph(db_tasks, sched_tasks, sched_deps)
+
     return SchedProject(
         id=str(project.pk),
         name=project.name,
         start_date=project.start_date,
-        tasks=sched_tasks,
-        dependencies=sched_deps,
+        tasks=graph.tasks,
+        dependencies=graph.dependencies,
         calendar=sched_calendar,
         status_date=resolve_cpm_status_date(project.status_date),
         velocity_samples=velocity_samples or None,
@@ -2391,13 +2456,17 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        sched_project = _build_cpm_sched_project(project, pk)
-        if not sched_project.tasks:
-            return Response(
-                {"detail": "Project has no committed tasks to schedule."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        # _build_cpm_sched_project now shapes the graph (#3527), so it can raise the
+        # engine's InvalidScheduleInput. It is inside the try for the same reason
+        # derive_value is: an unguarded ValueError here becomes a 500, and this view
+        # already documents a 400 for "invalid schedule input".
         try:
+            sched_project = _build_cpm_sched_project(project, pk)
+            if not sched_project.tasks:
+                return Response(
+                    {"detail": "Project has no committed tasks to schedule."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
             derivation = derive_value(sched_project, task_id, quantity)
         except UnknownTaskError:
             return Response(
