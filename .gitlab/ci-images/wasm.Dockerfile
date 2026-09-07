@@ -32,7 +32,15 @@ FROM rust:1.85-slim@sha256:9f841bbe9e7d8e37ceb96ed907265a3a0df7f44e3737d0b100e79
 
 # git is needed by cargo-deny's advisories check (it clones the RustSec
 # advisory DB via git on first run); curl + ca-certificates fetch the pinned
-# wasm-pack / cargo-deny release tarballs below.
+# wasm-pack / cargo-deny / wasm-bindgen release tarballs below.
+#
+# Every one of those three curls carries --retry: GitHub's release CDN returns
+# intermittent 504s, and a single one aborts the whole image build. Two
+# different lines 504'd in two consecutive builds while fixing #3536, which is
+# a coin flip we do not want between us and a green main. curl already counts
+# HTTP 5xx as retryable; --retry-all-errors additionally covers a connection
+# reset mid-transfer. The checksum verification below is what makes a retried
+# download safe to trust.
 RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends git curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -48,7 +56,7 @@ RUN rustup component add clippy \
 RUN WASM_PACK_VERSION=0.13.1 \
  && WASM_PACK_SHA256=c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539 \
  && WASM_PACK_TARBALL="wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
- && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/${WASM_PACK_TARBALL}" -o /tmp/wasm-pack.tar.gz \
+ && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 180 "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/${WASM_PACK_TARBALL}" -o /tmp/wasm-pack.tar.gz \
  && echo "${WASM_PACK_SHA256}  /tmp/wasm-pack.tar.gz" | sha256sum -c - \
  && tar xzf /tmp/wasm-pack.tar.gz -C /usr/local/bin --strip-components=1 "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack" \
  && rm /tmp/wasm-pack.tar.gz
@@ -62,7 +70,7 @@ RUN WASM_PACK_VERSION=0.13.1 \
 # together with .gitlab-ci.yml's reference.)
 RUN CARGO_DENY_VERSION=0.19.9 \
  && CARGO_DENY_DIR="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl" \
- && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${CARGO_DENY_DIR}.tar.gz" -o /tmp/cargo-deny.tar.gz \
+ && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 180 "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${CARGO_DENY_DIR}.tar.gz" -o /tmp/cargo-deny.tar.gz \
  && tar xzf /tmp/cargo-deny.tar.gz -C /usr/local/bin --strip-components=1 "${CARGO_DENY_DIR}/cargo-deny" \
  && rm /tmp/cargo-deny.tar.gz
 
@@ -88,7 +96,7 @@ RUN CARGO_DENY_VERSION=0.19.9 \
 RUN WASM_BINDGEN_VERSION=0.2.115 \
  && WASM_BINDGEN_SHA256=494df943e4e30a48ea2832e5a299e0e0f52d23f1e037b052cf401f467b820316 \
  && WASM_BINDGEN_DIR="wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl" \
- && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/${WASM_BINDGEN_DIR}.tar.gz" -o /tmp/wasm-bindgen.tar.gz \
+ && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 180 "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/${WASM_BINDGEN_DIR}.tar.gz" -o /tmp/wasm-bindgen.tar.gz \
  && echo "${WASM_BINDGEN_SHA256}  /tmp/wasm-bindgen.tar.gz" | sha256sum -c - \
  && tar xzf /tmp/wasm-bindgen.tar.gz -C /usr/local/bin --strip-components=1 \
       "${WASM_BINDGEN_DIR}/wasm-bindgen" "${WASM_BINDGEN_DIR}/wasm-bindgen-test-runner" \
