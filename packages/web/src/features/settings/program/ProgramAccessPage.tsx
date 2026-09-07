@@ -13,6 +13,7 @@ import { ProgramInviteForm } from '@/features/programs/members/ProgramInviteForm
 import { RolePicker } from '@/features/settings/members/RolePicker';
 import { ProgramMentionGroupsSection } from '@/features/settings/members/ProgramMentionGroupsSection';
 import { ROLE_OWNER } from '@/lib/roles';
+import { roleLabel } from '@/lib/roleLabels';
 import type { ProgramMembership } from '@/api/types';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
@@ -85,7 +86,10 @@ function MemberRow({
 
       <span className="text-xs text-neutral-text-secondary truncate">{user_detail.email}</span>
 
-      <RoleBadge label={role_label} />
+      {/* Program surface — ordinal 400 is "Program Admin" here, not "Project
+          Admin" (#3476). `role_label` rides along only as the fallback for an
+          Enterprise custom-band ordinal this client does not know. */}
+      <RoleBadge label={roleLabel(role, 'program', role_label)} />
 
       <div>
         {canEditRole ? (
@@ -94,16 +98,19 @@ function MemberRow({
             onChange={(newRole) => onChangeRole(membership.id, newRole)}
             disabled={isUpdatingRole}
             id={`program-access-role-${membership.id}`}
+            scope="program"
+            valueLabel={role_label}
+            ariaLabel={`Role for ${user_detail.username}`}
           />
         ) : (
           <span
             className="text-xs text-neutral-text-secondary italic"
             title={
               isOwnerMember
-                ? 'Owner role cannot be changed from here'
+                ? `${roleLabel(ROLE_OWNER, 'program')} role cannot be changed from here`
                 : closedToOwner
                   ? 'This program is closed and cannot be modified. Reopen it first.'
-                  : 'Owners can change member roles'
+                  : `Only a ${roleLabel(ROLE_OWNER, 'program')} can change member roles`
             }
           >
             —
@@ -148,7 +155,7 @@ function MemberRow({
         {isSelf && isSoleOwner && (
           <span
             className="text-xs text-neutral-text-secondary"
-            title="You're the only Owner — assign another before leaving"
+            title={`You're the only ${roleLabel(ROLE_OWNER, 'program')} — assign another before leaving`}
           >
             Sole owner
           </span>
@@ -258,9 +265,7 @@ export function ProgramAccessPage() {
         </div>
 
         <div className="bg-neutral-surface-raised border-x border-b border-neutral-border rounded-b-card overflow-hidden">
-          {isLoading && (
-            <LoadingSkeleton label="Loading members" rows={4} className="px-4 py-6" />
-          )}
+          {isLoading && <LoadingSkeleton label="Loading members" rows={4} className="px-4 py-6" />}
           {isError && (
             <div role="alert" className="px-4 py-6 text-xs text-semantic-critical">
               Failed to load members — please refresh.

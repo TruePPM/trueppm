@@ -49,10 +49,12 @@ set its own value.
 ### Access
 
 Reading a program's settings requires membership on the program. **Writing them
-requires the program Admin or Owner role** — the program API gates
-`PATCH /api/v1/programs/:id/` and the dedicated policy actions at Admin. Program
-roles are the 5-role model (Owner, Admin, Scheduler, Member, Viewer) and are
-**separate from project roles**; see [Roles & Permissions](/administration/rbac/).
+requires the Program Manager role or above** — the program API gates
+`PATCH /api/v1/programs/:id/` and the dedicated policy actions at the Admin tier.
+Program roles are the 5-role model (Owner, Admin, Scheduler, Member, Viewer),
+named on program surfaces as Program Admin, Program Manager, Resource Manager,
+Team Member, and Viewer, and are **separate from project roles**; see
+[Roles & Permissions](/administration/rbac/).
 
 A **closed** program (see [Lifecycle](#lifecycle)) is read-only shell-wide: every
 Add/Edit/Remove-style control across these settings sections is disabled or
@@ -221,11 +223,11 @@ Writes are additionally blocked once the program is closed (reads still work).
 
 | Method | Path | Access |
 |---|---|---|
-| `GET` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
-| `POST` | `/api/v1/programs/{id}/external-stakeholders/` | Program Admin+ |
-| `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
-| `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Admin+ |
-| `GET` | `/api/v1/programs/{id}/mention-reach/` | Program Admin+ |
+| `GET` | `/api/v1/programs/{id}/external-stakeholders/` | Program Manager+ |
+| `POST` | `/api/v1/programs/{id}/external-stakeholders/` | Program Manager+ |
+| `PATCH` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Manager+ |
+| `DELETE` | `/api/v1/programs/{id}/external-stakeholders/{stakeholder_id}/` | Program Manager+ |
+| `GET` | `/api/v1/programs/{id}/mention-reach/` | Program Manager+ |
 
 ## Rollup KPIs
 
@@ -236,7 +238,7 @@ variance, Critical task count, Milestone health, At-risk tasks, Risk score, P80
 date, Cost variance (CV), and Budget utilization. An **Aggregation policy**
 controls how the member projects' health combines into the single program health
 shown when General → Health is set to **Auto**. Editing the rollup config
-requires the program Admin role. See [Program rollup](/features/settings/program-rollup/).
+requires the Program Manager role or above. See [Program rollup](/features/settings/program-rollup/).
 
 Three of those signals have no data source yet and are **shown but locked**:
 **Cost variance (CV)** and **Budget utilization** need project cost data, and

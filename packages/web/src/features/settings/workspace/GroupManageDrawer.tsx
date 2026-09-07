@@ -20,7 +20,8 @@ import { EntitySelectCombobox, type EntityOption } from '@/components/EntitySele
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useProjects } from '@/hooks/useProjects';
-import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER, ROLE_VIEWER } from '@/lib/roles';
+import { ROLE_MEMBER } from '@/lib/roles';
+import { GRANTABLE_ROLES, roleLabel } from '@/lib/roleLabels';
 import type { WorkspaceGroup } from '@/api/types';
 import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers';
 import {
@@ -31,13 +32,10 @@ import {
 } from '../hooks/useWorkspaceGroupMutations';
 import { CloseIcon } from '@/components/Icons';
 
-/** Roles a group may confer — every role below Owner (the server rejects Owner). */
-const GRANTABLE_ROLES: ReadonlyArray<{ value: number; label: string }> = [
-  { value: ROLE_VIEWER, label: 'Viewer' },
-  { value: ROLE_MEMBER, label: 'Team Member' },
-  { value: ROLE_SCHEDULER, label: 'Resource Manager' },
-  { value: ROLE_ADMIN, label: 'Project Manager' },
-];
+// `GRANTABLE_ROLES` and the labels come from `@/lib/roleLabels` (#3476). This
+// file carried a verbatim second copy of both, which is how a scope bug lands in
+// one place and not the other. A group confers PROJECT roles, so the scope is
+// 'project'.
 
 interface Props {
   /** The group being managed, or null when the drawer is closed. */
@@ -257,8 +255,8 @@ function GroupProjectAccessSection({ group }: { group: WorkspaceGroup }) {
           className="h-7 rounded-control border border-neutral-border bg-neutral-surface px-2 text-[12px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
         >
           {GRANTABLE_ROLES.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
+            <option key={r} value={r}>
+              {roleLabel(r, 'project')}
             </option>
           ))}
         </select>

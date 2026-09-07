@@ -294,6 +294,9 @@ class _SeedImporter:
         # state and walked forward to these by the timeline + synthesizer.
         self.final_status: dict[tuple[str, str], str] = {}
         self.final_sprint: dict[tuple[str, str], dict[str, Any]] = {}
+        # Authored progress for tasks that end IN_PROGRESS, restored by replay's
+        # ``_finalize_tasks`` (#3486). Holds only the keys the document wrote.
+        self.final_progress: dict[tuple[str, str], dict[str, Any]] = {}
 
     def run(self) -> Program:
         # Adopting a pre-created shell means the caller already resolved and
@@ -554,6 +557,7 @@ class _SeedImporter:
             risks=self.risks_by_slug,
             final_status=self.final_status,
             final_sprint=self.final_sprint,
+            final_progress=self.final_progress,
             tz=tz,
         )
 
@@ -1251,6 +1255,20 @@ class _SeedImporter:
         self.tasks[(project_slug, data["wbs_path"])] = task
         if self.replay:
             self.final_status[(project_slug, data["wbs_path"])] = final_status
+            # A task born at 0%/full-points to give the timeline room to walk it
+            # forward never gets those numbers back on its own — REVIEW and
+            # COMPLETE are rescued by ``Task._coerce_signoff_percent``, IN_PROGRESS
+            # is not (#3486). Hand replay the authored values to restore, keyed
+            # per field so a dated ``task.points`` beat still wins where the
+            # document declared nothing.
+            if final_status == "IN_PROGRESS":
+                authored = {
+                    key: data[key]
+                    for key in ("percent_complete", "remaining_points")
+                    if data.get(key) is not None
+                }
+                if authored:
+                    self.final_progress[(project_slug, data["wbs_path"])] = authored
         return task, created_on
 
     # --- cross-cutting links (Pass B) --------------------------------------

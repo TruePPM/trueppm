@@ -135,10 +135,10 @@ describe('ProgramAccessPage (settings)', () => {
       isError: false,
     });
     renderPage();
-    // RolePicker renders a bare native <select> with an id but no <label>;
-    // narrow via the id we wired in the page.
-    const select = document.getElementById('program-access-role-m-2') as HTMLSelectElement;
-    expect(select).not.toBeNull();
+    // Reach it the way a user does. Before #3476 this select had an `id` and no
+    // accessible name at all, and this test narrowed by `getElementById` — which
+    // worked, and quietly documented the `select-name` defect as the premise.
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Role for sofia.p' });
     await user.selectOptions(select, String(ROLE_SCHEDULER));
     expect(updateRole).toHaveBeenCalledWith({ membershipId: 'm-2', role: ROLE_SCHEDULER });
   });
