@@ -996,11 +996,15 @@ class Program(VersionedModel):
         default=3,
         validators=[MinValueValidator(1), MaxValueValidator(30)],
     )
-    # The single "Program Manager" displayed in the Program header and Settings
-    # General page. Distinct from ``created_by`` (immutable historical fact) and
-    # from OWNER membership rows (multiple owners are allowed; lead is a UI
-    # affordance pointing to one person). SET_NULL so a user account deletion
-    # does not break programs they once led.
+    # The single "Program lead" displayed on Settings → General (and the future
+    # program header). A UI affordance pointing to one accountable person — it
+    # grants nothing. Distinct from ``created_by`` (immutable historical fact)
+    # and from OWNER membership rows (multiple owners are allowed; lead names
+    # one). Deliberately NOT called "Program Manager": that is the program-scoped
+    # label ``_PROGRAM_ROLE_LABELS`` gives ordinal 300 (``Role.ADMIN``), and the
+    # two shared the phrase inside one dialog until #3513. Mirrors
+    # ``Project.lead``, which is surfaced as "Project lead". SET_NULL so a user
+    # account deletion does not break programs they once led.
     lead = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

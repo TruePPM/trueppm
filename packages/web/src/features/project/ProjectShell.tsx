@@ -1,7 +1,6 @@
-import axios from 'axios';
 import { Outlet } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
-import { useProject } from '@/hooks/useProject';
+import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
 import { useRecordProjectVisit } from '@/hooks/useRecordProjectVisit';
 import { useSchedulerStore } from '@/stores/schedulerStore';
@@ -28,9 +27,12 @@ export function ProjectShell() {
   // path, so both are treated as "unavailable" here (#2040). React Query dedupes
   // this against the same ['project', id] query the tab bar already issues, so it
   // adds no extra request.
-  const { error: projectError } = useProject(projectId);
-  const status = axios.isAxiosError(projectError) ? projectError.response?.status : undefined;
-  const projectUnavailable = status === 404 || status === 403;
+  //
+  // The predicate lives in `useProjectUnavailable` rather than inline because the
+  // chrome mounted ABOVE this route — the rail's project tier, the health chip,
+  // the location switcher, the status bar — has to branch on the same fact and
+  // must not re-derive it (#3469).
+  const projectUnavailable = useProjectUnavailable(projectId);
 
   // Suppress the WebSocket once the project is unavailable: the WS ticket
   // endpoint 403s for a non-member, so leaving the socket live would spin a dead

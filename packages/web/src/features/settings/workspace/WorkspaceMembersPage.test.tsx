@@ -74,6 +74,65 @@ function setupMocks() {
   });
 }
 
+describe('WorkspaceMembersPage — a role value outside the grantable set (web rule 396)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * `WorkspaceRole`'s docstring reserves the ADR-0072 100-unit bands for
+   * Enterprise (its own example is a billing-admin at 250), so `role_value` is
+   * not closed over Member/Admin/Owner. A native `<select>` paints its FIRST
+   * option when nothing matches, so such a member would have rendered as
+   * "Member" — and the next change would have committed from that.
+   *
+   * Assert the SELECTED option, not that the row rendered: the option *list* is
+   * correct in both the fixed and the broken build, only the selection differs.
+   */
+  it('states the role the server named, disabled, instead of painting "Member"', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.includes('/workspace/members/'))
+        return Promise.resolve({
+          data: {
+            results: [
+              {
+                ...MEMBERS[0],
+                id: 'ent-1',
+                name: 'Billing Bot',
+                role: 'Billing Admin',
+                role_value: 250,
+              },
+            ],
+            next: null,
+          },
+        });
+      return Promise.resolve({ data: { results: [], next: null } });
+    });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const select = await screen.findByRole<HTMLSelectElement>('combobox', {
+      name: 'Role for Billing Bot',
+    });
+    expect(select.value).toBe('250');
+    expect(select.selectedOptions[0]?.textContent).toBe('Billing Admin');
+    expect(select.selectedOptions[0]).toBeDisabled();
+    // The three grantable roles are still offered and none was consumed.
+    expect(
+      Array.from(select.querySelectorAll('option:not(:disabled)')).map((o) => o.textContent),
+    ).toEqual(['Member', 'Admin', 'Owner']);
+  });
+
+  it('adds no extra option for a role value that IS grantable', async () => {
+    setupMocks();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    const select = await screen.findByRole<HTMLSelectElement>('combobox', {
+      name: 'Role for Anika Krishnan',
+    });
+    expect(select.querySelectorAll('option')).toHaveLength(3);
+    expect(select.querySelectorAll('option:disabled')).toHaveLength(0);
+  });
+});
+
 describe('WorkspaceMembersPage — search + filters', () => {
   beforeEach(() => {
     vi.clearAllMocks();

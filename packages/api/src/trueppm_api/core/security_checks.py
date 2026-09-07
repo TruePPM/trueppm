@@ -811,3 +811,74 @@ def check_project_soft_delete_retention(
     return validate_project_soft_delete_retention(
         getattr(settings, "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS", 30)
     )
+
+
+def validate_allowed_hosts(
+    hosts: Sequence[str] | None,
+    *,
+    debug: bool,
+    allow_wildcard: bool,
+) -> list[CheckMessage]:
+    """Reject a wildcard ``ALLOWED_HOSTS`` in a non-DEBUG deployment (#3515).
+
+    ``ALLOWED_HOSTS`` is the *only* enforcement point Django applies to the host
+    a request claims: ``HttpRequest.get_host()`` validates its result against
+    this list before any view runs, whichever header the value came from. A bare
+    ``*`` disables that check entirely, so ``request.build_absolute_uri()`` — the
+    OIDC ``redirect_uri`` fallback and the inbound Git-webhook URL an admin
+    pastes into GitHub/GitLab — will render whatever host the caller asked for.
+
+    Why this guard exists next to the ``USE_X_FORWARDED_HOST`` decision rather
+    than on its own: that setting only changes *which* header supplies the host,
+    and both candidates are bounded by this list. ``*`` removes the bound for
+    every posture at once, which makes it the load-bearing control of the two.
+
+    Wildcard *subdomains* (``.example.com``) are deliberately allowed: they still
+    constrain the host to a suffix the operator chose, and self-hosters running
+    per-tenant subdomains have a legitimate need for them. Only the bare ``*``,
+    which constrains nothing, is refused.
+
+    Refusal rather than a warning, with a named opt-out, follows
+    ``TRUEPPM_ALLOW_UNENCRYPTED_DB``: prod forces single-line JSON logs, so a
+    warning becomes one indexed record nobody reads, while a hard refusal with no
+    escape would break an existing install on upgrade with no remedy shorter than
+    a redeploy.
+    """
+    if debug or allow_wildcard:
+        return []
+    if not any(host == "*" for host in hosts or ()):
+        return []
+    return [
+        Error(
+            "ALLOWED_HOSTS contains the wildcard '*', which disables host "
+            "validation entirely in a non-DEBUG deployment.",
+            hint=(
+                "'*' is the only value that removes the bound on the host Django "
+                "reports, so absolute URLs the API builds — the OIDC redirect_uri "
+                "and the inbound Git-webhook URL — follow whatever host the caller "
+                "sends. List the names your deployment actually answers on "
+                "instead: your public hostname, plus the in-cluster Service name "
+                "and 'localhost' if you use `helm test` or `kubectl port-forward`. "
+                "A wildcard subdomain ('.example.com') is accepted and is the "
+                "supported way to serve many hosts. If you must keep '*' because "
+                "the host set is genuinely unknowable, set "
+                "TRUEPPM_ALLOW_WILDCARD_HOSTS=true to acknowledge it."
+            ),
+            id="trueppm.E012",
+        )
+    ]
+
+
+@register(Tags.security, deploy=True)
+def check_allowed_hosts(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads the live setting."""
+    from django.conf import settings
+
+    return validate_allowed_hosts(
+        getattr(settings, "ALLOWED_HOSTS", None),
+        debug=bool(getattr(settings, "DEBUG", False)),
+        allow_wildcard=bool(getattr(settings, "ALLOW_WILDCARD_ALLOWED_HOSTS", False)),
+    )

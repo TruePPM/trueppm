@@ -1064,7 +1064,11 @@ class IsProgramScheduler(BasePermission):
     open GET to every member — a Viewer or plain Member is denied 403.
     """
 
-    message = "You need at least Scheduler role on this program."
+    # "Resource Manager" is the label for ``Role.SCHEDULER`` in both vocabularies;
+    # "Scheduler" is the code name and appears on no surface, so a refusal naming
+    # it sends the reader looking for a role that does not exist (#3503). Matches
+    # ``IsProjectScheduler.message``, which already says Resource Manager.
+    message = "You need at least Resource Manager role on this program."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
@@ -1123,13 +1127,18 @@ class IsProgramEditor(BasePermission):
 
 
 class IsProgramAdmin(BasePermission):
-    """Allow Project Manager (3) or above on a program.
+    """Allow Program Manager (``Role.ADMIN``, 300) or above on a program.
 
     Used for: updating program metadata, adding/removing projects from the
     program, managing membership.
+
+    The tier is named in **program** vocabulary because this class only ever
+    refuses on a program surface, and a refusal that names a role the surface
+    does not offer is unactionable (#3503). It is the same ordinal a project
+    calls "Project Manager".
     """
 
-    message = "You need at least Project Manager role on this program."
+    message = "You need at least Program Manager role on this program."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
@@ -1149,9 +1158,13 @@ class IsProgramAdmin(BasePermission):
 
 
 class IsProgramOwner(BasePermission):
-    """Allow only Program Owner (4). Used for: program delete."""
+    """Allow only Program Admin (``Role.OWNER``, 400). Used for: program delete.
 
-    message = "Only the Program Owner can perform this action."
+    "Program Admin" is the program label for the ordinal ``OWNER``; "Owner" is
+    the code name, not a role a user is shown anywhere (#3503).
+    """
+
+    message = "Only the Program Admin can perform this action."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):

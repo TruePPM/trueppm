@@ -468,6 +468,7 @@ knobs operators reach for first:
 | `valkey.sentinel.password` / `.sentinelPassword` | `""` | Data-node and Sentinel-node passwords. Routed through the chart-owned connection Secret, never rendered into a Deployment. |
 | `valkey.sentinel.tls` | `false` | Use TLS to the Valkey data nodes. |
 | `env.TRUEPPM_FRONTEND_BASE_URL` | `""` | Public origin for absolute deep-links in notification emails. |
+| `env.TRUEPPM_PUBLIC_API_BASE_URL` | `""` | Public origin of the API. Pins the OIDC `redirect_uri` and the inbound Git-webhook URL instead of deriving them from the request's `Host` header. Set it with SSO, and whenever your edge does not preserve `Host` — TruePPM ignores `X-Forwarded-Host` by design. |
 | `env.TRUEPPM_THROTTLE_ANON_RATE` / `_USER_RATE` | `60/min` / `1000/min` | API rate limits; probe endpoints are always exempt. |
 | `env.TRUEPPM_NUM_PROXIES` | `"1"` | Trusted reverse-proxy depth for real-client-IP extraction. A wrong value lets clients spoof `X-Forwarded-For`. |
 | `env.TRUEPPM_RATE_LIMIT_ENABLED` | `"true"` | Global API rate-limiting kill switch. Leave `"true"` in production. Disabling also requires `TRUEPPM_RATE_LIMIT_DISABLE_ACK`; for load testing only ([details](/administration/configuration/#disabling-rate-limiting-entirely)). |

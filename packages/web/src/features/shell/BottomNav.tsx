@@ -4,6 +4,7 @@ import { MoreHorizontalIcon } from '@/components/Icons';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useProject } from '@/hooks/useProject';
 import { groupedVisibleViewsForUser, surfaceHiddenViews } from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
@@ -34,6 +35,7 @@ export function BottomNav() {
   const projectId = useProjectId();
   const { role } = useCurrentUserRole(projectId ?? undefined);
   const project = useProject(projectId);
+  const projectUnavailable = useProjectUnavailable(projectId);
   const { user } = useCurrentUser();
   const pinnedMobileViews = useShellStore((s) => s.pinnedMobileViews);
   const toggleMobileViewPin = useShellStore((s) => s.toggleMobileViewPin);
@@ -105,7 +107,12 @@ export function BottomNav() {
       ? sprintsLabel
       : ((activeOverflowView ? VIEW_TAB_META[activeOverflowView]?.label : undefined) ?? 'view');
 
-  if (!projectId) return null;
+  // The mobile counterpart of the rail's project tier, and it fell into the same
+  // trap (#3469): every field it renders degrades to a literal, so on a project the
+  // caller cannot open it drew a complete, working-looking tab set whose every tap
+  // re-lands on "This project isn't available". `md:hidden`, so a desktop-viewport
+  // spec cannot see it — the gate has to be here, not inferred from the rail's.
+  if (!projectId || projectUnavailable) return null;
 
   return (
     <>

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useMatch, useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useShellStats } from '@/hooks/useShellStats';
 import { useActiveSprint, useProjectVelocity } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -705,6 +706,12 @@ function DrillRows({
 export function HealthCluster({ onTaskNavigate }: Props) {
   const projectId = useProjectId() ?? null;
   const { data: project } = useProject(projectId);
+  // Same predicate `ProjectShell` renders `ProjectNotFound` on (#3469). Every
+  // input below degrades to a plausible literal on a failed fetch — `stats`
+  // missing means `deriveChipState(0, 0)`, i.e. a confident "On track" for a
+  // project that is not there — so the chip has to be suppressed at the source
+  // rather than repaired downstream.
+  const projectUnavailable = useProjectUnavailable(projectId);
   const { data: stats } = useShellStats();
   const { sprint: activeSprint } = useActiveSprint(projectId);
   const { data: velocity } = useProjectVelocity(projectId);
@@ -793,7 +800,10 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   // Project-scoped chrome; suppressed on project settings routes (rule 123 — the
   // SettingsShell carries its own chrome). The `useProjectId()` null path already
   // covers My Work / Notifications / Portfolio / Program / workspace settings.
-  if (!projectId || onSettingsRoute) return null;
+  // …and on a project the caller cannot open (#3469): the cluster's empty form is
+  // absence. Stating a health for a project the route itself is about to render as
+  // "This project isn't available" is worse than saying nothing.
+  if (!projectId || onSettingsRoute || projectUnavailable) return null;
 
   // ── Added time (#2531) ────────────────────────────────────────────────────
   // Suppressed on Overview, which mounts `AddedTimeCard` — one value, one render

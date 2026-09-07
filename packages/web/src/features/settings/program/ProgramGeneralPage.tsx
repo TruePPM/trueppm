@@ -205,7 +205,8 @@ export function ProgramGeneralPage() {
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
-  // null = Unassigned. User id of the program manager / lead (#966).
+  // null = Unassigned. User id of the program lead (#966) — the display field,
+  // not the ordinal-300 "Program Manager" role, which is set under Access (#3513).
   const [lead, setLead] = useState<string | null>(null);
 
   // Re-seed whenever the loaded program's identity changes. React Router reuses
@@ -690,19 +691,45 @@ export function ProgramGeneralPage() {
             />
           </FieldRow>
 
-          <FieldRow label="Program manager">
-            {/* Real manager from the program record (Unassigned when null), set
+          {/* "Program lead", not "Program manager" (#3513). The program-scoped role
+              vocabulary the server emits — `_PROGRAM_ROLE_LABELS`, ordinal 300 →
+              "Program Manager", 400 → "Program Admin" — reaches the user as the role
+              badge on Program › Members and Settings › Access (#3476 brings the role
+              *selects* onto it too). This FK grants nothing, so it must not share a
+              phrase with a permission tier — the two appeared together in the
+              Transfer sponsorship dialog. Mirrors "Project lead" on the project
+              General page. */}
+          <FieldRow
+            label="Program lead"
+            // The load-bearing sentence lives in `hint`, not `help`: `fieldHelp`
+            // returns undefined below Admin (the ⓘ would render dead inside the
+            // page's StubFieldset), so a `help`-only row explains itself to
+            // editors and to nobody else — and a Viewer is exactly the reader
+            // most likely to read this as the Program Manager role.
+            hint="A display field — it grants no access. Roles are set under Access."
+            help={fieldHelp({
+              label: 'Program lead',
+              body: "The one person named as accountable for this program. It is a display field only and grants no access — permissions come from a member's program role (Program Admin, Program Manager, Resource Manager, Team Member, Viewer), which is set under Access.",
+              docHref: 'administration/program-settings/#general',
+            })}
+          >
+            {/* Real lead from the program record (Unassigned when null), set
               via the member picker (#966). Selection updates page state → the
-              save bar commits; the server enforces Admin + member-of-scope. */}
-            <MemberPicker
-              scope="program"
-              scopeId={programId}
-              value={lead}
-              onChange={setLead}
-              label="program manager"
-              canEdit={canEdit}
-              selectedDetail={program?.lead_detail ?? null}
-            />
+              save bar commits; the server enforces Admin + member-of-scope.
+              `describedBy` associates the hint above with the trigger — the hint
+              is an adjacent div with no implicit association (web-rule 269). */}
+            {({ describedBy }) => (
+              <MemberPicker
+                scope="program"
+                scopeId={programId}
+                value={lead}
+                onChange={setLead}
+                label="program lead"
+                canEdit={canEdit}
+                selectedDetail={program?.lead_detail ?? null}
+                describedBy={describedBy}
+              />
+            )}
           </FieldRow>
 
           <FieldRow

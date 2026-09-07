@@ -40,6 +40,10 @@ export function ProgramProjectsPage() {
     return [...projects].sort((a, b) => (b[key] ?? -1) - (a[key] ?? -1));
   }, [projects, sort]);
 
+  // Program membership does not carry into projects (#3439), so a roster the caller
+  // can see may contain rows they cannot open. Drives the hint's second sentence.
+  const hasUnopenableRow = (projects ?? []).some((p) => p.myRole === null);
+
   const [showAddExistingModal, setShowAddExistingModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -131,11 +135,19 @@ export function ProgramProjectsPage() {
         )}
       </div>
 
-      {/* Onboarding hint — second of three placements (ADR-0070 §Risks). */}
+      {/* Onboarding hint — second of three placements (ADR-0070 §Risks). The second
+          sentence appears only when at least one row is actually unopenable: the
+          per-row marker's remedy otherwise lives only in a `title` (pointer-only —
+          it never fires on touch) and an `sr-only`, leaving a sighted keyboard or
+          touch user with a dead-end marker and no stated next step (#3469). Stated
+          once here rather than on each row so it costs no row width. */}
       <p className="mb-4 rounded-card border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary">
         <span aria-hidden="true">ⓘ </span>
         These projects belong to the program. Their member lists are managed separately on each
         project.
+        {hasUnopenableRow && (
+          <> Projects marked “No access” need a project owner to add you before you can open them.</>
+        )}
       </p>
 
       {removeError && (
@@ -227,15 +239,56 @@ export function ProgramProjectsPage() {
                   identically with and without it. What emptied this row was the
                   shrink-0 budget below. Keep it so the box stays shrinkable if
                   the truncation ever moves onto a child. */}
-              <Link
-                to={`/projects/${p.id}/overview`}
-                className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-text-primary
-                  hover:text-brand-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              >
-                {p.name}
-              </Link>
+              {/* A row the viewer cannot open is a row with no link (#3469). This
+                  roster is PROGRAM-scoped while `GET /projects/{id}/` is scoped to
+                  the caller's own `ProjectMembership`, so `myRole === null` means
+                  the link would land on "This project isn't available" every time.
+                  `undefined` is unknown, not denied — an older cached payload or a
+                  fixture without the annotation keeps its link (see the mapper in
+                  `useProgramProjects`). Program Admin+ does NOT imply project read;
+                  that is settled in #3439, and a self-service "add me" control is
+                  deliberately not offered here — see the MR. */}
+              {p.myRole === null ? (
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-text-secondary">
+                  {p.name}
+                </span>
+              ) : (
+                <Link
+                  to={`/projects/${p.id}/overview`}
+                  className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-text-primary
+                    hover:text-brand-primary
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                >
+                  {p.name}
+                </Link>
+              )}
               <div className="order-last flex w-full flex-wrap items-center gap-2 md:order-none md:w-auto md:flex-nowrap md:gap-3">
+                {/* Marker, not a control (#3469). It lives INSIDE the metadata group
+                    rather than beside the name so it spends that group's width
+                    budget and not the name's: below `md` this group is
+                    `order-last w-full`, which is what keeps the first line to the
+                    project name alone (#3474). Neutral and worded rather than
+                    tinted — "you are not on this project" is not a health — and the
+                    word carries the meaning, not the outline (rule 7/120). The
+                    sighted reader gets the reason on hover, the screen-reader user
+                    inline; the row-level copy below the header states it at rest for
+                    everyone, because `title` never fires on touch. */}
+                {p.myRole === null && (
+                  <span
+                    className="shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs text-neutral-text-secondary"
+                    title="You're not a member of this project. Ask a project owner to add you."
+                  >
+                    No access
+                    {/* Deliberately does NOT repeat the project name: interpolating
+                        it makes every `getByText(name)` in a spec resolve to two
+                        nodes and trip Playwright's strict mode. The `, ` separator
+                        is web rule 328(d) — a leading-space em-dash breaks across
+                        the two accname engines the moment this gains a role. */}
+                    <span className="sr-only">
+                      , you&rsquo;re not a member of this project. Ask a project owner to add you.
+                    </span>
+                  </span>
+                )}
                 <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
                   {p.methodology}
                 </span>
@@ -260,14 +313,22 @@ export function ProgramProjectsPage() {
                   </span>
                 )}
               </div>
-              <PinToggle
-                kind="project"
-                id={p.id}
-                name={p.name}
-                pinned={p.isPinned ?? false}
-                size="sm"
-                className="shrink-0"
-              />
+              {/* Pinning is an @action on the membership-scoped ProjectViewSet, so
+                  `get_object()` 404s for exactly the rows marked "No access" above —
+                  the toggle would flip optimistically, roll back, and offer a Retry
+                  that can never succeed. Hidden rather than disabled (rule 302): the
+                  row already states why. Note the polarity — `undefined` (unknown)
+                  keeps the toggle, same as it keeps the link (#3469). */}
+              {p.myRole !== null && (
+                <PinToggle
+                  kind="project"
+                  id={p.id}
+                  name={p.name}
+                  pinned={p.isPinned ?? false}
+                  size="sm"
+                  className="shrink-0"
+                />
+              )}
               {isAdmin && (
                 <button
                   type="button"

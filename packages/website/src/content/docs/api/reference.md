@@ -411,15 +411,15 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/samples/` | List the bundled samples available to the demo loader |
 | POST | `/api/v1/programs/load-sample/` | Load a bundled sample program (the in-app "Load demo data" action); body `{"sample": "<key>"}` |
 | POST | `/api/v1/programs/import/` | Import a JSON seed document as a new program (raw JSON body or multipart `file` upload); caller becomes Owner. Returns `202 Accepted` — the program shell is created synchronously, the subtree is built by a worker. Optional `replace` / `expected_program_id` fields confirm a replacement; `409` without them |
-| GET | `/api/v1/programs/{id}/import/jobs/{job_id}/` | Poll one seed import job (Program Admin+). A `job_id` belonging to another program `404`s |
+| GET | `/api/v1/programs/{id}/import/jobs/{job_id}/` | Poll one seed import job (Program Manager+). A `job_id` belonging to another program `404`s |
 | POST | `/api/v1/programs/import/validate/` | **Dry run** — validate a JSON seed document and return every diagnostic, **persisting nothing**. Same request shapes and permissions as `import/`. An invalid document is `200 {"valid": false, "errors": [...]}`, not a `400`: the request succeeded, the document is what failed. Also echoes the schema version, program slug/name, project/task/resource counts the file claims, and a `replaces` object naming the program this import would replace (`null` when the slug is free), so you can confirm you grabbed the right file — and see what it would cost — before running the destructive import |
 | GET | `/api/v1/programs/{id}/export/` | Download the program as a canonical JSON seed file (`Content-Disposition: attachment`) |
 | GET | `/api/v1/programs/{id}/rollup-config/` | Read the program rollup KPIs config (enabled KPIs + aggregation policy) |
-| PATCH | `/api/v1/programs/{id}/rollup-config/` | Update the program rollup KPIs config (Admin only) |
+| PATCH | `/api/v1/programs/{id}/rollup-config/` | Update the program rollup KPIs config (Program Manager+) |
 | GET | `/api/v1/programs/{id}/risk-policy/` | Read the program risk & dependencies policy |
-| PATCH | `/api/v1/programs/{id}/risk-policy/` | Update the program risk & dependencies policy (Admin only) |
+| PATCH | `/api/v1/programs/{id}/risk-policy/` | Update the program risk & dependencies policy (Program Manager+) |
 | POST | `/api/v1/programs/bulk-fields/` | Bulk-set inherited settings (methodology, iteration label, risk policy) across multiple programs; body `{"ids": [...], "fields": {...}}` — only the named rows and fields change (Workspace Admin) |
-| POST | `/api/v1/programs/{id}/bulk-project-fields/` | Bulk-set inherited settings (methodology, iteration label) across this program's projects; body `{"ids": [...], "fields": {...}}` (Program Admin) |
+| POST | `/api/v1/programs/{id}/bulk-project-fields/` | Bulk-set inherited settings (methodology, iteration label) across this program's projects; body `{"ids": [...], "fields": {...}}` (Program Manager+) |
 | GET | `/api/v1/programs/{id}/resource-contention/` | Within-program resource contention across member projects (Scheduler+; optional `?start=` / `?end=` window, repeatable `?resource=` / `?status=`) |
 | GET | `/api/v1/programs/{id}/schedule/` | Program-true cross-project critical path — merges every member project's tasks and every accepted cross-project dependency into one CPM run, computed on read. Tasks in projects you cannot read are redacted to a minimal card (title + forecast dates only); links are flagged cross-project (any program member) |
 | POST | `/api/v1/programs/{id}/split/` | Split a program into sub-programs — **planned, not yet implemented** (returns `501`) |
@@ -490,7 +490,7 @@ result_summary, error_detail, expires_at, created_at, started_at, completed_at }
 `result_summary` carries the entity counts `{ projects, tasks, sprints,
 dependencies }`; on failure, `error_detail` carries the reason and the (empty)
 program shell is deliberately left in place so you can see what happened and
-retry or delete it. The poll endpoint requires **Program Admin+**, and a
+retry or delete it. The poll endpoint requires **Program Manager+**, and a
 `job_id` from another program `404`s.
 
 A malformed or oversized seed document still returns `400` synchronously —

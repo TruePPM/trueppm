@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 import { useProjectId } from '@/hooks/useProjectId';
 import {
   PROJECT_NOTIFICATION_CHANNELS,
@@ -10,6 +12,7 @@ import {
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { quietHoursTimezoneCopy } from './quietHoursTimezone';
 
 const QUIET_FROM_OPTIONS = ['18:00', '19:00', '20:00', '21:00', '22:00'];
 const QUIET_UNTIL_OPTIONS = ['06:00', '07:00', '08:00', '09:00'];
@@ -18,6 +21,7 @@ const QUIET_UNTIL_OPTIONS = ['06:00', '07:00', '08:00', '09:00'];
  * notification preferences API (#522). */
 export function ProjectNotificationsPage() {
   const projectId = useProjectId();
+  const noteId = useId();
   const { preferences, isLoading, error, update } = useProjectNotificationPreferences(projectId);
 
   function setCell(event: ProjectNotificationEventType, channel: ProjectNotificationChannel, next: boolean) {
@@ -45,6 +49,17 @@ export function ProjectNotificationsPage() {
   // Strip seconds — the API returns HH:MM:SS, the <select> binds HH:MM.
   const quietFrom = (preferences?.quietHoursFrom ?? '20:00:00').slice(0, 5);
   const quietUntil = (preferences?.quietHoursUntil ?? '07:00:00').slice(0, 5);
+
+  // The window is a bare wall-clock range, so "20:00" alone never said 20:00
+  // *where* (#3397). The server resolves the zone and reports which tier of the
+  // project → workspace → server → UTC chain supplied it; both selects point at
+  // this line via aria-describedby, because the person picking the time is
+  // exactly who needs the zone. Null when the response predates #3377.
+  const quietZoneNote = quietHoursTimezoneCopy(
+    preferences?.quietHoursTimezone,
+    preferences?.quietHoursTimezoneSource,
+  );
+  const quietZoneNoteId = `quiet-hours-tz-${noteId}`;
 
   if (isLoading) {
     return (
@@ -209,7 +224,7 @@ export function ProjectNotificationsPage() {
               <h2 className="text-[13px] font-semibold text-neutral-text-primary">Quiet hours</h2>
               <FieldHelp
                 label="Quiet hours"
-                body="During the window you set, non-critical notifications are held back so you aren't pinged overnight. Critical-path slips and risk escalations always notify immediately, regardless of quiet hours. The window may wrap past midnight (e.g. 20:00 to 07:00)."
+                body="During the window you set, non-critical notifications are held back so you aren't pinged overnight. Critical-path slips and risk escalations always notify immediately, regardless of quiet hours. The window may wrap past midnight (e.g. 20:00 to 07:00). The times are read in the project's timezone, set under Project → Settings → General; a project that sets none follows the workspace default, which a workspace admin changes under Workspace → Settings → General. It is not a display timezone — times elsewhere in TruePPM are still shown in your own."
                 docHref="features/settings/project-notifications/#quiet-hours"
               />
             </div>
@@ -226,15 +241,25 @@ export function ProjectNotificationsPage() {
                 label="From"
                 value={quietFrom}
                 options={QUIET_FROM_OPTIONS}
+                describedBy={quietZoneNote ? quietZoneNoteId : undefined}
                 onChange={(v) => setQuietFrom(`${v}:00`)}
               />
               <QuietHourSelect
                 label="Until"
                 value={quietUntil}
                 options={QUIET_UNTIL_OPTIONS}
+                describedBy={quietZoneNote ? quietZoneNoteId : undefined}
                 onChange={(v) => setQuietUntil(`${v}:00`)}
               />
             </div>
+            {quietZoneNote && (
+              <p
+                id={quietZoneNoteId}
+                className="text-[12px] text-neutral-text-secondary mt-2 leading-snug"
+              >
+                {quietZoneNote}
+              </p>
+            )}
             <p className="text-[12px] text-neutral-text-secondary mt-3 leading-snug">
               Critical-path slips and risk escalations always notify immediately.
             </p>
@@ -273,11 +298,14 @@ function QuietHourSelect({
   label,
   value,
   options,
+  describedBy,
   onChange,
 }: {
   label: string;
   value: string;
   options: string[];
+  /** Id of the resolved-timezone caption, so "From" announces the zone too. */
+  describedBy?: string;
   onChange: (value: string) => void;
 }) {
   // Ensure the current value appears in the list even if it's not one of the
@@ -289,6 +317,7 @@ function QuietHourSelect({
       <div className="relative">
         <select
           aria-label={label}
+          aria-describedby={describedBy}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-full h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"

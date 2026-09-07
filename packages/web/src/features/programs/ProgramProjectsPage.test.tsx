@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProgramProjectsPage } from './ProgramProjectsPage';
 import type { Project } from '@/types';
-import { ROLE_VIEWER } from '@/lib/roles';
+import { ROLE_MEMBER, ROLE_OWNER, ROLE_VIEWER } from '@/lib/roles';
 
 const useProgram = vi.fn();
 const useProgramProjects = vi.fn();
@@ -557,5 +557,112 @@ describe('ProgramProjectsPage drill-through sort with missing counts (#2155)', (
     renderPage('/programs/prog-1/projects?sort=at-risk');
     expect(screen.getByLabelText('Loading projects')).toBeInTheDocument();
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Rows the viewer cannot open (#3469).
+ *
+ * This roster is PROGRAM-scoped — `GET /programs/{id}/projects/` deliberately
+ * lists every non-draft project in the program for any program role down to Viewer
+ * (#3439) — while `GET /projects/{id}/` is scoped to the caller's own
+ * `ProjectMembership`. So a program Owner could see four rows, click one, and land
+ * on "This project isn't available … ask a project owner to re-add you", with
+ * nothing on the row having said so.
+ *
+ * `my_role` is the field that answers it, and the roster has annotated it since
+ * #3357 — it was simply never mapped through to the client.
+ */
+describe('ProgramProjectsPage — rows the viewer holds no membership on', () => {
+  beforeEach(() => {
+    useProgram.mockReturnValue({
+      data: { id: 'prog-1', name: 'Riverside', my_role: ROLE_OWNER, target_date: null },
+    });
+    useProgramProjects.mockReturnValue({
+      data: [
+        proj({ id: 'a', name: 'Alpha', myRole: null }),
+        proj({ id: 'b', name: 'Bravo', myRole: ROLE_MEMBER }),
+        // No annotation at all — an older cached payload. Unknown, not denied.
+        proj({ id: 'c', name: 'Charlie' }),
+      ],
+      isLoading: false,
+      error: null,
+      refetch: refetchProjects,
+    });
+  });
+
+  it('does not link a row the viewer cannot open', () => {
+    renderPage();
+    expect(screen.queryByRole('link', { name: 'Alpha' })).not.toBeInTheDocument();
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+  });
+
+  it('marks the row, and says why, to sighted and screen-reader users alike', () => {
+    renderPage();
+    const alpha = screen.getByText('Alpha').closest('li') as HTMLElement;
+    const marker = within(alpha).getByText('No access', { exact: false });
+    expect(marker).toHaveAttribute(
+      'title',
+      "You're not a member of this project. Ask a project owner to add you.",
+    );
+    expect(marker).toHaveTextContent(/not a member of this project/);
+    // Rule 328(d): a `, ` completion, never a leading-space em-dash.
+    expect(marker.textContent).toMatch(/^No access, you/);
+    expect(marker).toHaveTextContent(/ask a project owner to add you/i);
+  });
+
+  it('still links a row the viewer IS a member of', () => {
+    renderPage();
+    const bravo = screen.getByRole('link', { name: 'Bravo' });
+    expect(bravo).toHaveAttribute('href', '/projects/b/overview');
+    expect(within(bravo.closest('li') as HTMLElement).queryByText('No access')).toBeNull();
+  });
+
+  it('links an unannotated row rather than marking it on a guess', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: 'Charlie' })).toBeInTheDocument();
+    const charlie = screen.getByRole('link', { name: 'Charlie' }).closest('li') as HTMLElement;
+    expect(within(charlie).queryByText('No access')).toBeNull();
+  });
+
+  it('hides the pin toggle on an unopenable row', () => {
+    // Pinning is an @action on the membership-scoped ProjectViewSet, so it 404s
+    // for exactly these rows — the toggle would offer a Retry that can never work.
+    renderPage();
+    const alpha = screen.getByText('Alpha').closest('li') as HTMLElement;
+    expect(within(alpha).queryByRole('button', { name: /pin/i })).toBeNull();
+    // …and keeps it on a row the viewer IS a member of.
+    const bravo = screen.getByRole('link', { name: 'Bravo' }).closest('li') as HTMLElement;
+    expect(within(bravo).getByRole('button', { name: /pin/i })).toBeInTheDocument();
+  });
+
+  it('states the remedy at rest, not only in a title attribute', () => {
+    // `title` never fires on touch and `sr-only` is AT-only, so a sighted keyboard
+    // or touch user would otherwise get a dead-end marker with no next step.
+    renderPage();
+    expect(
+      screen.getByText(/need a project owner to add you before you can open them/),
+    ).toBeInTheDocument();
+  });
+
+  it('omits that sentence when every row is openable', () => {
+    useProgramProjects.mockReturnValue({
+      data: [proj({ id: 'b', name: 'Bravo', myRole: ROLE_MEMBER })],
+      isLoading: false,
+      error: null,
+      refetch: refetchProjects,
+    });
+    renderPage();
+    expect(screen.queryByText(/need a project owner to add you/)).toBeNull();
+  });
+
+  it('keeps the program-Admin Remove control on an unopenable row', () => {
+    // Program Admin+ governs which projects are IN the program; that is a program
+    // authority and does not depend on project membership. Only the click-through
+    // is withdrawn.
+    renderPage();
+    expect(
+      screen.getByRole('button', { name: 'Remove Alpha from this program' }),
+    ).toBeInTheDocument();
   });
 });

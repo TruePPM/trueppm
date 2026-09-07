@@ -414,7 +414,37 @@ describe('ProgramGeneralPage (settings)', () => {
     const change = screen.getByRole('button', { name: 'Change' });
     expect(change).toBeEnabled();
     await user.click(change);
-    expect(screen.getByRole('listbox', { name: 'Select program manager' })).toBeInTheDocument();
+    expect(screen.getByRole('listbox', { name: 'Select program lead' })).toBeInTheDocument();
+  });
+
+  it('labels the lead FK "Program lead", never the ordinal-300 role name (#3513)', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    // The server's program-scoped label for ordinal 300 is "Program Manager"
+    // (`_PROGRAM_ROLE_LABELS`), which is what the role badge on Members/Access
+    // shows. This row is a display FK that grants nothing, so it must not reuse
+    // that phrase — on the row label or on the picker's accessible name.
+    // Scoped to the row, not the page: a legitimate mention of the ordinal-300
+    // role elsewhere on General must not red this test.
+    const label = screen.getByText('Program lead');
+    const row = label.closest('div.grid');
+    expect(row).not.toBeNull();
+    expect(row!).not.toHaveTextContent(/program manager/i);
+    expect(row!).toHaveTextContent('grants no access');
+    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument();
+  });
+
+  it('associates the Program lead hint with the picker trigger (web-rule 269, #3513)', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    // The hint is an adjacent <div> with no implicit association — without the
+    // FieldRow render-prop wiring the trigger announces hint-less (WCAG 1.3.1).
+    const row = screen.getByText('Program lead').closest('div.grid');
+    const trigger = row!.querySelector('button[aria-haspopup="listbox"]');
+    expect(trigger).not.toBeNull();
+    const describedBy = trigger!.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)).toHaveTextContent('grants no access');
   });
 
   it('publishes apiReady=true and dirty=false to the settings save store once seeded', () => {
