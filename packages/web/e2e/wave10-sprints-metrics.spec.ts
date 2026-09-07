@@ -99,7 +99,28 @@ const VELOCITY_PAYLOAD = {
   rolling_stdev_tasks: 1.41,
 };
 
-async function setupCommon(page: import('@playwright/test').Page) {
+/**
+ * #3472 — what the server actually returns for a reader below the velocity
+ * audience (ADR-0104 §2.1): the series is nulled to [] and the verdict is set.
+ * The nulled series is byte-identical to a project with no closed sprints, which
+ * is exactly why the panel must read the verdict and not the array.
+ */
+const VELOCITY_SUPPRESSED_PAYLOAD = {
+  sprints: [],
+  excluded_count: 0,
+  rolling_avg_points: null,
+  rolling_stdev_points: null,
+  forecast_range_low: null,
+  forecast_range_high: null,
+  rolling_avg_tasks: null,
+  rolling_stdev_tasks: null,
+  velocity_suppressed: true,
+};
+
+async function setupCommon(
+  page: import('@playwright/test').Page,
+  velocityPayload: unknown = VELOCITY_PAYLOAD,
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -143,7 +164,7 @@ async function setupCommon(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CAPACITY_PAYLOAD) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(VELOCITY_PAYLOAD) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(velocityPayload) }),
   );
   // Sprint backlog (#229) is rendered by SprintsView and queries /tasks/ —
   // an unmocked call falls through to the real backend and triggers an auth
@@ -215,5 +236,25 @@ test.describe('Wave 10 — Sprints metrics row', () => {
     await expect(page.getByRole('link', { name: 'ADR-0036' })).toBeVisible();
     // v2 fidelity (issue 1230): the active sprint's in-flight "N/M" stat.
     await expect(page.getByLabel(/This sprint: 14 of 40 points completed/)).toBeVisible();
+  });
+
+  test('a suppressed velocity reads team-private, not "No closed sprints yet" (#3472)', async ({
+    page,
+  }) => {
+    await setupCommon(page, VELOCITY_SUPPRESSED_PAYLOAD);
+
+    await page.goto(BASE_URL);
+
+    const velocity = page.getByRole('region', { name: /Velocity/i });
+    await expect(velocity).toBeVisible();
+    await expect(velocity.getByTestId('velocity-suppressed')).toHaveText(
+      /Velocity is team-private \(visible to the team\)\./,
+    );
+    // The neutral branch is the lie this issue is about — it must not be on the
+    // page at all, not merely out-ranked by the note beside it.
+    await expect(page.getByText(/No closed sprints yet/i)).toHaveCount(0);
+    // Nothing derived from the withheld series renders either.
+    await expect(velocity.getByLabel(/Forecast range/)).toHaveCount(0);
+    await expect(velocity.getByRole('img', { name: 'Velocity bar chart' })).toHaveCount(0);
   });
 });

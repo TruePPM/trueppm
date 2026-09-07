@@ -53,6 +53,16 @@ export function VelocitySparkline({ velocity, isLoading = false }: Props) {
     );
   }
 
+  // #3472's defect, one caller away: an empty `sprints` reaches this component
+  // identically for "the server withheld the series" and "nothing has closed
+  // yet", and the branch below states the second as fact. `SprintPanel` guards
+  // this externally today, so the guard here is defence in depth against the next
+  // caller that forgets — and it returns NOTHING rather than the sentence,
+  // because the card that owns this sparkline is the surface that states the
+  // reason (`VelocityTeamPrivateNote`), and two copies on one card is the drift
+  // #3472 removed.
+  if (velocity?.velocity_suppressed === true) return null;
+
   if (sprints.length === 0) {
     return (
       <div className="space-y-0.5">

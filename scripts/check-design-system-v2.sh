@@ -223,7 +223,15 @@ BASELINE_TINY_TEXT=0
 # tolerance — see query_error_offenders for why the "is this a primary surface?"
 # question is not decidable here, and why counting the population is the part that was
 # actually missing.
-BASELINE_QUERY_ERROR=57
+# NOTE (#3472): this moved 57 -> 56 on the #3472 branch, and that gain was NOT
+# that branch's: `origin/main` already counted 56, and the five real rule-246
+# fixes #3472 landed in `SprintsView.tsx` moved this counter by ZERO. The check
+# matches a *destructure* taking `isLoading` and never `error`/`isError`, and
+# `SprintsView` passes whole query objects between components (`velocity:
+# VelocityQuery`), which this pattern cannot see — the blind spot filed as #3351.
+# So do not read a drop here as evidence that a specific branch fixed something;
+# run the counter against an exported `origin/main` tree before claiming a gain.
+BASELINE_QUERY_ERROR=56
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary

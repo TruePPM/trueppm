@@ -1389,11 +1389,30 @@ function ActiveSprintPanels({
         <div className="md:col-span-2 flex flex-col gap-4">
           {capacity.data ? (
             <CapacityPreflight capacity={capacity.data} />
+          ) : capacity.isError ? (
+            <QueryErrorState
+              variant="inline"
+              message="Couldn't load capacity."
+              onRetry={() => void capacity.refetch()}
+            />
           ) : (
             <ChartSkeleton label="Capacity Preflight" />
           )}
           {velocity.data ? (
             <VelocityPanel velocity={velocity.data} currentSprint={activeSprint} />
+          ) : velocity.isError ? (
+            // Rule 246 / rule 300: a dead request is not a slow one — gating on
+            // `.data` alone left a failed fetch pulsing the skeleton forever,
+            // which reads as "still loading" and can never resolve. Every
+            // `.data ?` widget in this file takes the same branch rather than
+            // only the one #3472 was filed against: a column where one widget
+            // offers Retry and its neighbours pulse teaches that a pulse means
+            // "loading", which makes the unhandled ones MORE misleading.
+            <QueryErrorState
+              variant="inline"
+              message="Couldn't load velocity."
+              onRetry={() => void velocity.refetch()}
+            />
           ) : (
             <ChartSkeleton label="Velocity" />
           )}
@@ -1431,6 +1450,12 @@ function ClosedSprintPanels({
         <SprintClosedOutcome
           outcome={outcomeQuery.data}
           canCurateDemo={(currentRole ?? -1) >= ROLE_MEMBER}
+        />
+      ) : outcomeQuery.isError ? (
+        <QueryErrorState
+          variant="inline"
+          message="Couldn't load the outcome."
+          onRetry={() => void outcomeQuery.refetch()}
         />
       ) : (
         <ChartSkeleton label="Sprint outcome" />
@@ -1591,6 +1616,12 @@ function PlannedSprintSurface({
               capacity: plannedSprint.capacity_points,
             }}
           />
+        ) : plannedCapacity.isError ? (
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load capacity."
+            onRetry={() => void plannedCapacity.refetch()}
+          />
         ) : (
           <ChartSkeleton label="Capacity Preflight" />
         )}
@@ -1598,19 +1629,39 @@ function PlannedSprintSurface({
           sprintId={plannedSprint.id}
           currentSprintShortId={plannedSprint.short_id_display}
         />
-        {velocity.data && (
-          <details className="rounded-card border border-neutral-border bg-neutral-surface">
-            <summary
-              className="cursor-pointer px-4 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary
+        {/* The disclosure renders in every query state, not only on `data`: a
+            slot that appears when the fetch lands reflows the column its ghosting
+            neighbours do not (rule 248), and a slot that vanishes on failure
+            leaves no way to tell a dead request from a project with no velocity.
+            `open` is forced on failure because a COLLAPSED error state satisfies
+            rule 246 and defeats it — the summary row is byte-identical to the
+            healthy one, so the reader with the problem is the one with no reason
+            to expand, and the `inline` variant's role="status" would announce
+            nothing at all from inside a `display:none` subtree. */}
+        <details
+          open={velocity.isError}
+          className="rounded-card border border-neutral-border bg-neutral-surface"
+        >
+          <summary
+            className="cursor-pointer px-4 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
-            >
-              Velocity
-            </summary>
-            <div className="px-4 pb-4">
+          >
+            Velocity
+          </summary>
+          <div className="px-4 pb-4">
+            {velocity.data ? (
               <VelocityPanel velocity={velocity.data} />
-            </div>
-          </details>
-        )}
+            ) : velocity.isError ? (
+              <QueryErrorState
+                variant="inline"
+                message="Couldn't load velocity."
+                onRetry={() => void velocity.refetch()}
+              />
+            ) : (
+              <ChartSkeleton label="Velocity" />
+            )}
+          </div>
+        </details>
       </div>
     </div>
   );
