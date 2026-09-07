@@ -309,7 +309,7 @@ test.describe('Program methodology align offer (#3293)', () => {
 });
 
 /**
- * Web-rule 399. `SettingsShell`'s hash effect is guarded once-per-hash-*value*, and this
+ * Web-rule 402. `SettingsShell`'s hash effect is guarded once-per-hash-*value*, and this
  * link's hash is always `#projects` — so on a SECOND use the shell's effect early-returns
  * and, without the section's own `scrollIntoView`, the viewport never moves while the
  * matrix silently filters and pre-checks rows off-screen.

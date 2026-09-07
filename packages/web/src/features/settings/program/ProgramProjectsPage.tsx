@@ -65,7 +65,7 @@ export function ProgramProjectsPage() {
    * `#projects`. Nothing rewrites the hash on scroll, so on a second use — link, wheel
    * back up to General, save, link again — the shell's effect early-returns and the
    * viewport never moves while this section silently filters and pre-checks rows
-   * off-screen. See web-rule 399.
+   * off-screen. See web-rule 402.
    */
   const [searchParams] = useSearchParams();
   const [arrival, setArrival] = useState<number | null>(null);
