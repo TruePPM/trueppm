@@ -188,6 +188,46 @@ describe('MobileSchedule', () => {
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
+  // #2619 finding A: the AGILE empty state above was the ONLY mismatch signal
+  // here, so a phone user on a project with a real schedule saw nothing. The
+  // desktop half of this fix without the mobile half would recreate the exact
+  // emptiness-gated blind spot on the smaller screen.
+  it('warns on a POPULATED schedule under AGILE, and still lists the rows', () => {
+    renderSchedule({ tasks: [makeTask()], effectiveMethodology: 'AGILE' });
+    expect(
+      screen.getByText(/This project is configured as Agile, but it already has a schedule/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review methodology' })).toBeInTheDocument();
+    // Disjointness: the banner and the empty state never co-occur.
+    expect(
+      screen.queryByText("Schedule isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on a populated schedule under HYBRID', () => {
+    renderSchedule({ tasks: [makeTask()], effectiveMethodology: 'HYBRID' });
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on an EMPTY schedule under AGILE — that is the empty state\'s job', () => {
+    renderSchedule({ tasks: [], effectiveMethodology: 'AGILE' });
+    expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  // Rule 392 — the banner renders OUTSIDE the `body` branch that owns loading
+  // and error, so it carries its own guard. `tasks: []` while in flight or after
+  // a failure is "unknown", never "no schedule to warn about".
+  it('shows no banner while the task query is in flight under AGILE', () => {
+    renderSchedule({ tasks: [], isLoading: true, effectiveMethodology: 'AGILE' });
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner after the task query failed under AGILE', () => {
+    renderSchedule({ tasks: [], error: new Error('boom'), effectiveMethodology: 'AGILE' });
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
   it('renders the not-scheduled state when every task is unscheduled', () => {
     const unscheduled = makeTask({
       id: 'u',

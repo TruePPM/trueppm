@@ -9,6 +9,7 @@ import { toast } from '@/components/Toast';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
+import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
 import { ScheduleSeedingState } from '../ScheduleSeedingState';
 import { Button } from '@/components/Button';
 import {
@@ -218,6 +219,20 @@ export function MobileSchedule({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-neutral-surface-sunken">
       {header}
+      {/* The phone half of the same signal the desktop surface carries (#2619).
+          Mobile already ships the EMPTY half of this fix (the AGILE branch of
+          `body` above), so omitting the populated half here would recreate on
+          mobile exactly the emptiness-gated blind spot this change exists to
+          close. Carries its own resolved-data guard (rule 392) — `body` owns
+          `isLoading` / `error`, and this sits outside it, where `tasks.length`
+          would otherwise read a loading `0` as "nothing to warn about". */}
+      {!isLoading && !error && tasks.length > 0 && effectiveMethodology === 'AGILE' && (
+        <MethodologyMismatchBanner
+          projectId={projectId}
+          className="mx-4 mt-2"
+          message="This project is configured as Agile, but it already has a schedule — these dates stay reachable even though they sit outside its workflow."
+        />
+      )}
       <UnscheduledTray tasks={unscheduled} onOpen={(id) => setSelectedTaskId(id)} />
       {body}
     </div>
