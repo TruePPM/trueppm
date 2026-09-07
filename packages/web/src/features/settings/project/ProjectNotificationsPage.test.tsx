@@ -287,6 +287,93 @@ describe('ProjectNotificationsPage', () => {
     expect(screen.getByText(/project-wide feed/i)).toBeInTheDocument();
   });
 
+  // #3397 — the window is a bare wall-clock range, so the page has to say what
+  // zone "20:00" is read in and which scope decided it.
+  describe('resolved quiet-hours timezone', () => {
+    function seedWithZone(
+      zone: string | undefined,
+      source: ProjectNotificationPreferences['quietHoursTimezoneSource'],
+    ) {
+      useProjectNotificationPreferences.mockReturnValue({
+        preferences: { ...SEED, quietHoursTimezone: zone, quietHoursTimezoneSource: source },
+        isLoading: false,
+        error: null,
+        update: { mutate },
+      });
+    }
+
+    it('states the zone the window is read in', () => {
+      seedWithZone('Asia/Tokyo', 'project');
+      renderPage();
+      expect(
+        screen.getByText("Times are in Asia/Tokyo — this project's timezone."),
+      ).toBeInTheDocument();
+    });
+
+    it('names the workspace as the owner when the project inherits', () => {
+      seedWithZone('Europe/Berlin', 'workspace');
+      renderPage();
+      // The scope is what tells a member who to ask to change it.
+      expect(screen.getByText(/the workspace default timezone/)).toBeInTheDocument();
+      expect(screen.getByText(/Europe\/Berlin/)).toBeInTheDocument();
+    });
+
+    it.each(['server', 'fallback'] as const)(
+      'still states the zone on the %s degradation tier, without warning chrome',
+      (source) => {
+        seedWithZone('UTC', source);
+        renderPage();
+        // Suppressing the line here would leave a member unable to tell that
+        // 20:00 means 20:00 UTC — strictly worse than the pre-#3397 page.
+        const note = screen.getByText(/Times are in UTC/);
+        expect(note).toBeInTheDocument();
+        // No alert/status role: a member cannot fix either condition, so an
+        // alarm they cannot act on is noise (rule 274's spirit).
+        expect(note).not.toHaveAttribute('role');
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      },
+    );
+
+    it('describes both time selects with the zone, for the person picking the time', () => {
+      seedWithZone('Asia/Tokyo', 'project');
+      renderPage();
+      const note = screen.getByText("Times are in Asia/Tokyo — this project's timezone.");
+      for (const label of ['From', 'Until']) {
+        const select = screen.getByLabelText(label);
+        expect(select).toHaveAttribute('aria-describedby', note.id);
+      }
+      expect(note.id).toBeTruthy();
+    });
+
+    it('renders nothing at all when the response predates #3377', () => {
+      // A cached document with no zone must not degrade to "(undefined)" or to
+      // a silently-assumed UTC — it makes no claim, so the page makes none.
+      seedWithZone(undefined, undefined);
+      renderPage();
+      expect(screen.queryByText(/Times are in/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText('From')).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('keeps stating the zone while quiet hours are switched off', () => {
+      // The selects stay rendered and editable when the toggle is off, so the
+      // numbers still need their zone.
+      useProjectNotificationPreferences.mockReturnValue({
+        preferences: {
+          ...SEED,
+          quietHoursEnabled: false,
+          quietHoursTimezone: 'Asia/Tokyo',
+          quietHoursTimezoneSource: 'project',
+        },
+        isLoading: false,
+        error: null,
+        update: { mutate },
+      });
+      renderPage();
+      expect(screen.getByText(/Times are in Asia\/Tokyo/)).toBeInTheDocument();
+    });
+  });
+
   it('renders an error state on API failure', () => {
     useProjectNotificationPreferences.mockReturnValue({
       preferences: undefined,
