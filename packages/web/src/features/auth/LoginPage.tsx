@@ -183,7 +183,12 @@ export function LoginPage() {
       void navigate(loginRedirectDest(next, landingPath), { replace: true });
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
-        setError('Invalid email or password.');
+        // Name BOTH identifiers the server actually checks (#3468). The field is
+        // labeled Email because that is what an invited user has in hand, but the
+        // token endpoint matches the username first and falls back to the email —
+        // so a refusal that mentions only "email" sends the one user who signs in
+        // with a username away from the identifier that would have worked.
+        setError('Invalid email or password. You can also sign in with your username.');
       } else {
         setError('An unexpected error occurred. Please try again.');
       }
@@ -252,10 +257,16 @@ export function LoginPage() {
             <label htmlFor={emailId} className="text-sm font-medium text-neutral-text-primary">
               Email
             </label>
+            {/* `type="text"`, not `email`, because the server accepts a username
+                here too (#3468) — `type="email"` puts a browser validation bubble and
+                a red invalid state on a perfectly good username. `autoComplete` is the
+                standard `username` token, which is what password managers key the
+                identifier field on, whether the stored value is an email or not;
+                `email` would stop a manager offering a saved username. */}
             <input
               id={emailId}
-              type="email"
-              autoComplete="email"
+              type="text"
+              autoComplete="username"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}

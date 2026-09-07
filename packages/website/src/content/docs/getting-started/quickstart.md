@@ -43,6 +43,8 @@ which screen, and what to expect — in about 30 minutes.
 
 The `load_sample_project` management command loads a bundled sample program. The default — **Atlas Platform Launch** — is a three-project hybrid program with a WBS, a CPM schedule with cross-project dependencies, baselines, resources, closed sprints with velocity history, an active sprint mid-window, a retro with a promoted action item, and a populated risk register. With `--with-personas` it also gives the sample's persona accounts a usable password and prints their usernames.
 
+![The Programs directory showing the Atlas Platform Launch card with its three projects and the Load demo data button](../../../assets/screenshots/programs.webp)
+
 ```bash
 docker compose exec api python manage.py load_sample_project --with-personas
 ```
@@ -182,6 +184,8 @@ them are reserved slots — see [Roles and Permissions](/administration/rbac/#wh
 ### 9. Open the web UI
 
 Navigate to `http://localhost:5173`. The [Schedule view](/features/schedule/) (Gantt-style) renders the timeline with critical path lit up; the Board, Sprints, and supporting views are all wired against the live API.
+
+![The TruePPM sign-in page: email and password on the left, a schedule illustration on the right](../../../assets/screenshots/login.webp)
 
 ## Next steps
 

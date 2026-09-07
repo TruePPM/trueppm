@@ -6,6 +6,7 @@ import { FIXTURE_SHELL_STATS } from '@/fixtures/shellStats';
 import type { ShellStats, ApiSprint, Methodology, AddedTimeFacts } from '@/types';
 import { ADDED_TIME_FIXTURES } from '@/fixtures/addedTime';
 import type { ProjectVelocity } from '@/hooks/useSprints';
+import { deriveHealthBand, type HealthBand } from '@/lib/healthBand';
 import { HealthCluster } from './HealthCluster';
 
 // Configurable per test: `null` models an off-project route (My Work,
@@ -184,31 +185,65 @@ describe('HealthCluster', () => {
 
   // (a) state-word mapping ---------------------------------------------------
 
-  it('chip reads "On track" when there are no at-risk or critical tasks', () => {
-    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 0 };
-    render();
-    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On track');
-  });
+  // The chip prints the SERVER band word and nothing else (#3470). The expected
+  // word is written out as a LITERAL rather than read from `HEALTH_BAND_LABEL`:
+  // asserting `HEALTH_BAND_LABEL[band]` against a component that renders
+  // `HEALTH_BAND_LABEL[deriveHealthBand(...)]` puts the same constant on both
+  // sides, so editing a value in that map could not fail it. Each case also pins
+  // the band the counts produce, which is the half that mirrors the server
+  // (`deriveHealthBand` follows `views.py::compute_band`).
+  it.each<[number, number, HealthBand, string]>([
+    [0, 0, 'on_track', 'On track'],
+    [3, 0, 'at_risk', 'At risk'],
+    [0, 1, 'critical', 'Critical'],
+  ])(
+    'counts (at-risk %i, critical %i) give the %s band, and the chip reads "%s"',
+    (atRiskCount, criticalCount, band, word) => {
+      stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount, criticalCount };
+      render();
+      expect(deriveHealthBand(criticalCount, atRiskCount)).toBe(band);
+      expect(screen.getByTestId('health-cluster')).toHaveTextContent(word);
+    },
+  );
 
-  it('chip reads "On watch" when at-risk > 0 and critical = 0', () => {
+  it('chip never renders the retired "On watch" word for the at-risk band', () => {
+    // The negative control for the #3470 regression: before the fix the at-risk
+    // band printed "On watch", a word defined by no ADR and rendered nowhere
+    // else in the product. Asserting the positive word alone does not catch a
+    // reintroduction, because "On watch" would still be *a* word for the band.
     stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 3, criticalCount: 0 };
     render();
-    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On watch');
+    expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('On watch');
   });
 
-  it('chip reads "At risk" when there is at least one critical task', () => {
+  it('critical band reads "Critical", not the at-risk band word', () => {
+    // The other half of #3470: the critical band used to print "At risk", so the
+    // top bar contradicted the page beneath it. The absence assertion is scoped
+    // to the chip trigger — the popover is portaled out of it and repeats the
+    // same word from the same source.
     stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 1 };
     render();
-    expect(screen.getByTestId('health-cluster')).toHaveTextContent('At risk');
+    const chip = screen.getByTestId('health-cluster');
+    expect(chip).toHaveTextContent('Critical');
+    expect(chip).not.toHaveTextContent('At risk');
   });
 
-  it('AGILE project with a critical task still reads "At risk" on the chip', () => {
+  it('the chip aria-label carries the band word', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 1 };
+    render();
+    expect(screen.getByTestId('health-cluster')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Project health: Critical'),
+    );
+  });
+
+  it('AGILE project with a critical task still reads "Critical" on the chip', () => {
     // The AGILE cluster has no critical segment, but the chip word derives from
     // the project-wide count on useShellStats — so a real critical task surfaces.
     methodology.current = 'AGILE';
     stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 2 };
     render();
-    expect(screen.getByTestId('health-cluster')).toHaveTextContent('At risk');
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent('Critical');
   });
 
   // (b) chip P80 fragment ----------------------------------------------------

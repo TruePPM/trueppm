@@ -8,9 +8,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useProjectId } from '@/hooks/useProjectId';
-import { apiClient } from '@/api/client';
+import { fetchAllPages } from '@/api/pagination';
 import type { Task, TaskAssignee, TaskStatus } from '@/types';
-import type { PaginatedResponse } from '@/api/types';
 
 interface ApiTask {
   id: string;
@@ -90,21 +89,13 @@ export function useCalendarTasks(options: UseCalendarTasksOptions = {}): UseCale
       if (startGte) params['start__gte'] = startGte;
       if (finishLte) params['finish__lte'] = finishLte;
 
-      // Fetch all pages (calendar windows are date-bounded so page count is small).
-      const allTasks: ApiTask[] = [];
-      let nextUrl: string | null;
-      const firstPage = await apiClient.get<PaginatedResponse<ApiTask>>('/tasks/', { params });
-      allTasks.push(...firstPage.data.results);
-      nextUrl = firstPage.data.next ?? null;
-
-      while (nextUrl) {
-        const parsed = new URL(nextUrl);
-        const pageRes = await apiClient.get<PaginatedResponse<ApiTask>>(
-          parsed.pathname + parsed.search,
-        );
-        allTasks.push(...pageRes.data.results);
-        nextUrl = pageRes.data.next ?? null;
-      }
+      // Fetch all pages via the shared helper. DRF emits an ABSOLUTE `next`
+      // whose path already begins with `/api/v1`, and apiClient's baseURL is
+      // `/api/v1` — so handing axios `pathname + search` produced
+      // `/api/v1/api/v1/tasks/?page=2` and 404'd page 2 for every project whose
+      // window spans more than one page (#3467). `fetchAllPages` strips the
+      // prefix; calendar windows are date-bounded so the page count stays small.
+      const allTasks = await fetchAllPages<ApiTask>('/tasks/', params);
 
       return allTasks.map(mapTask);
     },

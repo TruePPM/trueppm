@@ -1,8 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { HealthBand } from '@/lib/healthBand';
 
-/** Derived health band for a project in the "my projects" summary (ADR-0401). */
-export type HealthBand = 'on_track' | 'at_risk' | 'critical';
+/**
+ * Derived health band for a project in the "my projects" summary (ADR-0401).
+ *
+ * Re-exported from the one health vocabulary (`lib/healthBand`) rather than
+ * redeclared, so a surface that widens the band set cannot leave this hook
+ * describing a narrower one.
+ */
+export type { HealthBand };
 
 export interface ProjectHealthRow {
   id: string;

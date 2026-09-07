@@ -40,6 +40,8 @@ is out of scope for the community edition.
 
 Each row shows, at a glance:
 
+![The project Assets feed listing attached files with their task, uploader, and age, filtered by provider](../../../assets/screenshots/assets.webp)
+
 - a **provider glyph** (🐙 GitHub, 🦊 GitLab, 📂 Drive, a 📎 for a file, …);
 - the **title** — the file name or the link's custom title, linking straight to
   the file download or the external URL;

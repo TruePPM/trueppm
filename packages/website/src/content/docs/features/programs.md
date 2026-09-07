@@ -33,6 +33,8 @@ The **/programs** page lists every program you belong to as a card grid. Once
 the directory grows past a handful of programs, three header controls will help
 you find the right one without scrolling the whole wall:
 
+![The Programs directory showing the Atlas Platform Launch card with its three projects and the Load demo data button](../../../assets/screenshots/programs.webp)
+
 - **Filter** — type in the search box to narrow the cards by program name, code,
   or description as you type. A counter shows how many of your programs match.
 - **Methodology** — narrow to Waterfall, Agile, or Hybrid programs.
@@ -85,6 +87,8 @@ privilege and keeps audit trails clean.
 ## Adding projects to a program
 
 From a program's **Projects** tab, select **+ Add project**. The picker lists:
+
+![The program's Projects tab listing Migration Tooling, Platform Core, and GTM Readiness with overdue and at-risk counts](../../../assets/screenshots/program-projects.webp)
 
 1. **Standalone projects** — projects with no program. Select one to add it.
 2. **In another program** — projects that already belong to a different
@@ -162,6 +166,8 @@ would be rejected when you submit.
 ## The program shell
 
 `/programs/:id` is a six-tab shell — **Overview**, **Backlog**, **Projects**, **Resources**, **Members**, and **Settings**:
+
+![The Atlas Platform Launch program overview: schedule health, baseline variance, critical tasks, milestone health, and risk score tiles](../../../assets/screenshots/program-overview.webp)
 
 - **Overview** — rollup KPIs and program health at a glance across the
   program's projects.

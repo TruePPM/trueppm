@@ -86,9 +86,6 @@ const CALLS_A_DISMISS = /setTimeout\(\s*on(?:Cancel|Dismiss|Close|Hide)\s*[,)]/;
  * be needed to keep it passing — which the last test in this file enforces.
  */
 const ALLOWLIST: Record<string, string> = {
-  // Implements its own hover/focus pause inline (`pausedRef` + onFocusCapture),
-  // predating the hook. Correct today; converting it is cosmetic, not a fix.
-  'features/schedule/RecalcPercentChip.tsx': 'has an equivalent inline pause',
   // Message-only toasts: no button, no link, nothing focusable inside, so there is
   // no control to remove out from under a keyboard user. Out of the class — but
   // recorded rather than silently unmatched, because adding an Undo to either one
@@ -121,11 +118,7 @@ const REARMABLE_TIMER =
   /useEffect\(\(\)\s*=>\s*\{(?:(?!\}, \[)[\s\S])*?setTimeout(?:(?!\}, \[)[\s\S])*?\}, \[([^\]]*\b(?:on[A-Z]\w*|handle[A-Z]\w*|\w+Callback)\b[^\]]*)\]\)/;
 
 /** Same contract as ALLOWLIST above: a decision with a name, not an exemption. */
-const REARM_ALLOWLIST: Record<string, string> = {
-  // Two effects, both `[phase, onDismiss]`, both call sites passing an inline arrow.
-  // Same defect, tracked separately because the remedy is a conversion, not a one-liner.
-  'features/schedule/RecalcPercentChip.tsx': 'same defect, tracked in #3447',
-};
+const REARM_ALLOWLIST: Record<string, string> = {};
 
 describe('a dwell is not re-armable by an unrelated re-render (#3394)', () => {
   it('leaves no NEW timer effect that a re-render can restart', () => {
@@ -248,6 +241,12 @@ describe('pausable auto-dismiss has exactly one implementation (#3356)', () => {
       // decision had to move it to this list — an allowlist nobody ever empties is
       // a backlog with a guard's name on it.
       'features/grid/ConfirmDeleteStrip.tsx',
+      // Converted in #3447. Its ALLOWLIST reason ("has an equivalent inline pause")
+      // was true of the pause and silent about the re-arm: both of its timer effects
+      // depended on an `onDismiss` every call site passed as an inline arrow, so a
+      // parent re-render restarted the dwell from zero. The hook's ref-read closes
+      // both at once.
+      'features/schedule/RecalcPercentChip.tsx',
     ]) {
       expect(IMPORTS_HOOK.test(readFileSync(resolve(SRC, file), 'utf8')), file).toBe(true);
     }

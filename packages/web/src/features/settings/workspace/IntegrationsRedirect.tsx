@@ -113,7 +113,7 @@ export function IntegrationsRedirect() {
                   className="inline-block w-2 h-2 rounded-full"
                   style={{ backgroundColor: project.colorDot }}
                 />
-                <span className="flex-1 truncate">{project.name}</span>
+                <span className="flex-1 min-w-0 truncate">{project.name}</span>
                 <span aria-hidden="true" className="text-neutral-text-secondary">→</span>
               </Link>
             </li>

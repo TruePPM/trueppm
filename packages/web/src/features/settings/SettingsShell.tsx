@@ -1073,7 +1073,7 @@ function ContextRow({
               tP
             </span>
           )}
-          <span className="flex-1 truncate text-neutral-text-primary font-medium">
+          <span className="flex-1 min-w-0 truncate text-neutral-text-primary font-medium">
             {contextName}
           </span>
         </>

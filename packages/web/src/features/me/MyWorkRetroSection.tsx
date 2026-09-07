@@ -113,7 +113,7 @@ function OwnedGroup({ items }: { items: MyWorkRetroActionItem[] }) {
             <span className="tppm-mono text-xs text-neutral-text-secondary w-20 shrink-0">
               T-{it.task_short_id ?? it.task_id.slice(0, 6)}
             </span>
-            <span className="flex-1 text-sm text-neutral-text-primary truncate">{it.text}</span>
+            <span className="flex-1 min-w-0 text-sm text-neutral-text-primary truncate">{it.text}</span>
             <span className="text-xs text-neutral-text-disabled tppm-mono shrink-0">
               {it.from_sprint_short_id ? `Sprint ${it.from_sprint_short_id} retro` : 'retro'}
             </span>
