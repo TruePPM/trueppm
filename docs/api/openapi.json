@@ -74483,11 +74483,12 @@
             },
             "_LoginRequestRequest": {
                 "type": "object",
-                "description": "Login request body: credentials + the optional ``remember_me`` flag (#2246).\n\nDeclared for the OpenAPI schema only — the view validates credentials via\nsimplejwt's ``TokenObtainPairSerializer`` and reads ``remember_me`` from the\nbody separately, so this serializer documents the request shape (so API-first\nconsumers see ``remember_me``) without being used to validate.",
+                "description": "Login request body: credentials + the optional ``remember_me`` flag (#2246).\n\n``username`` accepts either identifier (#3468) — the field keeps its name for\nwire compatibility with every existing client and with simplejwt's serializer.\n\nDeclared for the OpenAPI schema only — the view validates credentials via\nsimplejwt's ``TokenObtainPairSerializer`` and reads ``remember_me`` from the\nbody separately, so this serializer documents the request shape (so API-first\nconsumers see ``remember_me``) without being used to validate.",
                 "properties": {
                     "username": {
                         "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "description": "The account's username, or the email address on the account (#3468). The username is matched first; the email is tried only if that fails, and only when exactly one account carries it — an email shared by two accounts is refused rather than resolved to either."
                     },
                     "password": {
                         "type": "string",
