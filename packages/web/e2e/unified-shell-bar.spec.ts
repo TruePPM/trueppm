@@ -431,9 +431,15 @@ test.describe('the "+ New task" demotion (#2952, design case 18)', () => {
     await page.getByRole('button', { name: 'New task' }).click();
 
     await expect(page).toHaveURL(/\/schedule/);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
     // The param is consumed and stripped, so a refresh cannot author a second row.
     await expect(page).not.toHaveURL(/author=/);
-    expect(created).not.toBeNull();
+    // Wait for the POST before asserting on it: the strip above is a React render
+    // and this is a network round-trip, so the strip always wins the race. A bare
+    // `expect(created)` samples once and fails on a loaded runner (#3545).
+    await expect.poll(() => created).not.toBeNull();
+    // Only NOW is the absence of a modal meaningful. Asserted after the row has
+    // actually landed, because `toHaveCount(0)` passes on its first sample — before
+    // ScheduleView mounts it would pass no matter what this affordance opened.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });
