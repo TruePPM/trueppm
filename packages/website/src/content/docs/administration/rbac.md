@@ -8,13 +8,19 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 
 ## Roles
 
-| Role | Ordinal | Label | Description |
-|------|---------|-------|-------------|
-| **Owner** | 400 | Project Admin | Full control. Manages members, can assign any role below Owner, deletes project. |
-| **Admin** | 300 | Project Manager | Full task and dependency edit, project settings, baseline creation. |
-| **Scheduler** | 200 | Resource Manager | Assigns resources and edits dependencies. Cannot edit task content. |
-| **Member** | 100 | Team Member | Edits own assigned tasks. Logs time. |
-| **Viewer** | 1 | Viewer | Read-only. Can pull delta sync to mobile. |
+| Role | Ordinal | Project label | Program label | Description |
+|------|---------|---------------|---------------|-------------|
+| **Owner** | 400 | Project Admin | Program Admin | Full control. Manages members, can assign any role below Owner, deletes project. |
+| **Admin** | 300 | Project Manager | Program Manager | Full task and dependency edit, project settings, baseline creation. |
+| **Scheduler** | 200 | Resource Manager | Resource Manager | Assigns resources and edits dependencies. Cannot edit task content. |
+| **Member** | 100 | Team Member | Team Member | Edits own assigned tasks. Logs time. |
+| **Viewer** | 1 | Viewer | Viewer | Read-only. Can pull delta sync to mobile. |
+
+**One ordinal, named for its container.** The two label columns are not two role models. `ProjectMembership` and `ProgramMembership` share the same five roles and the same ordinals, so a Program Manager and a Project Manager hold the same rank — 300 — and differ only in what they hold it over. Only the top two tiers are renamed; 200, 100, and 1 read identically in both scopes. Program surfaces (`GET /programs/{id}/members/` and the `my_role_label` field on `GET /programs/{id}/`) return the program wording, project surfaces return the project wording, and the numeric `role` field is the same value either way — integrate against the ordinal, never against the label.
+
+:::note[Ships in 0.4]
+The **Program label** column ships in **TruePPM 0.4**. On `v0.3.0-alpha.3`, the latest release, both program endpoints above label ordinals 400 and 300 with the project wording — a program's own members list calls its administrator a "Project Admin". The lower three tiers are unaffected: they already read the same in both scopes.
+:::
 
 ### Why the ordinals jump by 100
 

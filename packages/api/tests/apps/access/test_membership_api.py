@@ -342,6 +342,40 @@ def test_retrieve_includes_role_label(
     assert resp.data["role_label"] == "Project Admin"
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("role", "expected_label"),
+    [
+        (Role.VIEWER, "Viewer"),
+        (Role.MEMBER, "Team Member"),
+        (Role.SCHEDULER, "Resource Manager"),
+        (Role.ADMIN, "Project Manager"),
+        (Role.OWNER, "Project Admin"),
+    ],
+)
+def test_project_members_keep_the_project_vocabulary(
+    owner_client: APIClient,
+    project: Project,
+    member_user: object,
+    role: int,
+    expected_label: str,
+) -> None:
+    """Project rows still read "Project Manager" / "Project Admin" (#3503).
+
+    The program members endpoint moved to the program vocabulary; this is the
+    over-correction guard — the two scopes name the same ordinal differently on
+    purpose, and only the program side was wrong.
+    """
+    membership = ProjectMembership.objects.create(project=project, user=member_user, role=role)
+
+    resp = owner_client.get(_url(project))
+
+    assert resp.status_code == 200
+    row = next(m for m in resp.data if m["id"] == str(membership.pk))
+    assert row["role"] == role
+    assert row["role_label"] == expected_label
+
+
 # ---------------------------------------------------------------------------
 # M4: partial_update role escalation blocked
 # ---------------------------------------------------------------------------

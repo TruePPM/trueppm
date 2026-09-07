@@ -253,6 +253,12 @@ ATTACHMENT_STORAGE_SIGNS_URLS = env.bool("TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS"
 # unencrypted-DB boot guard in settings/prod.py.
 ALLOW_UNENCRYPTED_DB = env.bool("TRUEPPM_ALLOW_UNENCRYPTED_DB", default=False)
 
+# Operator acknowledgment that ALLOWED_HOSTS is a bare "*" in prod (#3515).
+# Consumed by the wildcard-host boot guard in settings/prod.py, which otherwise
+# refuses to start: "*" is the one value that disables host validation outright,
+# and host validation is the only bound on the absolute URLs the API builds.
+ALLOW_WILDCARD_ALLOWED_HOSTS = env.bool("TRUEPPM_ALLOW_WILDCARD_HOSTS", default=False)
+
 # Global rate-limiting kill switch (ADR-0604, extends ADR-0208). Operator-only
 # escape hatch to disable ALL DRF throttling — used by the k6 perf:load job to
 # measure raw throughput, and by an operator load-testing / debugging a real

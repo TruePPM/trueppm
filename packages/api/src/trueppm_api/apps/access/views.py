@@ -754,10 +754,13 @@ class ProgramUserDefinedMentionGroupViewSet(
          ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``
          ``…/{pk}/mute/``  ``…/{pk}/unmute/``
 
-    Permission matrix (ADR-0248 §3):
-      list / retrieve            — any program member (Viewer+)
-      create / update / destroy  — Program Owner  (group lifecycle is an owner act)
-      add-member / remove-member — Program Admin+  (roster curation)
+    Permission matrix (ADR-0248 §3) — tiers in program vocabulary, ordinals in
+    parentheses because "Program Admin" is ``Role.OWNER`` (400) here, not
+    ``Role.ADMIN`` (#3503):
+      list / retrieve            — any program member (Viewer+, 1)
+      create / update / destroy  — Program Admin (400)  (group lifecycle is an
+                                   owner act)
+      add-member / remove-member — Program Manager+ (300)  (roster curation)
       mute / unmute              — any member (their own subscription only)
     """
 

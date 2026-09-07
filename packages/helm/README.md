@@ -303,6 +303,23 @@ acceptable only for a dev/demo cluster, never production. `settings.prod` trusts
 and HSTS correctly behind edge TLS; the `/api/v1/health/` and `/api/v1/edition/`
 probe paths stay exempt from the optional HTTP→HTTPS redirect.
 
+The **host** works the other way round, and your edge has to hold up its half
+(#3515). `settings.prod` pins `USE_X_FORWARDED_HOST = False`, so
+`X-Forwarded-Host` is **ignored** and whatever fronts this release must preserve
+the original `Host` end to end. ingress-nginx and the cloud load balancers do
+this by default, as does every nginx config this chart renders. There is
+deliberately no setting to trust the forwarded host instead: no proxy here sets
+that header, so believing it would mean believing a value only the client could
+have written.
+
+If your edge rewrites `Host` to an internal service name and cannot be changed,
+set `env.TRUEPPM_PUBLIC_API_BASE_URL` to your public origin. That pins the two
+absolute URLs the API would otherwise derive from the request — the OIDC
+`redirect_uri` and the inbound Git-webhook URL a project admin pastes into
+GitHub/GitLab — both of which otherwise render with the internal name and fail
+silently. Whatever `Host` does arrive must be in `ALLOWED_HOSTS`, and a bare `*`
+there refuses to boot (`TRUEPPM_ALLOW_WILDCARD_HOSTS=true` acknowledges it).
+
 ## Bundled datastores are dev/demo only (#1715, #1716)
 
 The bundled PostgreSQL and Valkey subcharts are for **dev / demo / CI only**. They
