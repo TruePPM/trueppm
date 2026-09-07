@@ -1170,11 +1170,16 @@ test.describe('Programs — remove-from-program safety (#2176)', () => {
     });
 
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
-    const errorState = page.getByText(/Couldn't load this program's projects/i);
+    // `QueryErrorState variant="inline"` renders role="status"; scoping to it (not
+    // just the text node) gives the Retry below a real container. A page-wide Retry
+    // locator would click any other component's error-state Retry (the #3401 class).
+    const errorState = page
+      .getByRole('status')
+      .filter({ hasText: /Couldn't load this program's projects/i });
     await expect(errorState).toBeVisible();
 
     // Retry re-runs just the failed request; the second attempt succeeds.
-    await page.getByRole('button', { name: /retry/i }).click();
+    await errorState.getByRole('button', { name: /^Retry$/i }).click();
     await expect(page.getByRole('link', { name: 'Alpha' })).toBeVisible();
   });
 });

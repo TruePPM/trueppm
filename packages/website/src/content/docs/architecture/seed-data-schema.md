@@ -145,7 +145,7 @@ blindness the key exists to fix.
 
 ## Worked examples: the bundled fixtures
 
-The prose below explains the format's shape. The four bundled fixtures *are* the
+The prose below explains the format's shape. The five bundled fixtures *are* the
 format — correct, non-trivial, and validated on every CI run. Reading one beats
 inferring from a description, so they are downloadable from any running instance
 rather than only from a repository checkout:

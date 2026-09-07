@@ -170,11 +170,21 @@ test.describe('Demo data — inspect before you import', () => {
 
     await expect(page.getByText("Couldn't load the sample list")).toBeVisible();
 
+    // Scoped to the catalog's own error block: a page-wide Retry locator would
+    // click any other component's error-state Retry, so an unrelated query
+    // failure could drive this test's recovery step (the #3401 defect class).
+    // Asserting the container first keeps the scoping honest — a locator that
+    // resolves to nothing must fail here rather than silently narrow the click.
+    const errorState = page
+      .getByTestId('empty-state')
+      .filter({ hasText: "Couldn't load the sample list" });
+    await expect(errorState).toBeVisible();
+
     // Unblock, then retry — the rows appear without a reload.
     await page.route('**/api/v1/programs/samples/', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj(SAMPLES) }),
     );
-    await page.getByRole('button', { name: 'Retry' }).click();
+    await errorState.getByRole('button', { name: 'Retry', exact: true }).click();
 
     await expect(page.getByText('Atlas Platform Launch', { exact: true })).toBeVisible();
   });
