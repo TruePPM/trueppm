@@ -358,22 +358,27 @@ export function resolveGripWidth(coarse: boolean): number {
  * row's left edge — which is where the grip had been parked precisely because
  * nothing was there. Neither change is wrong alone; together they put a
  * `z-10 absolute left-0` 14px grip directly on top of a 16px ⇤ outdent button,
- * covering all but 2px of it. The grip and the nudges are both revealed by
- * `group-hover` **and `group-focus-within`**, so the collision is not a
- * hover-only flicker: clicking a row focuses it, and the grip then sits on the
- * outdent for as long as that row stays selected. It also *takes the clicks* —
- * the grip's `onPointerDown` starts a drag, so the ⇤ was unreachable by pointer
- * on the row the user was working on, on the surface whose entire justification
- * is that restructuring must not be keyboard-only knowledge.
+ * covering all but 2px of it. It also *takes the clicks* — the grip's
+ * `onPointerDown` starts a drag — so the ⇤ was unreachable by pointer on the
+ * surface whose entire justification is that restructuring must not be
+ * keyboard-only knowledge.
  *
- * The design says each of these controls gets its own lane and that you **pay
- * the honest width for a pair of targets rather than letting one cover the
- * other** (web rule 328, from `design_handoff_trueppm_v4/README.md` "Reading
- * structure"). Reserving the lane only on a coarse pointer built half of that:
- * the rule is about controls not overlapping, and two controls overlap at 14px
- * exactly as they do at 44px. So the reserve now follows `resolveGripWidth` at
- * both pointer classes, and the fine-pointer outline pays 14px for the grip it
- * has always drawn there.
+ * That was true **at rest**, not only on hover: `opacity-0` hides a control
+ * from the eye and not from `elementFromPoint`, and the nudges are never hidden
+ * at all (`opacity-[0.32]`, brightening on `group-hover` / `focus-within`). So
+ * the user saw a dim ⇤, clicked it, and got a drag with nothing on screen to
+ * explain why. Selection is the state worth testing because it **pins** the
+ * grip at full strength — clicking a row to work on it satisfies
+ * `group-focus-within` for as long as the row stays selected.
+ *
+ * The design says each of these controls gets its own lane, and rule 328's
+ * corollary says to **pay the honest width for a pair of 44px targets rather
+ * than letting one cover the other** — scoped, in its own words, to the
+ * coarse-pointer half (`design_handoff_trueppm_v4/README.md` "Reading
+ * structure"). Rule 405 extends it: two controls overlap at 14px exactly as
+ * they do at 44px, and nothing in the 44 was doing the work. So the reserve now
+ * follows `resolveGripWidth` at both pointer classes, and the fine-pointer
+ * outline pays 14px for the grip it has always drawn there.
  *
  * The counter-argument that kept it at zero — the Timeline's ~268px outline is
  * narrow and 14px is 5% of it — is real but does not survive being priced
@@ -381,6 +386,13 @@ export function resolveGripWidth(coarse: boolean): number {
  * cannot be clicked. The lever for a narrow outline is which columns are shown
  * (Display ▸ Columns), not overlapping two controls and hoping the pointer
  * lands in the 2px seam.
+ *
+ * No column pays the 14px in the ordinary case: the lanes are ADDED to the
+ * panel's width (`resolveOutlineLeftReserve`) and subtracted from nothing, so
+ * the bar track absorbs it. Where it does bite is the narrow-pane floor, and
+ * that is handled where the floor lives — `outlinePaneWidthFor` now takes the
+ * lane block as `leftReserve` and raises `MIN_OUTLINE_WIDTH` by it, so the
+ * lanes cannot be paid for out of the name column.
  */
 export function resolveGripReserve(coarse: boolean): number {
   return resolveGripWidth(coarse);

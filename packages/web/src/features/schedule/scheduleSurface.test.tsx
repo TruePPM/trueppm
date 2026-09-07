@@ -8,7 +8,11 @@ import {
   surfaceOutlineWidth,
   surfaceToggleableColumns,
 } from './scheduleSurface';
-import { resolveOutlineGripReserve, resolveOutlineLeftReserve } from './scheduleConstants';
+import {
+  resolveGripWidth,
+  resolveOutlineGripReserve,
+  resolveOutlineLeftReserve,
+} from './scheduleConstants';
 import {
   maxTaskWidthFor,
   clampTaskWidth,
@@ -131,8 +135,13 @@ describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', (
     // free when #3026 moved the ⇤/⇥/◆ lane to that same edge: the grip is
     // `z-10 absolute left-0`, so it covered 14 of the ⇤'s 16px and took its
     // clicks. The lane is now the grip's width at either class.
-    expect(resolveOutlineGripReserve(false, true)).toBe(14);
-    expect(resolveOutlineGripReserve(true, true)).toBe(44);
+    // The identity, not the literals — this branch's own rule 405(b). A `toBe(14)`
+    // would still pass if the grip grew and its lane did not, which is the drift
+    // that put the grip on top of the ⇤ in the first place.
+    for (const coarse of [false, true]) {
+      expect(resolveOutlineGripReserve(coarse, true)).toBe(resolveGripWidth(coarse));
+    }
+    expect(resolveOutlineGripReserve(false, true)).toBeGreaterThan(0);
   });
 
   it('gives a VIEWER no lane at either pointer class — absence, not a 44px hole', () => {
@@ -151,9 +160,11 @@ describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', (
     // nothing renders.
     const columns = surfaceOutlineWidth('timeline', WIDTHS, ALL_VISIBLE);
     expect(columns).toBe(268);
-    expect(columns + resolveOutlineLeftReserve(false, true)).toBe(
-      268 + resolveOutlineLeftReserve(false, true),
-    );
+    // The reserve used to appear on both sides of this comparison, where it
+    // cancels — the assertion said only `columns === 268`, which the line above
+    // already says. What is worth pinning is that the box is STRICTLY wider than
+    // the columns, i.e. the lanes are added rather than taken out of a column.
+    expect(columns + resolveOutlineLeftReserve(false, true)).toBeGreaterThan(columns);
     // The fine pointer reserves both lanes: the nudges are in flow, and since
     // #3078 the grip has a lane of its own here too rather than lying on them.
     expect(resolveOutlineGripReserve(false, true)).toBeGreaterThan(0);
@@ -245,6 +256,29 @@ describe('The bar track keeps its floor when the pane shrinks (#3279)', () => {
     // swaps to MobileSchedule — but the floor must not depend on that.)
     expect(outlinePaneWidthFor(400, 738)).toBe(240);
     expect(outlinePaneWidthFor(0 + 1, 738)).toBe(240);
+  });
+
+  it('raises the floor by the lane block, so the lanes are not paid for in name (#3078)', () => {
+    // The floor clamps the outline's RENDERED box and the lanes live inside it,
+    // so a floor that ignores them hands 240px to the box and lets the lanes
+    // eat the name column. #3026's 52px and #3078's 14px between them are 27.5%
+    // of the constant, and neither change had a reason to read `paneFloors.ts`.
+    //
+    // Stated against the resolver, not against 306: the point is that the floor
+    // TRACKS the lanes, and a literal would go on describing today's lane widths
+    // after the next control joins the cluster.
+    const lanes = resolveOutlineLeftReserve(false, true);
+    expect(lanes).toBeGreaterThan(0);
+    expect(outlinePaneWidthFor(400, 738, 0, lanes)).toBe(240 + lanes);
+
+    // A viewer has no lanes, so it keeps the bare floor — the reserve is not a
+    // blanket widening, it is the width of controls that are actually drawn.
+    expect(outlinePaneWidthFor(400, 738, 0, resolveOutlineLeftReserve(false, false))).toBe(240);
+
+    // …and the raised floor never exceeds what the columns asked for: a narrow
+    // outline must not be padded WIDER than its own content, which would spend
+    // bar-track width to buy nothing.
+    expect(outlinePaneWidthFor(400, 200, 0, lanes)).toBe(200);
   });
 
   it('renders what the columns ask for before the pane has been measured', () => {

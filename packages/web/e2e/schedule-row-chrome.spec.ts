@@ -256,13 +256,14 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     // \u21e4's own box was always the right size; it was simply underneath
     // something. `elementFromPoint` is the question the user is asking.
     //
-    // On the SELECTED row specifically, because that is the state the report
-    // was made from and the one a `hover()`-based test would miss the point of:
-    // both the grip and the nudges reveal on `group-hover` AND
-    // `group-focus-within`, so clicking a row to work on it pins the collision
-    // in place for as long as the row stays selected. A transient hover overlap
-    // would be a blemish; this made the control unusable on the row the user
-    // had chosen.
+    // On the SELECTED row specifically — not because hover is a false repro,
+    // but because selection is the state that PINS the failure. The grip is
+    // `opacity-0` until `group-hover` or `group-focus-within`; the nudges are
+    // never hidden, only dimmed to 32%. Since `opacity-0` does not disable
+    // hit-testing, the grip stole the ⇤'s clicks at rest too — the user saw a
+    // dim ⇤, clicked it, and got a drag with nothing on screen to explain why.
+    // Clicking a row satisfies `group-focus-within` for as long as it stays
+    // selected, which turns that from a blemish into a control nobody can use.
     const row = outlineRow(page, 'Survey');
     await row.getByRole('gridcell', { name: /Survey/ }).first().click();
 
@@ -300,11 +301,34 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     expect(verdict.map((v) => v.coveredBy)).not.toContain('row-reorder-grip');
     expect(verdict.filter((v) => !v.ownedByOutdent)).toEqual([]);
 
-    // …and the grip is still there, at full strength, in its own lane — the
-    // collision is resolved by giving it room, not by hiding it on the row
-    // where the user is most likely to want to drag.
+    // …and the grip is still there, painted and hit-testable, in its own lane:
+    // the collision is resolved by giving it room, not by hiding it on the row
+    // where the user is most likely to want to drag. "Hide the grip while the
+    // nudges show" was a real candidate fix, so this has to be able to fail.
+    //
+    // `toBeVisible()` CANNOT state that — Playwright's visibility reads the
+    // bounding box and `visibility`, and ignores `opacity`, so it passes on a
+    // grip that is `opacity-0`, deliberately hidden, or painted. The grip is
+    // `opacity-0` at rest on a mouse by design, which is exactly why the weaker
+    // assertion looks right here and proves nothing. Read the computed opacity
+    // and hit-test the grip's own centre, the same standard applied to the ⇤.
     const grip = row.locator('[data-testid="row-reorder-grip"]');
-    await expect(grip).toBeVisible();
+    // Selection satisfies `group-focus-within`, one of the grip's two reveals,
+    // so it settles at full strength rather than its resting 0. POLLED, because
+    // the reveal is a `transition-opacity` and a single sample lands mid-fade
+    // (0.836 the first time this was written as a one-shot `toBe(1)`) — a real
+    // fade, not a flake, so the fix is to wait for it rather than to loosen the
+    // assertion into one a hidden grip could also pass.
+    await expect
+      .poll(() => grip.evaluate((el) => Number(window.getComputedStyle(el).opacity)))
+      .toBe(1);
+    const ownsItsOwnCentre = await grip.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return hit != null && el.contains(hit);
+    });
+    expect(ownsItsOwnCentre).toBe(true);
+
     const [gripBox, outdentBox] = await Promise.all([grip.boundingBox(), outdent.boundingBox()]);
     expect(gripBox?.x ?? 0).toBeLessThan(outdentBox?.x ?? 0);
     expect((gripBox?.x ?? 0) + (gripBox?.width ?? 0)).toBeLessThanOrEqual((outdentBox?.x ?? 0) + 0.5);
