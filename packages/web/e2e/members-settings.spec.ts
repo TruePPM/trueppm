@@ -101,7 +101,7 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
   );
   await page.route('**/api/v1/projects/*/status-summary/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({
-      task_count: 0, critical_path_count: 0, monte_carlo_p80: null,
+      task_count: 0, critical_path_count: 0, health_band: 'on_track', monte_carlo_p80: null,
       at_risk_count: 0, critical_count: 0,
     }) }),
   );

@@ -22529,7 +22529,7 @@
         "/api/v1/projects/{id}/status-summary/": {
             "get": {
                 "operationId": "v1_projects_status_summary_retrieve",
-                "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nP80 is the most recent persisted MonteCarloRun's p80 for this project, or\nnull when no run has been recorded. Null means \"no forecast exists\", not\n\"not computed yet\" — a client may render \"P80 —\" for it without having to\nguess which of the two it is looking at.",
+                "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nhealth_band comes from :func:`compute_health_band` — the manual\nProject.health override when the PM has reported one, otherwise the\ncounts. It is on the payload because the shell chip fetches this endpoint\nand nothing else: without it the chip could only ever see the counts\nbranch, and contradicted the PM's own report (#3501).\n\nP80 is the most recent persisted MonteCarloRun's p80 for this project, or\nnull when no run has been recorded. Null means \"no forecast exists\", not\n\"not computed yet\" — a client may render \"P80 —\" for it without having to\nguess which of the two it is looking at.",
                 "summary": "Get the project status summary",
                 "parameters": [
                     {
@@ -36421,7 +36421,7 @@
         "/api/v1/projects/health-summary/": {
             "get": {
                 "operationId": "v1_projects_health_summary_list",
-                "description": "Compact \"my projects\" health triage for the My Work page (ADR-0401).\n\nReturns one row per project the caller is a member of (excluding archived),\neach carrying a derived ``health_band`` plus the same at-risk / critical task\ncounts the single-project status-summary uses, so a PM overseeing many\nprojects can see \"which of mine is on fire?\" without opening each.\n\nScope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a\ncross-program or portfolio rollup (that governance surface stays Enterprise,\nADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.\n\nAt-risk / critical use the status_summary semantics: incomplete tasks with\ntotal_float <= 5 working days → at_risk_count; incomplete is_critical=True →\ncritical_count. ``distinct=True`` on both conditional counts matches the\nannotate-over-reverse-FK convention of ProgramViewSet.projects — defensive\nagainst fan-out if a second to-many join is ever added to this queryset (the\nmembership scope is a ``pk__in`` subquery, not a join, so today there is only\nthe one ``tasks`` join).\n\nhealth_band is derived: the manual Project.health override wins when set (not\nAUTO); otherwise counts-first — critical_count > 0 → critical, else\nat_risk_count > 0 → at_risk, else on_track.",
+                "description": "Compact \"my projects\" health triage for the My Work page (ADR-0401).\n\nReturns one row per project the caller is a member of (excluding archived),\neach carrying a derived ``health_band`` plus the same at-risk / critical task\ncounts the single-project status-summary uses, so a PM overseeing many\nprojects can see \"which of mine is on fire?\" without opening each.\n\nScope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a\ncross-program or portfolio rollup (that governance surface stays Enterprise,\nADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.\n\nAt-risk / critical use the status_summary semantics: incomplete tasks with\ntotal_float <= 5 working days → at_risk_count; incomplete is_critical=True →\ncritical_count. ``distinct=True`` on both conditional counts matches the\nannotate-over-reverse-FK convention of ProgramViewSet.projects — defensive\nagainst fan-out if a second to-many join is ever added to this queryset (the\nmembership scope is a ``pk__in`` subquery, not a join, so today there is only\nthe one ``tasks`` join).\n\nhealth_band comes from :func:`compute_health_band` — the same rule the\nsingle-project status-summary calls, so the two cannot disagree about one\nproject (#3501).",
                 "summary": "Health summary across the caller's own projects (ADR-0401, #1941)",
                 "parameters": [
                     {
@@ -55214,6 +55214,15 @@
                     "name"
                 ]
             },
+            "HealthBandEnum": {
+                "enum": [
+                    "on_track",
+                    "at_risk",
+                    "critical"
+                ],
+                "type": "string",
+                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical"
+            },
             "HealthEnum": {
                 "enum": [
                     "AUTO",
@@ -63901,7 +63910,7 @@
                         "type": "string"
                     },
                     "health_band": {
-                        "type": "string"
+                        "$ref": "#/components/schemas/HealthBandEnum"
                     },
                     "at_risk_count": {
                         "type": "integer"
@@ -64654,6 +64663,14 @@
                     "task_count": {
                         "type": "integer"
                     },
+                    "health_band": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/HealthBandEnum"
+                            }
+                        ],
+                        "description": "The project's health band. The manual Project.health override when the PM has reported one (not AUTO), otherwise derived from the counts below: critical_count > 0 → critical, else at_risk_count > 0 → at_risk, else on_track. A client MUST print this value rather than re-deriving a band from the counts — the counts alone cannot see the override.\n\n* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical"
+                    },
                     "at_risk_count": {
                         "type": "integer"
                     },
@@ -64696,6 +64713,7 @@
                     "at_risk_tasks",
                     "critical_count",
                     "critical_tasks",
+                    "health_band",
                     "last_saved",
                     "monte_carlo_p80",
                     "recalculated_at",
