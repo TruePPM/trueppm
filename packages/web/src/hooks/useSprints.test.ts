@@ -915,6 +915,48 @@ describe('sprint query gating and failure paths', () => {
     expect(result.current.sprint?.id).toBe('live');
   });
 
+  it('useActiveSprint surfaces the fetch error alongside the null sprint (#3455)', async () => {
+    // The whole point: `sprint === null` after a failure looks identical to
+    // `null` on a project with no active sprint, so the error is the only thing
+    // that lets a consumer tell "not in the active sprint" from "unknown".
+    getMock.mockRejectedValueOnce(new Error('sprints unavailable'));
+
+    const { result } = renderHook(() => useActiveSprint('proj-1'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(result.current.error?.message).toBe('sprints unavailable');
+    expect(result.current.sprint).toBeNull();
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('useActiveSprint reports a null error on a resolved list with no ACTIVE sprint (#3455)', async () => {
+    // The polarity pair for the test above, pinned beside it: same `null`
+    // sprint, different verdict — one is a fact, the other is an unknown.
+    getMock.mockResolvedValueOnce({
+      data: { count: 1, next: null, previous: null, results: [sprint({ id: 'p', state: 'PLANNED' })] },
+    });
+
+    const { result } = renderHook(() => useActiveSprint('proj-1'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.sprint).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('useActiveSprint re-runs the list query through refetch (#3455)', async () => {
+    getMock.mockResolvedValue({
+      data: { count: 0, next: null, previous: null, results: [] },
+    });
+
+    const { result } = renderHook(() => useActiveSprint('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      result.current.refetch?.();
+    });
+    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+  });
+
   it('useSprintsByState yields empty buckets and surfaces the error on a failed fetch', async () => {
     getMock.mockRejectedValueOnce(new Error('sprints unavailable'));
 

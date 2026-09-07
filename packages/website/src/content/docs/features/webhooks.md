@@ -101,7 +101,7 @@ A webhook is scoped to exactly one project **or** one program:
 - **Project** — `/api/v1/projects/{id}/webhooks/` — fires for events on that one project.
 - **Program** — `/api/v1/programs/{id}/webhooks/` — fires for events on **any** project in the program. Configure one endpoint once instead of copying it into every child project.
 
-Program-scoped reads require program Viewer+; mutations require program Admin. The two scopes are additive: a project event reaches both its own project webhooks and its program's webhooks.
+Program-scoped reads require program Viewer+; mutations require Program Manager or above. The two scopes are additive: a project event reaches both its own project webhooks and its program's webhooks.
 
 ## Payload format
 
