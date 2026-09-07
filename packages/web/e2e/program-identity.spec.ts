@@ -126,19 +126,25 @@ test('the v2 rail program row shows the accent identity square; the name is the 
   await expect(square).toHaveCSS('background-color', ACCENT);
 });
 
-test('an unset-color program row labels its identity tile with name initials (issue 1051)', async ({
+test('an unset-color program row draws a label-free tile — the name beside it is the signal (#3475)', async ({
   page,
 }) => {
   await page.goto('/me/work');
   const sb = sidebar(page);
   // The Programs tree relocated into the Tier-3 Browse switcher (#1642) — open it.
   await sb.getByRole('button', { name: 'Browse projects and programs' }).click();
-  // Mobile Platform has no accent — its tile is the faint neutral square. Without
-  // the initials, every uncolored program in this dense list would look identical;
-  // the xs-label variant labels it "MP" so it stays distinguishable.
+  // Mobile Platform has no accent — its tile is the faint neutral square. It used to
+  // carry "MP" at text-[7px] (issue 1051); two glyphs that small are guessed at, not
+  // read, and rule 50 prohibits sub-floor type in every tree. What actually tells the
+  // uncolored programs apart in this list is the NAME, which is right beside the tile
+  // and is the row button's accessible name — so the tile is now a bare dot.
   const nameBtn = sb.getByRole('button', { name: 'Mobile Platform', exact: true });
   await expect(nameBtn).toBeVisible();
   const row = nameBtn.locator('xpath=..');
   const square = row.locator('span[aria-hidden="true"]').first();
-  await expect(square).toHaveText('MP');
+  await expect(square).toBeVisible();
+  await expect(square).toHaveText('');
+  // …and nothing on the row renders below the 12px floor.
+  const px = await square.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+  expect(px).toBeGreaterThanOrEqual(12);
 });

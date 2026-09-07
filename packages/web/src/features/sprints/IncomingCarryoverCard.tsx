@@ -78,7 +78,7 @@ export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props)
             <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
               {t.short_id}
             </span>
-            <span className="flex-1 text-sm text-neutral-text-primary truncate" title={t.name}>
+            <span className="flex-1 min-w-0 text-sm text-neutral-text-primary truncate" title={t.name}>
               {t.name}
             </span>
             <span className="tppm-mono text-xs text-neutral-text-disabled shrink-0">

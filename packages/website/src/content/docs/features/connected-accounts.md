@@ -37,6 +37,8 @@ Credentials are per-user, not per-project or per-program — a PAT authorizes
 status fetches that preview links into issues, merge requests, and pull requests
 on tasks.
 
+![The Connected accounts page: GitHub and GitLab credentials for task-link previews, and the read-only Jira source for My Work](../../../assets/screenshots/connected-accounts.webp)
+
 ### What the page does
 
 - Lists one section per provider registered against the `TASK_LINK_PROVIDERS`

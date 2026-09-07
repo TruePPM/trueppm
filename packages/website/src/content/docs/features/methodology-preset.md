@@ -79,6 +79,8 @@ Customize views is **per-user and cosmetic** — it changes only your own naviga
 - **Start sheet** — the one-screen "New project" flow derives and states the methodology as a read-only line, based on the way you start (a template's own methodology, or the program/workspace default for Blank and Import) — it is never asked for directly at creation
 - **Project settings** — the same selector, editable post-creation; takes effect immediately
 
+![Project settings, How this team works: the methodology cards for Agile, Waterfall and Hybrid with the inherited program default](../../../assets/screenshots/project-settings-methodology.webp)
+
 ## Methodology inheritance
 
 As of **0.3**, you can

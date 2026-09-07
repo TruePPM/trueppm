@@ -506,7 +506,7 @@ function FacetOptionRow({ option, checked, tabIndex, onClick, onKeyDown, ref }: 
         {checked && <CheckIcon className="h-2.5 w-2.5" />}
       </span>
       {option.leading}
-      <span className="flex-1 truncate">{option.name}</span>
+      <span className="flex-1 min-w-0 truncate">{option.name}</span>
       <span className="tppm-mono shrink-0 text-xs tabular-nums text-neutral-text-secondary">
         {option.count}
       </span>

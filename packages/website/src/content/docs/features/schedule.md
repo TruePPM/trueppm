@@ -19,6 +19,8 @@ Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-sche
 - Route: `/projects/:projectId/schedule`
 - Tab: **Schedule** (visible by default for HYBRID and WATERFALL projects per [methodology preset](/features/methodology-preset/))
 
+![The Schedule view of the waterfall Migration Tooling project in Grid layout: the WBS task list with links, durations and dates beside the Gantt chart](../../../assets/screenshots/schedule.webp)
+
 ## How to read these dates
 
 Every date on this view — the bars, the Start and Finish columns, the milestone
@@ -229,6 +231,8 @@ exactly the situation the span exists to surface rather than hide.
 ## Layout
 
 Split-pane: a virtualized task list on the left (ten columns — WBS, Task, Links, Dur, Start, Finish, %, Owner, Float, Free — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronized in both directions. The **Links** column names the types of each row's dependencies and opens the picker — see [Task-list columns](/features/schedule-toolbar/#the-links-column).
+
+![The Schedule view in Timeline layout: a compact task list with the full-width Gantt chart, critical path, summary rollups, and the P50/P80/P95 forecast bar](../../../assets/screenshots/schedule-timeline.webp)
 
 :::tip[Build the plan from the keyboard]
 The task list is [Schedule build mode](/features/schedule-build-mode/) — a keyboard-first construction surface, on by default: type a task, `Alt + →` to indent, `Space` to complete, `F2` to edit. It builds the schedule; sprint planning still lives on the [Board](/features/board/).

@@ -68,6 +68,64 @@ describe('ConfirmDeleteStrip', () => {
     expect(onCancel).toHaveBeenCalled();
   });
 
+  it('Escape declines the delete through the same onCancel as the button (#3445)', () => {
+    // Escape is the third exit, and routing it through `onCancel` rather than its own
+    // state setter is what keeps the rule-368 focus handoff in `GridView` wired to all
+    // three exits instead of two. An Escape handler that reached for `setDeletePhase`
+    // directly would pass a "the strip closes" test and skip the handoff entirely.
+    const onCancel = vi.fn();
+    render(
+      <ConfirmDeleteStrip count={2} isDeleting={false} onConfirm={vi.fn()} onCancel={onCancel} />,
+    );
+    fireEvent.keyDown(strip(), { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape is inert once the delete is in flight', () => {
+    // Both buttons are disabled at this point; Escape must not be the one way left to
+    // return the toolbar to idle while the request is still running.
+    const onCancel = vi.fn();
+    render(
+      <ConfirmDeleteStrip count={2} isDeleting={true} onConfirm={vi.fn()} onCancel={onCancel} />,
+    );
+    fireEvent.keyDown(strip(), { key: 'Escape' });
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('keys other than Escape are left alone', () => {
+    const onCancel = vi.fn();
+    render(
+      <ConfirmDeleteStrip count={2} isDeleting={false} onConfirm={vi.fn()} onCancel={onCancel} />,
+    );
+    fireEvent.keyDown(strip(), { key: 'Enter' });
+    fireEvent.keyDown(strip(), { key: 'a' });
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('gives BOTH controls the identical hit-area pad (#3446)', () => {
+    // jsdom has no layout, so the pad's real geometry is pinned in Playwright
+    // (`wave3-grid-view.spec.ts`) by hit-testing points outside the visible box. What
+    // this adds is the half a browser test cannot see cheaply: the two buttons share
+    // one constant, so Confirm cannot end up padded while Cancel stays 28px — which
+    // is exactly how this class recurs.
+    render(
+      <ConfirmDeleteStrip count={2} isDeleting={false} onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+    const confirm = screen.getByRole('button', { name: /^Confirm delete$/ });
+    const cancel = screen.getByRole('button', { name: /^cancel$/i });
+    const pad = (el: HTMLElement) =>
+      el.className
+        .split(/\s+/)
+        .filter((c) => c === 'relative' || c.startsWith('before:'))
+        .sort()
+        .join(' ');
+    expect(pad(confirm)).not.toBe('');
+    expect(pad(cancel)).toBe(pad(confirm));
+    // Vertical only: a symmetric pad would overlap the 12px gap between them and let
+    // DOM order decide which button a tap in between lands on.
+    expect(pad(confirm)).toContain('before:inset-x-0');
+  });
+
   it('does NOT auto-cancel while deleting is in flight', () => {
     const onCancel = vi.fn();
     render(

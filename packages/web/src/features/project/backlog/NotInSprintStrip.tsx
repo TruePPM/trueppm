@@ -124,7 +124,7 @@ export function NotInSprintStrip({ stories, onSelect }: NotInSprintStripProps) {
                   hover:bg-neutral-surface-raised
                   focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
               >
-                <span className="flex-1 truncate">{story.name}</span>
+                <span className="flex-1 min-w-0 truncate">{story.name}</span>
                 <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
                   {story.storyPoints == null ? 'unestimated' : `${story.storyPoints} pts`}
                 </span>

@@ -16,6 +16,7 @@ import {
   useInfiniteQuery,
 } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toApiRelativePath } from '@/api/pagination';
 import type { TaskStatus } from '@/types';
 import type { BlockerType } from '@/lib/blocker';
 import type { ExternalSyncOutcome } from '@/features/integrations/syncOutcome';
@@ -275,12 +276,15 @@ export function useMyWork() {
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const url = (pageParam as string | null) ?? '/me/work/';
-      // Cursors come from the server as fully-qualified next/previous URLs.
-      // axios will strip the host when paired with the configured baseURL.
       const res = await apiClient.get<MyWorkPage>(url);
       return res.data;
     },
-    getNextPageParam: (lastPage) => lastPage.next,
+    // DRF returns `next` as a fully-qualified URL. Axios does NOT prepend its
+    // baseURL to an absolute URL, so passing it through sends the request to
+    // whichever host the server put in the link rather than to the page origin
+    // — which breaks behind the dev proxy's `changeOrigin`. Normalize it to a
+    // baseURL-relative path, the same transform `fetchAllPages` uses (#3467).
+    getNextPageParam: (lastPage) => (lastPage.next ? toApiRelativePath(lastPage.next) : undefined),
     refetchOnWindowFocus: true,
     staleTime: 30_000,
   });

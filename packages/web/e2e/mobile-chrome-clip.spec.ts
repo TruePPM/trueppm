@@ -44,14 +44,34 @@ const PROJECT = {
 /**
  * Every health band, not one of them (#3505).
  *
- * This fixture used to be a single object pinning `critical_count: 2`, under a
- * comment calling itself the worst case. It was the *best* case: the chip's state
- * word is what varies the bar's width, severity is no guide to how wide a word is,
- * and the pinned band happened to render the narrowest of the three. So the guard
- * ran green while the bar overflowed by 2px in one band and 8px in another — and
- * re-pinning it to whichever band is widest *today* would just move the blind spot
- * to the next relabeling. The guard has to be word-independent, so it sweeps the
- * matrix: the band is an input here, and nothing below reads the word.
+ * This fixture used to be a single object pinning one band, under a comment
+ * calling itself the worst case. It was not: the chip's state word is what
+ * varies the bar's width, and severity is no guide to how wide a word is. So the
+ * guard ran green while the bar overflowed in the bands it was not testing — and
+ * re-pinning it to whichever band is widest *today* would only move the blind
+ * spot to the next relabeling. The guard has to be word-independent, so it
+ * sweeps the matrix: the band is an input here, and nothing below reads the word.
+ *
+ * The measurements that made the case, in Chromium at 375x812 against the
+ * bundled Inter at the chip's own `text-xs font-medium` (#3470, #3505):
+ *
+ *   band       word        word w    chip w    header scrollW    overflow
+ *   on_track   "On track"  48.73px   100.45    377               2px
+ *   critical   "Critical"  40.55px    92.27    375               0px
+ *   at_risk    "At risk"   36.47px    88.19    375               0px
+ *
+ * Read the last two columns together or the table looks self-contradictory: a
+ * 12.26px wider word appears to cost only 2px. It does not — the header is
+ * `flex-nowrap` with compressible neighbours, so it absorbs roughly the first
+ * 10px and pins `scrollWidth` at `clientWidth` until it runs out. `on_track` is
+ * the band that runs it out, which is why severity ranks the words backwards.
+ *
+ * Two dead ends this sweep closes for good, both of which sat green through a
+ * real defect: pinning `critical_count: 2` (before #3470 that band rendered "At
+ * risk", the NARROWEST of the three words), and pinning `at_risk` (which
+ * rendered the retired "On watch", 54.48px, overflowing by 8px and pushing the
+ * account chip's right edge to 377.20px, off a 375px screen). Both are now
+ * inputs rather than the choice, so neither can be restored by accident.
  */
 const BANDS = [
   { band: 'on_track', at_risk_count: 0, critical_count: 0 },

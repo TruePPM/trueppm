@@ -393,3 +393,250 @@ def test_a_project_with_no_board_config_omits_the_key(owner: Any) -> None:
     project = program.projects.get(name="Platform Core")
     block = next(p for p in exported["projects"] if p["name"] == project.name)
     assert "board_columns" not in block
+
+
+# --- revoked program members must not survive the round trip (#3457) ---
+
+
+def _seed_with_two_program_only_members() -> dict[str, Any]:
+    """``_seed()`` plus a second account, so one can be revoked and one held live.
+
+    ``sam`` and ``kit`` are named nowhere else in the *document* — not a task
+    assignee, risk owner, resource account or the program lead — so the only
+    thing that can put either of them in an export is a membership. Note the
+    importer's fallback also grants each of them a ``ProjectMembership`` on every
+    project (there is no ``members`` key), which is what makes this fixture able
+    to tell a program revocation apart from a project one.
+    """
+    seed = _seed()
+    seed["accounts"] = [
+        *seed["accounts"],
+        {"slug": "kit", "username": "seed-kit", "display_name": "Kit Osei", "role": "MEMBER"},
+    ]
+    return seed
+
+
+def _revoke_everywhere(program: Any, user: Any) -> None:
+    """Revoke a user's program membership and every project membership under it."""
+    from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
+
+    ProgramMembership.objects.get(program=program, user=user).soft_delete()
+    for pm in ProjectMembership.objects.filter(project__program=program, user=user):
+        pm.soft_delete()
+
+
+def test_revoked_program_member_carries_no_role_in_the_export(owner: Any) -> None:
+    """#3457: a removed member must not carry a program ``role`` in the export.
+
+    ``role`` is the only key the importer's program grant reads
+    (``_ROLE_BY_NAME.get(account.get("role", ""))`` → ``None`` → skip), so its
+    absence is precisely what withholds access. Asserted on the key rather than on
+    the account's presence because an account block has other legitimate reasons
+    to exist — being a task assignee, a resource, or, since this change, holding a
+    live project membership. ``test_..._fully_removed_member_...`` below covers
+    the case where nothing else references them.
+
+    The fix has to be here rather than on the import side. The importer's
+    ``_grant_program_memberships`` deliberately resets ``is_deleted`` (#3410) —
+    a tombstoned row still owns the ``(program, user)`` slot, so a grant that
+    touched only ``role`` would report success and confer nothing. Given a revoked
+    member in the document, the importer is behaving to contract when it hands the
+    role back; the defect is that the role is in the document at all.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    program = import_seed(_seed_with_two_program_only_members(), owner=owner, create_users=True)
+    revoked = User.objects.get(username="seed-sam")
+    ProgramMembership.objects.get(program=program, user=revoked).soft_delete()
+
+    exported = export_program(program)
+    validate_seed(exported)
+
+    sam_block = next(a for a in exported["accounts"] if a["username"] == "seed-sam")
+    assert "role" not in sam_block
+    # Paired control: the live member is exported with their role intact.
+    kit_block = next(a for a in exported["accounts"] if a["username"] == "seed-kit")
+    assert kit_block["role"] == "MEMBER"
+
+
+def test_a_fully_removed_member_is_absent_from_the_export_entirely(owner: Any) -> None:
+    """Revoked on both axes and referenced nowhere else → no account block at all.
+
+    The paired control is the live member, who must survive untouched.
+    """
+    program = import_seed(_seed_with_two_program_only_members(), owner=owner, create_users=True)
+    _revoke_everywhere(program, User.objects.get(username="seed-sam"))
+
+    exported = export_program(program)
+    validate_seed(exported)
+
+    usernames = {a["username"] for a in exported["accounts"]}
+    assert "seed-sam" not in usernames
+    assert "seed-kit" in usernames
+    kit_block = next(a for a in exported["accounts"] if a["username"] == "seed-kit")
+    assert kit_block["role"] == "MEMBER"
+
+
+def test_revoked_program_member_gains_no_access_through_the_round_trip(owner: Any) -> None:
+    """#3457 end to end: revoke, export, import into a *fresh* program.
+
+    Asserted on the round trip rather than on the export alone because the
+    export is only half the mechanism — it is the re-grant on import that turns
+    a stale roster entry into restored access.
+
+    Both axes are revoked here so the assertion is the unqualified one: the user
+    gains *nothing*. The narrower, more interesting case — program revoked while
+    the project grant is still live — is
+    ``test_program_revocation_does_not_strip_a_live_project_membership``.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership, Role
+
+    program = import_seed(_seed_with_two_program_only_members(), owner=owner, create_users=True)
+    revoked = User.objects.get(username="seed-sam")
+    live = User.objects.get(username="seed-kit")
+    _revoke_everywhere(program, revoked)
+
+    exported = export_program(program)
+    # A distinct slug, so this is a clone into a program the revoked member has
+    # never held any row on — no pre-existing tombstone can mask the result.
+    exported["program"]["slug"] = "atlas-clone"
+    exported["program"]["name"] = "Atlas Clone"
+    clone = import_seed(exported, owner=owner, create_users=True)
+    assert clone.pk != program.pk
+
+    # No membership at all — not a live one, and not a tombstone either — on
+    # either axis.
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    assert not ProgramMembership.objects.filter(program=clone, user=revoked).exists()
+    assert not ProjectMembership.objects.filter(project__program=clone, user=revoked).exists()
+    # Paired control: the live member arrives with their role intact.
+    assert (
+        ProgramMembership.objects.get(program=clone, user=live, is_deleted=False).role
+        == Role.MEMBER
+    )
+    # And the revocation on the source program was not disturbed by the export.
+    assert ProgramMembership.objects.get(program=program, user=revoked).is_deleted is True
+
+
+def test_program_revocation_does_not_strip_a_live_project_membership(owner: Any) -> None:
+    """A program revocation must not take the member's *project* grant with it.
+
+    Program and project membership are independent grants (ADR-0070 §RBAC). Once
+    the roster stopped carrying revoked members (#3457), a user revoked from the
+    program but still holding a live ``ProjectMembership`` reached
+    ``_member_blocks`` with no account slug and was dropped from the document in
+    silence — access lost rather than leaked, but lost. They must still be
+    exported as an account *without* a role (so the importer confers no program
+    membership) while their project ``members`` entry survives.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+
+    program = import_seed(_seed_with_two_program_only_members(), owner=owner, create_users=True)
+    revoked = User.objects.get(username="seed-sam")
+    project = program.projects.get(name="Platform Core")
+    # The importer's fallback already granted sam a project row; confirm it is live.
+    assert ProjectMembership.objects.filter(
+        project=project, user=revoked, is_deleted=False
+    ).exists()
+    ProgramMembership.objects.get(program=program, user=revoked).soft_delete()
+
+    exported = export_program(program)
+    validate_seed(exported)
+
+    sam_block = next(a for a in exported["accounts"] if a["username"] == "seed-sam")
+    # Present as an account, but carrying NO program role — that key is what the
+    # importer's program grant keys off, so its absence is what withholds access.
+    assert "role" not in sam_block
+    project_block = next(p for p in exported["projects"] if p["name"] == project.name)
+    assert sam_block["slug"] in {m["account"] for m in project_block["members"]}
+
+    # Round trip into a fresh program: project grant restored, program grant not.
+    exported["program"]["slug"] = "atlas-clone-2"
+    exported["program"]["name"] = "Atlas Clone 2"
+    clone = import_seed(exported, owner=owner, create_users=True)
+    assert not ProgramMembership.objects.filter(program=clone, user=revoked).exists()
+    clone_project = clone.projects.get(name=project.name)
+    assert (
+        ProjectMembership.objects.get(project=clone_project, user=revoked, is_deleted=False).role
+        == Role.ADMIN
+    )
+
+
+def test_revoking_the_program_leads_membership_still_exports_a_valid_document(
+    owner: Any,
+) -> None:
+    """The ``lead`` read is deliberately unfloored — flooring it breaks validation.
+
+    ``Program.lead`` is a display FK distinct from the OWNER membership, and
+    ``validate_seed`` requires ``$.program.lead`` to resolve to an ``accounts[]``
+    entry. So a lead whose membership is revoked must still be emitted as an
+    account — but without a ``role``, which is what withholds the program grant.
+    This test exists so a future "floor it too, for symmetry" change fails loudly
+    rather than emitting a document that fails the exporter's own validator.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    program = import_seed(_seed_with_two_program_only_members(), owner=owner, create_users=True)
+    lead = User.objects.get(username="seed-alex")
+    assert program.lead_id == lead.pk
+    ProgramMembership.objects.get(program=program, user=lead).soft_delete()
+
+    exported = export_program(program)
+    validate_seed(exported)  # the assertion that matters: the document still validates
+
+    lead_block = next(a for a in exported["accounts"] if a["username"] == "seed-alex")
+    assert exported["program"]["lead"] == lead_block["slug"]
+    assert "role" not in lead_block
+
+    exported["program"]["slug"] = "atlas-clone-3"
+    exported["program"]["name"] = "Atlas Clone 3"
+    clone = import_seed(exported, owner=owner, create_users=True)
+    # Still named as the lead, but conferred no membership.
+    assert clone.lead_id == lead.pk
+    assert not ProgramMembership.objects.filter(program=clone, user=lead).exists()
+
+
+def test_revoked_program_member_is_absent_from_the_v2_event_export_too(owner: Any) -> None:
+    """The v2 (``with_events=True``) path shares ``_collect_account_users``.
+
+    v2 derives event actor slugs from the same accounts list, so the floor has to
+    hold there as well — asserted rather than assumed, because the two paths
+    diverge everywhere else.
+    """
+    program = import_seed(_seed_with_two_program_only_members(), owner=owner, create_users=True)
+    _revoke_everywhere(program, User.objects.get(username="seed-sam"))
+
+    exported = export_program(program, with_events=True)
+    validate_seed(exported)
+    assert "seed-sam" not in {a["username"] for a in exported["accounts"]}
+    assert "seed-kit" in {a["username"] for a in exported["accounts"]}
+
+
+def test_revoked_project_member_is_not_written_into_the_export(owner: Any) -> None:
+    """The project-side twin ``_member_blocks`` has the same contract (#3457).
+
+    Its ``is_deleted=False`` filter predates this fix and was the precedent for
+    it, but nothing on the export side pinned it — so the identical defect one
+    level down was prevented only by an untested filter. A revoked project member
+    must not reach ``projects[].members[]``, and must gain no project access
+    through the round trip.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    program = import_seed(_seed_with_two_program_only_members(), owner=owner, create_users=True)
+    revoked = User.objects.get(username="seed-sam")
+    project = program.projects.get(name="Platform Core")
+    ProjectMembership.objects.get(project=project, user=revoked).soft_delete()
+
+    exported = export_program(program)
+    validate_seed(exported)
+    sam_slug = next(a["slug"] for a in exported["accounts"] if a["username"] == "seed-sam")
+    project_block = next(p for p in exported["projects"] if p["name"] == project.name)
+    assert sam_slug not in {m["account"] for m in project_block.get("members", [])}
+
+    exported["program"]["slug"] = "atlas-clone-4"
+    exported["program"]["name"] = "Atlas Clone 4"
+    clone = import_seed(exported, owner=owner, create_users=True)
+    clone_project = clone.projects.get(name=project.name)
+    assert not ProjectMembership.objects.filter(project=clone_project, user=revoked).exists()
