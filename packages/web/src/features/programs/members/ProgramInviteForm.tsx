@@ -125,12 +125,12 @@ export function ProgramInviteForm({ programId }: Props) {
               ].join(' ')}
             >
               {isFetching && (
-                <li className="px-3 py-2 text-xs text-neutral-text-disabled" aria-live="polite">
+                <li className="px-3 py-2 text-xs text-neutral-text-secondary" aria-live="polite">
                   Searching…
                 </li>
               )}
               {!isFetching && results.length === 0 && (
-                <li className="px-3 py-2 text-xs text-neutral-text-disabled">
+                <li className="px-3 py-2 text-xs text-neutral-text-secondary">
                   No users found. Check the username or email.
                 </li>
               )}
@@ -188,6 +188,7 @@ export function ProgramInviteForm({ programId }: Props) {
             value={role}
             onChange={setRole}
             disabled={isPending}
+            scope="program"
           />
         </div>
 

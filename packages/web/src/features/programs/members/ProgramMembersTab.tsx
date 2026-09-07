@@ -78,7 +78,7 @@ export function ProgramMembersTab() {
         )}
 
         {!isLoading && !isError && members.length === 0 && (
-          <p className="py-4 text-sm text-neutral-text-disabled">
+          <p className="py-4 text-sm text-neutral-text-secondary">
             No members yet. Add someone below.
           </p>
         )}

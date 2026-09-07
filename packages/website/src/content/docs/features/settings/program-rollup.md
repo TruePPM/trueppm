@@ -1,6 +1,7 @@
 ---
 title: Program rollup KPIs
 description: Choose which project health signals roll up to the program overview, and how project health combines into the single program health dot.
+documentedFor: "0.4"
 ---
 
 A **program** groups several related projects under one PM. The **Program Settings → Rollup KPIs** page controls two things about how those projects' signals combine at the program boundary:
@@ -16,12 +17,27 @@ This is intra-program only. A program rolls up its *own* projects; there is no c
 
 ## Permissions
 
+:::note[Ships in 0.4 — program role names]
+The role *names* used here ship in **TruePPM 0.4**, the first beta. On
+`v0.3.0-alpha.3`, the latest release, the program surfaces use the project
+vocabulary instead — the tier called "Program Manager" below reads **Project
+Manager**, and the Owner tier reads **Project Admin**.
+
+**The permission tiers themselves are unchanged.** The same role has always
+been able to change this configuration, on 0.3 exactly as on 0.4; only the
+name the Members tab and the role pickers display for it is new. If you are on
+0.3, read "Program Manager" below as the role your Members tab calls "Project
+Manager".
+
+Everything else on this page describes 0.3 behavior and is current.
+:::
+
 | Action | Minimum role |
 |--------|-------------|
 | View the rollup config | Program Viewer |
-| Change KPIs or the aggregation policy | Program Admin |
+| Change KPIs or the aggregation policy | Program Manager |
 
-A program Viewer sees the page in read-only mode (a "Read-only" badge replaces the controls). Only a program Admin can change the configuration.
+A program Viewer sees the page in read-only mode (a "Read-only" badge replaces the controls). Only a Program Manager or above can change the configuration.
 
 ## The KPIs
 
@@ -112,4 +128,4 @@ No. Methodology seeds the defaults only at creation. After that the config is us
 No. Rollup is intra-program only. Cross-program and portfolio aggregation is an Enterprise capability outside the scope of this page.
 
 **What is the API behind this page?**
-`GET` and `PATCH` `/api/v1/programs/{program_id}/rollup-config/`, returning `enabled_kpis` (a list of identifiers) and `aggregation_policy`. Reads require program Viewer; writes require program Admin. Every change is captured in the program's history for audit.
+`GET` and `PATCH` `/api/v1/programs/{program_id}/rollup-config/`, returning `enabled_kpis` (a list of identifiers) and `aggregation_policy`. Reads require program Viewer; writes require Program Manager or above. Every change is captured in the program's history for audit.
