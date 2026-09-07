@@ -30,6 +30,16 @@ import { createdProjectDestination } from '@/features/shell/createdProjectDestin
 interface Props {
   hasProjects: boolean;
   /**
+   * True when the ONLY reason `hasProjects` is true is program membership — the
+   * caller holds no `ProjectMembership` anywhere (#3469). Flavor B's copy assumes
+   * project membership ("when a teammate assigns you a task"), and its links point
+   * at Jira and the docs, so a program Owner routed here by the count fix would
+   * land on a page with no route to the program they actually run. Adds the
+   * Browse-programs link that flavor A already carries; false leaves flavor B
+   * exactly as it was for everyone else.
+   */
+  reachableOnlyViaProgram?: boolean;
+  /**
    * Whether the user has any connected external source (Jira etc.). When false,
    * the "no assignments" state offers a Connect-Jira nudge so a contributor who
    * lives in Jira has a next step (#1422).
@@ -131,7 +141,11 @@ function ExploreDemoButton({
   );
 }
 
-export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = false }: Props) {
+export function MyWorkEmptyState({
+  hasProjects,
+  hasConnectedExternalSource = false,
+  reachableOnlyViaProgram = false,
+}: Props) {
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const showConnectJira = !hasConnectedExternalSource;
   const navigate = useNavigate();
@@ -235,6 +249,7 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
         Nothing is assigned to you right now. When a teammate assigns you a task — or you create one
         — it&rsquo;ll show up here.
       </p>
+      {reachableOnlyViaProgram && <BrowseProgramsLink />}
       {showConnectJira && <ConnectJiraNudge />}
       <LearnMoreLink />
     </div>

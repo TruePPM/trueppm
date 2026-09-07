@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { ProgramProjectsPage } from './ProgramProjectsPage';
 import { ROLE_VIEWER } from '@/lib/roles';
@@ -474,5 +475,192 @@ describe('ProgramProjectsPage — deviation from the inherited default (#3295)',
     expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
       'Selection cleared. Showing 2 projects.',
     );
+  });
+});
+
+/**
+ * Deep-link arrival from the post-save align offer (#3293, D41).
+ *
+ * The contract is `?bulk=methodology&only=deviating#projects`. It arms a filter, a
+ * field and a selection — and deliberately stages no value, so Apply is disabled on
+ * arrival and #3296's preview stays behind the admin's own press. A URL that could
+ * arrive pre-armed would be a bulk write behind a link.
+ */
+describe('ProgramProjectsPage — align deep-link arrival (#3293)', () => {
+  /** Two deviate from the program's HYBRID; one matches it. */
+  const PROJECTS = [
+    {
+      id: 'pr-1',
+      name: 'Artemis IV',
+      healthState: 'unknown',
+      colorDot: '#3E8C6D',
+      methodology: 'WATERFALL',
+      effectiveMethodology: 'WATERFALL',
+      inheritedMethodology: 'HYBRID',
+      programId: 'p-1',
+    },
+    {
+      id: 'pr-2',
+      name: 'Launch Control',
+      healthState: 'unknown',
+      colorDot: '#3E8C6D',
+      methodology: 'AGILE',
+      effectiveMethodology: 'AGILE',
+      inheritedMethodology: 'HYBRID',
+      programId: 'p-1',
+    },
+    {
+      id: 'pr-3',
+      name: 'Ground Support',
+      healthState: 'unknown',
+      colorDot: '#3E8C6D',
+      methodology: 'HYBRID',
+      effectiveMethodology: 'HYBRID',
+      inheritedMethodology: 'HYBRID',
+      programId: 'p-1',
+    },
+  ];
+
+  let seenSearch = '';
+
+  function LocationProbe() {
+    seenSearch = useLocation().search;
+    return null;
+  }
+
+  function renderAt(entry: string) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[entry]}>
+          <LocationProbe />
+          <Routes>
+            <Route
+              path="/programs/:programId/settings/projects"
+              element={<ProgramProjectsPage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  const ARRIVAL =
+    '/programs/p-1/settings/projects?bulk=methodology&only=deviating';
+
+  beforeEach(() => {
+    seenSearch = '';
+    methodologyOverridePolicy = 'suggest';
+    workspaceSettingsState = 'ready';
+    useProgram.mockReturnValue({ data: { id: 'p-1', name: 'Phase 2', my_role: 400 } });
+    useProgramProjects.mockReturnValue({ data: PROJECTS, isLoading: false, error: null });
+  });
+
+  it('lands with the deviation filter active and only the deviating rows checked', () => {
+    renderAt(ARRIVAL);
+
+    const group = screen.getByRole('radiogroup', { name: 'Filter by methodology' });
+    expect(within(group).getByRole('radio', { name: 'Deviates from default, 2' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByLabelText('Select Artemis IV')).toBeChecked();
+    expect(screen.getByLabelText('Select Launch Control')).toBeChecked();
+    // The matching row is not in the cohort at all, so it cannot be checked by mistake.
+    expect(screen.queryByLabelText('Select Ground Support')).toBeNull();
+  });
+
+  it('preselects the Methodology field', () => {
+    renderAt(ARRIVAL);
+    expect(screen.getByLabelText('Field to set')).toHaveValue('methodology');
+  });
+
+  /**
+   * D41's load-bearing half. Nothing is staged on arrival, so the admin cannot reach a
+   * bulk write without choosing a value themselves — the link is navigation, not a
+   * deferred Apply.
+   */
+  it('stages nothing, so Apply is disabled on arrival', () => {
+    renderAt(ARRIVAL);
+    expect(screen.getByTestId('bulk-fields-apply')).toBeDisabled();
+  });
+
+  // Read once and stripped: a refresh, a Back, or a copied URL must land on the plain
+  // page rather than silently re-checking rows the admin has since changed.
+  it('strips the arrival params from the URL', () => {
+    renderAt(ARRIVAL);
+    expect(seenSearch).toBe('');
+  });
+
+  /**
+   * The arrival note is a full sentence in the register this region already uses, and it
+   * names the NEXT ACT — because D19 stages nothing on purpose, so Apply is disabled on
+   * arrival and "choose a value, then Apply" is the one thing a screen-reader user
+   * cannot infer from the value control the way a sighted one can.
+   */
+  it('announces the arrival on the matrix live region, naming the next act', () => {
+    renderAt(ARRIVAL);
+    expect(
+      screen.getByText('Methodology selected for 2 of 3 projects. Choose a methodology, then Apply.'),
+    ).toBeInTheDocument();
+    // D30/D41 — focus stays where it was. The section is scrolled to explicitly instead
+    // (see the arrival effect); moving focus is a separate ruling this does not reverse.
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  /**
+   * The negative control for the whole arrival design. Program settings is ONE
+   * consolidated scrolling page (ADR-0146): the General section and this one are
+   * mounted together, so the offer's link is an in-page navigation and this component
+   * never remounts. A mount-time read of the search params passes every standalone test
+   * above and arms nothing in the product. This test navigates without remounting.
+   */
+  it('arms on an in-page navigation, not only on mount', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/programs/p-1/settings/projects']}>
+          <LocationProbe />
+          <Link to="/programs/p-1/settings/projects?bulk=methodology&only=deviating">
+            Align the 2
+          </Link>
+          <Routes>
+            <Route
+              path="/programs/:programId/settings/projects"
+              element={<ProgramProjectsPage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText('Select Artemis IV')).not.toBeChecked();
+    await user.click(screen.getByRole('link', { name: 'Align the 2' }));
+
+    expect(screen.getByLabelText('Select Artemis IV')).toBeChecked();
+    expect(screen.getByLabelText('Select Launch Control')).toBeChecked();
+    expect(screen.getByLabelText('Field to set')).toHaveValue('methodology');
+    expect(screen.getByTestId('bulk-fields-apply')).toBeDisabled();
+    expect(seenSearch).toBe('');
+  });
+
+  it('arms nothing without the params', () => {
+    renderAt('/programs/p-1/settings/projects');
+    const group = screen.getByRole('radiogroup', { name: 'Filter by methodology' });
+    expect(within(group).getByRole('radio', { name: 'All, 3' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByLabelText('Select Artemis IV')).not.toBeChecked();
+  });
+
+  // A half-formed link is not the contract. Arming on `bulk` alone would let a stray
+  // param preselect a cohort nobody named.
+  it('ignores a partial contract', () => {
+    renderAt('/programs/p-1/settings/projects?bulk=methodology');
+    expect(screen.getByLabelText('Select Artemis IV')).not.toBeChecked();
+    // The stray param is still cleaned up.
+    expect(seenSearch).toBe('');
   });
 });

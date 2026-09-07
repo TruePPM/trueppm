@@ -122,6 +122,23 @@ Projects**, or each project's own **Methodology** setting. A workspace **Inherit
 the one case where a parent's value does reach every scope, because it overrides each
 scope's own value at resolution time rather than copying anything.
 
+:::note[Ships in 0.4]
+Saving a program methodology tells you nothing about the projects already in the program
+in the current release — you have to open the Projects matrix and read the rows yourself.
+:::
+
+In 0.4, saving a program's methodology will report what that save did and did not reach:
+
+> Saved. 9 of 12 projects in this program run as Waterfall; 3 do not. Existing projects
+> keep their own methodology. **Align the 3**
+
+**Align the 3** will open the Projects matrix with those three rows already checked and
+**Methodology** already chosen — but nothing will be staged and **Apply** will stay
+disabled, so the change is still yours to make. When every project already matches, the
+message will say so ("All 12 projects in this program already run as Waterfall") rather
+than showing nothing, because silence there is the state that reads as a successful
+cascade.
+
 The **effective** methodology will be resolved on the server, so every client reads the
 same value. The view-tab matrix above is driven by the *effective*
 methodology, so a workspace-level lock immediately reshapes which tabs appear across every

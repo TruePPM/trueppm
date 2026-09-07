@@ -8,6 +8,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { QuietHoursTimezoneSource } from '@/api/types';
 
 export type ProjectNotificationEventType =
   | 'task_assigned'
@@ -88,6 +89,19 @@ export interface ProjectNotificationPreferences {
   /** Stored as HH:MM:SS or HH:MM; the UI binds to the HH:MM prefix. */
   quietHoursFrom: string;
   quietHoursUntil: string;
+  /**
+   * IANA zone `quietHoursFrom`/`quietHoursUntil` are actually read in, e.g.
+   * `"Asia/Tokyo"` (#3377). Server-resolved and read-only — a PATCH of it is
+   * ignored. Never re-derive it here: resolving the window client-side means
+   * re-implementing a four-tier chain across three models and keeping it in
+   * sync, and the winning tier is not derivable from the stored values at all.
+   *
+   * `undefined` when the response predates #3377 (a stale cache), which the UI
+   * reads as "no claim made" and renders nothing for — never as UTC.
+   */
+  quietHoursTimezone?: string;
+  /** Which tier of the chain supplied {@link quietHoursTimezone}. */
+  quietHoursTimezoneSource?: QuietHoursTimezoneSource;
 }
 
 interface ApiPreferences {
@@ -97,6 +111,11 @@ interface ApiPreferences {
   quiet_hours_enabled: boolean;
   quiet_hours_from: string;
   quiet_hours_until: string;
+  // Declared optional despite being `required` in the published schema: a
+  // response cached before #3377 shipped carries neither, and the UI degrades
+  // by staying silent rather than by rendering an undefined zone.
+  quiet_hours_timezone?: string;
+  quiet_hours_timezone_source?: QuietHoursTimezoneSource;
   updated_at?: string;
 }
 
@@ -108,6 +127,8 @@ function fromApi(payload: ApiPreferences): ProjectNotificationPreferences {
     quietHoursEnabled: payload.quiet_hours_enabled,
     quietHoursFrom: payload.quiet_hours_from,
     quietHoursUntil: payload.quiet_hours_until,
+    quietHoursTimezone: payload.quiet_hours_timezone,
+    quietHoursTimezoneSource: payload.quiet_hours_timezone_source,
   };
 }
 

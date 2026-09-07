@@ -76,6 +76,12 @@ const FIXTURE_PREFERENCES = {
   quiet_hours_enabled: true,
   quiet_hours_from: '20:00:00',
   quiet_hours_until: '07:00:00',
+  // #3377 — the server resolves the zone the bare wall-clock window is read in
+  // and reports which tier of the project → workspace → server → UTC chain won.
+  // Both are `required` in the published schema, so a fixture without them is
+  // not a shape the API can return.
+  quiet_hours_timezone: 'Asia/Tokyo',
+  quiet_hours_timezone_source: 'project',
   updated_at: '2026-05-22T00:00:00Z',
 };
 
@@ -257,5 +263,56 @@ test.describe('Project Settings → Notifications (#522)', () => {
     await from.selectOption('22:00');
     await expect.poll(() => captures.patches.length).toBe(2);
     expect(captures.patches[1]).toEqual({ quiet_hours_from: '22:00:00' });
+  });
+
+  test('says which timezone the quiet-hours window is read in (#3397)', async ({ page }) => {
+    const captures: Captures = { patches: [] };
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
+
+    const section = page.locator('[data-settings-section="notifications"]');
+    // Gate on the quiet-hours control before asserting its caption, so a slow
+    // preferences read cannot read as a missing zone.
+    await expect(section.getByRole('switch', { name: 'Quiet hours' })).toBeVisible();
+
+    const note = section.getByText("Times are in Asia/Tokyo — this project's timezone.");
+    await expect(note).toBeVisible();
+
+    // The zone must be STATED, not only carried in an attribute (web-rule
+    // 328(b)) — and both selects point at the stated line, so the person
+    // picking the time hears the zone too.
+    const noteId = (await note.getAttribute('id')) ?? '';
+    expect(noteId).not.toBe('');
+    for (const label of ['From', 'Until']) {
+      await expect(section.getByLabel(label, { exact: true })).toHaveAttribute(
+        'aria-describedby',
+        noteId,
+      );
+    }
+  });
+
+  test('states the zone on a degradation tier without alarming the member (#3397)', async ({
+    page,
+  }) => {
+    const captures: Captures = { patches: [] };
+    await setup(page, captures);
+    // A brand-new install with no workspace row falls through to the server's
+    // TIME_ZONE. The member cannot fix that, but they still need to know that
+    // 20:00 means 20:00 UTC — so the zone is stated, in the same neutral voice.
+    captures.current = {
+      ...FIXTURE_PREFERENCES,
+      quiet_hours_timezone: 'UTC',
+      quiet_hours_timezone_source: 'server',
+    };
+    await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
+
+    const section = page.locator('[data-settings-section="notifications"]');
+    await expect(section.getByRole('switch', { name: 'Quiet hours' })).toBeVisible();
+    await expect(section.getByText(/Times are in UTC — the server default\./)).toBeVisible();
+    // No warning chrome: a member can fix neither degradation tier, so an alarm
+    // they cannot act on is noise. The zone is the fact; the tier is the
+    // admin's diagnostic, and the deploy-time lever is never named here.
+    await expect(section.getByRole('alert')).toHaveCount(0);
+    await expect(section.getByText(/TIME_ZONE/)).toHaveCount(0);
   });
 });
