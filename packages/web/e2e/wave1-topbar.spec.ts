@@ -192,8 +192,13 @@ test.describe('Wave 1 — TopBar health chip + popover (desktop)', () => {
   test('the status chip renders with the worst-state word and P80 fragment', async ({ page }) => {
     const chip = page.getByTestId('health-cluster');
     await expect(chip).toBeVisible();
-    // critical_count = 1 → "At risk"; monte_carlo_p80 = 2026-11-03 → "Nov 3".
-    await expect(chip).toContainText('At risk');
+    // critical_count = 1 → the `critical` band → "Critical" (#3470: the chip
+    // prints the server band word, not a chip-private synonym); monte_carlo_p80
+    // = 2026-11-03 → "Nov 3".
+    await expect(chip).toContainText('Critical');
+    // The retired word must not come back on either band.
+    await expect(chip).not.toContainText('On watch');
+    await expect(chip).not.toContainText('At risk');
     await expect(chip).toContainText('P80');
     await expect(chip).toContainText('Nov 3');
     await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
@@ -286,7 +291,8 @@ test.describe('TopBar health chip (mobile — all-width, no dropdown)', () => {
   test('the status chip is visible on a phone and shows the state word', async ({ page }) => {
     const chip = page.getByTestId('health-cluster');
     await expect(chip).toBeVisible();
-    await expect(chip).toContainText('At risk');
+    // critical_count = 1 → the `critical` band word (#3470).
+    await expect(chip).toContainText('Critical');
     // The removed phone-only "Health ▾" dropdown must not exist.
     await expect(page.getByRole('button', { name: /project health summary/i })).toHaveCount(0);
   });

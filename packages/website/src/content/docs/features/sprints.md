@@ -43,6 +43,8 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) a
 - **WIP limit** *(optional)* — set a per-sprint ceiling on in-flight work (tasks in *In progress* or *Review*) and the Board's [sprint panel](/features/board/) header shows a `WIP {count} / {limit}` chip that turns amber once the count exceeds the limit. Editable by Scheduler+ on planned and active sprints; locked once completed or canceled. Distinct from per-column board WIP limits.
 - **Exclude from velocity** *(optional)* — a Scheduler+ toggle that holds a setup or ramp-up sprint (a "Sprint 0") out of the team's velocity average, forecast band, and milestone forecast, so its low throughput doesn't skew the numbers. Unlike the WIP limit it stays editable **after the sprint closes** (teams often realize the skew in hindsight). The sprint stays visible in your history, marked rather than dropped. See [Setup work & Sprint 0](/features/velocity/#setup-work--sprint-0).
 
+![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
+
 ## Standing up a run of sprints (ships in 0.4)
 
 :::note[Ships in 0.4]

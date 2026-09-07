@@ -18,6 +18,8 @@ within ~30 seconds, with an optional email opt-in. Acknowledgements (✅) and
 reactions (👍) are structurally distinct so coaches can read team health
 without polluting it with chatter.
 
+![A task detail page for a critical-path task: start, finish, duration and float, with status, progress, assignees and labels](../../../assets/screenshots/task-detail.webp)
+
 This page is the user-facing reference for the cluster shipped under #310
 (attachments) and #311 (comments + mentions). The architecture lives in
 [ADR-0075](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0075-task-comments-attachments-mentions-notifications.md);

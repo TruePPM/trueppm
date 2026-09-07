@@ -42,13 +42,22 @@ const useSprintMutationsMock = vi.fn<(projectId?: string | null) => unknown>(() 
 
 /** Per-sprint capacity read — keyed by sprint id so the ACTIVE and PLANNED
  *  surfaces can be given different payloads in the same render. */
+/** #3472: `isError` and `refetch` are part of the shape the view reads. Before
+ *  they were on these mocks, `isError` was `undefined` in every case and the
+ *  rule-246 error branches were unreachable — a mock narrower than the hook is
+ *  how a whole branch gets "covered" by a suite that cannot render it. */
+interface QueryMock<T> {
+  data: T | undefined;
+  isError?: boolean;
+  refetch?: () => void;
+}
 const useSprintCapacityMock = vi.fn<
-  (sprintId?: string | null) => { data: SprintCapacity | undefined }
+  (sprintId?: string | null) => QueryMock<SprintCapacity>
 >(() => ({ data: undefined }));
-const useProjectVelocityMock = vi.fn<() => { data: ProjectVelocity | undefined }>(() => ({
+const useProjectVelocityMock = vi.fn<() => QueryMock<ProjectVelocity>>(() => ({
   data: undefined,
 }));
-const useSprintOutcomeMock = vi.fn<() => { data: unknown }>(() => ({ data: undefined }));
+const useSprintOutcomeMock = vi.fn<() => QueryMock<unknown>>(() => ({ data: undefined }));
 /** Terminal close-failure watch (#2992). Defaults to "no failure" so every
  *  pre-existing case renders exactly as it did; the cases that exercise the
  *  failure banner override it. */
@@ -2027,5 +2036,118 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Review pending \(1\)/i }));
     expect(screen.getByRole('dialog', { name: /Review pending scope/i })).toBeInTheDocument();
+  });
+});
+
+/**
+ * #3472 — rule 246 across the whole Sprints column, and rule 394 on the one that
+ * hides behind a disclosure.
+ *
+ * These branches were unreachable before this suite's query mocks grew `isError`:
+ * a mock narrower than the hook makes a whole branch look covered by a suite that
+ * cannot render it. Each case pins BOTH directions — the failure renders its own
+ * retry, and the skeleton is gone — because "the error shows" passes just as well
+ * on a widget that renders every state at once.
+ */
+describe('SprintsView — a dead velocity/capacity/outcome fetch is not a slow one (#3472)', () => {
+  function setSprints(
+    sprints: ApiSprint[],
+    buckets: { closed?: ApiSprint[]; active?: ApiSprint | null; planned?: ApiSprint[] } = {},
+  ) {
+    useSprintsMock.mockReturnValue({ sprints, isLoading: false, error: null });
+    useSprintsByStateMock.mockReturnValue({
+      closed: buckets.closed ?? [],
+      active: buckets.active ?? null,
+      planned: buckets.planned ?? [],
+      isLoading: false,
+      error: null,
+    });
+  }
+
+  const failed = { data: undefined, isError: true, refetch: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    projectIdMock.mockReturnValue('proj-1');
+    currentRoleMock.mockReturnValue(ROLE_SCHEDULER);
+    resourceIdMock.mockReturnValue(null);
+    useMyActiveSprintsMock.mockReturnValue({ data: [], isLoading: false, error: null });
+    useSprintBacklogMock.mockReturnValue({ data: undefined });
+    useScheduleTasksMock.mockReturnValue({ tasks: undefined });
+    useSprintCapacityMock.mockReturnValue({ data: undefined });
+    useProjectVelocityMock.mockReturnValue({ data: undefined });
+    useSprintOutcomeMock.mockReturnValue({ data: undefined });
+    useSprintMutationsMock.mockReturnValue({
+      closeSprint: { mutate: vi.fn(), isPending: false },
+      createSprint: { mutate: vi.fn() },
+      activateSprint: { mutate: vi.fn() },
+      updateSprint: { mutate: vi.fn(), isPending: false },
+    });
+  });
+
+  it('offers a retry instead of a perpetual skeleton when the ACTIVE velocity read fails', () => {
+    setSprints([ACTIVE], { active: ACTIVE });
+    useProjectVelocityMock.mockReturnValue(failed);
+    renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+    expect(screen.getByText(/Couldn't load velocity\./)).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: /Loading Velocity/i })).not.toBeInTheDocument();
+  });
+
+  it('offers a retry instead of a perpetual skeleton when the ACTIVE capacity read fails', () => {
+    setSprints([ACTIVE], { active: ACTIVE });
+    useSprintCapacityMock.mockReturnValue(failed);
+    renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+    expect(screen.getByText(/Couldn't load capacity\./)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: /Loading Capacity Preflight/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers a retry instead of a perpetual skeleton when the CLOSED outcome read fails', () => {
+    const closed = makeSprint({ id: 'sp-closed', state: 'COMPLETED', name: 'Closed one' });
+    setSprints([closed], { closed: [closed] });
+    useSprintOutcomeMock.mockReturnValue(failed);
+    renderWithRouter(<SprintsView />, {
+      initialEntries: ['/projects/proj-1/sprints?sprint=sp-closed'],
+    });
+
+    expect(screen.getByText(/Couldn't load the outcome\./)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: /Loading Sprint outcome/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opens the PLANNED velocity disclosure on failure, so the error is not behind a click', () => {
+    const planned = makeSprint({ id: 'sp-planned-err', state: 'PLANNED', name: 'Next one' });
+    setSprints([planned], { planned: [planned] });
+    useProjectVelocityMock.mockReturnValue(failed);
+    renderWithRouter(<SprintsView />, {
+      initialEntries: ['/projects/proj-1/sprints?sprint=sp-planned-err'],
+    });
+
+    // Rule 394: a collapsed <details> makes the failure byte-identical to the
+    // healthy state, so `open` is the assertion — not merely that the node exists.
+    const disclosure = screen.getByText(/Couldn't load velocity\./).closest('details');
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).toHaveAttribute('open');
+  });
+
+  it('keeps the PLANNED velocity disclosure mounted and CLOSED while the read is in flight', () => {
+    const planned = makeSprint({ id: 'sp-planned-load', state: 'PLANNED', name: 'Next one' });
+    setSprints([planned], { planned: [planned] });
+    useProjectVelocityMock.mockReturnValue({ data: undefined });
+    renderWithRouter(<SprintsView />, {
+      initialEntries: ['/projects/proj-1/sprints?sprint=sp-planned-load'],
+    });
+
+    // Rule 248: the slot ghosts in place rather than appearing when data lands
+    // and reflowing a column whose siblings ghosted — but a healthy read is not
+    // a failure, so it must NOT be forced open.
+    const skeleton = screen.getByRole('status', { name: /Loading Velocity/i });
+    const disclosure = skeleton.closest('details');
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).not.toHaveAttribute('open');
   });
 });
