@@ -48,6 +48,8 @@ The grooming view will show stories grouped under their epics, ordered by priori
 row carrying its Definition-of-Ready signal, an acceptance-criteria meter, and its story
 points. A **grooming-health strip** across the top will summarize:
 
+![The product backlog grouped by epic, with readiness metrics on top and the sprint planning capacity preflight on the right](../../../assets/screenshots/product-backlog.webp)
+
 - **Definition of Ready** — the share of stories marked Ready
 - **Ready for next sprint** — ready story points against the active sprint's capacity
 - **Unestimated** — stories still missing points

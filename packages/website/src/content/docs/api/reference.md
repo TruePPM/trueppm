@@ -45,6 +45,35 @@ Content-Type: application/json
 {"username": "...", "password": "...", "remember_me": false}
 ```
 
+:::note[Ships in 0.4]
+The email-as-identifier behavior described next ships in **TruePPM 0.4**. In
+`v0.3.0-alpha.3` (the latest release) `username` is matched against the username
+column only, so a user signing in with their email address is refused.
+:::
+
+`username` accepts **either** the account's username **or** the email address on
+the account. The username is matched first and the email is tried only if that
+fails, so an existing username-based integration is unaffected — and an account
+whose username is itself email-shaped is never displaced by a different account
+carrying that string as its email. The field keeps its name for wire
+compatibility; there is no second field and no second endpoint.
+
+Email resolution is deliberately narrow, because Django's user model puts no
+uniqueness constraint on the email column:
+
+- An address held by **more than one account is refused**, not resolved to
+  either. Signing a caller into an account they did not name is the failure this
+  avoids, and it is the reason the endpoint does not simply pick the lowest id.
+- Every refusal is the **same `401` with the same body** — wrong password, no
+  such email, and an ambiguous email are indistinguishable, so the endpoint is
+  not an account-existence oracle. The response never names the resolved
+  username.
+- Both login throttles still bound the attempt, and the per-account throttle
+  counts **and enforces** against the account rather than the address — an
+  email-form attempt is refused with `429` once the account's budget is spent,
+  in whichever order the two identifiers were tried. Answering to two identifiers
+  does not buy an attacker two guess budgets.
+
 Returns **only** the access token in the body:
 
 ```json

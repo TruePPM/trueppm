@@ -147,6 +147,45 @@ describe('LoginPage', () => {
     });
   });
 
+  it('the 401 copy names the username path too, because the server checks it (#3468)', async () => {
+    // The field is labeled Email, but the token endpoint matches the *username*
+    // first and only falls back to the email. A refusal naming only "email" sends
+    // the one user who signs in with a username away from the identifier that
+    // would have worked — which is precisely the invited user this issue is about.
+    mockedAxios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Unauthorized'), {
+        isAxiosError: true,
+        response: { status: 401 },
+      }),
+    );
+    vi.spyOn(axios, 'isAxiosError').mockReturnValue(true);
+
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Email'), 'anna@example.com');
+    await user.type(screen.getByLabelText('Password'), 'wrong');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'You can also sign in with your username',
+      );
+    });
+  });
+
+  it('the identifier field accepts a username, not only an email (#3468)', () => {
+    // `type="email"` would raise a browser validation bubble and a red invalid
+    // state on a perfectly good username; `autoComplete="email"` would stop a
+    // password manager offering a saved username. `username` is the standard
+    // token for an identifier field whatever the stored value looks like.
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+
+    const field = screen.getByLabelText('Email');
+    expect(field).toHaveAttribute('type', 'text');
+    expect(field).toHaveAttribute('autocomplete', 'username');
+  });
+
   it('associates the sign-in error with both inputs via aria-invalid + aria-describedby (#2183)', async () => {
     mockedAxios.post.mockRejectedValueOnce(
       Object.assign(new Error('Unauthorized'), {
