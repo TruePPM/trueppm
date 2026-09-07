@@ -109,6 +109,18 @@ describe('useUpdateProject', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
   });
+
+  it('invalidates shellStats too, so the saver\'s own health chip follows the report', async () => {
+    // #3501: `health` is one of the seven fields this PATCH carries, and the
+    // shell chip's word is the server's `health_band` derived from it. The
+    // socket echo covers other viewers; this covers the person who saved, whose
+    // chip would otherwise hold the old word for the 30s staleTime.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateProject('proj-1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ health: 'CRITICAL' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['shellStats', 'proj-1'] });
+  });
 });
 
 describe('useCalendars', () => {

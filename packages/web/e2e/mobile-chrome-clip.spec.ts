@@ -62,9 +62,15 @@ const PROJECT = {
 // rendered the retired "On watch" (54.48px), overflowing by 8px and pushing the
 // account chip's right edge to 377.20px, clipped off a 375px screen. Retiring
 // that word is what this fixture now guards.
+//
+// `health_band` is what picks the word since #3501 — the chip reads the server's
+// band and no longer derives one from the counts. The counts stay because the
+// popover rows still render them; flipping this fixture for #3505 means moving
+// `health_band` to 'on_track', not just zeroing `at_risk_count`.
 const STATUS_SUMMARY = {
   task_count: 8,
   critical_path_count: 0,
+  health_band: 'at_risk' as const,
   monte_carlo_p80: '2026-09-07',
   at_risk_count: 3,
   critical_count: 0,

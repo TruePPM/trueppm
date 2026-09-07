@@ -152,6 +152,7 @@ async function gotoMobileSchedule(
       json({
         task_count: tasks.length,
         critical_path_count: 1,
+        health_band: 'critical',
         monte_carlo_p80: null,
         at_risk_count: 0,
         critical_count: 1,

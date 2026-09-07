@@ -233,6 +233,12 @@ export function useUpdateProject(projectId: string | null | undefined) {
     onSuccess: () => {
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        // The `health` field on this PATCH decides the shell chip's word, via
+        // `status-summary`'s server-computed `health_band` (#3501). The socket
+        // echo invalidates it for every other viewer; this does it for the
+        // person who just saved, whose own top bar would otherwise keep the old
+        // word for the 30s `staleTime` and then only if something refetched.
+        void queryClient.invalidateQueries({ queryKey: ['shellStats', projectId] });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
@@ -328,6 +334,12 @@ export function useArchiveProject(projectId: string | null | undefined) {
     onSuccess: () => {
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        // The `health` field on this PATCH decides the shell chip's word, via
+        // `status-summary`'s server-computed `health_band` (#3501). The socket
+        // echo invalidates it for every other viewer; this does it for the
+        // person who just saved, whose own top bar would otherwise keep the old
+        // word for the 30s `staleTime` and then only if something refetched.
+        void queryClient.invalidateQueries({ queryKey: ['shellStats', projectId] });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
@@ -346,6 +358,12 @@ export function useUnarchiveProject(projectId: string | null | undefined) {
     onSuccess: () => {
       if (projectId) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        // The `health` field on this PATCH decides the shell chip's word, via
+        // `status-summary`'s server-computed `health_band` (#3501). The socket
+        // echo invalidates it for every other viewer; this does it for the
+        // person who just saved, whose own top bar would otherwise keep the old
+        // word for the 30s `staleTime` and then only if something refetched.
+        void queryClient.invalidateQueries({ queryKey: ['shellStats', projectId] });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },

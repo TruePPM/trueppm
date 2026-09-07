@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { ShellStats } from '@/types';
+import type { HealthBand } from '@/lib/healthBand';
 
 export interface UseShellStatsResult {
   data: ShellStats | undefined;
@@ -19,6 +20,13 @@ export interface UseShellStatsResult {
  */
 interface StatusSummaryResponse {
   task_count: number;
+  /**
+   * The project's health band, decided by the server (#3501). It folds in the
+   * manual `Project.health` override, which the two counts below cannot see —
+   * so this value is read, never re-derived from `at_risk_count` /
+   * `critical_count`.
+   */
+  health_band: HealthBand;
   monte_carlo_p80: string | null;
   at_risk_count: number;
   critical_count: number;
@@ -36,6 +44,7 @@ function toShellStats(r: StatusSummaryResponse): ShellStats {
     // surviving server field, which carried the identical value.
     criticalPathCount: r.critical_count,
     monteCarlop80: r.monte_carlo_p80,
+    healthBand: r.health_band,
     atRiskCount: r.at_risk_count,
     criticalCount: r.critical_count,
     atRiskTasks: r.at_risk_tasks,

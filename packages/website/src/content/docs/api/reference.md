@@ -323,13 +323,18 @@ governance, not part of this surface.
 | PUT / PATCH | `/api/v1/projects/{id}/` | Update |
 | DELETE | `/api/v1/projects/{id}/` | Soft-delete |
 | GET | `/api/v1/projects/{id}/status-summary/` | Health and recency summary for the shell — see [Status summary](#status-summary) |
+| GET | `/api/v1/projects/health-summary/` | One health row per project the caller is a member of: `id`, `name`, `health_band`, `at_risk_count`, `critical_count`. Same `health_band` rule as the status summary below |
 
 #### Status summary
 
 :::note[Ships in 0.4]
-`monte_carlo_p80`, `last_saved` and `recalculated_at` carry real values from
-**TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release) all three are returned as
-unconditional `null` regardless of project state.
+`health_band` is added in **TruePPM 0.4** — `v0.3.0-alpha.3` (the latest release)
+does not return the field at all, and a client on that release has no way to see a
+project's manual health report from this endpoint.
+
+`monte_carlo_p80`, `last_saved` and `recalculated_at` also carry real values from
+**TruePPM 0.4**. In `v0.3.0-alpha.3` all three are returned as unconditional `null`
+regardless of project state.
 :::
 
 `GET /api/v1/projects/{id}/status-summary/` returns task counts, health signals, and
@@ -339,6 +344,7 @@ to fan out.
 | Field | Type | Meaning |
 |---|---|---|
 | `task_count` | `integer` | Live (non-deleted) tasks in the project |
+| `health_band` | `on_track \| at_risk \| critical` | The project's health band — see [Read `health_band`, do not re-derive it](#read-health_band-do-not-re-derive-it) |
 | `at_risk_count` | `integer` | Incomplete tasks with `total_float` ≤ 5 working days, including negative float |
 | `critical_count` | `integer` | Incomplete tasks on the critical path |
 | `at_risk_tasks` | `array` | Up to 5 at-risk tasks as `{id, name, wbs}`, lowest float first |
@@ -346,6 +352,29 @@ to fan out.
 | `monte_carlo_p80` | `date \| null` | P80 finish from the project's most recent Monte Carlo run |
 | `last_saved` | `date-time \| null` | Newest human-caused write to any live task |
 | `recalculated_at` | `date-time \| null` | When the last CPM pass completed |
+
+##### Read `health_band`, do not re-derive it
+
+`health_band` is the project's health in the three-word band vocabulary
+(`on_track`, `at_risk`, `critical`). The server decides it in this order:
+
+1. the **manual health report** a project manager set on the project (`health`, when
+   it is not `AUTO`) — an explicit judgment call beats the arithmetic;
+2. otherwise the counts on this same payload: `critical_count > 0` → `critical`,
+   else `at_risk_count > 0` → `at_risk`, else `on_track`.
+
+Because step 1 is invisible to the counts, **a client that computes a band from
+`at_risk_count` and `critical_count` will contradict the project's own manager** — a
+plan a PM reported Critical has clean counts by definition. Print this field. The
+`health_band` on `GET /api/v1/projects/health-summary/` is the same value from the
+same rule, so the two endpoints never disagree about one project.
+
+`AUTO` is the "no report filed" value of `health`; it is never returned as a band.
+
+Do not confuse it with `schedule_health` on `GET /api/v1/projects/{id}/overview/`.
+That is a different signal — a schedule-performance-index proxy, with a fourth
+value `unknown` for a project that has no planned work to measure against — and it
+does not read the manual report at all.
 
 **Read the nulls as facts.** Each of the last three is `null` for exactly one reason,
 and that reason is the answer rather than "not available yet":
