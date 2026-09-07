@@ -490,7 +490,13 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
         # project.
         role = _membership_role(self.request, str(task.project_id))
         if role is None or role < Role.SCHEDULER:
-            raise PermissionDenied("You need at least Scheduler role on the target task's project.")
+            # "Resource Manager" is the label for ``Role.SCHEDULER``; "Scheduler"
+            # is the code name and appears on no surface, so a refusal naming it
+            # sends the reader looking for a role that does not exist (#3503).
+            # Matches ``IsProjectScheduler.message``.
+            raise PermissionDenied(
+                "You need at least Resource Manager role on the target task's project."
+            )
 
     def perform_create(self, serializer: BaseSerializer[TaskSkillRequirement]) -> None:
         self._require_scheduler_on_task(serializer.validated_data["task"])

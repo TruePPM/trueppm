@@ -17,6 +17,7 @@ from trueppm_api.apps.access.models import (
     ProjectMembership,
     Role,
     UserDefinedMentionGroup,
+    program_role_label,
 )
 from trueppm_api.apps.profiles.models import DateFormat, RoleContext
 from trueppm_api.apps.workspace.serializers import display_name_for
@@ -60,6 +61,14 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
     other_active_project_names = serializers.SerializerMethodField()
 
     def get_role_label(self, obj: ProjectMembership) -> str:
+        """Display name for ``role`` in **project** vocabulary.
+
+        Ordinal 400 reads "Project Admin" and 300 reads "Project Manager". The
+        identically-named field on a *program* membership deliberately names the
+        same two ordinals "Program Admin" and "Program Manager" — see
+        ``ProgramMembershipReadSerializer.get_role_label``. One ordinal, two
+        containers, two names.
+        """
         return Role(obj.role).label
 
     def get_other_active_project_count(self, obj: ProjectMembership) -> int:
@@ -165,7 +174,26 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
     role_label = serializers.SerializerMethodField()
 
     def get_role_label(self, obj: ProgramMembership) -> str:
-        return Role(obj.role).label
+        """Display name for ``role`` in **program** vocabulary.
+
+        Ordinal 400 reads "Program Admin" and 300 reads "Program Manager" — the
+        same names ``Program.my_role_label`` uses, from the same map. An ordinal
+        outside the five OSS roles has no name and reads ``"Role <ordinal>"``.
+        """
+        # Why this is not ``Role.label``: the enum's labels are project-scoped, so
+        # serializing through them called a *program* membership "Project Admin"
+        # here while the program card called the same membership "Program Admin"
+        # — one fact, two answers, and only TruePPM's own web client knew which to
+        # believe (#3503). ``program_role_label`` is the one definition of that
+        # vocabulary and the program card calls it too.
+        #
+        # The fallback covers an Enterprise custom-band ordinal (ADR-0072), which
+        # the OSS edition cannot name. The field is a non-null string in the
+        # published schema and the ordinal is already on the wire beside it in
+        # ``role``, so echoing it degrades rather than borrowing a neighbouring
+        # role's name — and rather than the ``ValueError`` this used to raise,
+        # which DRF does not convert and which 500'd the whole response.
+        return program_role_label(obj.role) or f"Role {obj.role}"
 
     class Meta:
         model = ProgramMembership

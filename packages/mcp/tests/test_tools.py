@@ -957,7 +957,7 @@ async def test_list_programs_surfaces_caller_role(settings: Settings) -> None:
                         "id": "pr-1",
                         "name": "Mars",
                         "my_role": 300,
-                        "my_role_label": "Project Manager",
+                        "my_role_label": "Program Manager",
                     }
                 ]
             )
@@ -966,7 +966,7 @@ async def test_list_programs_surfaces_caller_role(settings: Settings) -> None:
     async with _client(settings, routes) as client:
         result = await _list_programs(client)
     assert result == {
-        "items": [{"id": "pr-1", "name": "Mars", "caller_role": "Project Manager"}],
+        "items": [{"id": "pr-1", "name": "Mars", "caller_role": "Program Manager"}],
         "total_count": 1,
     }
 
