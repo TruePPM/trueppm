@@ -41,12 +41,16 @@ behind" moment is visible in the trend, not just today's number. Migration
 Tooling and GTM Readiness each carry their own 60-day trend with a different
 shape.
 
+![The schedule after a Monte Carlo run: the Forecast bar shows P50, P80 and P95 finish dates, the CPM date, and the top driver](../../../assets/screenshots/monte-carlo.webp)
+
 ### Sprint velocity with a shape
 
 Open **Platform Core → the board / sprint history**. Four closed sprints show a
 velocity curve that **ramps up and then dips** (28 → 31 → 26 → 34 points) rather
 than a flat line — with a real burndown per sprint, not a single fabricated
 number.
+
+![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
 
 ### Baseline variance
 
@@ -70,6 +74,8 @@ Tooling's performance-tuning work — that finishes *after* the sprint closes. O
 the schedule recomputes across the two projects, the story's earliest start is
 pushed past the sprint boundary, so the **dependency-reality at-risk indicator**
 flags it. This is the honest version of a commitment the plan cannot keep.
+
+![The read-only program schedule: the cross-project critical path across three project lanes with cross-project links dashed](../../../assets/screenshots/program-schedule.webp)
 
 ## The go-offline demo
 

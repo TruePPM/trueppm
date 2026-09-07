@@ -495,8 +495,8 @@ export function QueueRow({
             <span
               aria-label="On the critical path"
               title="On the critical path — a delay here delays the project end date"
-              className="inline-flex items-center rounded-chip border border-semantic-critical/40 px-1 text-[9.5px] font-bold uppercase tracking-wider text-semantic-critical"
-              style={{ height: 14, lineHeight: 1, flexShrink: 0 }}
+              className="inline-flex items-center rounded-chip border border-semantic-critical/40 px-1 text-xs font-bold uppercase tracking-wider text-semantic-critical"
+              style={{ height: 16, lineHeight: 1, flexShrink: 0 }}
             >
               CP
             </span>
