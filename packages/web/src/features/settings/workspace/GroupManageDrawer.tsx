@@ -120,7 +120,7 @@ function GroupMembersSection({ group }: { group: WorkspaceGroup }) {
               className="flex items-center gap-2.5 rounded-control px-1 py-1 text-[13px]"
             >
               <MemberAvatar initials={m.initials} color={m.color} />
-              <span className="flex-1 truncate text-neutral-text-primary">{m.name}</span>
+              <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{m.name}</span>
               <button
                 type="button"
                 onClick={() => handleRemove(m.id, m.name)}
@@ -218,7 +218,7 @@ function GroupProjectAccessSection({ group }: { group: WorkspaceGroup }) {
               key={p.id}
               className="flex items-center gap-2.5 rounded-control px-1 py-1 text-[13px]"
             >
-              <span className="flex-1 truncate text-neutral-text-primary">{p.name}</span>
+              <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{p.name}</span>
               <span className="shrink-0 rounded-chip bg-neutral-surface-sunken px-2 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
                 {p.roleLabel}
               </span>

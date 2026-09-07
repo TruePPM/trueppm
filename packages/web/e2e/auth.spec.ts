@@ -99,8 +99,46 @@ test.describe('Login flow', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('alert')).toContainText('Invalid email or password');
+    // The refusal must also name the username path (#3468) — the server checks the
+    // username first and the email second, and an invited user chose a username at
+    // accept time, so copy naming only "email" points them at the wrong identifier.
+    await expect(page.getByRole('alert')).toContainText(
+      'You can also sign in with your username',
+    );
     // Must stay on /login after failure.
     await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('the identifier the user typed is posted verbatim — email or username (#3468)', async ({
+    page,
+  }) => {
+    // The client does NOT resolve anything: it posts whatever was typed as
+    // `username`, and the server matches the username first and falls back to
+    // `email__iexact`. Pinning the wire body is what proves that division stayed
+    // on the server — a client that "helpfully" reshaped the identifier would be a
+    // second resolution nothing on the server side can see or gate.
+    const posted: unknown[] = [];
+    await page.route(AUTH_TOKEN_URL, async (route) => {
+      posted.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: '{}',
+      });
+    });
+
+    for (const identifier of ['sarah.khoury@example.com', 'skhoury']) {
+      await page.goto('/login');
+      await page.getByLabel('Email').fill(identifier);
+      await page.getByLabel('Password', { exact: true }).fill('any-password');
+      await page.getByRole('button', { name: 'Sign in' }).click();
+      await expect(page.getByRole('alert')).toBeVisible();
+    }
+
+    expect(posted.map((body) => (body as { username: string }).username)).toEqual([
+      'sarah.khoury@example.com',
+      'skhoury',
+    ]);
   });
 
   test('network error shows generic error message', async ({ page }) => {

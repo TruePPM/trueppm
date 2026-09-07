@@ -199,22 +199,22 @@ BASELINE_SHADOW=0
 # COLOR_DARK counterpart (rgba(255,255,255,0.14)) and a COLOR_FORCED counterpart
 # (CanvasText) — same accepted pattern as rowHover above.
 BASELINE_BLACK=7
-# Sub-floor type outside the sanctioned settings tree (check 4b). The two survivors
-# are both DECORATIVE text inside an `aria-hidden` element, where the accessible
-# name is carried by a sibling — so neither is a literal WCAG 1.4.3 failure, but
-# both sit below the type floor and should trend to zero:
-#   · TaskSummaryStrip  — 10px initials inside a 20px avatar circle (aria-hidden;
-#     the owner's name renders beside it).
-#   · ProgramIdentitySquare `xs-label` — 7px code inside a 16px square (aria-hidden
-#     by rule 158; the program name is the accessible signal).
-# A zero-tolerance gate here would have failed every unrelated MR on day one, so
-# this ratchets like its siblings above.
-# NOTE the pattern this baseline counts was WIDENED at #2858 — it now matches
-# `text-[11px]` too, which it never could before (see TINY_TEXT_PAT). The count
-# nevertheless stayed at 2: the ten 11px sites the widened pattern exposed were all
-# raised to `text-xs` in the same commit, and the two named survivors below are the
-# only ones left. Do not read the unchanged number as "nothing was wrong".
-BASELINE_TINY_TEXT=2
+# Sub-floor type outside the sanctioned settings tree (check 4b). ZERO since #3475 —
+# the ratchet is closed and this check is now zero-tolerance in everything but name.
+# The two survivors this baseline was carrying were both DECORATIVE text inside an
+# `aria-hidden` element (TaskSummaryStrip's 10px owner initials, ProgramIdentity-
+# Square's 7px `xs-label` code), which is why they were tolerated rather than fixed
+# — but `aria-hidden` licenses nothing about type a sighted user reads (rule 50), so
+# both went: the strip's avatar grew to 24px and took `text-xs`, and the identity
+# square's `xs-label` variant was deleted outright (the program name renders as
+# adjacent text at both call sites, so the 7px glyphs were never the distinguishing
+# signal they were added to be).
+# NOTE the pattern this baseline counts has been widened TWICE, and neither widening
+# moved the number on its own: #2858 taught it `text-[11px]` (see TINY_TEXT_PAT) and
+# #3475 taught it DECIMALS. Both times the newly-visible sites were raised to
+# `text-xs` in the same commit. Do not read an unchanged count as "nothing was wrong"
+# — read it together with the pattern.
+BASELINE_TINY_TEXT=0
 # Unhandled query errors (rule 246, check 4e). 62 on `main` at #2858; RosterPage's
 # fix takes it to 61, and #2998 (ResourceView + RecurrenceSection, the two sites that
 # still spent a failed role read as a permission verdict) to 59, and #3298 (both
@@ -365,20 +365,29 @@ black_rgba_count() {
     "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
 # Sub-floor type. The type floor is `text-xs` (12px, rule 50), so EVERY arbitrary
-# pixel size below it is matched — 0–9px, 10px and 11px. Two named carve-outs:
-# `features/settings/` may use `text-[10px]`/`text-[11px]` (rule 118's compact-admin
-# density) and the global StatusBar may use `text-[11px]` (rule 45). `text-[9px]` and
-# below are prohibited everywhere, settings included. All are a WCAG 1.4.3 risk,
-# which is why the exceptions are named files/trees, not per-component judgement.
+# pixel size below it is matched — 0–11px, whole or fractional. ONE named carve-out
+# is left: `features/settings/` may use 10px/11px (rule 118's compact-admin density),
+# floor included, so `text-[10.5px]` is fine there and `text-[9.5px]` is not.
+# `text-[9px]` and below are prohibited everywhere, settings included. All are a WCAG
+# 1.4.3 risk, which is why the exception is a named tree, not per-component judgement.
 #
 # THE 11px HOLE (#2858). This pattern read `text-\[([0-9]|10)px\]` from the day it
 # was written — a single digit, or the literal "10". It could not match `text-[11px]`
 # in ANY file, in ANY tree, which is why that exact class needed six dedicated sweeps
 # (#434, #650, #1023, #1229, #1332, #2043) and came back a seventh time with the gate
 # reporting green throughout. The alternation now spells the two-digit cases out.
+#
+# THE DECIMAL HOLE (#3475). The #2858 widening fixed the two-digit case and left the
+# FRACTIONAL one: `px\]` bound the digits directly to the unit, so `text-[10.5px]` and
+# `text-[9.5px]` matched nothing either. Two shipped that way — MyWorkFocusCards'
+# card eyebrow (the 10.5px the #3475 DOM walk measured on My Work) and QueueLayout's
+# critical-path chip at 9.5px, which is below the floor in EVERY tree including
+# settings. Same failure shape as the 11px hole, one character away, and it survived
+# the sweep that closed it. `(\.[0-9]+)?` is now part of the pattern and of both
+# fixture directions below.
 # The self-test below exists because a widened pattern that silently narrows again is
-# indistinguishable from a clean tree: this gate has already been that once.
-TINY_TEXT_PAT='text-\[(1[01]|[0-9])px\]'
+# indistinguishable from a clean tree: this gate has already been that twice.
+TINY_TEXT_PAT='text-\[(1[01]|[0-9])(\.[0-9]+)?px\]'
 # Shared by the scan and its self-test so the two can never diverge. Input is
 # `path:line:content` (grep -rIn form).
 #   1. tests/specs/stories (the global EXCLUDE);
@@ -386,13 +395,16 @@ TINY_TEXT_PAT='text-\[(1[01]|[0-9])px\]'
 #      not a style (e.g. BulkEditSheet's "text-xs, not text-[11px]" rationale). A
 #      className never begins a `//`, `*`, `/*` or `{/*` line, so this cannot mask
 #      a real offender;
-#   3. rule 118 — settings may use 10px/11px (but not 9px and below);
-#   4. rule 45 — the global StatusBar may use 11px.
+#   3. rule 118 — settings may use 10px/11px, fractions included (but not 9.x and
+#      below: the settings floor is 10px, not "anything with a 1 in front").
+# There is NO StatusBar carve-out. It had one for `text-[11px]` (rule 45) until
+# #3475 raised the bar to `text-xs`: the exception bought a pixel of chrome
+# quietness on the app's most persistent surface and cost a 1.4.4 risk. If a line
+# below ever reintroduces it, that is a regression, not a re-grant.
 tiny_text_filter() {
   g -vE "$EXCLUDE" \
     | g -vE "^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*|\{/\*)" \
-    | g -vE "^$WEB_SRC/features/settings/.*text-\[1[01]px\]" \
-    | g -vE "^$WEB_SRC/features/shell/StatusBar\.tsx:[0-9]+:.*text-\[11px\]"
+    | g -vE "^$WEB_SRC/features/settings/.*text-\[1[01](\.[0-9]+)?px\]"
 }
 tiny_text_offenders() {
   g -rInE "$TINY_TEXT_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
@@ -473,18 +485,26 @@ query_error_offenders() {
 # Input is the `path:line:content` shape the real scans produce.
 pipeline_self_test() {
   local rc=0 s
-  # tiny_text_filter's two carve-outs (rule 118's settings tree, rule 45's
-  # StatusBar) are anchored on $WEB_SRC, so these fixture paths must be too —
-  # otherwise the whole pattern self-test hard-fails the moment a scan root is
-  # injected, and its verdict would be about the prefix rather than the filter.
+  # tiny_text_filter's one carve-out (rule 118's settings tree) is anchored on
+  # $WEB_SRC, so these fixture paths must be too — otherwise the whole pattern
+  # self-test hard-fails the moment a scan root is injected, and its verdict would
+  # be about the prefix rather than the filter.
   local W="$WEB_SRC"
   # -- tiny text: MUST be reported --
+  # The last four are the #3475 fixtures: the retired StatusBar carve-out, a
+  # fractional size outside settings, and a fractional size BELOW the settings
+  # floor (which the settings carve-out must not swallow just because it starts
+  # with a 9 — the floor is a value, not a leading digit).
   for s in \
     "$W"'/components/linkPresentation.tsx:61:  className="text-[11px] font-medium"' \
     "$W"'/features/assets/AssetsPage.tsx:515:  className="px-1.5 text-[11px]"' \
     "$W"'/features/settings/X.tsx:9:  className="text-[9px]"' \
     "$W"'/features/shell/StatusBar.tsx:1:  className="text-[10px]"' \
-    "$W"'/features/foo/Bar.tsx:3:  className="text-[10px]"'; do
+    "$W"'/features/foo/Bar.tsx:3:  className="text-[10px]"' \
+    "$W"'/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
+    "$W"'/features/me/MyWorkFocusCards.tsx:64:  className="text-[10.5px]"' \
+    "$W"'/features/board/QueueLayout.tsx:498:  className="text-[9.5px]"' \
+    "$W"'/features/settings/X.tsx:9:  className="text-[9.5px]"'; do
     printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
       || { echo "::error:: tiny-text pipeline MISSED an offender: $s" >&2; rc=1; }
   done
@@ -492,9 +512,10 @@ pipeline_self_test() {
   for s in \
     "$W"'/features/settings/X.tsx:9:  className="text-[11px]"' \
     "$W"'/features/settings/X.tsx:9:  className="text-[10px]"' \
-    "$W"'/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
+    "$W"'/features/settings/X.tsx:9:  className="text-[10.5px]"' \
     "$W"'/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
     "$W"'/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
+    "$W"'/features/foo/Bar.tsx:3:  className="text-[12.5px]"' \
     "$W"'/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
     printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
       && { echo "::error:: tiny-text pipeline COUNTED a sanctioned line: $s" >&2; rc=1; }
