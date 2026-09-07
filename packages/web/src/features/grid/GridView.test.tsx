@@ -1351,6 +1351,97 @@ describe('GridView — mobile facet presentation', () => {
   });
 });
 
+describe('GridView — confirm strip focus handoff (#3445, web rule 368)', () => {
+  /**
+   * `ConfirmDeleteStrip` takes focus on mount and then removes itself on three
+   * exits — the 5s dwell expiring, Cancel, and Escape — and before #3445 all three
+   * dropped focus to `<body>` (WCAG 2.4.3). The destination is the bulk **Delete**
+   * button, which does not exist until the commit that unmounts the strip, so the
+   * handoff runs in an effect on the following commit rather than synchronously in
+   * the handler the way rule 368(b) normally asks.
+   *
+   * **Every assertion below is `toHaveFocus()` on the destination with no
+   * intervening `Tab` and no `.focus()` call** — rule 368(d). A round-trip test
+   * that focuses the Delete button itself and then checks the strip reopens passes
+   * against the whole defect: it asserts the door opens, never where the user was
+   * standing when it did.
+   */
+  beforeEach(() => {
+    projectMethodology = 'AGILE'; // flat — where bulk delete lives
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    bulkDeleteMutate.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const deleteButton = () => screen.getByRole('button', { name: /^delete$/i });
+
+  async function armTheStrip() {
+    await renderGrid();
+    const box = await screen.findByLabelText('Select Design');
+    // Fake timers go in AFTER the render settles and BEFORE the click that arms the
+    // strip — the dwell's `setTimeout` has to be scheduled on the fake clock or
+    // `advanceTimersByTime` moves a clock nothing is waiting on. Same order as the
+    // toast-dwell block below.
+    vi.useFakeTimers();
+    fireEvent.click(box);
+    fireEvent.click(deleteButton());
+    const strip = screen.getByRole('alertdialog', { name: /confirm deletion/i });
+    // The precondition the whole defect rests on: the strip really is holding focus
+    // when it goes away, so there really is something to orphan.
+    expect(screen.getByRole('button', { name: /^confirm delete$/i })).toHaveFocus();
+    return strip;
+  }
+
+  it('hands focus to the bulk Delete button when the dwell expires', async () => {
+    await armTheStrip();
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(screen.queryByRole('alertdialog', { name: /confirm deletion/i })).not.toBeInTheDocument();
+    expect(deleteButton()).toHaveFocus();
+  });
+
+  it('hands focus to the bulk Delete button when Cancel is clicked', async () => {
+    await armTheStrip();
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.queryByRole('alertdialog', { name: /confirm deletion/i })).not.toBeInTheDocument();
+    expect(deleteButton()).toHaveFocus();
+  });
+
+  it('hands focus to the bulk Delete button when Escape closes the strip', async () => {
+    const strip = await armTheStrip();
+    fireEvent.keyDown(strip, { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog', { name: /confirm deletion/i })).not.toBeInTheDocument();
+    expect(deleteButton()).toHaveFocus();
+  });
+
+  it('does NOT pull focus back when the user has moved it out of the strip (WCAG 3.2)', async () => {
+    // The dwell pauses on focus-WITHIN, so focus parked outside the strip lets the
+    // countdown run to expiry — and at that moment the user is somewhere else
+    // entirely. Yanking them to the toolbar would be an unrequested context change,
+    // which is why the handoff is armed only when the focus being orphaned is the
+    // strip's own. Without this the fix trades one WCAG failure for another.
+    //
+    // The parking spot has to be OUTSIDE the toolbar: while the strip is armed it
+    // replaces the whole toolbar row, so the search field and every other toolbar
+    // control is unmounted and a column header is the nearest focusable thing left.
+    await armTheStrip();
+    const elsewhere = screen.getByRole('button', { name: 'Finish' });
+    act(() => {
+      elsewhere.focus();
+    });
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    expect(screen.queryByRole('alertdialog', { name: /confirm deletion/i })).not.toBeInTheDocument();
+    expect(elsewhere).toHaveFocus();
+    expect(deleteButton()).not.toHaveFocus();
+  });
+});
+
 describe('GridView — toast dwell (#2078)', () => {
   beforeEach(() => {
     projectMethodology = 'AGILE'; // flat — where bulk delete lives
