@@ -395,8 +395,7 @@ def gather_program_schedule(
     # empty path so the (cheap) query result is uniform; the empty graph carries it.
     member_ids = list(project_by_id.keys())
     db_deps = list(
-        Dependency.objects.filter(
-            is_deleted=False,
+        Dependency.live.filter(
             predecessor__project_id__in=member_ids,
             successor__project_id__in=member_ids,
         )
@@ -503,8 +502,7 @@ def program_has_accepted_cross_edges(program_id: Any) -> bool:
     from trueppm_api.apps.projects.models import Dependency
 
     return (
-        Dependency.objects.filter(
-            is_deleted=False,
+        Dependency.live.filter(
             pending_acceptance=False,
             predecessor__project__program_id=program_id,
             successor__project__program_id=program_id,

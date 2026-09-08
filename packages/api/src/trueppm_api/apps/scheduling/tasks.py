@@ -1184,8 +1184,11 @@ def _run_schedule(
     # touches an excluded (recurring) task — its endpoint is absent from sched_tasks,
     # so handing it to the engine would create a dangling dependency. See ADR-0090.
     included_ids = {str(t.id) for t in db_tasks}
+    # Dependency.live, not .objects: a soft-deleted edge is a deleted constraint.
+    # Feeding it to the engine keeps a link the user removed in the UI binding the
+    # persisted CPM dates forever (#3532).
     db_deps = list(
-        Dependency.objects.filter(predecessor__project_id=project_id).select_related(
+        Dependency.live.filter(predecessor__project_id=project_id).select_related(
             "predecessor", "successor"
         )
     )
@@ -1757,7 +1760,11 @@ def _run_program_schedule(program_id: str) -> None:
 
         # Driving-link flags across the program (#2095), same shared helper as the
         # single-project path; summary-level edges stay non-driving.
-        program_db_deps = list(Dependency.objects.filter(predecessor__project_id__in=member_ids))
+        # Dependency.live: the driving-link flag is a CPM output, and the program
+        # graph this result came from already excluded soft-deleted edges
+        # (gather_program_schedule). Writing flags to a deleted edge would be
+        # scoring a constraint that is not in the network (#3532).
+        program_db_deps = list(Dependency.live.filter(predecessor__project_id__in=member_ids))
         _apply_driving_flags(program_db_deps, graph.result.driving_edges)
 
     # Group the full write-back set by project — this is what defines each member

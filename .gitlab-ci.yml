@@ -1703,6 +1703,37 @@ api:extension-signals:
     - bash scripts/check-extension-signals.sh --self-test
     - bash scripts/check-extension-signals.sh
 
+api:dependency-soft-delete:
+  extends: .fast-job
+  # Every scheduler-input builder must read dependency edges through the
+  # filtered `Dependency.live` manager (#3532).
+  #
+  # `DependencyViewSet.perform_destroy` soft-deletes the edge and enqueues a
+  # recalculation in the same method. Three of the four builders queried the
+  # unfiltered `Dependency.objects`, so that recalculation fed the engine the
+  # edge the user had just deleted — leaving every persisted CPM date, the
+  # Monte Carlo and what-if forecasts, and the derivation ("why") endpoint bound
+  # to a constraint that no longer existed. Seven calendar days of phantom delay
+  # on a two-task chain.
+  #
+  # Only the merged program pass was correct, which is the case for a gate: the
+  # invariant was honored at one site out of four with nothing asserting the
+  # rest. The rule is manager-shaped, not keyword-shaped, because `is_deleted` is
+  # a column on the table and therefore appears in the SELECT list of every
+  # dependency query — a substring probe reports a false pass. Grep; ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep
+  script:
+    # Self-test FIRST: prove the gate still catches an unfiltered read before
+    # believing it found none (#3195).
+    - bash scripts/check-dependency-soft-delete.sh --self-test
+    - bash scripts/check-dependency-soft-delete.sh
+
 demo:readonly-posture:
   extends: .fast-job
   # The hosted demo must stay read-only by construction (#2773, gates #2271).

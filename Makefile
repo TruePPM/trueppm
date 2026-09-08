@@ -311,6 +311,12 @@ extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses pl
 	@bash scripts/check-extension-signals.sh --self-test
 	@bash scripts/check-extension-signals.sh
 
+dependency-soft-delete-check: ## Fail if a scheduler input reads Dependency.objects (#3532)
+	@# A soft-deleted edge read through the unfiltered manager keeps constraining
+	@# CPM, Monte Carlo, what-if and the derivation endpoint. Grep, ~1s.
+	@bash scripts/check-dependency-soft-delete.sh --self-test
+	@bash scripts/check-dependency-soft-delete.sh
+
 demo-readonly-check: ## Fail if a demo manifest enables persona logins (#2773)
 	@# The hosted demo's read-only posture is what makes publishing it safe, and
 	@# it is enforced by the absence of one flag in two YAML files. Grep, ~1s.
@@ -485,7 +491,7 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check dependency-soft-delete-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
