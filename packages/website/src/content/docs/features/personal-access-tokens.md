@@ -128,12 +128,13 @@ could not have minted a replacement with it. A token also cannot reconfigure
 in and at what role.
 
 It is not yet containment for *everything*. A leaked token belonging to a workspace
-admin can still send a workspace invite or change a member's role, and one belonging
-to a project admin can still rotate a git-automation webhook secret or mint a public
-share link. None of those is undone by revoking the token, by a password reset, or by
-off-boarding. Treat revocation as cutting off the credential, then check what that
-credential did while it was live — your [token history](#your-token-history) is the
-starting point.
+admin can still send a workspace invite, change a member's role, add someone to a
+group or grant a group a role on a project; one belonging to the workspace owner can
+still transfer ownership; and one belonging to a project admin can still rotate a
+git-automation webhook secret or mint a public share link. None of those is undone by
+revoking the token, by a password reset, or by off-boarding. Treat revocation as
+cutting off the credential, then check what that credential did while it was live —
+your [token history](#your-token-history) is the starting point.
 
 ## A password change revokes every PAT
 
