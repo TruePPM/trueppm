@@ -314,6 +314,61 @@ class TestSafeCaptureWiring:
 
         assert Notification.objects.count() == 2
 
+    def test_a_stale_backlog_row_leaving_the_aggregate_does_not_notify(
+        self,
+        project: Project,
+        people: dict[str, Any],
+        django_capture_on_commit_callbacks: Callable[..., Any],
+    ) -> None:
+        """#3539 — no email when the only difference is a task CPM never scheduled.
+
+        ``B`` was scheduled to 2026-12-01 and then groomed back to the backlog;
+        ``_apply_cpm_results`` only writes the rows it schedules, so B keeps that
+        finish date forever. The PM then deletes B. No committed work moves at any
+        point — the schedule has finished on 2026-08-01 throughout.
+
+        Aggregated over every non-deleted task, B's stale value held ``cpm_finish``
+        at 2026-12-01 and the delete dropped it to 2026-08-01: a 122-day "your end
+        date pulled in" email to the PM/Owner cohort about a shift that never
+        happened. Aggregated over ``Task.committed``, the two captures are
+        identical, so the capture-path dedup writes no second row and nothing is
+        sent.
+        """
+        Task.objects.create(
+            project=project,
+            name="A (committed, drives the finish)",
+            duration=1,
+            status=TaskStatus.NOT_STARTED,
+            early_finish=date(2026, 8, 1),
+            total_float=0,
+        )
+        stale = Task.objects.create(
+            project=project,
+            name="B (groomed out, stale CPM output)",
+            duration=1,
+            status=TaskStatus.BACKLOG,
+            early_finish=date(2026, 12, 1),
+            total_float=0,
+        )
+
+        with django_capture_on_commit_callbacks(execute=True):
+            safe_capture_forecast_snapshot(str(project.pk), "recompute")
+        first = ProjectForecastSnapshot.objects.get(project=project)
+        assert first.cpm_finish == date(2026, 8, 1), "the backlog row is in the aggregate"
+
+        # The groomed-out row is deleted. Nothing about the committed schedule moves.
+        Task.objects.filter(pk=stale.pk).update(is_deleted=True)
+
+        with django_capture_on_commit_callbacks(execute=True):
+            safe_capture_forecast_snapshot(str(project.pk), "recompute")
+
+        assert not Notification.objects.filter(
+            event_type=NotificationEventType.PROJECT_END_DATE_SHIFTED
+        ).exists()
+        # Deduped: every tracked field is unchanged, so no second row exists to
+        # compare against — the structural half of the debounce.
+        assert ProjectForecastSnapshot.objects.filter(project=project).count() == 1
+
 
 # ---------------------------------------------------------------------------
 # ProjectSerializer: end_date_shift_threshold_days setting (validation + RBAC)

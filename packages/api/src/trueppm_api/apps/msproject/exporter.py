@@ -279,6 +279,12 @@ def _add_resources_block(
         res_el = ET.SubElement(resources_el, f"{{{_NS}}}Resource")
         _sub_text(res_el, "UID", str(uid))
         _sub_text(res_el, "Name", resource.name)
+        # The resource's own catalog capacity, NOT its project-effective figure
+        # (#3574). MSPDI has no per-project override concept, so writing the
+        # effective value here would bake one project's slice into the resource
+        # default — and the importer reads MaxUnits straight back into
+        # ``Resource.max_units``, so a round trip would make the override permanent
+        # and global. The override is a TruePPM-side fact with no MSPDI counterpart.
         _sub_text(res_el, "MaxUnits", f"{float(resource.max_units):.2f}")
 
 
