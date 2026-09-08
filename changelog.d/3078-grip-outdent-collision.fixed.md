@@ -1,0 +1,1 @@
+Schedule outline: the drag-to-reorder grip no longer draws on top of a row's ⇤ outdent button. On a mouse the grip had no lane of its own, so once the ⇤/⇥/◆ controls moved to the row's left edge the grip covered all but 2px of the outdent — and took its clicks — for as long as a row stayed selected. The grip now has its own lane at every pointer class.

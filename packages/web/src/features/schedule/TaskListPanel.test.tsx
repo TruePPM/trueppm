@@ -7,7 +7,11 @@ import type { Task } from '@/types';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { buildSiblingIdsMap, TaskListPanel } from './TaskListPanel';
 import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
-import { resolveOutlineLeftReserve, resolveNudgeLaneWidth } from './scheduleConstants';
+import {
+  resolveGripReserve,
+  resolveNudgeLaneWidth,
+  resolveOutlineLeftReserve,
+} from './scheduleConstants';
 
 /** Minimal task stub — buildSiblingIdsMap only reads `id` and `wbs`. */
 function t(id: string, wbs: string): Task {
@@ -676,10 +680,22 @@ describe('TaskListPanel — the row pitch follows the pointer class (#2997)', ()
     expect(screen.getByTestId('row-a')).toHaveAttribute('data-nudge-reserve', '0');
   });
 
-  it('reserves nothing on a fine pointer even when the grip is there', () => {
+  it('reserves the grip\'s OWN width on a fine pointer, not nothing (#3078)', () => {
+    // This case used to assert `'0'` and was named for it. That was the whole
+    // defect: the grip is `absolute left-0 z-10`, so reserving nothing did not
+    // mean the grip took no space — it meant the grip drew on top of whatever
+    // in-flow child came first, which since #3026 is the ⇤ outdent.
+    //
+    // Asserted against `resolveGripReserve` rather than the literal 14, so the
+    // panel is pinned to *the resolver*: a row that reserved its own number
+    // would drift from the header and the draft row, which is the class the
+    // shared lane exists to prevent.
     stubCoarsePointer(false);
     renderPanel({ tasks: [task({ id: 'a' })], onMoveRow: vi.fn() });
-    expect(screen.getByTestId('row-a')).toHaveAttribute('data-grip-reserve', '0');
+    const lane = String(resolveGripReserve(false));
+    expect(lane).not.toBe('0');
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-grip-reserve', lane);
+    expect(screen.getByTestId('task-list-header')).toHaveAttribute('data-grip-reserve', lane);
   });
 });
 
