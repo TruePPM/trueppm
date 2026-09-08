@@ -242,6 +242,16 @@ from trueppm_api.apps.projects.serializers import (
     TaskWriteResponseSerializer,
     ZeroDurationNotMilestoneError,
 )
+
+# Module-level on purpose, against the lazy-import convention the rest of this file
+# follows for `services`: `@extend_schema` is evaluated at class-creation time, so the
+# burn window bounds must be importable then for the OpenAPI parameter descriptions to
+# quote the same constants the view enforces (#3566). Safe because `services` imports
+# models lazily and never imports this module.
+from trueppm_api.apps.projects.services import (
+    MAX_BURN_HORIZON_DAYS,
+    MAX_BURN_WINDOW_DAYS,
+)
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
 from trueppm_api.apps.projects.task_bulk import (
     MSG_PROGRESS_NEEDS_ANCHOR,
@@ -17169,10 +17179,14 @@ class ProjectBurnView(APIView):
     derived from the project's active baseline when one exists.
 
     Query params:
-      ``chart_type`` — ``burndown`` (default) or ``burnup``
+      ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``
       ``metric``     — ``tasks`` (default) or ``points``
       ``since``      — window start, ISO date; defaults to project start
       ``until``      — window end, ISO date; defaults to today
+
+    The window is bounded on both axes — a maximum span, and a short horizon past
+    today; see the ``since`` / ``until`` parameter descriptions for the limits. A
+    window outside either bound is a 400.
     """
 
     # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
@@ -17210,7 +17224,10 @@ class ProjectBurnView(APIView):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start date."
+                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start "
+                    f"date. The window may not exceed {MAX_BURN_WINDOW_DAYS} days: an "
+                    "explicit since that far from until is a 400, while a defaulted "
+                    f"since is clamped to until minus {MAX_BURN_WINDOW_DAYS} days."
                 ),
             ),
             OpenApiParameter(
@@ -17218,7 +17235,10 @@ class ProjectBurnView(APIView):
                 type=OpenApiTypes.DATE,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Window end, ISO 8601 YYYY-MM-DD. Defaults to today.",
+                description=(
+                    "Window end, ISO 8601 YYYY-MM-DD. Defaults to today. May not be "
+                    f"more than {MAX_BURN_HORIZON_DAYS} days in the future."
+                ),
             ),
         ],
         responses={
@@ -17226,8 +17246,12 @@ class ProjectBurnView(APIView):
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Burn series. For burndown/burnup: {chart_type, metric, since, "
-                    "until, series: [{date, actual, scope, ideal}]}. For combined: "
-                    "series rows are {date, remaining, completed, total, ideal}."
+                    "until, series: [{date, actual, scope, ideal}]}, plus a top-level "
+                    "baseline_series ([{date, planned}]) when the project has an "
+                    "active baseline. For combined: series rows are {date, remaining, "
+                    "completed, total, ideal}, and there is never a baseline_series. "
+                    "since is the window actually used, which may be later than a "
+                    "defaulted one that was clamped."
                 ),
                 examples=[
                     OpenApiExample(
@@ -17247,12 +17271,17 @@ class ProjectBurnView(APIView):
             ),
             400: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description="Invalid chart_type, metric, or date parameter.",
+                description=(
+                    "Invalid chart_type, metric, or date parameter; an until more than "
+                    f"{MAX_BURN_HORIZON_DAYS} days in the future; or an explicit since "
+                    f"putting the window over {MAX_BURN_WINDOW_DAYS} days. The body is "
+                    "{detail} and names the bound."
+                ),
             ),
         },
     )
     def get(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.projects.services import burn_series
+        from trueppm_api.apps.projects.services import burn_series, burn_series_combined
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
@@ -17271,6 +17300,49 @@ class ProjectBurnView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Horizon bound first, and before any date arithmetic on the window: a far
+        # future `until` (`9999-12-31`) overflows `_date_range_inclusive` while
+        # stepping past `date.max`, which was a 500 rather than a 400 (#3566). It
+        # has to be its own check because `since=until=9999-12-31` is a zero-day
+        # span the window cap below would happily accept.
+        max_until = timezone.localdate() + datetime.timedelta(days=MAX_BURN_HORIZON_DAYS)
+        if until > max_until:
+            return Response(
+                {
+                    "detail": (
+                        f"until may not be more than {MAX_BURN_HORIZON_DAYS} days in the "
+                        f"future (latest allowed: {max_until.isoformat()})."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Window cap. The cost of a burn read is O(days × tasks × history rows) and
+        # the body carries a row per day, so an uncapped span is an unbounded read
+        # for any project member — the sibling flow-metrics endpoint caps the same
+        # way. An *explicit* over-long span is a 400 (the caller asked for something
+        # we will not do); a *defaulted* one is clamped instead, because a project
+        # that started three years ago must not 400 on a no-parameter request. The
+        # response echoes the `since` actually used, so the clamp is discoverable in
+        # the payload — the Reports UI does not read it back yet (#3580).
+        #
+        # `if since_param:` and not `is not None`: `?since=` (empty value) resolves
+        # to the default above, so it must take the clamp branch too, or a caller
+        # that serializes an empty date field gets a 400 for a window it never asked
+        # for.
+        if (until - since).days > MAX_BURN_WINDOW_DAYS:
+            if since_param:
+                return Response(
+                    {
+                        "detail": (
+                            f"The window between since and until may not exceed "
+                            f"{MAX_BURN_WINDOW_DAYS} days."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            since = until - datetime.timedelta(days=MAX_BURN_WINDOW_DAYS)
+
         # Validate chart_type and metric before dispatching — guards both combined
         # and non-combined paths with a consistent 400 response (security-review finding).
         _VALID_CHART_TYPES = {"burndown", "burnup", "combined"}
@@ -17287,19 +17359,14 @@ class ProjectBurnView(APIView):
             )
 
         if chart_type == "combined":
-            # Merge burndown (remaining) and burnup (completed) into one series so
-            # the client gets both curves in a single request (ADR-0062).
+            # Merge remaining (burndown) and completed (burnup) into one series so
+            # the client gets both curves in a single request (ADR-0062). Both come
+            # from ONE history query and one replay — this used to call burn_series
+            # twice, paying the full O(days × tasks × history rows) cost per curve
+            # for the variant the Reports page defaults to (#3566).
             try:
-                bd = burn_series(
+                payload = burn_series_combined(
                     project_id=project.pk,
-                    chart_type="burndown",
-                    since=since,
-                    until=until,
-                    metric=metric,
-                )
-                bu = burn_series(
-                    project_id=project.pk,
-                    chart_type="burnup",
                     since=since,
                     until=until,
                     metric=metric,
@@ -17307,23 +17374,6 @@ class ProjectBurnView(APIView):
             except ValueError as exc:
                 # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-            bu_by_date = {p["date"]: p for p in bu["series"]}
-            payload = {
-                "chart_type": "combined",
-                "metric": metric,
-                "since": str(since),
-                "until": str(until),
-                "series": [
-                    {
-                        "date": p["date"],
-                        "remaining": p["actual"],
-                        "completed": bu_by_date.get(p["date"], {}).get("actual", 0),
-                        "total": p["scope"],
-                        "ideal": p["ideal"],
-                    }
-                    for p in bd["series"]
-                ],
-            }
             return Response(payload, status=status.HTTP_200_OK)
 
         try:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from django.db import models, transaction
 from django.db.models import DateField, ProtectedError, QuerySet
@@ -127,6 +127,29 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
 
 
 @extend_schema_view(
+    create=extend_schema(
+        summary="Create a skill, or return the existing one",
+        description=(
+            "Adds a skill to the org-level catalog.\n\n"
+            "Names are de-duplicated case-insensitively on `normalized_name`, so "
+            "posting a name that already exists is not an error: the existing row is "
+            "returned with `200` instead of `201`. Callers that need to know whether "
+            "they added the skill must read the status code — the body is identical "
+            "either way."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=SkillSerializer,
+                description=(
+                    "A skill with this normalized name already existed; it is returned unchanged."
+                ),
+            ),
+            201: OpenApiResponse(
+                response=SkillSerializer,
+                description="Skill created.",
+            ),
+        },
+    ),
     destroy=extend_schema(
         summary="Delete a skill",
         description=(
@@ -148,7 +171,7 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
                 ),
             ),
         },
-    )
+    ),
 )
 class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
     """CRUD for the org-level skill catalog.
@@ -195,13 +218,21 @@ class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
-        """Create or return existing skill — de-dup by normalized_name."""
-        serializer = self.get_serializer(data=request.data)
+        """Create the skill (201), or return the existing row on a de-dup hit (200).
+
+        The status comes from the ``get_or_create`` flag the serializer records,
+        not from an inspection of the saved row. Nothing on a saved ``Skill``
+        distinguishes a fresh insert from a de-dup hit, so any re-derived flag is
+        a guess: this used to probe ``server_version=0``, which
+        ``VersionedModel.save`` never leaves behind (it stamps 1 on insert), so
+        the endpoint answered 200 for every create (#3573).
+        """
+        # ``get_serializer`` is typed as ``BaseSerializer[Skill]``; this viewset
+        # never swaps ``serializer_class``, so the concrete type is exact.
+        serializer = cast("SkillSerializer", self.get_serializer(data=request.data))
         serializer.is_valid(raise_exception=True)
         skill = serializer.save()
-        # Return 200 if skill already existed, 201 if newly created.
-        created = not Skill.objects.filter(pk=skill.pk, server_version=0).exists()
-        http_status = status.HTTP_201_CREATED if not created else status.HTTP_200_OK
+        http_status = status.HTTP_201_CREATED if serializer.created else status.HTTP_200_OK
         return Response(
             self.get_serializer(skill).data,
             status=http_status,
@@ -501,12 +532,27 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
             ),
         ],
     ),
+    create=extend_schema(
+        responses={
+            201: TaskSkillRequirementSerializer,
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks the Resource Manager role on the target task's project, "
+                    "or that project is archived (#3570). The project is reached only "
+                    "through the body's task here, so the refusal comes from the view "
+                    "rather than a permission class — the status and body are the same "
+                    "either way."
+                )
+            ),
+        },
+    ),
 )
 class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSkillRequirement]):
     """CRUD for skill requirements on tasks.
 
     Read: authenticated users scoped to their member projects.
-    Write: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).
+    Write: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),
+    and the requirement's task must live in a project that is not archived.
     """
 
     serializer_class = TaskSkillRequirementSerializer
@@ -518,7 +564,12 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
 
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
-        return [IsAuthenticated(), IsOrgScheduler()]
+        # ``IsProjectNotArchived`` fires object-level here — the route is top-level, so
+        # ``has_permission`` finds no project kwarg and stands down, and the detail
+        # routes resolve the project through ``TaskSkillRequirement.project_id``. The
+        # create path is covered in the body instead (see ``_require_scheduler_on_task``),
+        # because DRF never calls ``has_object_permission`` when there is no object yet.
+        return [IsAuthenticated(), IsOrgScheduler(), IsProjectNotArchived()]
 
     def _require_scheduler_on_task(self, task: Task) -> None:
         # IsOrgScheduler only proves SCHEDULER on *some* project; DRF never runs
@@ -538,6 +589,13 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
             raise PermissionDenied(
                 "You need at least Resource Manager role on the target task's project."
             )
+        # Archived is lifecycle state, not authority, so it is checked after the role
+        # floor and against the same target project. It is enforced HERE as well as by
+        # the class-level ``IsProjectNotArchived`` because this route is top-level: on a
+        # create there is no object for ``has_object_permission`` to resolve, and on an
+        # update that repoints ``task`` the object DRF checked is the OLD row, whose
+        # project may be live while the destination is archived (#3570).
+        assert_project_not_archived(task.project_id)
 
     def perform_create(self, serializer: BaseSerializer[TaskSkillRequirement]) -> None:
         self._require_scheduler_on_task(serializer.validated_data["task"])
@@ -622,6 +680,40 @@ def _request_is_org_admin(request: Request) -> bool:
         role__gte=Role.ADMIN,
         is_deleted=False,
     ).exists()
+
+
+def _caller_is_project_member(request: Request, project_id: Any) -> bool:
+    """Return True when the caller holds an active membership on ``project_id``.
+
+    Gates the catalog list's project-scoped query parameters (#3571). The resource
+    catalog is readable by any authenticated user (ADR-0034), so a parameter that
+    reaches *through* that open read into one project's data — its roster, its
+    tasks' skill requirements — has to carry its own membership check; the
+    endpoint's permission class cannot supply one, because the endpoint is not
+    project-scoped.
+
+    A malformed id is deliberately *not* pre-validated here: letting it reach the
+    UUID column keeps the install-wide malformed-uuid contract
+    (``core.exception_handlers`` maps it to 400 for a query param), rather than
+    quietly downgrading a typo to an ignored parameter.
+    """
+    return _membership_role(request, project_id) is not None
+
+
+def _caller_may_read_task(request: Request, task_id: Any) -> bool:
+    """Return True when the caller is a member of the project owning ``task_id``.
+
+    The ``?task=`` skill-fit annotation echoes a task's full requirement set back
+    through the open catalog read, so those rows need the same project scoping
+    :meth:`TaskSkillRequirementViewSet.get_queryset` already applies to them
+    (#3571). An unknown task id and a foreign one are equally un-annotated, so the
+    parameter cannot be used to confirm that a task id exists. A malformed id is
+    left to the install-wide malformed-uuid contract (400), as above.
+    """
+    project_id = Task.objects.filter(pk=task_id).values_list("project_id", flat=True).first()
+    if project_id is None:
+        return False
+    return _membership_role(request, project_id) is not None
 
 
 class ResourceCatalogThrottle(UserRateThrottle):
@@ -827,7 +919,10 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                 type=OpenApiTypes.UUID,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Exclude resources already in this project's roster.",
+                description=(
+                    "Exclude resources already in this project's roster. Only "
+                    "honoured for members of that project; ignored otherwise."
+                ),
             ),
             OpenApiParameter(
                 name="task",
@@ -837,7 +932,8 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                 description=(
                     "Annotate each resource with skill_fit (exact/partial/missing) "
                     "against this task's skill requirements and group results "
-                    "accordingly."
+                    "accordingly. Only honoured for members of the task's project; "
+                    "ignored otherwise."
                 ),
             ),
             OpenApiParameter(
@@ -872,12 +968,22 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     the roster rows, but not a membership that was already removed by hand.
 
     Query params:
-      ?search=             — filter by name/email (DRF SearchFilter)
-      ?exclude_project=    — exclude resources already in a project's roster
+      ?search=             — filter by name/email (DRF SearchFilter); email is
+                             searchable only for org admins (#892)
+      ?exclude_project=    — exclude resources already in a project's roster;
+                             only honoured for members of that project (#3571)
       ?task=               — annotate with skill_fit against the task's skill
-                             requirements; groups results into exact/partial/missing
+                             requirements; groups results into exact/partial/missing.
+                             Only honoured for members of the task's project (#3571)
       ?include_deleted=true — include soft-deleted (deactivated) resources;
                              only honoured for org admin users
+      ?ordering=           — order by name (DRF OrderingFilter)
+
+    Every parameter that names a project- or task-scoped id is gated on the
+    caller's membership of that project. The catalog read itself is open, so a
+    parameter is the only place a project boundary can be crossed here; an
+    unauthorized id is treated as absent rather than refused, so no parameter
+    doubles as an existence oracle.
     """
 
     queryset = (
@@ -930,8 +1036,15 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         if not include_deleted:
             qs = qs.filter(is_deleted=False)
 
+        # ?exclude_project= reaches through the open catalog read into one
+        # project's roster: diffing the filtered list against the bare one names
+        # every resource on that roster. Honour it only for members of that
+        # project (#3571). A non-member's parameter is ignored rather than
+        # refused, which is exactly the response they get by omitting it, so the
+        # parameter confirms nothing about the project id either — the same
+        # treatment ?include_deleted= gets for non-admins above.
         exclude_project = self.request.query_params.get("exclude_project")
-        if exclude_project:
+        if exclude_project and _caller_is_project_member(self.request, exclude_project):
             already_in = ProjectResource.objects.filter(
                 project_id=exclude_project, is_deleted=False
             ).values_list("resource_id", flat=True)
@@ -1204,7 +1317,13 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         """List resources, optionally annotated with skill_fit for a task."""
         task_id = request.query_params.get("task")
         requirements: list[TaskSkillRequirement] = []
-        if task_id:
+        # missing_skills[] echoes skill_name/required/required_label for every
+        # requirement on the task, so an unscoped ?task= published a foreign
+        # project's requirement set through a read any authenticated user may
+        # make. Annotate only for members of the task's project (#3571) — the
+        # same scoping TaskSkillRequirementViewSet.get_queryset applies to these
+        # rows. A non-member gets the plain, un-annotated catalog.
+        if task_id and _caller_may_read_task(request, task_id):
             requirements = list(
                 TaskSkillRequirement.objects.filter(
                     task_id=task_id, is_deleted=False

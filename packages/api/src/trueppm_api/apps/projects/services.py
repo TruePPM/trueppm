@@ -911,15 +911,30 @@ def _velocity_sprint_entries(closed: list[Any]) -> list[dict[str, Any]]:
 # Project burn chart — HistoricalTask replay (issue #239 / ADR-0022)
 # ---------------------------------------------------------------------------
 
+# Cost of a burn request is O(days × tasks × history-rows-per-task) replayed in
+# Python, and the payload carries one row per day, so an uncapped window is an
+# unbounded read for any project member (#3566). The cap mirrors the *shape* of
+# ``MAX_FLOW_WINDOW_DAYS`` (365) on the sibling flow-metrics endpoint rather than
+# its value: 366 keeps a full leap year of daily points reachable in one request.
+MAX_BURN_WINDOW_DAYS = 366
+
+# The curves have nothing to say past today — the ideal line is anchored to the
+# window and the actual line replays history — so ``until`` is bounded to a short
+# allowance past today. This is what turns ``until=9999-12-31`` from an
+# ``OverflowError`` in ``_date_range_inclusive`` (a 500) into a 400, independently
+# of the span cap: ``since=9999-12-31&until=9999-12-31`` is a legal *span*.
+MAX_BURN_HORIZON_DAYS = 31
+
 
 def _date_range_inclusive(start: date, end: date) -> list[date]:
-    """Return every date from start to end inclusive, ascending."""
-    days: list[date] = []
-    cur = start
-    while cur <= end:
-        days.append(cur)
-        cur += timedelta(days=1)
-    return days
+    """Return every date from start to end inclusive, ascending.
+
+    Offsets from ``start`` rather than incrementing a cursor: the cursor form
+    stepped one day *past* ``end`` before failing its test, which raised
+    ``OverflowError`` for an ``end`` of ``date.max`` and surfaced as a 500 on the
+    burn endpoint (#3566). This form never constructs a date beyond ``end``.
+    """
+    return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
 
 def _daily_burn_series(
@@ -962,6 +977,15 @@ def _burn_totals_at(
 
     A deleted or not-yet-created task contributes nothing rather than zero, which
     is what keeps ``scope`` a true "work committed as of this day" curve.
+
+    Each task's row list is newest-first, so the state at ``end_of_day`` is the
+    first row whose ``history_date`` is on or before it. That is found by a
+    **linear scan** from the newest row, not a bisect: the scan stops at the first
+    match, so it is shortest for the *latest* day of a window and longest for the
+    *oldest*, which has to be walked past every later revision. Callers iterate
+    days ascending, so the expensive days come first and the replay costs
+    O(days × tasks × rows-per-task) — which is why the endpoint caps its window at
+    ``MAX_BURN_WINDOW_DAYS`` (#3566). The cap makes the cost bounded, not small.
     """
     from trueppm_api.apps.projects.models import TaskStatus
 
@@ -978,15 +1002,24 @@ def _burn_totals_at(
     return scope, completed
 
 
-def _apply_ideal_curve(series: list[dict[str, Any]], *, chart_type: str, day_count: int) -> None:
+def _apply_ideal_curve(
+    series: list[dict[str, Any]],
+    *,
+    chart_type: str,
+    day_count: int,
+    scope_key: str = "scope",
+) -> None:
     """Overlay the linear ``ideal`` curve on an already-computed series, in place.
 
     Burndown anchors to the first day's scope (the commitment baseline draws down
     to zero); burnup anchors to the final day's scope (the team plans to complete
     *current* scope by the end). That asymmetry matches how PMs read each chart.
+
+    ``scope_key`` names the row field holding the day's scope — the combined
+    series spells it ``total``, and reads the burndown ideal off it.
     """
-    initial_scope = series[0]["scope"] if series else 0
-    final_scope = series[-1]["scope"] if series else 0
+    initial_scope = series[0][scope_key] if series else 0
+    final_scope = series[-1][scope_key] if series else 0
     span_days = max(day_count - 1, 1)
     for index, point in enumerate(series):
         progress = index / span_days
@@ -1067,6 +1100,114 @@ def _burn_baseline_series(
     return _baseline_planned_series(weight_by_task, finishes, days, chart_type=chart_type)
 
 
+def _burn_history_index(
+    project_id: str | uuid.UUID, until: date
+) -> dict[Any, list[dict[str, Any]]]:
+    """Index every history row for the project up to ``until``, newest-first per task.
+
+    One query — the replay walks the returned lists in memory, so a caller that
+    needs several curves over the same window must build this index once and share
+    it rather than re-querying per curve (#3566).
+
+    Bounded on the *day* axis only: there is no lower date bound, so this reads
+    every history row the project has ever accumulated up to ``until``, not just
+    the rows inside the window. Narrowing it needs a second "latest row strictly
+    before ``since``" query per task to keep the carry-in state correct, which the
+    two sibling flow-metrics replays need in the same shape (#3579).
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    HistoricalTask = Task.history.model
+
+    end_of_until = datetime.combine(
+        until, datetime.max.time(), tzinfo=timezone.get_current_timezone()
+    )
+
+    # Newest-first, so the first row on or before a given day is that task's state
+    # on it. Ordering by `history_date` alone (rather than `(id, -history_date)`)
+    # keeps the `(project_id, history_date)` index able to serve the sort — the
+    # rows are grouped by a dict below, so their order *across* tasks is irrelevant
+    # and sorting by task id only bought a Sort node over the whole result.
+    history_rows = list(
+        HistoricalTask.objects.filter(
+            project_id=project_id,
+            history_date__lte=end_of_until,
+        )
+        .order_by("-history_date")
+        .values("id", "history_date", "status", "story_points", "history_type", "is_deleted")
+    )
+
+    by_task: dict[Any, list[dict[str, Any]]] = {}
+    for row in history_rows:
+        by_task.setdefault(row["id"], []).append(row)
+    return by_task
+
+
+def burn_series_combined(
+    project_id: str | uuid.UUID,
+    *,
+    since: date,
+    until: date,
+    metric: str = "tasks",
+) -> dict[str, Any]:
+    """Combined burn series — remaining *and* completed from a single replay.
+
+    Same window semantics as :func:`burn_series`, but each day's ``remaining`` and
+    ``completed`` come from one ``_burn_totals_at`` call instead of two full
+    replays (one per chart type), which is what the two-call version cost before
+    #3566. ``ideal`` is the burndown ideal, anchored to the first day's scope.
+
+    Returns:
+        Dict shaped like::
+
+            {
+              "chart_type": "combined",
+              "metric": "tasks",
+              "since": "...",
+              "until": "...",
+              "series": [{"date", "remaining", "completed", "total", "ideal"}, ...],
+            }
+    """
+    if metric not in ("tasks", "points"):
+        raise ValueError(f"Invalid metric: {metric}")
+    if until < since:
+        raise ValueError("`until` must be on or after `since`")
+    # The cap lives with the cost, not only in the view that happens to call this
+    # today: a service that will replay any span is one non-view caller away from
+    # reintroducing the unbounded read the view was taught to refuse (#3566).
+    if (until - since).days > MAX_BURN_WINDOW_DAYS:
+        raise ValueError(
+            f"The window between since and until may not exceed {MAX_BURN_WINDOW_DAYS} days."
+        )
+
+    days = _date_range_inclusive(since, until)
+    by_task = _burn_history_index(project_id, until)
+
+    series: list[dict[str, Any]] = []
+    for day in days:
+        end_of_day = datetime.combine(
+            day, datetime.max.time(), tzinfo=timezone.get_current_timezone()
+        )
+        scope, completed = _burn_totals_at(by_task, end_of_day, metric=metric)
+        series.append(
+            {
+                "date": day.isoformat(),
+                "remaining": scope - completed,
+                "completed": completed,
+                "total": scope,
+            }
+        )
+    _apply_ideal_curve(series, chart_type="burndown", day_count=len(days), scope_key="total")
+
+    return {
+        "chart_type": "combined",
+        "metric": metric,
+        "since": since.isoformat(),
+        "until": until.isoformat(),
+        "series": series,
+    }
+
+
 def burn_series(
     project_id: str | uuid.UUID,
     *,
@@ -1110,40 +1251,22 @@ def burn_series(
     of baselined tasks whose snapshot finish date is greater than that
     date — a proper "planned remaining" curve, not a linear interpolation.
     """
-    from trueppm_api.apps.projects.models import Task
-
-    HistoricalTask = Task.history.model
-
     if chart_type not in ("burndown", "burnup"):
         raise ValueError(f"Invalid chart_type: {chart_type}")
     if metric not in ("tasks", "points"):
         raise ValueError(f"Invalid metric: {metric}")
     if until < since:
         raise ValueError("`until` must be on or after `since`")
+    # The cap lives with the cost, not only in the view that happens to call this
+    # today: a service that will replay any span is one non-view caller away from
+    # reintroducing the unbounded read the view was taught to refuse (#3566).
+    if (until - since).days > MAX_BURN_WINDOW_DAYS:
+        raise ValueError(
+            f"The window between since and until may not exceed {MAX_BURN_WINDOW_DAYS} days."
+        )
 
     days = _date_range_inclusive(since, until)
-    end_of_until = datetime.combine(
-        until, datetime.max.time(), tzinfo=timezone.get_current_timezone()
-    )
-
-    # Pull every history row for tasks in the project up to end_of_until,
-    # ordered so that .latest-by-task wins. Newest first lets us drop
-    # duplicates per task efficiently.
-    history_rows = list(
-        HistoricalTask.objects.filter(
-            project_id=project_id,
-            history_date__lte=end_of_until,
-        )
-        .order_by("id", "-history_date")
-        .values("id", "history_date", "status", "story_points", "history_type", "is_deleted")
-    )
-
-    # Index history by task id, sorted descending by history_date so that
-    # `bisect`-style lookups can find "latest state at date D" in O(log n).
-    by_task: dict[Any, list[dict[str, Any]]] = {}
-    for row in history_rows:
-        by_task.setdefault(row["id"], []).append(row)
-    # Each list is already newest-first because of the order_by above.
+    by_task = _burn_history_index(project_id, until)
 
     series = _daily_burn_series(by_task, days, chart_type=chart_type, metric=metric)
     _apply_ideal_curve(series, chart_type=chart_type, day_count=len(days))

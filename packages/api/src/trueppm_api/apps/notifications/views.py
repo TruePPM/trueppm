@@ -50,6 +50,7 @@ from .models import (
     ProjectNotificationEventType,
     ProjectNotificationPreference,
     WorkspaceEmailSettings,
+    project_notification_channel_delivery,
     project_notification_event_delivery,
 )
 from .serializers import (
@@ -569,11 +570,12 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         # Overlay defaults so a newly added event type renders even when the
         # stored matrix predates it.
         merged = _merge_matrix(pref.matrix or {}, {})
-        # The document serializer, not the plain one: it carries `event_delivery`,
-        # which is not a model field, and reading it from the same class the schema
-        # publishes is what keeps the two from drifting (#3396, #3399). See its
-        # docstring for why `responses={200: ProjectNotificationPreferenceSerializer}`
-        # would have been a self-consistent lie rather than a fix.
+        # The document serializer, not the plain one: it carries `event_delivery` and
+        # `channel_delivery`, which are not model fields, and reading them from the
+        # same class the schema publishes is what keeps the two from drifting (#3396,
+        # #3399). See its docstring for why
+        # `responses={200: ProjectNotificationPreferenceSerializer}` would have been a
+        # self-consistent lie rather than a fix.
         #
         # `event_delivery` says which rows are actually wired to a dispatcher (#2904).
         # Eight of the nine are not: the matrix rendered them, they defaulted ON
@@ -581,6 +583,11 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         # direction. Reporting it as a server fact lets a client label those rows
         # instead of implying a delivery that never happens — the alternative is
         # every client hard-coding the same list and drifting from it (TODO(#3016)).
+        #
+        # `channel_delivery` is the same fact one axis over (#3378): two of the four
+        # columns have no delivery path at all. The web client was hard-coding
+        # exactly that list, with a comment saying it should not survive — which is
+        # the drift this endpoint exists to prevent (TODO(#3252)).
         payload = ProjectNotificationPreferenceDocumentSerializer(pref).data
         payload["matrix"] = merged
         return Response(payload, status=status.HTTP_200_OK)
@@ -620,9 +627,10 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         payload = serializer.data
         payload["matrix"] = _merge_matrix(pref.matrix or {}, {})
         # Same shape as GET. The web hook maps the PATCH response through the same
-        # deserializer and writes it to the query cache, so omitting this here would
+        # deserializer and writes it to the query cache, so omitting either here would
         # drop the "not delivered yet" labels the moment a user toggled anything.
         payload["event_delivery"] = project_notification_event_delivery()
+        payload["channel_delivery"] = project_notification_channel_delivery()
         return Response(payload, status=status.HTTP_200_OK)
 
 

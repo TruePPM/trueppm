@@ -219,6 +219,27 @@ Editing the resource catalog requires the **Project Manager** or **Project Admin
 at least one project; editing the skill catalog, rosters, and task assignments requires
 the **Resource Manager** role or above on at least one project.
 
+`POST /api/v1/skills/` de-duplicates on the case-insensitive normalized name, so
+posting a name that already exists is not an error. Telling the two apart from the
+status code — `201` when the skill was added to the catalog, `200` when an existing
+row is returned unchanged — ships in 0.4; until then the endpoint answers `200` in
+both cases. The response body is identical either way, so a client that needs to
+know whether it created the skill must read the status code.
+
+:::note[Ships in 0.4]
+**Archived projects refuse roster and assignment writes.** Adding or removing a roster
+member, assigning or unassigning a resource, and adding, editing or deleting a task's
+skill requirements are all refused with a `403` once the project is archived — at every
+role including Owner, because archiving makes a plan read-only and that is a property of
+the plan rather than of the caller. Reads are unaffected: an archived project's roster,
+assignments and skill requirements stay fully readable. Unarchive the project to edit it
+again. The Workspace-level catalogs (`/api/v1/resources/`, `/api/v1/skills/`,
+`/api/v1/resource-skills/`) are not project-scoped and are unaffected.
+
+In `v0.3.0-alpha.3` (the latest release) these writes still succeed on an archived
+project.
+:::
+
 A read-only cross-project assignments feed for one resource is exposed at
 `GET /api/v1/resources/{id}/assignments/` (ships in 0.4). Unlike
 `/api/v1/task-resources/?resource=`, it is **not** scoped to the caller's own

@@ -16,6 +16,7 @@ from trueppm_api.apps.projects.schema_migrations import migrate_payload
 from .categories import category_for
 from .delivery_limits import EMAIL_MAX_BATCH_SIZE
 from .models import (
+    PROJECT_NOTIFICATION_DELIVERY_REPORTED_CHANNELS,
     PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS,
     EmailSecurity,
     EmailTransportMode,
@@ -27,6 +28,7 @@ from .models import (
     ProjectNotificationPreference,
     UserNotificationSettings,
     WorkspaceEmailSettings,
+    project_notification_channel_delivery,
     project_notification_event_delivery,
 )
 from .schema_migrations import SURFACE_PROJECT_NOTIFICATION_MATRIX
@@ -586,30 +588,78 @@ _PROJECT_NOTIFICATION_EVENT_DELIVERY_SCHEMA: dict[str, Any] = {
 }
 
 
+#: The published shape of ``channel_delivery`` (#3378).
+#:
+#: Same construction and the same reasoning as
+#: :data:`_PROJECT_NOTIFICATION_EVENT_DELIVERY_SCHEMA` one axis over: the key set is
+#: closed and derivable — it is exactly
+#: :data:`PROJECT_NOTIFICATION_DELIVERY_REPORTED_CHANNELS`, the tuple
+#: :func:`project_notification_channel_delivery` iterates — so the declaration
+#: cannot report a different set of channels than the matrix renders.
+#:
+#: The booleans are again NOT pinned to today's answer. Which channels deliver is
+#: runtime state that moves when an ADR-0049 ``NOTIFICATION_CHANNELS`` registration
+#: lands (TODO(#3252)); baking ``slack: false`` into the schema would turn the
+#: contract into a lie on the day one does.
+_PROJECT_NOTIFICATION_CHANNEL_DELIVERY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "Which matrix columns TruePPM has a delivery path for. `true` means an "
+        "enabled cell in that column can reach you once its event is also "
+        "dispatched; `false` means the "
+        "column is rendered and the preference stored, but nothing delivers on it "
+        "yet and no setting anywhere turns it on, so a client should label it "
+        "rather than imply a delivery that never happens. Orthogonal to "
+        "`event_delivery`: a cell is live only when its event is dispatched AND "
+        "its channel delivers. Server-global — it does not vary by user or project, "
+        "and rides on this per-user document only so a client can label the whole "
+        "grid in one render. Reported as a server fact so every client does not "
+        "hard-code the same list and drift from it."
+    ),
+    "properties": {
+        channel: {"type": "boolean"} for channel in PROJECT_NOTIFICATION_DELIVERY_REPORTED_CHANNELS
+    },
+    "required": list(PROJECT_NOTIFICATION_DELIVERY_REPORTED_CHANNELS),
+    "additionalProperties": False,
+}
+
+
 class ProjectNotificationPreferenceDocumentSerializer(ProjectNotificationPreferenceSerializer):
     """What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).
 
-    The stored row's fields **plus** ``event_delivery``, which the view adds on both
-    methods and which is not a model field. Declaring the plain serializer as the
-    ``200`` would have been the obvious fix and a worse one: the schema would be
-    self-consistent, ``api:schema-drift`` would pass, and a generated SDK would
-    silently drop the one key a client needs to label the rows nothing dispatches.
-    A declared lie is more dangerous than a declared absence.
+    The stored row's fields **plus** ``event_delivery`` and ``channel_delivery``,
+    which the view adds on both methods and which are not model fields. Declaring
+    the plain serializer as the ``200`` would have been the obvious fix and a worse
+    one: the schema would be self-consistent, ``api:schema-drift`` would pass, and a
+    generated SDK would silently drop the two keys a client needs to label the rows
+    nothing dispatches and the columns nothing delivers on. A declared lie is more
+    dangerous than a declared absence.
 
     Subclasses rather than restating the field list, so a field added to the parent
-    reaches the published response without a second edit. Only ``event_delivery`` is
-    named here, because only ``event_delivery`` is the difference.
+    reaches the published response without a second edit. Only the two delivery maps
+    are named here, because only they are the difference.
     """
 
     event_delivery = serializers.SerializerMethodField()
+    channel_delivery = serializers.SerializerMethodField()
 
     class Meta(ProjectNotificationPreferenceSerializer.Meta):
-        fields = [*ProjectNotificationPreferenceSerializer.Meta.fields, "event_delivery"]
+        fields = [
+            *ProjectNotificationPreferenceSerializer.Meta.fields,
+            "event_delivery",
+            "channel_delivery",
+        ]
 
     @extend_schema_field(_PROJECT_NOTIFICATION_EVENT_DELIVERY_SCHEMA)
     def get_event_delivery(self, instance: ProjectNotificationPreference) -> dict[str, bool]:
         """Row-independent: it reports server wiring, not this user's preferences."""
         return project_notification_event_delivery()
+
+    @extend_schema_field(_PROJECT_NOTIFICATION_CHANNEL_DELIVERY_SCHEMA)
+    def get_channel_delivery(self, instance: ProjectNotificationPreference) -> dict[str, bool]:
+        """Column-independent, and row-independent: it reports which channels the
+        server delivers on at all, not anything about this user or project."""
+        return project_notification_channel_delivery()
 
 
 class UserNotificationSettingsSerializer(serializers.ModelSerializer[UserNotificationSettings]):
