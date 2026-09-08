@@ -24,7 +24,13 @@ interface ApiResource {
   id: string;
   server_version: number;
   name: string;
-  email: string;
+  /**
+   * Omitted entirely (not nulled) unless the caller is a workspace operator or the
+   * resource's own user — the server drops the key to prevent org-wide address
+   * harvest (#891, raised to the operator gate in #3569). `undefined` therefore means
+   * "you may not see this", never "this person has no address".
+   */
+  email?: string;
   job_role: string;
   calendar: string | null;
   max_units: string;
@@ -46,7 +52,8 @@ interface ApiPaginatedResponse<T> {
 export interface OrgResource {
   id: string;
   name: string;
-  email: string;
+  /** Undefined when the server withheld it — see `ApiResource.email`. */
+  email?: string;
   jobRole: string;
   calendarId: string | null;
   maxUnits: number;

@@ -169,6 +169,43 @@ describe('ResourceDetailPanel — view/edit form', () => {
     expect(save).toBeEnabled();
   });
 
+  // #3569: the server omits `email` for callers who are neither the resource's own
+  // user nor a workspace operator, which is the common case for a catalog admin. An
+  // input bound to that undefined value renders blank for a resource that *does* have
+  // an address, and saving would overwrite an address the caller never saw.
+  describe('when the server withheld email', () => {
+    const WITHHELD: OrgResource = { ...RESOURCE, email: undefined };
+
+    it('shows an explanation instead of a blank editable field', () => {
+      renderPanel(WITHHELD);
+      expect(screen.queryByRole('textbox', { name: 'Email' })).not.toBeInTheDocument();
+      expect(screen.getByText('Hidden — requires a workspace operator')).toBeInTheDocument();
+    });
+
+    it('still renders the editable field when email is genuinely empty', () => {
+      // '' means "no address on file" and must stay editable — the distinction between
+      // absent and empty is the whole point of the key being dropped rather than nulled.
+      renderPanel({ ...RESOURCE, email: '' });
+      expect(screen.getByRole('textbox', { name: 'Email' })).toBeInTheDocument();
+    });
+
+    it('omits email from the PATCH so a withheld address is not erased', async () => {
+      const user = userEvent.setup();
+      renderPanel(WITHHELD);
+      await user.clear(screen.getByRole('textbox', { name: 'Job role' }));
+      await user.type(screen.getByRole('textbox', { name: 'Job role' }), 'Staff Engineer');
+      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/resources/res-1/', {
+          name: 'Alice Nguyen',
+          job_role: 'Staff Engineer',
+          max_units: 1,
+        }),
+      );
+    });
+  });
+
   it('re-disables Save when an edit is typed back to the original value', async () => {
     const user = userEvent.setup();
     renderPanel();
