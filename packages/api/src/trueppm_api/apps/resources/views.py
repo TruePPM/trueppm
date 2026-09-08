@@ -32,6 +32,7 @@ from trueppm_api.apps.access.permissions import (
     IsOrgScheduler,
     IsProjectMember,
     IsProjectNotArchived,
+    IsWorkspaceOperator,
     ProjectScopedViewSet,
     _membership_role,
     assert_project_not_archived,
@@ -231,9 +232,11 @@ class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill
     """CRUD for skill tags on resources.
 
     Read: any authenticated user (resource catalog is org-shared).
-    Write: org admins (PM/Owner on any project). The route is not project-nested
-    so IsProjectMember alone would not gate writes; IsOrgAdmin enforces the
-    intended ADMIN+ floor.
+    Write: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The
+    route is not project-nested so ``IsProjectMember`` alone would not gate writes.
+    The docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has
+    returned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse
+    — skill tagging is curation, which is what the SCHEDULER floor is for.
     """
 
     serializer_class = ResourceSkillSerializer
@@ -496,7 +499,17 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
     """CRUD for skill requirements on tasks.
 
     Read: authenticated users scoped to their member projects.
-    Write: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).
+    Write: SCHEDULER+ **on the target task's own project**, enforced per-write by
+    :meth:`_require_scheduler_on_task`.
+
+    This surface is project-scoped, not org-global: every row belongs to exactly
+    one task, which belongs to exactly one project. It carried ``IsOrgScheduler``
+    as a class gate, which was strictly redundant — anyone passing the real
+    per-target check necessarily holds SCHEDULER+ on some project and so passed
+    the org gate too. Redundant is not free: it kept a project-scoped endpoint
+    inside the blast radius of the self-grantable org derivation (#3569), and it
+    made the endpoint's true rule harder to read. Dropped in favour of the check
+    that was already doing the work.
     """
 
     serializer_class = TaskSkillRequirementSerializer
@@ -504,21 +517,21 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
     queryset = TaskSkillRequirement.objects.select_related("skill", "task").filter(is_deleted=False)
 
     def get_permissions(self) -> list[BasePermission]:
-        from rest_framework.permissions import SAFE_METHODS
-
-        if self.request.method in SAFE_METHODS:
-            return [IsAuthenticated()]
-        return [IsAuthenticated(), IsOrgScheduler()]
+        # Writes are authorized against the *target task's* project in
+        # perform_create / perform_update / perform_destroy — see
+        # _require_scheduler_on_task. No class-level org gate: it could only ever
+        # admit a superset of what that check admits.
+        return [IsAuthenticated()]
 
     def _require_scheduler_on_task(self, task: Task) -> None:
-        # IsOrgScheduler only proves SCHEDULER on *some* project; DRF never runs
+        # This is the *only* authorization on writes (#3569 removed the redundant
+        # IsOrgScheduler class gate above it). DRF never runs
         # has_object_permission on create, so without a per-target check a
         # SCHEDULER on project A could annotate a task in project B they've never
         # joined (IDOR, #995). The membership-scoped get_queryset closes the
         # non-member case on update/delete, but a low-role (Member/Viewer) member
-        # of the target project would still slip through IsOrgScheduler — so the
-        # same floor is enforced on every write, against the *target task's*
-        # project.
+        # of the target project would still be a member — so the SCHEDULER floor
+        # is enforced on every write, against the *target task's* project.
         role = _membership_role(self.request, str(task.project_id))
         if role is None or role < Role.SCHEDULER:
             # "Resource Manager" is the label for ``Role.SCHEDULER``; "Scheduler"
@@ -577,41 +590,43 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
 # ---------------------------------------------------------------------------
 
 
-class _OrgAdminEmailSearchFilter(filters.SearchFilter):
-    """SearchFilter that only lets org admins search the resource catalog by email (#892).
+class _WorkspaceOperatorEmailSearchFilter(filters.SearchFilter):
+    """SearchFilter that only lets a workspace operator search the catalog by email (#892).
 
     The catalog is readable by any authenticated user, and email is stripped from
-    non-admin payloads (#891). But a static ``search_fields = ["name", "email"]``
-    still let a non-admin probe email existence via ``?search=<email-substring>``
+    non-operator payloads (#891). But a static ``search_fields = ["name", "email"]``
+    still let anyone else probe email existence via ``?search=<email-substring>``
     (a hit narrows the candidate set even though the value is never echoed). This
-    backend gates the searchable fields on the same org-admin check the serializer
-    uses: admins search name + email; everyone else searches name only.
+    backend gates the searchable fields on the same check the serializer uses:
+    operators search name + email; everyone else searches name only.
+
+    Raised from the org-admin derivation to the install operator in #3569 — the
+    org-admin check it used to call was reachable by any account that created a
+    throwaway project, which made the #891 harvest control decorative.
     """
 
     def get_search_fields(self, view: object, request: Request) -> list[str]:
-        if _request_is_org_admin(request):
+        if _request_is_workspace_operator(request):
             return ["name", "email"]
         return ["name"]
 
 
-def _request_is_org_admin(request: Request) -> bool:
-    """Return True if the requesting user is an org admin (ADMIN+ on any project).
+def _request_is_workspace_operator(request: Request) -> bool:
+    """Return True if the requesting user is a workspace operator (superuser).
 
-    Mirrors :meth:`ResourceSerializer._caller_is_org_admin` and
-    :class:`~trueppm_api.apps.access.permissions.IsOrgAdmin`: superusers bypass,
-    otherwise admin authority is derived from holding ADMIN/Owner on at least one
-    project. Used to gate email visibility in search (#892).
+    Mirrors :meth:`ResourceSerializer._caller_is_workspace_operator` and
+    :class:`~trueppm_api.apps.access.permissions.IsWorkspaceOperator`. Gates email
+    visibility in search (#892) and the ``?include_deleted=true`` deactivated pool
+    (#1374).
+
+    This used to derive admin authority from holding ADMIN+ on any project, in
+    lockstep with ``IsOrgAdmin``. That derivation is self-grantable in two requests
+    (#3569): nothing gates ``POST /projects/`` and ``perform_create`` makes the
+    caller Owner. Both surfaces it gates are org-wide disclosure, so they take the
+    ADR-0213 C1 floor instead.
     """
     user = getattr(request, "user", None)
-    if user is None or not getattr(user, "is_authenticated", False):
-        return False
-    if user.is_superuser:
-        return True
-    return ProjectMembership.objects.filter(
-        user=user,
-        role__gte=Role.ADMIN,
-        is_deleted=False,
-    ).exists()
+    return bool(user is not None and getattr(user, "is_authenticated", False) and user.is_superuser)
 
 
 class ResourceCatalogThrottle(UserRateThrottle):
@@ -837,7 +852,8 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                 required=False,
                 description=(
                     "When 'true', include soft-deleted (deactivated) resources. Only "
-                    "honoured for org admin callers."
+                    "honoured for workspace operators (superusers); silently ignored "
+                    "for everyone else."
                 ),
             ),
         ],
@@ -849,8 +865,12 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     Permission model (ADR-0034):
       Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view
         for team members and the AddToRosterCombobox picker.
-      Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)
-        or Owner role on at least one project.
+      Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner
+        role on at least one *active* project (#3569).
+      DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:
+        IsWorkspaceOperator (superuser). Raised in #3569 — these reach across
+        every project in the install, and the org-admin derivation they used to
+        sit behind is self-grantable by creating a throwaway project.
 
     DELETE is a soft-delete: sets is_deleted=True and enqueues a schedule
     recalculation for every project that has open TaskResource rows for the
@@ -862,7 +882,7 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
       ?task=               — annotate with skill_fit against the task's skill
                              requirements; groups results into exact/partial/missing
       ?include_deleted=true — include soft-deleted (deactivated) resources;
-                             only honoured for org admin users
+                             only honoured for workspace operators (superusers)
     """
 
     queryset = (
@@ -871,28 +891,45 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         .order_by("name")
     )
     serializer_class = ResourceSerializer
-    # Email search is gated on org-admin via the custom backend (#892): non-admins
-    # search by name only, so they cannot probe email existence with ?search=.
-    filter_backends = [_OrgAdminEmailSearchFilter, filters.OrderingFilter]
-    search_fields = ["name", "email"]  # admins; backend narrows to ["name"] otherwise
+    # Email search is gated on the install operator via the custom backend (#892,
+    # raised from org-admin in #3569): everyone else searches by name only, so they
+    # cannot probe email existence with ?search=.
+    filter_backends = [_WorkspaceOperatorEmailSearchFilter, filters.OrderingFilter]
+    search_fields = ["name", "email"]  # operators; backend narrows to ["name"] otherwise
     ordering_fields = ["name"]
     # Per-user cap on the harvest-prone read path (#891, mirrors #815).
     throttle_classes = [ResourceCatalogThrottle]
 
+    #: Actions that reach past the catalog's own row data — into other projects'
+    #: task names, or into the deactivated pool — and therefore take the install
+    #: operator floor rather than the self-grantable org-admin derivation (#3569).
+    #:
+    #: * ``assignments`` — task and project names for one person across every
+    #:   project in the install (ADR-0499). Exfiltration.
+    #: * ``destroy`` — soft-deletes a shared resource and fans a CPM recalc plus a
+    #:   ``roster_changed`` broadcast to every project holding an assignment,
+    #:   including projects the caller cannot see. Destruction.
+    #: * ``restore`` — the inverse of ``destroy``, kept on the same floor so the
+    #:   deactivation lifecycle has one principal. Splitting it would leave an org
+    #:   admin able to reactivate rows they can neither list
+    #:   (``?include_deleted=true`` is operator-only) nor deactivate.
+    _WORKSPACE_OPERATOR_ACTIONS: frozenset[str] = frozenset({"assignments", "destroy", "restore"})
+
     def get_permissions(self) -> list[BasePermission]:
         """Split read vs write permissions.
 
-        Safe HTTP methods open to any authenticated user; writes restricted
-        to org admins (PM or Owner role on any project). The restore custom
-        action uses POST so it correctly receives the IsOrgAdmin gate.
+        Safe HTTP methods open to any authenticated user; ordinary catalog writes
+        (create, update) restricted to org admins (PM or Owner role on any *active*
+        project). The deactivation lifecycle and the cross-project ``assignments``
+        view take the install-operator floor — see
+        :attr:`_WORKSPACE_OPERATOR_ACTIONS`.
         """
-        # The `assignments` action exposes a resource's task/project *names* across
-        # every project (ADR-0499). Those are project-scoped confidential data, so
-        # it is gated on IsOrgAdmin even though it is a GET — it must NOT inherit
-        # the base catalog read's open IsAuthenticated gate, or any authenticated
-        # user could enumerate what anyone is working on (cross-project IDOR).
-        if getattr(self, "action", None) == "assignments":
-            return [IsAuthenticated(), IsOrgAdmin()]
+        # `assignments` is a GET that must NOT inherit the base catalog read's open
+        # IsAuthenticated gate: it carries task/project names across project
+        # boundaries, so an open gate is a cross-project IDOR. It sits in the
+        # operator set rather than being special-cased here.
+        if getattr(self, "action", None) in self._WORKSPACE_OPERATOR_ACTIONS:
+            return [IsAuthenticated(), IsWorkspaceOperator()]
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsOrgAdmin()]
@@ -904,14 +941,16 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
             .order_by("name")
         )
 
-        # Deactivated resources are hidden by default. Org admins may opt-in
-        # via ?include_deleted=true to manage the deactivated pool. The param is
-        # honored only for org admins (#1374): a non-admin passing it is silently
-        # ignored so soft-deleted resource records stay hidden — defense-in-depth
-        # for the deactivated-pool contract the docstring already claimed.
+        # Deactivated resources are hidden by default. A workspace operator may
+        # opt in via ?include_deleted=true to manage the deactivated pool. The param
+        # is honored only for operators (#1374, raised from org-admin in #3569):
+        # anyone else passing it is silently ignored so soft-deleted resource
+        # records stay hidden — defense-in-depth for the deactivated-pool contract
+        # the docstring already claimed, and it keeps the pool's three verbs
+        # (list/delete/restore) on one principal.
         include_deleted = self.request.query_params.get(
             "include_deleted", ""
-        ).lower() == "true" and _request_is_org_admin(self.request)
+        ).lower() == "true" and _request_is_workspace_operator(self.request)
         if not include_deleted:
             qs = qs.filter(is_deleted=False)
 
@@ -991,9 +1030,11 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     def restore(self, request: Request, pk: str | None = None) -> Response:
         """Restore a soft-deleted resource back to active status.
 
-        Requires IsOrgAdmin (checked in get_permissions since this is a write
-        action). Fetches from the unfiltered queryset so soft-deleted records
-        are reachable; the standard get_object() path excludes them.
+        Requires IsWorkspaceOperator (checked in get_permissions since this is a
+        write action; raised from IsOrgAdmin in #3569 so the whole deactivation
+        lifecycle sits on one principal). Fetches from the unfiltered queryset so
+        soft-deleted records are reachable; the standard get_object() path
+        excludes them.
         """
         if pk is None:
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
@@ -1041,8 +1082,9 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         responses=ResourceAssignmentSerializer(many=True),
         description=(
             "Cross-project task assignments for one resource — the org catalog's "
-            "'what is this person working on' view (#2047). Gated on IsOrgAdmin "
-            "because it carries task/project names across project boundaries. "
+            "'what is this person working on' view (#2047). Requires a workspace "
+            "operator (superuser) because it carries task/project names across "
+            "project boundaries. "
             "Soft-deleted tasks are excluded; a deactivated resource still returns "
             "its assignments. Ordered by project then task."
         ),
@@ -1051,11 +1093,16 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     def assignments(self, request: Request, pk: str | None = None) -> Response:
         """Return every task the resource is assigned to, across all projects.
 
-        Gated on IsOrgAdmin in ``get_permissions`` (this GET must not inherit the
-        base catalog read's open gate — see the note there). Unlike
+        Gated on ``IsWorkspaceOperator`` in ``get_permissions`` (this GET must not
+        inherit the base catalog read's open gate — see the note there). Unlike
         ``/task-resources/?resource=`` this is NOT scoped to the caller's member
-        projects: a resource manager needs the *complete* picture, so it returns
-        the full cross-project set (the RBAC gate is what makes that safe).
+        projects: it returns the full cross-project set.
+
+        ADR-0499 gated it on ``IsOrgAdmin`` and reasoned that "the RBAC gate is
+        what makes that safe". It did not — that gate is self-grantable in two
+        requests (#3569), so the complete picture was readable by any account. A
+        resource manager who needs their own projects' view uses
+        ``/task-resources/?resource=``, which is membership-scoped.
 
         The resource is looked up from the unfiltered manager so a deactivated
         resource's detail panel still resolves (mirrors ``restore``). Soft-deleted

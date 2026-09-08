@@ -71,10 +71,17 @@ It does **not** compute a utilization score, flag overallocation, or roll up acr
 programs — cross-program resource leveling and portfolio heat maps remain part of
 the Enterprise edition.
 
-Because task and project names are project-scoped, the Assignments section is
-visible only to **resource managers** — org admins (Admin or Owner on at least one
-project). Other users still see the rest of the resource card (role, capacity,
-skills) but not the assignments list.
+Because task and project names are project-scoped, the Assignments section will be
+visible only to a **workspace operator** — the installation's superuser account.
+Everyone else, project admins included, still sees the rest of the resource card
+(role, capacity, skills) but not the assignments list. The view reaches into every
+project in the installation, and a project-level role does not carry that far: any
+account can create a project and become its Owner, so a project role cannot stand in
+for installation-wide authority.
+
+To see what someone is working on **within the projects you are a member of**, read
+`GET /api/v1/task-resources/?resource=<id>`, which is scoped to your own
+memberships and needs no elevated role.
 
 ## Skill-fit and overallocation warnings
 
@@ -164,7 +171,11 @@ a permission error.
 
 ## What a resource manager can do today
 
-1. Maintain the Workspace resource catalog (name, email, role, capacity, calendar).
+1. Maintain the Workspace resource catalog (name, role, capacity, calendar). Email
+   addresses can be **set** but are not returned in API responses or shown in the
+   UI to anyone except the workspace operator and the person the resource
+   represents — the catalog is readable by every signed-in user, so echoing every
+   address would make it an org-wide address book.
 2. Maintain the Workspace skill catalog and tag resources with proficiency.
 3. Build per-project rosters with role and capacity overrides.
 4. Assign resources to tasks at fractional capacity.
@@ -174,8 +185,13 @@ a permission error.
    this-week percentage on the project Overview.
 8. See, from a resource's card, every task they are assigned to across all
    projects — grouped by project, read-only (ships in 0.4).
-9. Deactivate and restore resources; remove them from a roster (cascading task
-   assignments when forced).
+9. Remove resources from a project roster (cascading task assignments when forced).
+
+**Deactivating or restoring a resource in the Workspace catalog will require the
+workspace operator from 0.4** — it soft-deletes a shared record and recalculates
+the schedule of every project that person is assigned to, including projects the
+actor cannot see. Taking someone off *your* project's roster is unchanged and stays
+with the Resource Manager role.
 
 ## API
 
@@ -183,12 +199,24 @@ The catalog and assignment surfaces are exposed under
 `/api/v1/resources/`, `/api/v1/skills/`, `/api/v1/resource-skills/`,
 `/api/v1/project-resources/`, `/api/v1/task-resources/`, and
 `/api/v1/task-skill-requirements/`. Reading resources requires any authenticated user.
-Editing the resource catalog requires the **Project Manager** or **Project Admin** role on
-at least one project; editing the skill catalog, rosters, and task assignments requires
-the **Resource Manager** role or above on at least one project.
+Creating and editing catalog resources requires the **Project Manager** or **Project
+Admin** role on at least one **active** project; editing the skill catalog, rosters,
+and task assignments requires the **Resource Manager** role or above on at least one
+**active** project. Roles held on an archived or deleted project will stop counting
+in 0.4 — an archived project is declared read-only, so it no longer confers authority
+anywhere else either.
 
-A read-only cross-project assignments feed for one resource is exposed at
-`GET /api/v1/resources/{id}/assignments/` (ships in 0.4). Unlike
-`/api/v1/task-resources/?resource=`, it is **not** scoped to the caller's own
-projects — it returns the full cross-project set — so it requires org-admin
-(resource-manager) access.
+From 0.4 the following four surfaces will require the **workspace operator** (the
+installation superuser) rather than a project role:
+
+| Surface | Why |
+| --- | --- |
+| `DELETE /api/v1/resources/{id}/` and `POST .../restore/` | Soft-deletes a shared record and recalculates every project the person is assigned to. |
+| `email` on catalog rows, and `?search=` by email | The catalog is readable by every signed-in user; a project role would make it an org-wide address book. |
+| `?include_deleted=true` on the catalog | Enumerates the deactivated pool. |
+| `GET /api/v1/resources/{id}/assignments/` | Returns task and project names for one person across every project in the installation. |
+
+Each of these reaches the whole installation, and a project role cannot bound it:
+project creation is deliberately open, so any account can hold Owner on a project of
+its own. Use `GET /api/v1/task-resources/?resource=<id>` for the membership-scoped
+view of one person's assignments.

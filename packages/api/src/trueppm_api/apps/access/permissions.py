@@ -1415,31 +1415,61 @@ class IsProgramNotClosed(BasePermission):
         return not _is_program_closed(request, program_id)
 
 
+def has_org_role_from_live_project(user: Any, floor: int) -> bool:
+    """Return True when ``user`` holds ``floor`` or above on a *live* project (#3569).
+
+    The single derivation shared by :class:`IsOrgScheduler`, :class:`IsOrgAdmin`, and
+    the two mirrors in ``apps.resources`` that gate email exposure and the
+    deactivated-resource pool. Superusers bypass.
+
+    **Both soft-deleted and archived projects are excluded, and that is the point.**
+    The historical filter was ``ProjectMembership.objects.filter(user=…,
+    role__gte=…, is_deleted=False)`` — the ``is_deleted`` there is the *membership's*
+    flag, so the project's own ``is_deleted`` / ``is_archived`` were never consulted.
+    A project that had been deleted or archived years ago still conferred live
+    org-wide authority on everyone who had once been its PM, and nothing anywhere
+    revoked it. Archived is the stronger case of the two: the project is declared
+    hard read-only, so continuing to read *authority* out of it contradicts the
+    declaration that made it read-only.
+
+    This narrows the derivation; it does not make it trustworthy. Project roles are
+    self-grantable by design (creating a project makes you its Owner, and that must
+    not change), so no filter here turns membership into an org principal. Surfaces
+    that are irreversible or exfiltrating use :class:`IsWorkspaceOperator` instead
+    (ADR-0213 C1); this gate is for the shared catalogs whose blast radius is a
+    curation mistake rather than a disclosure.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser:
+        return True
+    return ProjectMembership.objects.filter(
+        user=user,
+        role__gte=floor,
+        is_deleted=False,
+        project__is_deleted=False,
+        project__is_archived=False,
+    ).exists()
+
+
 class IsOrgScheduler(BasePermission):
     """Org-level scheduler gate for the global skill catalog (#254).
 
     Skill and ResourceSkill catalogs are org-shared, not project-scoped. Their
-    write intent is "SCHEDULER+ on at least one project" — equivalent to
-    IsOrgAdmin's pattern but at the SCHEDULER floor instead of ADMIN.
+    write intent is "SCHEDULER+ on at least one *live* project" — equivalent to
+    IsOrgAdmin's pattern but at the SCHEDULER floor instead of ADMIN. Memberships
+    on archived or soft-deleted projects do not count (#3569).
 
     Django superusers bypass the membership check.
     """
 
     message = (
-        "You need at least Resource Manager role on at least one project "
+        "You need at least Resource Manager role on at least one active project "
         "to manage the skill catalog."
     )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if request.user.is_superuser:
-            return True
-        return ProjectMembership.objects.filter(
-            user=request.user,
-            role__gte=Role.SCHEDULER,
-            is_deleted=False,
-        ).exists()
+        return has_org_role_from_live_project(request.user, Role.SCHEDULER)
 
 
 class IsOrgAdmin(BasePermission):
@@ -1447,12 +1477,24 @@ class IsOrgAdmin(BasePermission):
 
     OSS has no separate org-admin entity. Admin authority is derived from
     project membership: any user with Project Manager (ADMIN, 3) or Owner
-    (4) role on at least one project may manage the resource catalog.
+    (4) role on at least one *live* project may manage the resource catalog.
+    Memberships on archived or soft-deleted projects do not count (#3569).
 
     Django superusers bypass the membership check.
 
     Enterprise installs satisfy this check implicitly — their admins always
     have at least one project with ADMIN role.
+
+    **This gate is not an org principal and must not be used as one (#3569).**
+    Creating a project makes the creator its Owner, and nothing gates project
+    creation — so any authenticated account can reach ADMIN on a project of its
+    own in one request. That is correct behavior for a project role and fatal for
+    an org-wide one. Surfaces whose blast radius is the whole install and whose
+    effect is irreversible or exfiltrating therefore use
+    :class:`IsWorkspaceOperator`, not this gate; the argument is the one
+    ``IsWorkspaceOperator``'s docstring already makes for mail transport
+    (ADR-0213 C1). What is left here is shared-catalog curation, where the worst
+    outcome is a bad edit another admin can revert.
 
     Note: this used to claim that enterprise overrides (LDAP group claims, SAML
     attributes) are "injected via signals/middleware before this check runs".
@@ -1462,19 +1504,12 @@ class IsOrgAdmin(BasePermission):
     """
 
     message = (
-        "You need Project Manager role on at least one project to manage the resource catalog."
+        "You need Project Manager role on at least one active project "
+        "to manage the resource catalog."
     )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if request.user.is_superuser:
-            return True
-        return ProjectMembership.objects.filter(
-            user=request.user,
-            role__gte=Role.ADMIN,
-            is_deleted=False,
-        ).exists()
+        return has_org_role_from_live_project(request.user, Role.ADMIN)
 
 
 class IsWorkspaceOperator(BasePermission):
@@ -1489,6 +1524,16 @@ class IsWorkspaceOperator(BasePermission):
     superuser. In OSS there is no separate org-operator entity, so superuser is
     the correct and only such principal; Enterprise may widen this via a
     registered override without changing the OSS baseline.
+
+    **Extended beyond mail transport in #3569.** The same reasoning applies
+    unchanged to any surface that is install-global *and* either irreversible or
+    exfiltrating, so this gate now also covers the resource-catalog deactivation
+    lifecycle (``DELETE``/``restore``/``?include_deleted=true``), ``email``
+    exposure and email search on catalog rows (the #891 harvest control), and the
+    cross-project ``/resources/{id}/assignments/`` view (ADR-0499). Reach for this
+    gate, not :class:`IsOrgAdmin`, whenever the answer to "what is the worst a
+    low-trust project admin does with this?" is disclosure or destruction across
+    projects they are not a member of.
     """
 
     message = "Only a workspace operator (superuser) may change this setting."

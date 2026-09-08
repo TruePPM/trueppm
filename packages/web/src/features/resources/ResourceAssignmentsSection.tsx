@@ -9,16 +9,19 @@ import { groupAssignmentsByProject } from './groupAssignmentsByProject';
 
 /**
  * "Assignments" section of the org catalog ResourceDetailPanel (#2047, ADR-0499):
- * what is this person working on, across every project. Read-only projection of a
- * new IsOrgAdmin-gated endpoint.
+ * what is this person working on, across every project. Read-only projection of an
+ * endpoint gated on `IsWorkspaceOperator` — the install superuser (#3569 raised it
+ * from `IsOrgAdmin`, which any account self-granted by creating a project).
  *
  * Two gates keep it safe and quiet for the wrong audience:
- *  1. `can_access_admin_settings` — hide the section entirely for non-admins so we
- *     never fire a request that would 403. This client boolean is *broader* than
- *     the server's IsOrgAdmin, so it is a UX gate, not the security boundary.
- *  2. a 403 backstop — if a workspace-admin-but-not-org-admin slips past gate 1,
- *     the endpoint 403s and we render nothing rather than an error (the server
- *     gate is authoritative). Any *other* error shows an inline alert + retry.
+ *  1. `can_access_admin_settings` — hide the section for non-admins so we rarely
+ *     fire a request that would 403. This client boolean is *much broader* than
+ *     the server's gate, so it is a UX gate, not the security boundary.
+ *  2. a 403 backstop — the common case since #3569, because most admins are not
+ *     superusers: the endpoint 403s and we render nothing rather than an error
+ *     (the server gate is authoritative). Any *other* error shows an inline alert
+ *     + retry. Narrowing gate 1 needs a server-computed operator flag on `/me`,
+ *     which does not exist yet.
  */
 export function ResourceAssignmentsSection({ resourceId }: { resourceId: string }) {
   const { user } = useCurrentUser();

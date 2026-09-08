@@ -1,5 +1,16 @@
 # ADR-0034: Org-Level Resource Management Page
 
+> **Amended (2026-09-07, #3569).** This ADR's permission model — org authority
+> derived from holding ADMIN+ on at least one project — is retained for ordinary
+> catalog curation but is **no longer the gate on the catalog's destructive and
+> disclosing surfaces**. It never evaluated the self-creation path: nothing gates
+> `POST /api/v1/projects/` and `perform_create` makes the caller `Role.OWNER`, so
+> every account can reach `IsOrgAdmin` in two requests. `DELETE /resources/{id}/`,
+> `POST /resources/{id}/restore/`, `?include_deleted=true`, and `email` exposure and
+> email search now require `IsWorkspaceOperator` (ADR-0213 C1). The derivation
+> itself additionally stopped counting memberships on archived and soft-deleted
+> projects. Creating and editing catalog rows is unchanged.
+
 ## Status
 Accepted (2026-05-31) — implemented in #155
 

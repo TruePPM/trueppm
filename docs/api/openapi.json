@@ -37248,7 +37248,7 @@
         "/api/v1/resource-skills/": {
             "get": {
                 "operationId": "v1_resource_skills_list",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -37324,7 +37324,7 @@
             },
             "post": {
                 "operationId": "v1_resource_skills_create",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "tags": [
                     "resources"
                 ],
@@ -37426,7 +37426,7 @@
         "/api/v1/resource-skills/{id}/": {
             "get": {
                 "operationId": "v1_resource_skills_retrieve",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37485,7 +37485,7 @@
             },
             "put": {
                 "operationId": "v1_resource_skills_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37597,7 +37597,7 @@
             },
             "patch": {
                 "operationId": "v1_resource_skills_partial_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37708,7 +37708,7 @@
             },
             "delete": {
                 "operationId": "v1_resource_skills_destroy",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37779,7 +37779,7 @@
                         "schema": {
                             "type": "boolean"
                         },
-                        "description": "When 'true', include soft-deleted (deactivated) resources. Only honoured for org admin callers."
+                        "description": "When 'true', include soft-deleted (deactivated) resources. Only honoured for workspace operators (superusers); silently ignored for everyone else."
                     },
                     {
                         "name": "ordering",
@@ -37864,7 +37864,7 @@
             },
             "post": {
                 "operationId": "v1_resources_create",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceOperator (superuser). Raised in #3569 — these reach across\n    every project in the install, and the org-admin derivation they used to\n    sit behind is self-grantable by creating a throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace operators (superusers)",
                 "tags": [
                     "resources"
                 ],
@@ -37966,7 +37966,7 @@
         "/api/v1/resources/{id}/": {
             "get": {
                 "operationId": "v1_resources_retrieve",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceOperator (superuser). Raised in #3569 — these reach across\n    every project in the install, and the org-admin derivation they used to\n    sit behind is self-grantable by creating a throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace operators (superusers)",
                 "parameters": [
                     {
                         "in": "path",
@@ -38025,7 +38025,7 @@
             },
             "put": {
                 "operationId": "v1_resources_update",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceOperator (superuser). Raised in #3569 — these reach across\n    every project in the install, and the org-admin derivation they used to\n    sit behind is self-grantable by creating a throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace operators (superusers)",
                 "parameters": [
                     {
                         "in": "path",
@@ -38137,7 +38137,7 @@
             },
             "patch": {
                 "operationId": "v1_resources_partial_update",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceOperator (superuser). Raised in #3569 — these reach across\n    every project in the install, and the org-admin derivation they used to\n    sit behind is self-grantable by creating a throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace operators (superusers)",
                 "parameters": [
                     {
                         "in": "path",
@@ -38248,7 +38248,7 @@
             },
             "delete": {
                 "operationId": "v1_resources_destroy",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceOperator (superuser). Raised in #3569 — these reach across\n    every project in the install, and the org-admin derivation they used to\n    sit behind is self-grantable by creating a throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace operators (superusers)",
                 "parameters": [
                     {
                         "in": "path",
@@ -38302,7 +38302,7 @@
         "/api/v1/resources/{id}/assignments/": {
             "get": {
                 "operationId": "v1_resources_assignments_list",
-                "description": "Cross-project task assignments for one resource — the org catalog's 'what is this person working on' view (#2047). Gated on IsOrgAdmin because it carries task/project names across project boundaries. Soft-deleted tasks are excluded; a deactivated resource still returns its assignments. Ordered by project then task.",
+                "description": "Cross-project task assignments for one resource — the org catalog's 'what is this person working on' view (#2047). Requires a workspace operator (superuser) because it carries task/project names across project boundaries. Soft-deleted tasks are excluded; a deactivated resource still returns its assignments. Ordered by project then task.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38390,7 +38390,7 @@
         "/api/v1/resources/{id}/restore/": {
             "post": {
                 "operationId": "v1_resources_restore_create",
-                "description": "Restore a soft-deleted resource back to active status.\n\nRequires IsOrgAdmin (checked in get_permissions since this is a write\naction). Fetches from the unfiltered queryset so soft-deleted records\nare reachable; the standard get_object() path excludes them.",
+                "description": "Restore a soft-deleted resource back to active status.\n\nRequires IsWorkspaceOperator (checked in get_permissions since this is a\nwrite action; raised from IsOrgAdmin in #3569 so the whole deactivation\nlifecycle sits on one principal). Fetches from the unfiltered queryset so\nsoft-deleted records are reachable; the standard get_object() path\nexcludes them.",
                 "summary": "Restore a deactivated resource",
                 "parameters": [
                     {
@@ -44819,7 +44819,7 @@
         "/api/v1/task-skill-requirements/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_list",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -44895,7 +44895,7 @@
             },
             "post": {
                 "operationId": "v1_task_skill_requirements_create",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work.",
                 "tags": [
                     "resources"
                 ],
@@ -44997,7 +44997,7 @@
         "/api/v1/task-skill-requirements/{id}/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_retrieve",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45056,7 +45056,7 @@
             },
             "put": {
                 "operationId": "v1_task_skill_requirements_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45168,7 +45168,7 @@
             },
             "patch": {
                 "operationId": "v1_task_skill_requirements_partial_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45279,7 +45279,7 @@
             },
             "delete": {
                 "operationId": "v1_task_skill_requirements_destroy",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work.",
                 "parameters": [
                     {
                         "in": "path",
@@ -59709,7 +59709,7 @@
             },
             "PatchedResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace operator (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller except a\nsuperuser, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -65282,7 +65282,7 @@
             },
             "Resource": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace operator (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller except a\nsuperuser, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -65337,7 +65337,7 @@
             },
             "ResourceAssignment": {
                 "type": "object",
-                "description": "Read-only projection of one resource's task assignments across all projects.\n\nBacks the org catalog's \"Assignments\" panel (#2047, ADR-0499): it answers the\nresource manager's daily question \"what is this person working on / are they\noverloaded?\". Purely read-only — assignment *writes* still go through\n``TaskResourceSerializer`` on the project-nested route. It carries the task and\nproject *names* (which ``TaskResourceSerializer`` deliberately omits), so the\naction that serves it is gated on ``IsOrgAdmin`` rather than the base catalog\nread gate — those names are project-scoped confidential data.",
+                "description": "Read-only projection of one resource's task assignments across all projects.\n\nBacks the org catalog's \"Assignments\" panel (#2047, ADR-0499): it answers the\nresource manager's daily question \"what is this person working on / are they\noverloaded?\". Purely read-only — assignment *writes* still go through\n``TaskResourceSerializer`` on the project-nested route. It carries the task and\nproject *names* (which ``TaskResourceSerializer`` deliberately omits), so the\naction that serves it is gated on ``IsWorkspaceOperator`` rather than the base\ncatalog read gate — those names are project-scoped confidential data.\n\nADR-0499 chose ``IsOrgAdmin`` for that gate and said it \"is what makes this\nsafe\". It was not: the org-admin derivation is reachable by any account that\ncreates a throwaway project, so the gate admitted everyone (#3569). Raised to\nthe install operator; a member who needs only their *own* projects' view reads\n``/task-resources/?resource=``, which is membership-scoped and unchanged.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -65391,7 +65391,7 @@
             },
             "ResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace operator (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller except a\nsuperuser, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "name": {
                         "type": "string",

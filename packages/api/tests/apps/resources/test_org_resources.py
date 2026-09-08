@@ -1,8 +1,19 @@
 """Tests for org-level resource management (issue #155).
 
-Covers: IsOrgAdmin permission gate, soft-delete, restore action,
-?include_deleted query param, ?exclude_project filter, and transaction
-atomicity on perform_destroy (perf-check R3).
+Covers: the IsOrgAdmin permission gate on ordinary catalog writes, the
+IsWorkspaceOperator floor on the deactivation lifecycle and email exposure
+(#3569), soft-delete, restore action, ?include_deleted query param,
+?exclude_project filter, and transaction atomicity on perform_destroy
+(perf-check R3).
+
+**Which principal owns which surface (#3569).** ``admin_client`` holds ADMIN on a
+live project and is the *ordinary* catalog writer: create and update. It is NOT
+sufficient for DELETE, restore, ``?include_deleted=true``, ``email`` exposure or
+``email`` search — those reach every project in the install and take
+``operator_client`` (a superuser). Before #3569 they all shared the org-admin
+derivation, which any account self-grants by creating a throwaway project; the
+``TestOrgAuthorityIsNotSelfGrantable`` and ``TestOrgAuthorityIgnoresDeadProjects``
+classes at the bottom of this file are the regression tests for that.
 """
 
 from __future__ import annotations
@@ -80,6 +91,19 @@ def member_client(member_user: object, member_membership: ProjectMembership) -> 
 
 
 @pytest.fixture
+def operator_user(db: object) -> object:
+    """A workspace operator — the ADR-0213 C1 principal (a Django superuser)."""
+    return User.objects.create_superuser(username="operator_user", password="pw")
+
+
+@pytest.fixture
+def operator_client(operator_user: object) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=operator_user)
+    return c
+
+
+@pytest.fixture
 def anon_client(db: object) -> APIClient:
     # db fixture required: Django middleware touches the DB before DRF
     # permission checks reject the request.
@@ -149,9 +173,28 @@ class TestResourceWrite:
         )
         assert res.status_code == 401
 
-    def test_admin_can_create_with_blank_email(self, admin_client: APIClient) -> None:
-        """A blank email is accepted and serialized as "" (#2127 conformance fix)."""
+    def test_org_admin_create_response_omits_email(self, admin_client: APIClient) -> None:
+        """#3569 consequence: an org admin may *write* email but never reads one back.
+
+        ``to_representation`` strips ``email`` for every non-operator caller, and a
+        write response goes through the same serializer. This is deliberate — a
+        write echo that returned the field would be a read path around the harvest
+        control (POST/PATCH a row, read the response). The admin's own input is not
+        secret to them, but the endpoint cannot tell an echo from a read.
+        """
         res = admin_client.post(
+            "/api/v1/resources/",
+            {"name": "Echo", "email": "echo@example.com", "max_units": "1.00"},
+            format="json",
+        )
+        assert res.status_code == 201
+        assert "email" not in res.data
+        # The value was still persisted — this is a response gate, not a write gate.
+        assert Resource.objects.get(name="Echo").email == "echo@example.com"
+
+    def test_operator_can_create_with_blank_email(self, operator_client: APIClient) -> None:
+        """A blank email is accepted and serialized as "" (#2127 conformance fix)."""
+        res = operator_client.post(
             "/api/v1/resources/",
             {"name": "Bench Saw", "email": "", "max_units": "1.00"},
             format="json",
@@ -194,36 +237,38 @@ class TestResourceWrite:
 
 
 class TestResourceSoftDelete:
-    def test_delete_soft_deletes(self, admin_client: APIClient, resource: Resource) -> None:
-        res = admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+    def test_operator_delete_soft_deletes(
+        self, operator_client: APIClient, resource: Resource
+    ) -> None:
+        res = operator_client.delete(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 204
         # Row still exists in the database
         resource.refresh_from_db()
         assert resource.is_deleted is True
 
     def test_deleted_resource_hidden_from_list(
-        self, admin_client: APIClient, resource: Resource
+        self, operator_client: APIClient, resource: Resource
     ) -> None:
-        admin_client.delete(f"/api/v1/resources/{resource.pk}/")
-        res = admin_client.get("/api/v1/resources/")
+        operator_client.delete(f"/api/v1/resources/{resource.pk}/")
+        res = operator_client.get("/api/v1/resources/")
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) not in ids
 
     def test_include_deleted_shows_deactivated(
-        self, admin_client: APIClient, resource: Resource
+        self, operator_client: APIClient, resource: Resource
     ) -> None:
-        admin_client.delete(f"/api/v1/resources/{resource.pk}/")
-        res = admin_client.get("/api/v1/resources/?include_deleted=true")
+        operator_client.delete(f"/api/v1/resources/{resource.pk}/")
+        res = operator_client.get("/api/v1/resources/?include_deleted=true")
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) in ids
 
     def test_member_include_deleted_param_ignored(
         self, member_client: APIClient, resource: Resource
     ) -> None:
-        """#1374: ``?include_deleted=true`` is honored only for org admins. A
-        non-admin passing it must still get the deactivated record filtered out —
-        the param is silently ignored, not an enumeration backdoor onto the
-        soft-deleted pool."""
+        """#1374: ``?include_deleted=true`` is honored only for workspace operators
+        (#3569). Anyone else passing it must still get the deactivated record
+        filtered out — the param is silently ignored, not an enumeration backdoor
+        onto the soft-deleted pool."""
         resource.is_deleted = True
         resource.save(update_fields=["is_deleted"])
         res = member_client.get("/api/v1/resources/?include_deleted=true")
@@ -238,8 +283,7 @@ class TestResourceSoftDelete:
 
     def test_delete_triggers_recalc_for_assigned_projects(
         self,
-        admin_client: APIClient,
-        admin_user: object,
+        operator_client: APIClient,
         project: Project,
         resource: Resource,
         calendar: Calendar,
@@ -255,14 +299,14 @@ class TestResourceSoftDelete:
 
         # The recalculate path uses the outbox/Celery path; we just verify
         # perform_destroy runs without error and the resource is soft-deleted.
-        res = admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+        res = operator_client.delete(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 204
         resource.refresh_from_db()
         assert resource.is_deleted is True
 
     def test_delete_broadcasts_roster_changed_to_assigned_projects(
         self,
-        admin_client: APIClient,
+        operator_client: APIClient,
         project: Project,
         resource: Resource,
         django_capture_on_commit_callbacks: Callable[..., Any],
@@ -281,7 +325,7 @@ class TestResourceSoftDelete:
             ),
             django_capture_on_commit_callbacks(execute=True),
         ):
-            res = admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+            res = operator_client.delete(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 204
         assert (str(project.pk), "roster_changed", {"resource_id": str(resource.pk)}) in events
 
@@ -292,22 +336,22 @@ class TestResourceSoftDelete:
 
 
 class TestResourceRestore:
-    def test_admin_can_restore(self, admin_client: APIClient, resource: Resource) -> None:
-        admin_client.delete(f"/api/v1/resources/{resource.pk}/")
-        res = admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
+    def test_operator_can_restore(self, operator_client: APIClient, resource: Resource) -> None:
+        operator_client.delete(f"/api/v1/resources/{resource.pk}/")
+        res = operator_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 200
         resource.refresh_from_db()
         assert resource.is_deleted is False
 
     def test_restore_non_deleted_returns_400(
-        self, admin_client: APIClient, resource: Resource
+        self, operator_client: APIClient, resource: Resource
     ) -> None:
-        res = admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
+        res = operator_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 400
 
     def test_restore_broadcasts_roster_changed_to_assigned_projects(
         self,
-        admin_client: APIClient,
+        operator_client: APIClient,
         project: Project,
         resource: Resource,
         django_capture_on_commit_callbacks: Callable[..., Any],
@@ -317,7 +361,7 @@ class TestResourceRestore:
             project=project, name="Build feature", planned_start="2025-01-01", duration=8
         )
         TaskResource.objects.create(task=task, resource=resource, units=1.0)
-        admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+        operator_client.delete(f"/api/v1/resources/{resource.pk}/")
 
         events: list[tuple[str, str, dict]] = []
         with (
@@ -327,7 +371,7 @@ class TestResourceRestore:
             ),
             django_capture_on_commit_callbacks(execute=True),
         ):
-            res = admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
+            res = operator_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 200
         assert (str(project.pk), "roster_changed", {"resource_id": str(resource.pk)}) in events
 
@@ -337,8 +381,8 @@ class TestResourceRestore:
         res = member_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 403
 
-    def test_restore_unknown_resource_returns_404(self, admin_client: APIClient) -> None:
-        res = admin_client.post(f"/api/v1/resources/{uuid4()}/restore/")
+    def test_restore_unknown_resource_returns_404(self, operator_client: APIClient) -> None:
+        res = operator_client.post(f"/api/v1/resources/{uuid4()}/restore/")
         assert res.status_code == 404
 
     def test_restore_without_pk_returns_404(self, db: object) -> None:
@@ -377,9 +421,10 @@ class TestResourceEmailGate:
     """A low-privilege caller must not receive other resources' emails.
 
     The catalog is readable by any authenticated user, so echoing email on every
-    row let one account paginate it to harvest the org's email list. Email is now
-    gated on org-admin in to_representation; the resource's own user still sees
-    their email via the is_me self-view path.
+    row let one account paginate it to harvest the org's email list. Email is
+    gated in ``to_representation`` on the workspace operator (#3569 — the org-admin
+    check it used to run was self-grantable, so the control admitted everyone); the
+    resource's own user still sees their email via the is_me self-view path.
     """
 
     def test_member_list_omits_email(self, member_client: APIClient, resource: Resource) -> None:
@@ -397,11 +442,20 @@ class TestResourceEmailGate:
         assert res.status_code == 200
         assert "email" not in res.data
 
-    def test_admin_list_includes_email(self, admin_client: APIClient, resource: Resource) -> None:
-        res = admin_client.get("/api/v1/resources/")
+    def test_operator_list_includes_email(
+        self, operator_client: APIClient, resource: Resource
+    ) -> None:
+        res = operator_client.get("/api/v1/resources/")
         assert res.status_code == 200
         row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
         assert row["email"] == "alice@example.com"
+
+    def test_org_admin_list_omits_email(self, admin_client: APIClient, resource: Resource) -> None:
+        """#3569: ADMIN on a project is no longer enough to read the catalog's emails."""
+        res = admin_client.get("/api/v1/resources/")
+        assert res.status_code == 200
+        row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
+        assert "email" not in row
 
     def test_member_sees_own_email_via_self_view(
         self, member_user: object, member_membership: ProjectMembership, calendar: Calendar
@@ -443,9 +497,33 @@ class TestResourceEmailGate:
         assert res.status_code == 200
         assert any(r["id"] == str(resource.pk) for r in res.data["results"])
 
-    def test_admin_search_by_email_works(self, admin_client: APIClient, resource: Resource) -> None:
-        """Org admins retain email search — the gate only narrows it for non-admins (#892)."""
+    def test_operator_search_by_email_works(
+        self, operator_client: APIClient, resource: Resource
+    ) -> None:
+        """Operators retain email search — the gate only narrows it for everyone else (#892)."""
+        res = operator_client.get("/api/v1/resources/?search=alice@example.com")
+        assert res.status_code == 200
+        assert any(r["id"] == str(resource.pk) for r in res.data["results"])
+
+    def test_org_admin_search_by_email_finds_nothing(
+        self, admin_client: APIClient, resource: Resource
+    ) -> None:
+        """#3569: the #892 probe is closed for org admins too, not just members.
+
+        Asserting the *negative* here is only meaningful because
+        ``test_org_admin_search_by_name_still_works`` below proves the same client
+        can still find the same row by name — otherwise an empty result would be
+        indistinguishable from a broken search.
+        """
         res = admin_client.get("/api/v1/resources/?search=alice@example.com")
+        assert res.status_code == 200
+        assert res.data["results"] == []
+
+    def test_org_admin_search_by_name_still_works(
+        self, admin_client: APIClient, resource: Resource
+    ) -> None:
+        """The raised email gate must not break an org admin's ordinary name search."""
+        res = admin_client.get("/api/v1/resources/?search=Alice")
         assert res.status_code == 200
         assert any(r["id"] == str(resource.pk) for r in res.data["results"])
 
@@ -463,7 +541,7 @@ class TestResourceSoftDeleteAtomicity:
 
     def test_soft_delete_and_enqueue_are_atomic(
         self,
-        admin_client: APIClient,
+        operator_client: APIClient,
         project: Project,
         resource: Resource,
         calendar: Calendar,
@@ -480,14 +558,14 @@ class TestResourceSoftDeleteAtomicity:
         )
         TaskResource.objects.create(task=task, resource=resource, units=1.0)
 
-        res = admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+        res = operator_client.delete(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 204
         resource.refresh_from_db()
         assert resource.is_deleted is True
 
     def test_soft_delete_rolls_back_on_enqueue_error(
         self,
-        admin_client: APIClient,
+        operator_client: APIClient,
         project: Project,
         resource: Resource,
         calendar: Calendar,
@@ -514,8 +592,175 @@ class TestResourceSoftDeleteAtomicity:
             ),
             contextlib.suppress(RuntimeError),
         ):
-            admin_client.delete(f"/api/v1/resources/{resource.pk}/")
+            operator_client.delete(f"/api/v1/resources/{resource.pk}/")
 
         # With atomic(), the is_deleted flag must have been rolled back.
         resource.refresh_from_db()
         assert resource.is_deleted is False
+
+
+# ---------------------------------------------------------------------------
+# #3569 — org authority is self-grantable; the raised surfaces must not care
+# ---------------------------------------------------------------------------
+
+
+class TestOrgAuthorityIsNotSelfGrantable:
+    """A fresh account that creates its own project must not reach the raised surfaces.
+
+    This is the exploit the issue describes, end to end: nothing gates
+    ``POST /api/v1/projects/`` and ``ProjectViewSet.perform_create`` makes the
+    caller ``Role.OWNER``, so two requests bought ``IsOrgAdmin`` — and with it the
+    catalog's emails, the deactivated pool, cross-project assignment names, and
+    resource deletion.
+
+    Gating project creation was considered and rejected (it is the adoption tax the
+    SSO/HA carve-outs exist to prevent), so ``test_the_exploit_precondition_still_holds``
+    asserts the *first* half of the chain is deliberately still open. Every other
+    test here asserts the second half is now closed. If the precondition test ever
+    starts failing, the rest of this class has gone vacuous and must be re-read.
+    """
+
+    @pytest.fixture
+    def fresh_owner_client(self, db: object, calendar: Calendar) -> APIClient:
+        """An account whose only authority is the project it just created for itself."""
+        user = User.objects.create_user(username="fresh_signup", password="pw")
+        c = APIClient()
+        c.force_authenticate(user=user)
+        res = c.post(
+            "/api/v1/projects/",
+            {"name": "Throwaway", "start_date": "2026-01-01", "calendar": str(calendar.pk)},
+            format="json",
+        )
+        assert res.status_code == 201, res.data
+        return c
+
+    def test_the_exploit_precondition_still_holds(self, db: object, calendar: Calendar) -> None:
+        """Creating a project still makes you its Owner — deliberately unchanged.
+
+        Without this the four refusals below would pass for the wrong reason (the
+        caller never gained ADMIN at all), and the regression they guard would be
+        untested.
+        """
+        user = User.objects.create_user(username="precondition_user", password="pw")
+        c = APIClient()
+        c.force_authenticate(user=user)
+        res = c.post(
+            "/api/v1/projects/",
+            {"name": "Precondition", "start_date": "2026-01-01", "calendar": str(calendar.pk)},
+            format="json",
+        )
+        assert res.status_code == 201
+        assert ProjectMembership.objects.filter(
+            user=user, project_id=res.data["id"], role=Role.OWNER
+        ).exists()
+
+    def test_refused_on_assignments(
+        self, fresh_owner_client: APIClient, resource: Resource
+    ) -> None:
+        res = fresh_owner_client.get(f"/api/v1/resources/{resource.pk}/assignments/")
+        assert res.status_code == 403
+
+    def test_refused_catalog_email(self, fresh_owner_client: APIClient, resource: Resource) -> None:
+        res = fresh_owner_client.get(f"/api/v1/resources/{resource.pk}/")
+        assert res.status_code == 200
+        assert "email" not in res.data
+
+    def test_refused_email_search(self, fresh_owner_client: APIClient, resource: Resource) -> None:
+        res = fresh_owner_client.get("/api/v1/resources/?search=alice@example.com")
+        assert res.status_code == 200
+        assert res.data["results"] == []
+        # Not vacuous: the same client finds the same row by name.
+        by_name = fresh_owner_client.get("/api/v1/resources/?search=Alice")
+        assert any(r["id"] == str(resource.pk) for r in by_name.data["results"])
+
+    def test_refused_include_deleted(
+        self, fresh_owner_client: APIClient, resource: Resource
+    ) -> None:
+        resource.is_deleted = True
+        resource.save(update_fields=["is_deleted"])
+        res = fresh_owner_client.get("/api/v1/resources/?include_deleted=true")
+        assert res.status_code == 200
+        assert str(resource.pk) not in [r["id"] for r in res.data["results"]]
+
+    def test_refused_resource_delete(
+        self, fresh_owner_client: APIClient, resource: Resource
+    ) -> None:
+        res = fresh_owner_client.delete(f"/api/v1/resources/{resource.pk}/")
+        assert res.status_code == 403
+        resource.refresh_from_db()
+        assert resource.is_deleted is False
+
+
+class TestOrgAuthorityIgnoresDeadProjects:
+    """A membership on an archived or soft-deleted project confers no org authority.
+
+    The historical filter was ``ProjectMembership.objects.filter(user=…,
+    role__gte=…, is_deleted=False)`` — that flag is the *membership's*, so the
+    project's own ``is_deleted`` / ``is_archived`` were never read and a project
+    deleted years ago still handed out live org-wide authority.
+
+    Both gates are covered: ``IsOrgAdmin`` via ``POST /resources/`` and
+    ``IsOrgScheduler`` via ``POST /skills/``. Each dead-project case is paired with
+    the same request on a live project, so a 403 can never be mistaken for a
+    generally broken endpoint.
+    """
+
+    @staticmethod
+    def _client_with_admin_on(user_name: str, project: Project) -> tuple[APIClient, object]:
+        user = User.objects.create_user(username=user_name, password="pw")
+        ProjectMembership.objects.create(user=user, project=project, role=Role.ADMIN)
+        c = APIClient()
+        c.force_authenticate(user=user)
+        return c, user
+
+    @staticmethod
+    def _create_resource(client: APIClient, name: str) -> Any:
+        return client.post(
+            "/api/v1/resources/",
+            {"name": name, "email": f"{name.lower()}@example.com", "max_units": "1.00"},
+            format="json",
+        )
+
+    @staticmethod
+    def _create_skill(client: APIClient, name: str) -> Any:
+        return client.post("/api/v1/skills/", {"name": name}, format="json")
+
+    def test_live_project_admin_is_the_control(self, project: Project) -> None:
+        """Positive control: the same setup on a live project passes both gates."""
+        c, _ = self._client_with_admin_on("live_admin", project)
+        assert self._create_resource(c, "Live").status_code == 201
+        assert self._create_skill(c, "live-skill").status_code in (200, 201)
+
+    def test_archived_project_admin_is_refused(self, project: Project) -> None:
+        project.is_archived = True
+        project.save(update_fields=["is_archived"])
+        c, _ = self._client_with_admin_on("archived_admin", project)
+        assert self._create_resource(c, "Archived").status_code == 403
+        assert self._create_skill(c, "archived-skill").status_code == 403
+
+    def test_soft_deleted_project_admin_is_refused(self, project: Project) -> None:
+        project.is_deleted = True
+        project.save(update_fields=["is_deleted"])
+        c, _ = self._client_with_admin_on("deleted_admin", project)
+        assert self._create_resource(c, "Deleted").status_code == 403
+        assert self._create_skill(c, "deleted-skill").status_code == 403
+
+    def test_dead_project_admin_does_not_see_catalog_email(
+        self, project: Project, resource: Resource
+    ) -> None:
+        """The derivation is shared with the serializer mirror, so fix both or neither."""
+        project.is_archived = True
+        project.save(update_fields=["is_archived"])
+        c, _ = self._client_with_admin_on("archived_reader", project)
+        res = c.get(f"/api/v1/resources/{resource.pk}/")
+        assert res.status_code == 200
+        assert "email" not in res.data
+
+    def test_live_membership_elsewhere_still_counts(self, project: Project) -> None:
+        """One archived project must not mask a live one — the filter is per-row."""
+        c, user = self._client_with_admin_on("mixed_admin", project)
+        project.is_archived = True
+        project.save(update_fields=["is_archived"])
+        live = Project.objects.create(name="Live", start_date="2026-01-01")
+        ProjectMembership.objects.create(user=user, project=live, role=Role.ADMIN)
+        assert self._create_resource(c, "Mixed").status_code == 201

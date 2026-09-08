@@ -1,5 +1,16 @@
 # ADR-0499: Resource assignments view — "what is this person working on?"
 
+> **Amended (2026-09-07, #3569).** This ADR gates the endpoint on `IsOrgAdmin` and
+> reasons that "the RBAC gate is what makes that safe". That premise was false when
+> written: `IsOrgAdmin` derives from holding ADMIN+ on any project, project creation
+> is ungated, and `perform_create` makes the creator Owner — so the gate admitted
+> every authenticated account, and with it task and project names for any person
+> across every project in the installation. The endpoint now requires
+> `IsWorkspaceOperator` (the install superuser, per ADR-0213 C1). Everything else in
+> this ADR — the projection, its shape, ordering, and cross-project (not
+> member-scoped) semantics — stands. Callers who need only their own projects' view
+> use `GET /task-resources/?resource=`, as this ADR already notes.
+
 ## Status
 Accepted
 

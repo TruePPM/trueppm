@@ -1,9 +1,16 @@
 """Tests for the resource assignments projection (issue #2047, ADR-0499).
 
-Covers: IsOrgAdmin gate on the GET action (the base catalog read is open to any
-authenticated user, but this cross-project projection is not — see get_permissions),
-cross-project scope (NOT member-scoped), soft-deleted tasks excluded, deactivated
-resources still resolve, response shape, ordering, and 404.
+Covers: the ``IsWorkspaceOperator`` gate on the GET action (the base catalog read
+is open to any authenticated user, but this cross-project projection is not — see
+get_permissions), cross-project scope (NOT member-scoped), soft-deleted tasks
+excluded, deactivated resources still resolve, response shape, ordering, and 404.
+
+**The gate was raised from ``IsOrgAdmin`` in #3569.** ADR-0499 reasoned that the
+org-admin gate "is what makes that safe"; it did not, because that gate is
+self-grantable by creating a throwaway project, so the projection — task and
+project names for one person across every project in the install — was readable by
+any authenticated account. ``admin_client`` is kept here deliberately as a
+*refused* principal rather than deleted: it is the regression test.
 """
 
 from __future__ import annotations
@@ -37,7 +44,7 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.fixture
 def other_project(calendar: Calendar) -> Project:
-    # A second project the admin is NOT a member of — proves the projection is
+    # A second project the operator is NOT a member of — proves the projection is
     # cross-project, not scoped to the caller's memberships.
     return Project.objects.create(name="Bravo", start_date="2025-01-01", calendar=calendar)
 
@@ -54,10 +61,27 @@ def member_user(db: object) -> object:
 
 @pytest.fixture
 def admin_client(admin_user: object, project: Project) -> APIClient:
-    # ADMIN on ONE project makes the user an org admin (ADR-0034 / IsOrgAdmin).
+    """ADMIN on one project — an org admin under ADR-0034, and no longer enough here."""
     ProjectMembership.objects.create(user=admin_user, project=project, role=Role.ADMIN)
     c = APIClient()
     c.force_authenticate(user=admin_user)
+    return c
+
+
+@pytest.fixture
+def operator_user(db: object) -> object:
+    return User.objects.create_superuser(username="operator_user", password="pw")
+
+
+@pytest.fixture
+def operator_client(operator_user: object) -> APIClient:
+    """The workspace operator — the only principal that may read this projection (#3569).
+
+    Deliberately holds no project membership at all, which is the point: this is an
+    install-operator surface, not a project one.
+    """
+    c = APIClient()
+    c.force_authenticate(user=operator_user)
     return c
 
 
@@ -80,9 +104,20 @@ def resource(db: object) -> Resource:
 
 
 def test_member_cannot_read_assignments(member_client: APIClient, resource: Resource) -> None:
-    # Below org-admin the projection 403s even though it is a GET — it must not
-    # inherit the base catalog read's open IsAuthenticated gate (IDOR guard).
+    # The projection 403s even though it is a GET — it must not inherit the base
+    # catalog read's open IsAuthenticated gate (IDOR guard).
     res = member_client.get(_url(str(resource.pk)))
+    assert res.status_code == 403
+
+
+def test_org_admin_cannot_read_assignments(admin_client: APIClient, resource: Resource) -> None:
+    """#3569: ADMIN on a project is not the principal for a cross-install projection.
+
+    Paired with ``test_operator_sees_cross_project_assignments_with_names`` below,
+    which reaches the same URL and gets the data — so this 403 is the gate, not a
+    broken route.
+    """
+    res = admin_client.get(_url(str(resource.pk)))
     assert res.status_code == 403
 
 
@@ -91,8 +126,8 @@ def test_anonymous_cannot_read_assignments(db: object, resource: Resource) -> No
     assert res.status_code in (401, 403)
 
 
-def test_unknown_resource_returns_404(admin_client: APIClient) -> None:
-    res = admin_client.get(_url("00000000-0000-0000-0000-000000000000"))
+def test_unknown_resource_returns_404(operator_client: APIClient) -> None:
+    res = operator_client.get(_url("00000000-0000-0000-0000-000000000000"))
     assert res.status_code == 404
 
 
@@ -109,21 +144,21 @@ def _results(payload: object) -> list[dict]:
     return payload
 
 
-def test_admin_sees_cross_project_assignments_with_names(
-    admin_client: APIClient,
+def test_operator_sees_cross_project_assignments_with_names(
+    operator_client: APIClient,
     resource: Resource,
     project: Project,
     other_project: Project,
 ) -> None:
     task_a = Task.objects.create(project=project, name="Design", duration=5)
-    # Assignment in a project the admin is NOT a member of — must still appear.
+    # Assignment in a project the operator is NOT a member of — must still appear.
     task_b = Task.objects.create(
         project=other_project, name="Build", duration=5, percent_complete=40.0
     )
     TaskResource.objects.create(task=task_a, resource=resource, units=Decimal("1.0"))
     TaskResource.objects.create(task=task_b, resource=resource, units=Decimal("0.5"))
 
-    res = admin_client.get(_url(str(resource.pk)))
+    res = operator_client.get(_url(str(resource.pk)))
     assert res.status_code == 200
     rows = _results(res.json())
     assert len(rows) == 2
@@ -140,7 +175,7 @@ def test_admin_sees_cross_project_assignments_with_names(
 
 
 def test_soft_deleted_tasks_are_excluded(
-    admin_client: APIClient, resource: Resource, project: Project
+    operator_client: APIClient, resource: Resource, project: Project
 ) -> None:
     live = Task.objects.create(project=project, name="Live", duration=3)
     gone = Task.objects.create(project=project, name="Gone", duration=3)
@@ -148,37 +183,37 @@ def test_soft_deleted_tasks_are_excluded(
     TaskResource.objects.create(task=gone, resource=resource, units=Decimal("1.0"))
     Task.objects.filter(pk=gone.pk).update(is_deleted=True)
 
-    res = admin_client.get(_url(str(resource.pk)))
+    res = operator_client.get(_url(str(resource.pk)))
     rows = _results(res.json())
     assert [r["task_name"] for r in rows] == ["Live"]
 
 
 def test_deactivated_resource_still_returns_assignments(
-    admin_client: APIClient, resource: Resource, project: Project
+    operator_client: APIClient, resource: Resource, project: Project
 ) -> None:
     task = Task.objects.create(project=project, name="Design", duration=5)
     TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
     resource.is_deleted = True
     resource.save(update_fields=["is_deleted"])
 
-    res = admin_client.get(_url(str(resource.pk)))
+    res = operator_client.get(_url(str(resource.pk)))
     assert res.status_code == 200
     rows = _results(res.json())
     assert len(rows) == 1
 
 
 def test_completed_tasks_are_included(
-    admin_client: APIClient, resource: Resource, project: Project
+    operator_client: APIClient, resource: Resource, project: Project
 ) -> None:
     done = Task.objects.create(project=project, name="Done", duration=3, status="COMPLETE")
     TaskResource.objects.create(task=done, resource=resource, units=Decimal("1.0"))
-    res = admin_client.get(_url(str(resource.pk)))
+    res = operator_client.get(_url(str(resource.pk)))
     rows = _results(res.json())
     assert [r["task_name"] for r in rows] == ["Done"]
     assert rows[0]["status"] == "COMPLETE"
 
 
-def test_no_assignments_returns_empty(admin_client: APIClient, resource: Resource) -> None:
-    res = admin_client.get(_url(str(resource.pk)))
+def test_no_assignments_returns_empty(operator_client: APIClient, resource: Resource) -> None:
+    res = operator_client.get(_url(str(resource.pk)))
     assert res.status_code == 200
     assert _results(res.json()) == []
