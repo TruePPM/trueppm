@@ -1418,9 +1418,15 @@ class IsProgramNotClosed(BasePermission):
 def has_org_role_from_live_project(user: Any, floor: int) -> bool:
     """Return True when ``user`` holds ``floor`` or above on a *live* project (#3569).
 
-    The single derivation shared by :class:`IsOrgScheduler`, :class:`IsOrgAdmin`, and
-    the two mirrors in ``apps.resources`` that gate email exposure and the
-    deactivated-resource pool. Superusers bypass.
+    The single derivation behind :class:`IsOrgScheduler` and :class:`IsOrgAdmin`, and
+    its only two callers. Superusers bypass.
+
+    ``apps.resources`` used to carry two hand-copied mirrors of this query — one in
+    ``ResourceSerializer`` gating email exposure, one in ``views`` gating email search
+    and the deactivated pool. They are *not* callers of this helper: #3569 moved both
+    to :class:`IsWorkspaceOperator`'s superuser test instead, so there is nothing left
+    to keep in sync with this function. Do not add a third copy of the query; if a new
+    surface needs the org derivation, call this.
 
     **Both soft-deleted and archived projects are excluded, and that is the point.**
     The historical filter was ``ProjectMembership.objects.filter(user=…,
