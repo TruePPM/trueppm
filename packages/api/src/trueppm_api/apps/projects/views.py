@@ -3033,7 +3033,7 @@ class ProjectViewSet(
                     "Per-resource task spans within the window: "
                     "{project_id, window_start, window_end, resource_count, "
                     "truncated, resources: "
-                    "[{id, name, email, max_units (project-effective: roster "
+                    "[{id, name, max_units (project-effective: roster "
                     "units_override if set, else Resource.max_units), tasks: [{assignment_id, id, "
                     "name, early_start, early_finish, scheduled_start, units, "
                     "status}]}]}. resource_count is the number of resources in "
@@ -3194,10 +3194,13 @@ class ProjectViewSet(
             resource = assignment.resource
             rid = str(resource.id)
             if rid not in resources_map:
+                # ``email`` is deliberately absent (#3599). This dict bypasses
+                # ``ResourceSerializer.to_representation``, which is where the #891
+                # harvest control lives, so echoing it here re-opened that control
+                # to anyone who can reach a project they created themselves.
                 resources_map[rid] = {
                     "id": rid,
                     "name": resource.name,
-                    "email": resource.email,
                     "max_units": str(roster_units.get(rid, resource.max_units)),
                     "tasks": [],
                 }

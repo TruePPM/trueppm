@@ -4,7 +4,7 @@ Covers:
   - Permission gate: VIEWER/MEMBER denied, SCHEDULER+ allowed
   - 409 when no CPM dates exist on the project
   - Response shape: project_id, window_start, window_end, resources list
-  - Resource row: id, name, email, max_units, tasks list
+  - Resource row: id, name, max_units, tasks list (email is never emitted, #3599)
   - Task entry: assignment_id, id, name, early_start, early_finish, units, status
   - Null early_start/early_finish tasks included (unscheduled section)
   - Date window filtering (?start=, ?end=)
@@ -163,7 +163,7 @@ def test_response_shape(project: Project, resource: Resource, task_scheduled: Ta
     r = data["resources"][0]
     assert r["id"] == str(resource.pk)
     assert r["name"] == "Alice"
-    assert r["email"] == "alice@example.com"
+    assert "email" not in r
     assert r["max_units"] == "1.00"
 
     assert len(r["tasks"]) == 1
@@ -676,3 +676,101 @@ class TestResourceAllocationCap:
             body = client.get(_url(project)).json()
         assert body["truncated"] is True
         assert len(distinct_counts(truncated.captured_queries)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Email is never emitted (#3599)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_scheduler_never_receives_resource_email(
+    project: Project, resource: Resource, task_scheduled: Task
+) -> None:
+    """A project Scheduler reading the allocation timeline gets no ``email`` key.
+
+    The response is a hand-rolled dict, so it never reaches
+    ``ResourceSerializer.to_representation`` where the #891 harvest control lives.
+    The field is dropped rather than nulled so it cannot be reconstructed.
+    """
+    TaskResource.objects.create(task=task_scheduled, resource=resource, units=Decimal("1.00"))
+    client = _auth_client(Role.SCHEDULER, project)
+
+    resp = client.get(_url(project), {"start": "2026-03-02", "end": "2026-03-08"})
+
+    assert resp.status_code == 200
+    rows = resp.json()["resources"]
+    assert rows, "fixture must produce at least one resource row for this to be meaningful"
+    for row in rows:
+        assert "email" not in row
+    assert "alice@example.com" not in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_self_provisioned_owner_cannot_harvest_catalog_email(cal: Calendar) -> None:
+    """End-to-end pin of the #3599 exploit chain — it must yield no email.
+
+    A fresh user with no memberships creates a project (ungated, and
+    ``perform_create`` makes them Owner), assigns an unrelated catalog resource to
+    a task in it — ``TaskResourceSerializer.resource`` is an unrestricted FK and
+    ``perform_create`` auto-rosters any catalog row — and reads the allocation
+    timeline. Every step is legitimately available to them; the chain must still
+    end without an address.
+    """
+    victim = Resource.objects.create(
+        name="Victim", email="victim@example.com", max_units=Decimal("1.00")
+    )
+
+    attacker = User.objects.create_user(username="attacker", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=attacker)
+
+    # 1. Create a project — ungated, mints the caller as Owner.
+    resp = client.post(
+        "/api/v1/projects/",
+        {"name": "Harvest", "start_date": "2026-03-02", "calendar": str(cal.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    project_id = resp.json()["id"]
+
+    # 2. Enumerate the catalog for resource ids — all the chain needs from it.
+    #    The catalog's OWN email exposure to a caller who is org-admin only because
+    #    they just created a project is #3569's scope (the ``IsOrgAdmin`` derivation),
+    #    not this one; this test deliberately asserts nothing about that response.
+    catalog = client.get("/api/v1/resources/")
+    assert catalog.status_code == 200
+    assert str(victim.pk) in [row["id"] for row in catalog.json()["results"]]
+
+    # 3. A task in the attacker's own project, with CPM dates so the window resolves.
+    task = Task.objects.create(
+        project=Project.objects.get(pk=project_id),
+        name="Bait",
+        duration=5,
+        early_start=date(2026, 3, 2),
+        early_finish=date(2026, 3, 6),
+        status=TaskStatus.NOT_STARTED,
+    )
+
+    # 4. Auto-roster the unrelated catalog resource onto it.
+    resp = client.post(
+        "/api/v1/task-resources/",
+        {"task": str(task.pk), "resource": str(victim.pk), "units": "1.00"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+
+    # 5. Read the allocation timeline — the harvest step.
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/resource-allocation/",
+        {"start": "2026-03-02", "end": "2026-03-08"},
+    )
+    assert resp.status_code == 200, resp.content
+    body = resp.content.decode()
+    rows = resp.json()["resources"]
+    assert any(r["id"] == str(victim.pk) for r in rows), (
+        "the chain must actually reach the victim's row, or this test proves nothing"
+    )
+    for row in rows:
+        assert "email" not in row
+    assert "victim@example.com" not in body

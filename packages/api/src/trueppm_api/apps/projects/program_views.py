@@ -1564,7 +1564,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 description=(
                     "{program_id, window_start, window_end, resource_count, truncated, "
                     "resources}. Each resource is "
-                    "{id, name, email, max_units, tasks[]} and each task span is "
+                    "{id, name, max_units, tasks[]} and each task span is "
                     "{assignment_id, id, name, project_id, project_name, early_start, "
                     "early_finish, scheduled_start, units, status} — aggregated across "
                     "every member project of the program and tagged with its source "
@@ -1740,10 +1740,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             resource = assignment.resource
             rid = str(resource.id)
             if rid not in resources_map:
+                # ``email`` is deliberately absent (#3599). This dict bypasses
+                # ``ResourceSerializer.to_representation``, which is where the #891
+                # harvest control lives, so echoing it here re-opened that control
+                # to anyone who can reach a project they created themselves.
                 resources_map[rid] = {
                     "id": rid,
                     "name": resource.name,
-                    "email": resource.email,
                     "max_units": str(resource.max_units),
                     "tasks": [],
                 }

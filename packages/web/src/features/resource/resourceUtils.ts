@@ -54,7 +54,6 @@ export function taskSpanStart(task: AllocationTask): string | null {
 export interface AllocationResource {
   id: string;
   name: string;
-  email: string;
   /** Decimal string, e.g. "1.00" */
   max_units: string;
   tasks: AllocationTask[];

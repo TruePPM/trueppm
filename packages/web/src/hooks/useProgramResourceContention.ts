@@ -17,7 +17,6 @@ export interface ProgramAllocationTask extends AllocationTask {
 export interface ProgramAllocationResource {
   id: string;
   name: string;
-  email: string;
   /** Decimal string, e.g. "1.00" */
   max_units: string;
   tasks: ProgramAllocationTask[];
