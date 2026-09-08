@@ -29,8 +29,12 @@ describe('PullEffectList', () => {
       expect(screen.getByText(/Each tag matches a label in Avionics/)).toBeInTheDocument();
       // Conditional, not a promise: past the project's label soft cap the server
       // silently skips coining a new label and the pull still succeeds.
-      expect(screen.getByText(/or creates one if the project has room/)).toBeInTheDocument();
-      expect(screen.getByText(/50 characters max/)).toBeInTheDocument();
+      expect(screen.getByText(/takes no new ones/)).toBeInTheDocument();
+      // The two limits stay two clauses — they are different limits that happen
+      // to share the number 50, and the count one is configurable, so the copy
+      // names the ceiling without naming its number.
+      expect(screen.getByText(/name trims at 50 characters/)).toBeInTheDocument();
+      expect(screen.queryByText(/room \(50 characters/)).not.toBeInTheDocument();
       // The old copy listed tags inside the copied-fields bullet. Assert the
       // negative on that bullet specifically — a bare `queryByText(/tags/)`
       // would be satisfied by the conversion bullet and pass vacuously.

@@ -312,9 +312,35 @@ describe('useBacklogController program-query gating (#3644)', () => {
 
   it('surfaces a failed program read instead of standing on the HYBRID fallback', async () => {
     const failed = setup({});
-    useProgramMock.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+    useProgramMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: { response: { status: 500 } },
+    });
     failed.rerender();
 
     await waitFor(() => expect(failed.result.current.errorKind).toBe('generic'));
+  });
+
+  // The first cut of the gate above read `programQuery.isError ? 'generic' : null`,
+  // which threw away the 403/404 classification the page already had — the items
+  // query can serve from a warm cache while access is revoked underneath it, and
+  // the reader would get "Couldn't load the backlog. Retry" instead of being told
+  // they no longer have access. Both queries go through the one classifier now.
+  it.each([
+    [403, 'forbidden'],
+    [404, 'not-found'],
+  ] as const)('classifies a %i on the program read as %s, not generic', async (status, kind) => {
+    const failed = setup({});
+    useProgramMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: { response: { status } },
+    });
+    failed.rerender();
+
+    await waitFor(() => expect(failed.result.current.errorKind).toBe(kind));
   });
 });

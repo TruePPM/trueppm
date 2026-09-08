@@ -247,14 +247,21 @@ export function useBacklogController(
     [clearTimers],
   );
 
+  // Classifies whichever of the page's two queries failed. Reading only the
+  // items error would flatten a failed program read to `generic` and lose the
+  // bespoke 403/404 copy the page already has — a real loss of classification,
+  // reachable when the items query serves from a warm cache while access is
+  // revoked underneath it (#3644, surfaced by `regression-check`).
   const errorKind: BacklogController['errorKind'] = useMemo(() => {
-    const error = itemsQuery.error as { response?: { status?: number } } | null;
+    const error = (itemsQuery.error ?? programQuery.error) as {
+      response?: { status?: number };
+    } | null;
     if (!error) return null;
     const status = error.response?.status;
     if (status === 403) return 'forbidden';
     if (status === 404) return 'not-found';
     return 'generic';
-  }, [itemsQuery.error]);
+  }, [itemsQuery.error, programQuery.error]);
 
   return {
     programId,
@@ -276,9 +283,11 @@ export function useBacklogController(
     // The error is folded in for the same reason in its deterministic form: a
     // failed `GET /programs/{id}/` leaves `program` undefined forever, and
     // `resolveMethodology(undefined)` then stands as HYBRID — one of the three
-    // REAL answers asserted as fact on a program that may be neither.
+    // REAL answers asserted as fact on a program that may be neither. Both
+    // errors go through the SAME classifier above, so a 403 on either query
+    // still reads as "forbidden" rather than collapsing to the generic retry.
     isLoading: itemsQuery.isLoading || programQuery.isLoading,
-    errorKind: itemsQuery.isError ? errorKind : programQuery.isError ? 'generic' : null,
+    errorKind: itemsQuery.isError || programQuery.isError ? errorKind : null,
 
     url,
     allItems,

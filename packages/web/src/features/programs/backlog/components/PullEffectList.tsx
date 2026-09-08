@@ -17,6 +17,14 @@
  *    pulling is the one whose tags vanish, and there is no un-pull to correct
  *    it, so the qualifier is theirs to read rather than a curation detail.
  *
+ *    The two limits are stated as two clauses on purpose: they are different
+ *    limits that happen to share the number 50. `name = tag[:50]` is a CHARACTER
+ *    clamp on the label name and is hard-coded; `_LABEL_SOFT_CAP_DEFAULT = 50`
+ *    is a COUNT of labels per project and is overridable via
+ *    `settings.TRUEPPM_LABEL_SOFT_CAP`. Running them together read as "room = 50
+ *    characters", and naming the count at all would be wrong on any install that
+ *    tunes it — so the ceiling is named, and its number is not.
+ *
  * The literal `•` is the only visible marker — Tailwind's preflight strips
  * `list-style` — but the element is still a real `<ul>`/`<li>`, so a screen
  * reader announces the list marker AND reads the glyph. Each is `aria-hidden`.
@@ -88,8 +96,9 @@ export function PullEffectList({
         copied
       </li>
       <li>
-        <span aria-hidden="true">• </span>Each tag matches a label in {target}, or creates one if
-        the project has room (50 characters max)
+        <span aria-hidden="true">• </span>Each tag matches a label in {target}, or creates one —
+        the name trims at 50 characters, and a project already at its label limit takes no new
+        ones
       </li>
       <li>
         <span aria-hidden="true">• </span>Closing the task closes this item

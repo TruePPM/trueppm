@@ -487,8 +487,10 @@ test.describe('Program backlog — methodology vocabulary (#3644)', () => {
 
     await expect(page.getByText(/Each tag matches a label in/)).toBeVisible();
     // Conditional, not a promise — the server silently skips coining a new label
-    // once the project is at its label soft cap.
-    await expect(page.getByText(/or creates one if the project has room/)).toBeVisible();
+    // once the project is at its label soft cap. Stated as its own clause: the
+    // character clamp and the label-count ceiling are different limits that only
+    // happen to share the number 50, and the count is configurable.
+    await expect(page.getByText(/takes no new ones/)).toBeVisible();
     await expect(page.getByText(/tags, and type are copied over/)).toHaveCount(0);
   });
 });
