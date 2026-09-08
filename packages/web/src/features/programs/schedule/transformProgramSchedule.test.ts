@@ -13,8 +13,8 @@ function makeSchedule(overrides: Partial<ProgramSchedule> = {}): ProgramSchedule
     start_date: '2026-03-02',
     finish_date: '2026-05-01',
     projects: [
-      { id: 'proj-a', name: 'Helios Platform', accessible: true },
-      { id: 'proj-b', name: 'Helios Mobile', accessible: true },
+      { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 20 },
+      { id: 'proj-b', name: 'Helios Mobile', accessible: true, duration: 1 },
     ],
     tasks: [
       {
@@ -31,6 +31,7 @@ function makeSchedule(overrides: Partial<ProgramSchedule> = {}): ProgramSchedule
         late_finish: '2026-03-13',
         total_float_days: 0,
         is_critical: true,
+        duration: 10,
       },
       {
         id: 't-a2',
@@ -46,6 +47,7 @@ function makeSchedule(overrides: Partial<ProgramSchedule> = {}): ProgramSchedule
         late_finish: '2026-03-27',
         total_float_days: 0,
         is_critical: true,
+        duration: 10,
       },
       {
         id: 't-b1',
@@ -61,6 +63,7 @@ function makeSchedule(overrides: Partial<ProgramSchedule> = {}): ProgramSchedule
         late_finish: '2026-03-30',
         total_float_days: 0,
         is_critical: true,
+        duration: 1,
       },
     ],
     links: [
@@ -108,6 +111,25 @@ describe('transformProgramSchedule', () => {
     expect(laneA?.finish).toBe('2026-03-27'); // max child early_finish
   });
 
+  it('reads a full task duration straight from the server, not the calendar-day span (#3597)', () => {
+    const { tasks } = transformProgramSchedule(makeSchedule());
+    const a1 = tasks.find((t) => t.id === 't-a1');
+    // 2026-03-02..2026-03-13 is 12 inclusive calendar days — the pre-fix
+    // `inclusiveDays` derivation this task would have produced. The fixture's
+    // server `duration` is 10 (its actual working-day estimate); asserting 10
+    // fails if the transform reverts to deriving from the two dates.
+    expect(a1?.duration).toBe(10);
+  });
+
+  it('reads a lane duration straight from the server, not derived from its span (#3597)', () => {
+    const { tasks } = transformProgramSchedule(makeSchedule());
+    const laneA = tasks.find((t) => t.id === laneIdFor('proj-a'));
+    // The lane's min/max span (2026-03-02..2026-03-27) is 26 inclusive calendar
+    // days — the pre-fix derivation. The fixture's server `duration` is 20;
+    // asserting 20 fails if the transform reverts to deriving from the span.
+    expect(laneA?.duration).toBe(20);
+  });
+
   it('reparents each task under its project lane', () => {
     const { tasks } = transformProgramSchedule(makeSchedule());
     const a1 = tasks.find((t) => t.id === 't-a1');
@@ -141,11 +163,11 @@ describe('transformProgramSchedule', () => {
     expect(cross?.isCritical).toBe(true);
   });
 
-  it('maps redacted external tasks by their title and marks them isExternal', () => {
+  it('maps redacted external tasks by their title, marks them isExternal, and approximates duration from dates', () => {
     const schedule = makeSchedule({
       projects: [
-        { id: 'proj-a', name: 'Helios Platform', accessible: true },
-        { id: 'proj-b', name: 'Helios Mobile', accessible: false },
+        { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 20 },
+        { id: 'proj-b', name: 'Helios Mobile', accessible: false, duration: 8 },
       ],
       tasks: [
         {
@@ -169,6 +191,10 @@ describe('transformProgramSchedule', () => {
     expect(ext?.isExternal).toBe(true);
     expect(ext?.name).toBe('Locked-away work'); // title, not name
     expect(ext?.start).toBe('2026-04-01');
+    // The redacted ADR-0120 D5 card has no server `duration` field, so this is
+    // the one shape that still derives it from the two exposed dates: 2026-04-01
+    // to 2026-04-10 inclusive is 10 calendar days.
+    expect(ext?.duration).toBe(10);
   });
 
   it('keeps a lane row even when the project has no tasks', () => {
