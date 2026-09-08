@@ -44819,7 +44819,7 @@
         "/api/v1/task-skill-requirements/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_list",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -44895,7 +44895,7 @@
             },
             "post": {
                 "operationId": "v1_task_skill_requirements_create",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
                 "tags": [
                     "resources"
                 ],
@@ -44940,6 +44940,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Caller lacks the Resource Manager role on the target task's project, or that project is archived (#3570). The project is reached only through the body's task here, so the refusal comes from the view rather than a permission class — the status and body are the same either way."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -44997,7 +45000,7 @@
         "/api/v1/task-skill-requirements/{id}/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_retrieve",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45056,7 +45059,7 @@
             },
             "put": {
                 "operationId": "v1_task_skill_requirements_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45168,7 +45171,7 @@
             },
             "patch": {
                 "operationId": "v1_task_skill_requirements_partial_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45279,7 +45282,7 @@
             },
             "delete": {
                 "operationId": "v1_task_skill_requirements_destroy",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
                 "parameters": [
                     {
                         "in": "path",
