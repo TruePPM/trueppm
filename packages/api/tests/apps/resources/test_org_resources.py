@@ -31,6 +31,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.resources.views import ResourceViewSet
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -90,9 +91,25 @@ def member_client(member_user: object, member_membership: ProjectMembership) -> 
     return c
 
 
+def _grant_workspace_role(user: object, role: int) -> WorkspaceMembership:
+    """Give ``user`` an explicit stored workspace role.
+
+    Workspace is a singleton (unique ``singleton_key``), so reuse any seeded row.
+    """
+    ws = Workspace.objects.first() or Workspace.objects.create()
+    return WorkspaceMembership.objects.create(workspace=ws, user=user, role=role)
+
+
 @pytest.fixture
 def operator_user(db: object) -> object:
-    """A workspace operator — the ADR-0213 C1 principal (a Django superuser)."""
+    """A Django superuser carrying **no** WorkspaceMembership row.
+
+    Kept after #3569 re-gated these surfaces onto the stored workspace role,
+    because this is precisely the implicit-OWNER bootstrap path in
+    ``workspace_role_for_user`` (ADR-0087 §6): a fresh install has no membership
+    rows at all, and the first admin must still be able to administer it. If that
+    bootstrap ever regresses, every test using this fixture fails.
+    """
     return User.objects.create_superuser(username="operator_user", password="pw")
 
 
@@ -100,6 +117,26 @@ def operator_user(db: object) -> object:
 def operator_client(operator_user: object) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=operator_user)
+    return c
+
+
+@pytest.fixture
+def workspace_admin_user(db: object) -> object:
+    """The principal #3569 actually targets: an explicit, stored workspace ADMIN.
+
+    Deliberately **not** a superuser and **not** a member of any project — the whole
+    point is that this authority is granted in-app by an existing workspace admin (or
+    by SSO provisioning) and cannot be self-granted by creating a project.
+    """
+    user = User.objects.create_user(username="workspace_admin", password="pw")
+    _grant_workspace_role(user, WorkspaceRole.ADMIN)
+    return user
+
+
+@pytest.fixture
+def workspace_admin_client(workspace_admin_user: object) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=workspace_admin_user)
     return c
 
 
@@ -689,6 +726,119 @@ class TestOrgAuthorityIsNotSelfGrantable:
         assert res.status_code == 403
         resource.refresh_from_db()
         assert resource.is_deleted is False
+
+
+class TestWorkspaceAdminReachesTheRaisedSurfaces:
+    """The positive half of #3569: a stored workspace ADMIN **passes** all four.
+
+    Without this the refusal tests elsewhere in this file would be satisfied by a
+    gate that refuses *everyone* — a permission fix that locks the feature out is
+    not a fix. Each test here is paired with a refusal of the same surface by the
+    self-granting project creator in
+    :class:`TestOrgAuthorityIsNotSelfGrantable`, so the pair pins the boundary from
+    both sides.
+
+    The principal is deliberately an explicit ``WorkspaceMembership`` at ADMIN, with
+    **no** superuser flag and **no** project membership at all. That combination is
+    the whole argument for the re-gate: it is authority that exists only because
+    somebody granted it in-app, and it is unreachable from ``POST /projects/``.
+    """
+
+    def test_admin_reads_catalog_email(
+        self, workspace_admin_client: APIClient, resource: Resource
+    ) -> None:
+        res = workspace_admin_client.get(f"/api/v1/resources/{resource.pk}/")
+        assert res.status_code == 200
+        assert res.data["email"] == "alice@example.com"
+
+    def test_admin_searches_by_email(
+        self, workspace_admin_client: APIClient, resource: Resource
+    ) -> None:
+        res = workspace_admin_client.get("/api/v1/resources/?search=alice@example.com")
+        assert res.status_code == 200
+        assert any(r["id"] == str(resource.pk) for r in res.data["results"])
+
+    def test_admin_lists_the_deactivated_pool(
+        self, workspace_admin_client: APIClient, resource: Resource
+    ) -> None:
+        resource.is_deleted = True
+        resource.save(update_fields=["is_deleted"])
+        res = workspace_admin_client.get("/api/v1/resources/?include_deleted=true")
+        assert res.status_code == 200
+        assert str(resource.pk) in [r["id"] for r in res.data["results"]]
+
+    def test_admin_reads_assignments(
+        self, workspace_admin_client: APIClient, resource: Resource, project: Project
+    ) -> None:
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        TaskResource.objects.create(task=task, resource=resource, units=1.0)
+        res = workspace_admin_client.get(f"/api/v1/resources/{resource.pk}/assignments/")
+        assert res.status_code == 200
+
+    def test_admin_deactivates_and_restores(
+        self, workspace_admin_client: APIClient, resource: Resource
+    ) -> None:
+        assert workspace_admin_client.delete(f"/api/v1/resources/{resource.pk}/").status_code == 204
+        resource.refresh_from_db()
+        assert resource.is_deleted is True
+
+        restored = workspace_admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
+        assert restored.status_code == 200
+        resource.refresh_from_db()
+        assert resource.is_deleted is False
+
+    def test_workspace_member_is_refused(self, db: object, resource: Resource) -> None:
+        """An explicit MEMBER row is below the floor — the tier is real, not decorative.
+
+        Every authenticated user resolves to implicit MEMBER anyway, so without this
+        the ADMIN tests above would pass equally well against a gate that only
+        checked "has any workspace row at all".
+        """
+        user = User.objects.create_user(username="ws_member", password="pw")
+        _grant_workspace_role(user, WorkspaceRole.MEMBER)
+        c = APIClient()
+        c.force_authenticate(user=user)
+
+        assert c.get(f"/api/v1/resources/{resource.pk}/assignments/").status_code == 403
+        assert c.delete(f"/api/v1/resources/{resource.pk}/").status_code == 403
+        assert "email" not in c.get(f"/api/v1/resources/{resource.pk}/").data
+
+    def test_deactivated_admin_row_revokes_access(self, db: object, resource: Resource) -> None:
+        """A deactivated row resolves to None, not to the implicit MEMBER default.
+
+        Pins the one branch of ``workspace_role_for_user`` that an ``is_superuser``
+        check could never have expressed, and which a naive ``role >= ADMIN`` on a
+        raw queryset would get wrong.
+        """
+        from trueppm_api.apps.workspace.models import MemberStatus
+
+        user = User.objects.create_user(username="ws_admin_off", password="pw")
+        membership = _grant_workspace_role(user, WorkspaceRole.ADMIN)
+        membership.status = MemberStatus.DEACTIVATED
+        membership.save(update_fields=["status"])
+        c = APIClient()
+        c.force_authenticate(user=user)
+
+        assert c.get(f"/api/v1/resources/{resource.pk}/assignments/").status_code == 403
+        assert c.delete(f"/api/v1/resources/{resource.pk}/").status_code == 403
+
+    def test_superuser_with_an_explicit_member_row_is_refused(
+        self, db: object, resource: Resource
+    ) -> None:
+        """The stored row wins over the superuser flag — an intentional behavior change.
+
+        Under the previous ``IsWorkspaceOperator`` gate this caller passed on
+        ``is_superuser`` alone. ``workspace_role_for_user`` consults the explicit row
+        first and only falls back to implicit OWNER when there is none, so a superuser
+        who has been explicitly recorded as a plain member is now refused. Recorded as
+        a test because it is the one place the re-gate is *narrower* than superuser.
+        """
+        user = User.objects.create_superuser(username="su_downgraded", password="pw")
+        _grant_workspace_role(user, WorkspaceRole.MEMBER)
+        c = APIClient()
+        c.force_authenticate(user=user)
+
+        assert c.get(f"/api/v1/resources/{resource.pk}/assignments/").status_code == 403
 
 
 class TestOrgAuthorityIgnoresDeadProjects:

@@ -24,6 +24,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -44,7 +45,7 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.fixture
 def other_project(calendar: Calendar) -> Project:
-    # A second project the operator is NOT a member of — proves the projection is
+    # A second project the caller is NOT a member of — proves the projection is
     # cross-project, not scoped to the caller's memberships.
     return Project.objects.create(name="Bravo", start_date="2025-01-01", calendar=calendar)
 
@@ -70,18 +71,36 @@ def admin_client(admin_user: object, project: Project) -> APIClient:
 
 @pytest.fixture
 def operator_user(db: object) -> object:
+    """A superuser with no WorkspaceMembership row — the implicit-OWNER bootstrap.
+
+    #3569 gates this projection on the stored workspace ADMIN role, and
+    ``workspace_role_for_user`` resolves a superuser carrying no row to implicit
+    OWNER so a fresh install is administrable before any membership exists. This
+    fixture pins that path; ``workspace_admin_client`` below pins the ordinary one.
+    """
     return User.objects.create_superuser(username="operator_user", password="pw")
 
 
 @pytest.fixture
 def operator_client(operator_user: object) -> APIClient:
-    """The workspace operator — the only principal that may read this projection (#3569).
-
-    Deliberately holds no project membership at all, which is the point: this is an
-    install-operator surface, not a project one.
-    """
     c = APIClient()
     c.force_authenticate(user=operator_user)
+    return c
+
+
+@pytest.fixture
+def workspace_admin_client(db: object) -> APIClient:
+    """An explicit, stored workspace ADMIN — the principal #3569 actually targets.
+
+    Not a superuser and not a member of any project: this authority exists only
+    because it was granted in-app, which is exactly why it cannot be reached by
+    creating a throwaway project the way ``IsOrgAdmin`` could.
+    """
+    user = User.objects.create_user(username="ws_admin_assignments", password="pw")
+    ws = Workspace.objects.first() or Workspace.objects.create()
+    WorkspaceMembership.objects.create(workspace=ws, user=user, role=WorkspaceRole.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=user)
     return c
 
 
@@ -113,7 +132,8 @@ def test_member_cannot_read_assignments(member_client: APIClient, resource: Reso
 def test_org_admin_cannot_read_assignments(admin_client: APIClient, resource: Resource) -> None:
     """#3569: ADMIN on a project is not the principal for a cross-install projection.
 
-    Paired with ``test_operator_sees_cross_project_assignments_with_names`` below,
+    Paired with ``test_operator_sees_cross_project_assignments_with_names`` and
+    ``test_workspace_admin_sees_assignments`` below,
     which reaches the same URL and gets the data — so this 403 is the gate, not a
     broken route.
     """
@@ -151,7 +171,7 @@ def test_operator_sees_cross_project_assignments_with_names(
     other_project: Project,
 ) -> None:
     task_a = Task.objects.create(project=project, name="Design", duration=5)
-    # Assignment in a project the operator is NOT a member of — must still appear.
+    # Assignment in a project the caller is NOT a member of — must still appear.
     task_b = Task.objects.create(
         project=other_project, name="Build", duration=5, percent_complete=40.0
     )
@@ -217,3 +237,21 @@ def test_no_assignments_returns_empty(operator_client: APIClient, resource: Reso
     res = operator_client.get(_url(str(resource.pk)))
     assert res.status_code == 200
     assert _results(res.json()) == []
+
+
+def test_workspace_admin_sees_assignments(
+    workspace_admin_client: APIClient, resource: Resource, project: Project
+) -> None:
+    """The ordinary principal — a granted workspace ADMIN, no superuser flag.
+
+    The sibling tests above all authenticate as a superuser, which reaches this
+    surface only through ``workspace_role_for_user``'s implicit-OWNER bootstrap. If
+    every positive test took that path, a regression that broke the *explicit* role
+    lookup would leave the whole file green.
+    """
+    task = Task.objects.create(project=project, name="Design", duration=5)
+    TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+
+    res = workspace_admin_client.get(_url(str(resource.pk)))
+    assert res.status_code == 200
+    assert [r["task_name"] for r in _results(res.json())] == ["Design"]
