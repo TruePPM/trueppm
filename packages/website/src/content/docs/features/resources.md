@@ -176,8 +176,9 @@ a permission error.
    them to anyone except a workspace Admin and the person the resource
    represents — the catalog is readable by every signed-in user, so echoing every
    address would make it an org-wide address book. Note this covers the catalog
-   endpoints only: the project and program **resource-allocation** endpoints still
-   include `email` for resources assigned to a project you can already schedule.
+   endpoints only. The project and program **resource-allocation** views and the
+   project **seed export** build their responses separately and still include
+   `email` for resources attached to a project you administer.
 2. Maintain the Workspace skill catalog and tag resources with proficiency.
 3. Build per-project rosters with role and capacity overrides.
 4. Assign resources to tasks at fractional capacity.

@@ -1535,8 +1535,9 @@ applies to the list endpoint to bound bulk scraping; exceeding it returns
 
 :::caution[Catalog endpoints only]
 This gating covers the resource **catalog**. The project and program
-`resource-allocation` endpoints build their payload separately and still include
-`email` for resources assigned to a project you can already schedule.
+`resource-allocation` endpoints and `GET /api/v1/projects/{id}/export/` build their
+responses separately and still include `email` for resources attached to a project
+you administer.
 :::
 
 `assignments/` returns every task the resource is assigned to, across **all**
