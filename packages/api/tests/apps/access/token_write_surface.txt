@@ -22,6 +22,13 @@
 # credential. Note what did NOT leave: `me/connections/<source>/` and its `/sync/`
 # are a different viewset and stay token-writable.
 #
+# Three more left the set in #3551: the SSO provider admin routes
+# (`workspace/sso/providers/` and its item + `test-connection/`). Provider config is
+# session/JWT-only for the same reason — an admin's leaked token could set
+# `auto_create_members` with an ADMIN `default_role`, widen `allowed_email_domains`,
+# or rotate the IdP secret, and one SSO login at the widened domain then mints a
+# durable ADMIN session that revoking the token does not touch.
+#
 # None of these routes writes an AgentAction row (#2749). A machine-authored
 # write is attributed to the token's human owner via historicaltask.history_user.
 # That is the gap 0.5 (#2745, #2749) closes — this file is its checklist.
@@ -273,8 +280,5 @@ api/v1/workspace/invites/<uuid:invite_id>/resend/
 api/v1/workspace/invites/resend-all/
 api/v1/workspace/logo/
 api/v1/workspace/members/<int:user_id>/
-api/v1/workspace/sso/providers/
-api/v1/workspace/sso/providers/<slug:slug>/
-api/v1/workspace/sso/providers/<slug:slug>/test-connection/
 api/v1/workspace/transfer-ownership/
 api/v1/ws/ticket/
