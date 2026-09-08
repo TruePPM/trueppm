@@ -26,7 +26,6 @@ function contended(): ProgramContentionResponse {
       {
         id: 'r-janus',
         name: 'Janus',
-        email: 'janus@trueppm.demo',
         max_units: '1.00',
         tasks: [
           {

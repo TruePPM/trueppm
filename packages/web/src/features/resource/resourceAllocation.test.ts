@@ -143,7 +143,6 @@ describe('fitToAllocationWindow', () => {
         {
           id: 'r1',
           name: 'Alice',
-          email: 'alice@example.com',
           max_units: '1.00',
           tasks: tasks.map((t, i) => makeTask(`a${i}`, t.start, t.finish, '1.00')),
         },
@@ -338,7 +337,6 @@ describe('fitToAllocationWindow — SPAN start, not remaining-work window (#2677
         {
           id: 'r1',
           name: 'Alice',
-          email: 'alice@example.com',
           max_units: '1.00',
           tasks: [
             // Remaining window (early_start) is Mar 20; real span starts Mar 10.

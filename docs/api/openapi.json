@@ -10767,7 +10767,7 @@
                                 }
                             }
                         },
-                        "description": "{program_id, window_start, window_end, resources}. Each resource is {id, name, email, max_units, tasks[]} and each task span is {assignment_id, id, name, project_id, project_name, early_start, early_finish, scheduled_start, units, status} — aggregated across every member project of the program and tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. scheduled_start (ADR-0752) is the task's SPAN start; the client renders scheduled_start..early_finish, falling back to early_start when scheduled_start is null. Overallocation detection stays client-side per ADR-0031."
+                        "description": "{program_id, window_start, window_end, resources}. Each resource is {id, name, max_units, tasks[]} and each task span is {assignment_id, id, name, project_id, project_name, early_start, early_finish, scheduled_start, units, status} — aggregated across every member project of the program and tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. scheduled_start (ADR-0752) is the task's SPAN start; the client renders scheduled_start..early_finish, falling back to early_start when scheduled_start is null. Overallocation detection stays client-side per ADR-0031."
                     },
                     "400": {
                         "description": "Malformed `start`/`end` date, or `start` is after `end`."
@@ -21943,7 +21943,7 @@
                                 }
                             }
                         },
-                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units, tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
+                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, max_units, tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
                     },
                     "409": {
                         "content": {

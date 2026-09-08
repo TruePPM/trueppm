@@ -10,6 +10,7 @@ The program-scoped counterpart to the per-project resource-allocation endpoint
   - The contention scenario (>100% across sibling projects in an overlapping window)
   - Projects of OTHER programs are excluded from the scope
   - Resource + status filters; explicit window
+  - ``email`` is never emitted on a resource row (#3599)
 """
 
 from __future__ import annotations
@@ -336,3 +337,33 @@ class TestResourceContentionUsesSpanNotRemainingWindow:
         resp = self.client.get(_url(self.program))
         assert resp.status_code == 200
         assert resp.json()["window_start"] == "2026-03-02"
+
+
+# ---------------------------------------------------------------------------
+# Email is never emitted (#3599)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_scheduler_never_receives_resource_email(
+    program: Program, project_a: Project, janus: Resource
+) -> None:
+    """A program Scheduler reading contention gets no ``email`` key.
+
+    Like the per-project endpoint, this response is a hand-rolled dict that never
+    reaches ``ResourceSerializer.to_representation``, where the #891 harvest
+    control lives. The field is dropped rather than nulled so it cannot be
+    reconstructed.
+    """
+    task = _scheduled_task(project_a, "Remediate criticals", date(2026, 7, 13), date(2026, 7, 21))
+    TaskResource.objects.create(task=task, resource=janus, units=Decimal("1.00"))
+
+    client = _auth_client(Role.SCHEDULER, program)
+    resp = client.get(_url(program), {"start": "2026-07-06", "end": "2026-07-31"})
+
+    assert resp.status_code == 200
+    rows = resp.json()["resources"]
+    assert rows, "fixture must produce at least one resource row for this to be meaningful"
+    for row in rows:
+        assert "email" not in row
+    assert "janus@trueppm.demo" not in resp.content.decode()

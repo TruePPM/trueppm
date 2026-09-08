@@ -51,7 +51,6 @@ function resource(overrides: Partial<AllocationResource> = {}): AllocationResour
   return {
     id: 'res-1',
     name: 'Ada Lovelace',
-    email: 'ada@example.com',
     max_units: '1.00',
     tasks: [task()],
     ...overrides,
