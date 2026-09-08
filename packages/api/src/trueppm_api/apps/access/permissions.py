@@ -1521,19 +1521,17 @@ class IsOrgAdmin(BasePermission):
 def is_workspace_operator(user: Any) -> bool:
     """Return True when ``user`` is the install operator — a Django superuser (#3569).
 
-    The single definition behind :class:`IsWorkspaceOperator` and the two callers in
-    ``apps.resources`` that gate ``email`` exposure and the deactivated pool outside
-    the permission-class path (a serializer's ``to_representation`` and a
-    ``SearchFilter`` backend, neither of which can express a DRF permission).
+    The single definition behind :class:`IsWorkspaceOperator`, and as of #3569 its
+    only caller. It gates the install-global *infrastructure* config — mail
+    transport (ADR-0213 C1) and the notification transport views.
 
-    It exists so those three cannot drift. They were three independent
-    ``is_superuser`` reads, which is the exact shape #3569 consolidated on the org
-    side into :func:`has_org_role_from_live_project` — and the drift is not
-    hypothetical: if this gate is ever widened (see the docstring on
-    :class:`IsWorkspaceOperator` about the override seam that does *not* exist
-    today), a widened permission class plus two un-widened mirrors would admit a
-    caller to ``assignments`` while still stripping their ``email``. That fails
-    closed, which is why it would be a confusing bug rather than a breach.
+    An earlier revision of this branch also routed the resource catalog's email
+    exposure and deactivated pool through here. Those moved to
+    :func:`~trueppm_api.apps.workspace.permissions.is_workspace_admin` when #3569 was
+    re-gated onto the **stored** ``WorkspaceRole.ADMIN``: the defect being fixed is
+    that org authority was *self-grantable*, not that it was insufficiently powerful,
+    and a stored role answers that while remaining grantable in-app. Superuser stays
+    the right floor for set-once infrastructure, which is what is left here.
     """
     return bool(user is not None and getattr(user, "is_authenticated", False) and user.is_superuser)
 
