@@ -989,7 +989,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   const [showMCPanel, setShowMCPanel] = useState(false);
   // Band-change announcement (WCAG 4.1.3).
   //
-  // The memo carries its SUBJECT, not just the value. `HealthCluster` is mounted
+  // The memo carries its SUBJECT, not just the value (rule 407). `HealthCluster` is mounted
   // by the app shell and outlives any one project, so a ref holding only the last
   // band still holds project A's when project B's arrives — and a direct
   // project→project navigation (the rail switcher, ⌘K, My Work's worst-project
