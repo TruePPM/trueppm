@@ -39,6 +39,10 @@ immediately:
 - they drop out of program resource contention and sprint capacity;
 - their skill tags stop appearing in the Workspace skill list.
 
+While a resource is deactivated it cannot be added to a roster, assigned to a task, or
+tagged with a skill — those writes are refused rather than silently creating a row no
+view would show.
+
 **Restoring** the resource reverses all of it, including the roster memberships the
 deactivation removed. A membership somebody had already ended by hand stays ended — a
 restore puts back what the deactivation took away and nothing else.

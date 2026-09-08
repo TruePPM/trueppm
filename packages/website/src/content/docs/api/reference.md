@@ -1511,8 +1511,8 @@ exceed the OSS simulation cap or the request returns `402`. See
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
-| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) |
-| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated |
+| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — also removes the resource from every project roster |
+| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource, restoring the roster rows the deactivation removed — **no body**; `400` if it is not deactivated |
 | GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource (org admin only) |
 
 The resource catalog is readable by any authenticated user, so the `email` field
@@ -1609,6 +1609,13 @@ resource has live task assignments on the project; the response body lists the
 `?force=true` cascades the deletion to the resource's `TaskResource` rows on the
 project and triggers a CPM recalculation for the affected tasks. All write and
 delete operations require the Scheduler role or higher on the project.
+
+Deactivating a resource (`DELETE /api/v1/resources/{id}/`) removes it from every
+roster: the list no longer returns its row, and `POST` refuses the resource with
+`400`. `POST /api/v1/resources/{id}/restore/` puts back exactly the rows the
+deactivation removed — a membership already removed by hand stays removed. Task
+assignment rows are retained throughout, so assignment history survives an
+off-boarding; it is the roster and every capacity read that drop the person.
 
 ### Workspace
 
@@ -1785,6 +1792,12 @@ and the team activity feed are tracked for a later release (#599). See
 `/api/v1/task-skill-requirements/` are documented alongside the rest of the
 resource catalog in [Resources](/features/resources/) — see that page for
 the full CRUD surface and the skill-match warning codes.
+
+`/api/v1/resource-skills/` lists tags for **active** resources only. A
+deactivated resource's catalog row is already admin-only, and its skill tags
+follow it: they leave the list for every caller, and `POST` refuses the resource
+with `400`. An org admin still sees them expanded on the resource itself via
+`GET /api/v1/resources/?include_deleted=true`.
 
 ### Assets (unified file/link feed)
 

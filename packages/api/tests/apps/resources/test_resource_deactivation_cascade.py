@@ -525,3 +525,130 @@ class TestResourceSkills:
         assert self._skill_resource_ids(client) == {str(bob.pk)}
         _restore(client, alice)
         assert self._skill_resource_ids(client) == {str(alice.pk), str(bob.pk)}
+
+
+# ---------------------------------------------------------------------------
+# The write side — the half that has to agree with the reads
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestWritePathsRefuseADeactivatedResource:
+    """Every read filters the deactivated resource out; the writes must too.
+
+    Without this the two halves disagree in a way the roster cascade made newly
+    reachable: the cascade leaves ``ProjectResource`` rows soft-deleted rather
+    than absent, and ``uniq_project_resource_project_resource`` is unconditional,
+    so re-adding a deactivated person collided with a row the caller's own
+    ``.active()`` read cannot show them — an unhandled ``IntegrityError``, i.e.
+    a 500 on a conflict the caller had no way to see.
+    """
+
+    def test_re_adding_to_a_roster_is_refused_not_a_500(
+        self, client: APIClient, project: Project, alice: Resource, staffed: dict[str, Any]
+    ) -> None:
+        _deactivate(client, alice)
+        resp = client.post(
+            "/api/v1/project-resources/",
+            {"project": str(project.pk), "resource": str(alice.pk)},
+            format="json",
+        )
+        assert resp.status_code == 400, resp.content
+        assert "resource" in resp.json()
+
+    def test_assigning_a_deactivated_resource_is_refused(
+        self, client: APIClient, project: Project, alice: Resource, staffed: dict[str, Any]
+    ) -> None:
+        _deactivate(client, alice)
+        fresh = _task(project, "Later", "3")
+        resp = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(fresh.pk), "resource": str(alice.pk), "units": "1.00"},
+            format="json",
+        )
+        assert resp.status_code == 400, resp.content
+
+    def test_tagging_a_deactivated_resource_with_a_skill_is_refused(
+        self, client: APIClient, alice: Resource
+    ) -> None:
+        skill = Skill.objects.create(name="Go", normalized_name="go")
+        _deactivate(client, alice)
+        resp = client.post(
+            "/api/v1/resource-skills/",
+            {"resource": str(alice.pk), "skill": str(skill.pk), "proficiency": 2},
+            format="json",
+        )
+        assert resp.status_code == 400, resp.content
+
+    def test_an_active_resource_is_still_writable(
+        self, client: APIClient, project: Project, bob: Resource, alice: Resource
+    ) -> None:
+        """The negative control for the three refusals above.
+
+        A queryset-narrowing fix that refused *everything* would pass all three
+        assertions and break the product.
+        """
+        resp = client.post(
+            "/api/v1/project-resources/",
+            {"project": str(project.pk), "resource": str(bob.pk)},
+            format="json",
+        )
+        assert resp.status_code == 201, resp.content
+
+
+@pytest.mark.django_db
+class TestCascadeBookkeeping:
+    def test_restore_is_admin_only(
+        self, project: Project, alice: Resource, client: APIClient, staffed: dict[str, Any]
+    ) -> None:
+        """``restore`` now writes roster rows across every project the resource
+        was on, so its gate carries materially more than it used to."""
+        _deactivate(client, alice)
+        member = User.objects.create_user(username="member_restore_3572", password="pw")
+        ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+        member_client = APIClient()
+        member_client.force_authenticate(user=member)
+        resp = member_client.post(f"/api/v1/resources/{alice.pk}/restore/")
+        assert resp.status_code == 403, resp.content
+
+        row = ProjectResource.objects.get(project=project, resource=alice)
+        assert row.is_deleted is True
+
+    def test_cascade_and_restore_bump_the_optimistic_lock_token(
+        self, client: APIClient, project: Project, alice: Resource, staffed: dict[str, Any]
+    ) -> None:
+        """``server_version`` is the ``X-Base-Version`` token the serializer
+        publishes. A bulk ``update()`` standing in for ``soft_delete()`` has to
+        replicate its version bump, or a client holding a pre-deactivation copy
+        passes the lock check on a row that transitioned twice."""
+        row = ProjectResource.objects.get(project=project, resource=alice)
+        before = row.server_version
+
+        _deactivate(client, alice)
+        row.refresh_from_db()
+        assert row.server_version == before + 1
+        assert row.deleted_version == row.server_version
+
+        _restore(client, alice)
+        row.refresh_from_db()
+        assert row.server_version == before + 2
+        assert row.deleted_version is None
+
+    def test_cascade_does_not_stamp_an_archived_projects_row_differently(
+        self, client: APIClient, cal: Calendar, program: Program, alice: Resource
+    ) -> None:
+        """An org-wide off-boarding is not left partially applied because one
+        project happens to be archived — and restore reverses it symmetrically."""
+        archived = Project.objects.create(
+            name="Done", start_date=WINDOW_START, calendar=cal, program=program, is_archived=True
+        )
+        ProjectResource.objects.create(project=archived, resource=alice)
+
+        _deactivate(client, alice)
+        row = ProjectResource.objects.get(project=archived, resource=alice)
+        assert row.is_deleted is True
+        assert row.deactivated_with_resource is True
+
+        _restore(client, alice)
+        row.refresh_from_db()
+        assert row.is_deleted is False

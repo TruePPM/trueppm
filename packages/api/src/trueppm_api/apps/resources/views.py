@@ -862,9 +862,14 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
       Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)
         or Owner role on at least one project.
 
-    DELETE is a soft-delete: sets is_deleted=True and enqueues a schedule
-    recalculation for every project that has open TaskResource rows for the
-    deactivated resource. The resource record is never hard-deleted.
+    DELETE is a soft-delete ("deactivate"): it sets is_deleted=True, soft-deletes
+    the resource's live ProjectResource roster row in every project, and enqueues a
+    schedule recalculation for every project that has open TaskResource rows for the
+    deactivated resource. TaskResource assignment rows are deliberately retained so
+    assignment history survives an off-boarding; every roster, capacity, and skill
+    read filters the deactivated resource out instead. The resource record is never
+    hard-deleted, and POST /resources/{id}/restore/ reverses both halves — including
+    the roster rows, but not a membership that was already removed by hand.
 
     Query params:
       ?search=             — filter by name/email (DRF SearchFilter)
@@ -975,8 +980,32 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
             # ``soft_delete()``: ProjectResource is outside the sync union (nothing
             # reads its sync_seq), so there is no tombstone to publish and no reason
             # to spend a query per roster row on an off-boarding.
-            ProjectResource.objects.filter(resource_id=instance.pk, is_deleted=False).update(
-                is_deleted=True, deactivated_with_resource=True
+            #
+            # The F() version bump replicates what VersionedModel.soft_delete would
+            # have recorded, following cascade_project_children_soft_delete's
+            # precedent: within one UPDATE every F() reads the pre-update column, so
+            # deleted_version lands equal to the new server_version. It is not
+            # decorative — server_version is the X-Base-Version optimistic-lock token
+            # ProjectResourceSerializer publishes, so skipping it would let a client
+            # holding a pre-deactivation copy pass the lock check on a row that had
+            # since been deactivated and restored.
+            #
+            # Deliberately NOT excluding archived projects: deactivation is an
+            # org-wide off-boarding and must not be left partially applied because
+            # one project happens to be archived. The roster row of an archived
+            # project is a historical record either way, and restore's symmetric
+            # filter keeps the two halves reversible.
+            cascade_rows = ProjectResource.objects.filter(resource_id=instance.pk, is_deleted=False)
+            # Snapshot the project ids before the UPDATE clears the predicate that
+            # selects them, so the broadcast set is exactly the rows this call
+            # cascaded — not every row a previous, never-restored deactivation left
+            # stamped.
+            cascaded_project_ids = list(cascade_rows.values_list("project_id", flat=True))
+            cascade_rows.update(
+                is_deleted=True,
+                deactivated_with_resource=True,
+                server_version=models.F("server_version") + 1,
+                deleted_version=models.F("server_version") + 1,
             )
 
             # Fan out a schedule recalculation to every project with open
@@ -992,15 +1021,9 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
 
         # The roster cascade above reaches projects the assignment fan-out does not:
         # a resource can sit on a roster carrying no tasks at all, which is exactly
-        # the person an off-boarding is most likely to leave behind. Read the cascaded
-        # rows back so the broadcast set is the union, not just the projects that
-        # happened to carry assignments.
-        cascaded_project_ids = list(
-            ProjectResource.objects.filter(
-                resource_id=instance.pk, deactivated_with_resource=True
-            ).values_list("project_id", flat=True)
-        )
-
+        # the person an off-boarding is most likely to leave behind. So the broadcast
+        # set is the union of both, not just the projects that carried assignments.
+        #
         # Fan a roster_changed broadcast out to every affected project so peers
         # viewing the roster see the deactivation live, not on the next poll
         # (#1359). Deferred to commit and snapshotted to plain strings; mirrors
@@ -1083,9 +1106,17 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
                     resource_id=resource.pk, deactivated_with_resource=True
                 ).values_list("project_id", flat=True)
             )
+            # Symmetric to the cascade: same F() version bump, so a client holding
+            # a pre-deactivation copy of a restored roster row cannot pass the
+            # X-Base-Version optimistic-lock check on it.
             ProjectResource.objects.filter(
                 resource_id=resource.pk, deactivated_with_resource=True
-            ).update(is_deleted=False, deleted_version=None, deactivated_with_resource=False)
+            ).update(
+                is_deleted=False,
+                deleted_version=None,
+                deactivated_with_resource=False,
+                server_version=models.F("server_version") + 1,
+            )
 
         # Reactivation puts the resource back on every roster the deactivation took
         # it off, plus every project it still has assignments on — broadcast

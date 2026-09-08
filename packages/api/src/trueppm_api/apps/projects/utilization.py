@@ -565,7 +565,11 @@ def _compute_utilization_internal(
             # from carrying capacity into the Overview denominator. The chained
             # lookup below extends this same prefetch — it must stay second, or
             # Django rejects the pair as one lookup with two querysets.
-            Prefetch("assignments", queryset=TaskResource.objects.active()),
+            # ``select_related("resource")`` so the chained lookup below reuses the
+            # already-cached resource and prefetches only the calendar level.
+            Prefetch(
+                "assignments", queryset=TaskResource.objects.active().select_related("resource")
+            ),
             "assignments__resource__calendar__exceptions",
         )
     )

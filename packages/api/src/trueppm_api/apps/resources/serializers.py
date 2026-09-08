@@ -21,6 +21,27 @@ from trueppm_api.apps.resources.models import (
 from trueppm_api.apps.resources.services import MAX_ASSIGNMENT_UNITS, MIN_ASSIGNMENT_UNITS
 
 
+def _active_resource_field() -> serializers.PrimaryKeyRelatedField[Resource]:
+    """A writable ``resource`` FK that refuses a deactivated resource (#3572).
+
+    The read side of deactivation is ``ResourceScopedManager.active()``; this is
+    its write-side counterpart, and without it the two halves disagree in a way
+    the roster cascade made newly reachable. Deactivation now leaves
+    ``ProjectResource`` rows soft-deleted rather than absent, and
+    ``uniq_project_resource_project_resource`` is unconditional — so a POST
+    re-adding a deactivated person to a roster collided with a row the caller's
+    own ``.active()`` read cannot show them, surfacing as a 500 rather than a
+    validation error. Refusing the resource outright is both the correct
+    semantics (a deactivated person is off the team) and the narrower fix: it
+    also stops an assignment or a skill tag being written onto a record that
+    every read has already withdrawn, which would persist and then be invisible
+    to its own author.
+
+    Restoring the resource is what makes these writes available again.
+    """
+    return serializers.PrimaryKeyRelatedField(queryset=Resource.objects.filter(is_deleted=False))
+
+
 class SkillSerializer(serializers.ModelSerializer[Skill]):
     """Read/write serializer for the org-level skill catalog.
 
@@ -53,6 +74,7 @@ class SkillSerializer(serializers.ModelSerializer[Skill]):
 class ResourceSkillSerializer(serializers.ModelSerializer[ResourceSkill]):
     """Read/write serializer for skill tags on a resource."""
 
+    resource = _active_resource_field()
     skill_name = serializers.CharField(source="skill.name", read_only=True)
 
     class Meta:
@@ -205,6 +227,7 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
     effective_max_units is computed: units_override if set, else resource.max_units.
     """
 
+    resource = _active_resource_field()
     resource_detail = ResourceSerializer(source="resource", read_only=True)
     effective_max_units = serializers.SerializerMethodField()
 
@@ -263,6 +286,7 @@ class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
     to the range [0.01, 2.0] so accidental 0 or runaway values are caught early.
     """
 
+    resource = _active_resource_field()
     resource_name = serializers.CharField(source="resource.name", read_only=True)
 
     class Meta:
