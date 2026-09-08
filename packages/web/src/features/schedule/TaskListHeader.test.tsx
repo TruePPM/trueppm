@@ -160,13 +160,21 @@ describe('TaskListHeader — the row\u2019s left-edge lanes (#2997, #3026)', () 
     expect(spacers()).toHaveLength(0);
   });
 
-  it('renders only the nudge spacer on a fine pointer, where the grip overlays', () => {
-    // `resolveGripReserve(false)` is 0 — a 14px grip overlays the row's edge and
-    // no column pays for it — while the nudges are in flow and always drawn.
-    renderHeader(vi.fn(), 0, 34);
-    const [only] = spacers();
-    expect(spacers()).toHaveLength(1);
-    expect(only.style.width).toBe('34px');
+  it('renders BOTH spacers on a fine pointer — the grip has a lane there too (#3078)', () => {
+    // This case used to render a single spacer and call the grip's absence
+    // correct, because `resolveGripReserve(false)` was 0. That was the header
+    // half of the #3078 collision: the header reserved one lane, every row drew
+    // its grip over the other one's first control, and the two still agreed on
+    // total width — so nothing here could see it.
+    //
+    // The header takes the reserves as props, so it cannot decide this itself;
+    // what it owes is that a non-zero reserve becomes a spacer of exactly that
+    // width. `scheduleConstants.test.ts` owns the values.
+    renderHeader(vi.fn(), 14, 34);
+    const [grip, nudge] = spacers();
+    expect(spacers()).toHaveLength(2);
+    expect(grip.style.width).toBe('14px');
+    expect(nudge.style.width).toBe('34px');
   });
 });
 
