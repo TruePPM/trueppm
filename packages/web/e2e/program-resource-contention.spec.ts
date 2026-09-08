@@ -39,6 +39,12 @@ const CONTENTION = {
   program_id: PROGRAM_ID,
   window_start: '2026-07-06',
   window_end: '2026-08-02',
+  // The real endpoint always sends these (ADR-1118); the truncation tests below
+  // override them rather than introduce them, so this base object stays a
+  // faithful untruncated response instead of an inaccurate one that happens to
+  // read as falsy.
+  resource_count: 1,
+  truncated: false,
   resources: [
     {
       id: 'r-janus',
