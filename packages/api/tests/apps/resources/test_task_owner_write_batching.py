@@ -36,7 +36,7 @@ from trueppm_api.apps.projects.models import (
     TaskActivityEventType,
 )
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
-from trueppm_api.apps.resources.services import apply_task_owners
+from trueppm_api.apps.resources.services import apply_task_owners, ensure_project_resources
 
 User = get_user_model()
 
@@ -78,6 +78,18 @@ def _rostered(project: Project, n: int, *, prefix: str = "R") -> list[Resource]:
         ProjectResource.objects.create(project=project, resource=r)
         out.append(r)
     return out
+
+
+def _unrostered(n: int, *, prefix: str = "U") -> list[Resource]:
+    """``n`` resources deliberately NOT on any roster, so the roster INSERT fires.
+
+    ``_resolve_owners`` rejects these on the API path, but the recurring-occurrence
+    sweep and any future service caller reach ``apply_task_owners`` directly, and the
+    auto-roster (#241) exists precisely for them.
+    """
+    return [
+        Resource.objects.create(name=f"{prefix}{i}", max_units=Decimal("1.0")) for i in range(n)
+    ]
 
 
 def _owners(resources: list[Resource], units: str = "1.0") -> list[dict[str, object]]:
@@ -122,7 +134,8 @@ def test_apply_task_owners_costs_at_most_five_statements(project: Project, owner
 
     One read of the task's assignment rows, one upsert, one roster read, one audit
     insert. The roster insert is the fifth and does not fire here because every owner is
-    already rostered — hence ``<= 5`` rather than an exact count.
+    already rostered — hence ``<= 5`` rather than an exact count. The unrostered arm
+    below is the one that proves the fifth statement.
     """
     resources = _rostered(project, 6, prefix="C")
     task = Task.objects.create(project=project, name="T", duration=1)
@@ -138,6 +151,135 @@ def test_apply_task_owners_costs_at_most_five_statements(project: Project, owner
         apply_task_owners(task, _owners(resources), actor=owner_user, broadcast=False)
 
     assert len(ctx.captured_queries) <= 5, [q["sql"] for q in ctx.captured_queries]
+
+
+@pytest.mark.django_db
+def test_query_count_is_constant_when_the_owners_still_need_rostering(
+    project: Project, owner_user: Any
+) -> None:
+    """The roster INSERT branch is inside the guard too, not just the roster read.
+
+    Every other cost guard here hands ``apply_task_owners`` already-rostered resources,
+    so ``ensure_project_resources`` finds nothing missing and its ``bulk_create`` never
+    runs — which would leave half the fix unmeasured. The old per-owner
+    ``get_or_create`` roster probe was one of the ~6 statements this issue exists to
+    remove, so reverting *that* half alone has to fail something.
+    """
+
+    def write_count(task_name: str, resources: list[Resource]) -> int:
+        task = Task.objects.create(project=project, name=task_name, duration=1)
+        with CaptureQueriesContext(connection) as ctx:
+            apply_task_owners(task, _owners(resources), actor=owner_user, broadcast=False)
+        return len(ctx.captured_queries)
+
+    write_count("warmup", _unrostered(1, prefix="V"))
+    assert write_count("small", _unrostered(1, prefix="X")) == write_count(
+        "big", _unrostered(8, prefix="Y")
+    )
+
+
+@pytest.mark.django_db
+def test_rostering_eight_new_owners_costs_exactly_five_statements(
+    project: Project, owner_user: Any
+) -> None:
+    """The full five: assignment read, upsert, roster read, roster insert, audit insert.
+
+    An exact count rather than a ceiling, because this is the one arrangement in which
+    every one of the five fires. Also pins ``server_version`` across a multi-row roster
+    insert — the single-row case elsewhere cannot see a list comprehension that sets it
+    on only the first element.
+    """
+    task = Task.objects.create(project=project, name="T", duration=1)
+    apply_task_owners(
+        Task.objects.create(project=project, name="warm", duration=1),
+        _owners(_unrostered(1, prefix="Z")),
+        actor=owner_user,
+        broadcast=False,
+    )
+    newcomers = _unrostered(8, prefix="N")
+
+    with CaptureQueriesContext(connection) as ctx:
+        apply_task_owners(task, _owners(newcomers), actor=owner_user, broadcast=False)
+
+    assert len(ctx.captured_queries) == 5, [q["sql"] for q in ctx.captured_queries]
+    rows = ProjectResource.objects.filter(
+        project=project, resource_id__in=[r.pk for r in newcomers]
+    )
+    assert rows.count() == 8
+    assert set(rows.values_list("server_version", flat=True)) == {1}
+
+
+@pytest.mark.django_db
+def test_ceiling_holds_when_the_task_has_no_project_in_its_fk_cache(
+    project: Project, owner_user: Any
+) -> None:
+    """Rostering reads ``task.project_id``, never ``task.project``.
+
+    Every other test here builds its task with ``Task.objects.create(project=project)``,
+    which populates the FK cache — so a revert to ``task.project`` would cost nothing in
+    those and one SELECT per occurrence inside the recurring-occurrence sweep, which is
+    exactly where it would hurt. Re-fetching the task leaves the cache cold, which is
+    the only arrangement that can see the difference.
+    """
+    created = Task.objects.create(project=project, name="Cold", duration=1)
+    apply_task_owners(
+        Task.objects.create(project=project, name="warm", duration=1),
+        _owners(_unrostered(1, prefix="P")),
+        actor=owner_user,
+        broadcast=False,
+    )
+    task = Task.objects.get(pk=created.pk)
+    assert "project" not in task._state.fields_cache
+    # Built outside the context: ``_unrostered`` writes a row per resource, and those
+    # INSERTs are not the statements under measurement.
+    newcomers = _unrostered(4, prefix="Q")
+
+    with CaptureQueriesContext(connection) as ctx:
+        apply_task_owners(task, _owners(newcomers), actor=owner_user, broadcast=False)
+
+    assert len(ctx.captured_queries) == 5, [q["sql"] for q in ctx.captured_queries]
+
+
+@pytest.mark.django_db
+def test_a_mixed_payload_rosters_only_the_newcomers(project: Project, owner_user: Any) -> None:
+    """``missing`` as a proper subset of ``wanted`` — the case a single-row test cannot see.
+
+    A resource already on the roster must be left byte-for-byte alone (no reinsert, no
+    ``server_version`` bump), while the newcomers beside it are created at 1.
+    """
+    settled = _rostered(project, 3, prefix="S")
+    newcomers = _unrostered(3, prefix="T")
+    task = Task.objects.create(project=project, name="T", duration=1)
+
+    apply_task_owners(task, _owners(settled + newcomers), actor=owner_user, broadcast=False)
+
+    assert set(
+        ProjectResource.objects.filter(
+            project=project, resource_id__in=[r.pk for r in newcomers]
+        ).values_list("server_version", flat=True)
+    ) == {1}
+    # The pre-existing rows were created by ProjectResource.objects.create() in the
+    # fixture, i.e. through save(), so they are already at 1 — the assertion that
+    # matters is that there is still exactly one row each and no second insert.
+    assert (
+        ProjectResource.objects.filter(
+            project=project, resource_id__in=[r.pk for r in settled]
+        ).count()
+        == 3
+    )
+
+
+@pytest.mark.django_db
+def test_ensure_project_resources_is_a_no_op_for_an_empty_id_list(project: Project) -> None:
+    """The public helper's own empty guard, which its only caller can never reach.
+
+    ``apply_task_owners`` returns early on empty ``owners``, so nothing in the service
+    exercises this branch; it is a guard for the helper's own callers.
+    """
+    with CaptureQueriesContext(connection) as ctx:
+        ensure_project_resources(project.pk, [])
+    assert ctx.captured_queries == []
+    assert ProjectResource.objects.filter(project=project).count() == 0
 
 
 @pytest.mark.django_db
