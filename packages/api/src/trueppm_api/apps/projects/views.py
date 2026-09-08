@@ -3058,8 +3058,12 @@ class ProjectViewSet(
         # remaining-work window early_start narrows to as percent_complete
         # rises. See utilization.py's identical annotation (#2623) for the
         # full rationale.
+        # ``.active()`` (#3572): the assignment rows of a deactivated resource are
+        # retained for audit, but the allocation timeline is a capacity read — it must
+        # not draw a lane for somebody who is no longer on the team.
         qs = (
-            TaskResource.objects.filter(
+            TaskResource.objects.active()
+            .filter(
                 task__project=project,
                 task__is_deleted=False,
             )
@@ -3299,11 +3303,11 @@ class ProjectViewSet(
         start_date = today - datetime.timedelta(days=today.weekday())
         heatmap = aggregate_utilization_weekly(project, start_date, 8, "none")
 
-        # Headcount from project roster (not just assigned resources).
+        # Headcount from project roster (not just assigned resources). ``.active()``
+        # (#3572) excludes deactivated people: headcount is the KPI a PM reads right
+        # after an off-boarding, and it was the last place still counting them.
         project_resources = list(
-            ProjectResource.objects.select_related("resource").filter(
-                project=project, is_deleted=False
-            )
+            ProjectResource.objects.active().select_related("resource").filter(project=project)
         )
         headcount = len(project_resources)
         contractor_count = sum(
@@ -4593,8 +4597,13 @@ def annotate_tasks_queryset(
         .values("max_units")[:1]
     )
 
+    # ``.active()`` (#3572): a deactivated resource's assignment rows are retained
+    # for audit, so without this the drawer keeps flagging a user as over-allocated
+    # on load nobody is carrying. Same class as ProjectAttentionView's
+    # over-allocation bucket below.
     overallocated_subq = (
-        _TR.objects.filter(
+        _TR.objects.active()
+        .filter(
             task__assignee_id=OuterRef("assignee_id"),
             task__project_id=OuterRef("project_id"),
             task__status__in=[
@@ -12064,7 +12073,10 @@ class ProjectAttentionView(APIView):
         totals = cast(
             "list[dict[str, Any]]",
             list(
-                TaskResource.objects.filter(
+                # ``.active()`` (#3572): a deactivated person cannot be acted on, so
+                # naming them in the attention bucket is an item nobody can clear.
+                TaskResource.objects.active()
+                .filter(
                     task__project=project,
                     task__is_deleted=False,
                 )

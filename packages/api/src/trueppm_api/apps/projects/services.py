@@ -322,8 +322,11 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
     from trueppm_api.apps.resources.capacity import project_effective_units
     from trueppm_api.apps.resources.models import TaskResource
 
+    # ``.active()`` (#3572): sprint capacity is a capacity read like the heat map —
+    # a deactivated person must not appear as a sprint member with hours to give.
     assignment_rows = list(
-        TaskResource.objects.filter(task__sprint_id=sprint.pk, task__is_deleted=False)
+        TaskResource.objects.active()
+        .filter(task__sprint_id=sprint.pk, task__is_deleted=False)
         .select_related("resource")
         .values_list(
             "resource_id",
@@ -365,7 +368,10 @@ def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
     rows_by_sprint: dict[Any, list[Any]] = {}
     if pks:
         for row in (
-            TaskResource.objects.filter(task__sprint_id__in=pks, task__is_deleted=False)
+            # ``.active()`` (#3572): same filter as capacity_summary, so the batched
+            # path and the per-sprint path stay byte-identical.
+            TaskResource.objects.active()
+            .filter(task__sprint_id__in=pks, task__is_deleted=False)
             .select_related("resource")
             .values_list(
                 "resource_id",
@@ -6199,10 +6205,17 @@ def _generate_due_occurrences(
     # be justified by apply_task_owners reading ``resource.project_id`` while
     # auto-rostering, which it never did and, since #3575, could not: it rosters from
     # ``task.project_id`` and the row's ``resource_id``.)
+    # ``.active()`` (#3572) because this is a WRITE path, not a read: apply_task_owners
+    # creates a new TaskResource row on every generated occurrence, so an unfiltered
+    # template would keep assigning a deactivated person to future work forever — the
+    # one place deactivation could be silently undone. It is also the same write the
+    # API now refuses outright (ResourceSerializer's active-only ``resource`` FK), and
+    # the generator must not be a back door around it. A template whose only owner has
+    # been deactivated generates unowned occurrences, which is the honest outcome.
     template_owners: list[dict[str, object]] = (
         [
             {"resource": tr.resource, "units": tr.units}
-            for tr in TaskResource.objects.filter(task=template).select_related("resource")
+            for tr in TaskResource.objects.active().filter(task=template).select_related("resource")
         ]
         if rule.inherit_assignee
         else []
