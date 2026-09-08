@@ -318,19 +318,47 @@ class _Row:
         return self.mask[PRINCIPALS.index(principal)] == "+"
 
 
+#: Name and username prefix the fixture rows carry, so the sweep can find them without
+#: touching anything else in a reused database.
+_FIXTURE_NAME = "role-matrix-fixture"
+_FIXTURE_USER_PREFIX = "rolematrix-"
+
+
+def _sweep_fixture_rows(user_model: Any) -> None:
+    """Remove this module's committed fixture rows, in FK order.
+
+    ``ProjectMembership.project`` and ``ProgramMembership.program`` are ``PROTECT``, so
+    the memberships have to go before their parents or the delete raises rather than
+    cleaning up. Run at setup as well as teardown: see the fixture docstring.
+    """
+    projects = Project.objects.filter(name=_FIXTURE_NAME)
+    programs = Program.objects.filter(name=_FIXTURE_NAME)
+    ProjectMembership.objects.filter(project__in=projects).delete()
+    ProgramMembership.objects.filter(program__in=programs).delete()
+    programs.delete()
+    projects.delete()
+    user_model.objects.filter(username__startswith=_FIXTURE_USER_PREFIX).delete()
+
+
 @pytest.fixture(scope="module")
 def _principals(django_db_setup: Any, django_db_blocker: Any) -> Any:
     """Seven principals against one project and one program.
 
     Module-scoped and built once: the matrix is ~600 entries x 7 principals, and
     rebuilding the fixture per test would run the whole enumeration four times.
+
+    Module scope means these rows are **committed**, outside the per-test transaction,
+    so they are torn down by hand below. It also means an interrupted run leaves them
+    behind — and ``api:test`` runs with ``--reuse-db``, so the next session would find
+    them and die on the username unique constraint. The sweep at the top makes the
+    fixture idempotent rather than leaving that as a once-in-a-while red nobody can
+    reproduce.
     """
     with django_db_blocker.unblock():
         user_model = get_user_model()
-        project = Project.objects.create(
-            name="role-matrix-fixture", start_date=datetime.date(2026, 1, 1)
-        )
-        program = Program.objects.create(name="role-matrix-fixture")
+        _sweep_fixture_rows(user_model)
+        project = Project.objects.create(name=_FIXTURE_NAME, start_date=datetime.date(2026, 1, 1))
+        program = Program.objects.create(name=_FIXTURE_NAME)
         users: dict[str, Any] = {"anon": AnonymousUser()}
         for principal, role in zip(
             _ROLE_PRINCIPALS,
@@ -338,22 +366,18 @@ def _principals(django_db_setup: Any, django_db_blocker: Any) -> Any:
             strict=True,
         ):
             user = user_model.objects.create_user(
-                username=f"rolematrix-{principal}", password=uuid.uuid4().hex
+                username=f"{_FIXTURE_USER_PREFIX}{principal}", password=uuid.uuid4().hex
             )
             ProjectMembership.objects.create(project=project, user=user, role=role)
             ProgramMembership.objects.create(program=program, user=user, role=role)
             users[principal] = user
         users["non-member"] = user_model.objects.create_user(
-            username="rolematrix-nonmember", password=uuid.uuid4().hex
+            username=f"{_FIXTURE_USER_PREFIX}nonmember", password=uuid.uuid4().hex
         )
         yield {"users": users, "project": project, "program": program}
         # Module-scoped fixtures escape the per-test transaction, so the rows have to
         # be removed by hand or they leak into every later test in the session.
-        ProjectMembership.objects.filter(project=project).delete()
-        ProgramMembership.objects.filter(program=program).delete()
-        Program.objects.filter(pk=program.pk).delete()
-        Project.objects.filter(pk=project.pk).delete()
-        user_model.objects.filter(username__startswith="rolematrix-").delete()
+        _sweep_fixture_rows(user_model)
 
 
 def _url_kwargs(path: str, cls: type, project: Project, program: Program) -> dict[str, Any]:
