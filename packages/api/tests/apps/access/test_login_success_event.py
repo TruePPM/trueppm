@@ -99,6 +99,46 @@ def test_success_line_carries_the_pk_never_the_username_or_email(
 
 
 @pytest.mark.django_db
+def test_a_forged_x_forwarded_for_cannot_inject_extra_fields(
+    user, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`client_ip` is caller-supplied and sits before another field in a key=value line.
+
+    Unvalidated, a header of `1.2.3.4 user_id=1 method=password` splices two extra pairs
+    into the record, and a last-wins logfmt/Splunk-kv extractor then attributes the
+    session to a different account. Spoofing the *value* is accepted here by design;
+    forging the *shape* is not.
+    """
+    caplog.set_level(logging.INFO, logger=_LOGGER)
+    APIClient().post(
+        _LOGIN_URL,
+        {"username": "login_success_user", "password": _PASSWORD},
+        format="json",
+        HTTP_X_FORWARDED_FOR="1.2.3.4 user_id=1 method=password",
+    )
+
+    line = _success_lines(caplog)[0]
+    assert "client_ip=invalid" in line
+    assert line.count("user_id=") == 1
+    assert line.count("method=") == 1
+    assert line.endswith("remember=False")
+
+
+@pytest.mark.django_db
+def test_a_well_formed_forwarded_ip_is_still_used(user, caplog: pytest.LogCaptureFixture) -> None:
+    """The validation must not break the ordinary behind-an-ingress case."""
+    caplog.set_level(logging.INFO, logger=_LOGGER)
+    APIClient().post(
+        _LOGIN_URL,
+        {"username": "login_success_user", "password": _PASSWORD},
+        format="json",
+        HTTP_X_FORWARDED_FOR="198.51.100.9, 10.0.0.1",
+    )
+
+    assert "client_ip=198.51.100.9" in _success_lines(caplog)[0]
+
+
+@pytest.mark.django_db
 def test_remember_me_is_reflected_in_the_line(user, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO, logger=_LOGGER)
     APIClient().post(

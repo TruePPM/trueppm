@@ -2313,6 +2313,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `oidc_login` | 20/min | SSO login start |
 | `oidc_callback` | 30/min | SSO callback |
 | `sso_test_connection` | 20/min | SSO admin "Test connection" |
+| `sso_provider_write` | 20/min | SSO provider create/update/delete (reads exempt) |
 | `credential_rotate` | 10/min | Personal integration credentials + Git webhook secret rotation |
 | `external_sync` | 20/min | Manual external-connection pull trigger |
 | `monte_carlo` | 10/min | Synchronous Monte Carlo run |

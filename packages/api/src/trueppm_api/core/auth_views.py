@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import ipaddress
 import logging
 from datetime import timedelta
 from typing import Any, TypeGuard, cast
@@ -74,11 +75,33 @@ def _client_ip(request: Request) -> str:
     behind an ingress), falling back to ``REMOTE_ADDR``. This value is only used
     for an operator-facing log line, never for a security decision, so a spoofable
     header is acceptable here — the per-account throttle does the enforcement.
+
+    **The result is parsed as an IP address and replaced with ``"invalid"`` if it is
+    not one** (#3552). Spoofing the *value* is accepted; forging the *shape* is not.
+    Both auth lines are space-delimited ``key=value``, and this field is caller-supplied
+    and sits before another field, so an unvalidated value containing spaces and ``=``
+    lets a caller inject extra pairs into the record:
+
+        X-Forwarded-For: 1.2.3.4 user_id=1 method=password
+
+    A last-wins logfmt/Splunk-kv extractor then attributes the session to a different
+    account. Raw CR/LF cannot reach here (the HTTP parser rejects them) so a wholly
+    forged line was never possible, but intra-line field forgery was. Validating here
+    fixes ``auth.login_failed`` — reachable *without* credentials, and so the worse of
+    the two — at the same time.
     """
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return str(forwarded).split(",")[0].strip()
-    return str(request.META.get("REMOTE_ADDR", "unknown"))
+    candidate = (
+        str(forwarded).split(",")[0].strip()
+        if forwarded
+        else str(request.META.get("REMOTE_ADDR", "") or "").strip()
+    )
+    if not candidate:
+        return "unknown"
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return "invalid"
 
 
 def _login_body(request_data: Any) -> dict[str, Any]:

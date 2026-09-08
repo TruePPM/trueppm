@@ -119,6 +119,11 @@ The success line is emitted at **INFO**, so it requires `DJANGO_LOG_LEVEL=INFO` 
 the default. It carries the user **id**, never the email or username; the failure line
 hashes the submitted identifier for the same reason.
 
+`auth.login_succeeded` records a **new sign-in**, not a continued session. Refreshing an
+access token does not emit a line, so a session sustained by refresh-token rotation
+produces one entry — at the moment it began. If you are looking for evidence of ongoing
+access rather than of a sign-in, this channel is the wrong place to look for it.
+
 :::caution[Successful logins put a client IP in your logs]
 Before 0.4 `trueppm.auth` recorded a client IP only for *failed* sign-ins.
 `auth.login_succeeded` attaches one to every successful session. That is personal data

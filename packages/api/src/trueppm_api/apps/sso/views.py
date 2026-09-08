@@ -55,6 +55,7 @@ from trueppm_api.core.auth_views import (
     emit_login_success,
 )
 from trueppm_api.core.constant_time import constant_time_equal
+from trueppm_api.core.throttling import ProbeExemptUserRateThrottle
 
 logger = logging.getLogger("trueppm.sso")
 
@@ -334,11 +335,24 @@ class _SsoProviderWriteThrottle(ScopedRateThrottle):
     after each save — while it is the *writes* that need bounding, because each accepted
     write appends a row to an audit table with no OSS retention (ADR-1120). Capping reads
     at a write rate would break the page to fix the disk.
+
+    **The scope must be declared on the VIEW, not here.** ``ScopedRateThrottle`` reassigns
+    ``self.scope = getattr(view, self.scope_attr, None)`` on every ``allow_request`` and
+    returns ``True`` when that is falsy — so a ``scope`` class attribute on the throttle is
+    silently overwritten and the throttle becomes a no-op. Both views therefore set
+    ``throttle_scope``, exactly as every other scoped view in this module does.
+
+    Both views also keep ``ProbeExemptUserRateThrottle`` in their ``throttle_classes``.
+    Declaring ``throttle_classes`` *replaces* ``DEFAULT_THROTTLE_CLASSES`` rather than
+    adding to it, so listing this class alone would strip the global 1000/min ``user``
+    ceiling from the reads this class deliberately exempts — leaving them with no bound at
+    all, which is worse than before the throttle was added.
     """
 
-    scope = "sso_provider_write"
-
     def allow_request(self, request: Request, view: APIView) -> bool:
+        # Django uppercases REQUEST_METHOD, so a lowercase verb still arrives as e.g.
+        # "POST"; anything not in SAFE_METHODS falls through to the throttled branch, so
+        # an unrecognized method fails in the safe direction.
         if request.method in SAFE_METHODS:
             return True
         return bool(super().allow_request(request, view))
@@ -375,11 +389,36 @@ _AUDITED_PROVIDER_FIELDS = (
 # uncapped row is arbitrarily large in a table nothing prunes.
 _MAX_AUDITED_LIST = 25
 
+# Maximum characters kept per string value in an audit diff. Comfortably above any real
+# issuer URL, display name, or client id, and far below what would make one row a
+# storage problem.
+_MAX_AUDITED_STRING = 1024
+
 
 def _cap(value: Any) -> Any:
-    """Truncate a list value for storage in an audit diff, marking that it was cut."""
-    if isinstance(value, list) and len(value) > _MAX_AUDITED_LIST:
-        return {"items": value[:_MAX_AUDITED_LIST], "total": len(value), "truncated": True}
+    """Bound one audit-diff value, marking it when something was cut.
+
+    Both a list's *length* and a string's *length* are bounded, because
+    ``record_audit_event`` truncates ``target_label`` to 512 characters but writes
+    ``metadata`` verbatim — so nothing downstream limits what lands here.
+
+    The string cap is not theoretical. ``server_url`` is a ``CharField`` with no
+    ``max_length``, and its validator requires only an http(s) scheme, a netloc, and no
+    query or fragment — the *path* is unbounded. It is stored in ``SocialApp.settings``,
+    a JSONField with no ceiling, and an update row would hold it twice (``from`` and
+    ``to``). Without this an Admin could inflate the unpruned audit table at will.
+    """
+    if isinstance(value, list):
+        capped = [_cap(item) for item in value[:_MAX_AUDITED_LIST]]
+        if len(value) > _MAX_AUDITED_LIST:
+            return {"items": capped, "total": len(value), "truncated": True}
+        return capped
+    if isinstance(value, str) and len(value) > _MAX_AUDITED_STRING:
+        return {
+            "value": value[:_MAX_AUDITED_STRING],
+            "total": len(value),
+            "truncated": True,
+        }
     return value
 
 
@@ -477,9 +516,13 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
     """
 
     permission_classes = [IsWorkspaceAdminStrict]
-    # Writes bounded at 20/min (#3552); the list GET is deliberately unthrottled by this
-    # scope — see ``_SsoProviderWriteThrottle``.
-    throttle_classes = [_SsoProviderWriteThrottle]
+    # Writes bounded at 20/min (#3552). ``throttle_scope`` MUST be on the view:
+    # ScopedRateThrottle reads it off the view and no-ops without it. And
+    # ``ProbeExemptUserRateThrottle`` is kept because declaring ``throttle_classes``
+    # REPLACES DEFAULT_THROTTLE_CLASSES — listing the write throttle alone would strip
+    # the global 1000/min ceiling from the reads it deliberately exempts.
+    throttle_classes = [ProbeExemptUserRateThrottle, _SsoProviderWriteThrottle]
+    throttle_scope = "sso_provider_write"
     # Exempt from the generic Idempotency-Key path (ADR-0170): create keys on the
     # unique (workspace, slug) constraint, so a replayed POST 409s. That was true of
     # the constraint but not of the response until #2875 — nothing mapped the
@@ -583,9 +626,11 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
     """``/workspace/sso/providers/{slug}/`` — get/update/delete one provider."""
 
     permission_classes = [IsWorkspaceAdminStrict]
-    # PUT/DELETE bounded at 20/min (#3552); the detail GET is not — see
+    # PUT/DELETE bounded at 20/min (#3552); the detail GET keeps only the global
+    # 1000/min ceiling. Both lines are load-bearing — see the collection view above and
     # ``_SsoProviderWriteThrottle``.
-    throttle_classes = [_SsoProviderWriteThrottle]
+    throttle_classes = [ProbeExemptUserRateThrottle, _SsoProviderWriteThrottle]
+    throttle_scope = "sso_provider_write"
     idempotency_exempt = True
 
     def _read(self, policy: SsoProviderPolicy, request: Request) -> dict[str, Any]:

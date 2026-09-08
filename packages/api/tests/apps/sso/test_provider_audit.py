@@ -30,10 +30,15 @@ from typing import Any
 import pytest
 from allauth.socialaccount.models import SocialAccount, SocialApp
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 
 from trueppm_api.apps.sso import services
 from trueppm_api.apps.sso.models import SsoProviderPolicy
-from trueppm_api.apps.sso.views import _AUDITED_PROVIDER_FIELDS, _MAX_AUDITED_LIST
+from trueppm_api.apps.sso.views import (
+    _AUDITED_PROVIDER_FIELDS,
+    _MAX_AUDITED_LIST,
+    _MAX_AUDITED_STRING,
+)
 from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType, WorkspaceRole
 
 from .conftest import ISSUER, api_client
@@ -564,18 +569,74 @@ def test_audited_fields_are_exactly_the_serializers_writable_surface_minus_the_s
 
 
 @pytest.mark.django_db
-def test_the_write_throttle_does_not_apply_to_reads(admin: Any) -> None:
-    """The list GET backs the admin page and must not be capped at the write rate."""
-    from trueppm_api.apps.sso.views import _SsoProviderWriteThrottle
+def test_writes_are_throttled_at_the_scoped_rate(admin: Any) -> None:
+    """The 21st write in a minute is refused.
 
+    This asserts the *resolved* behavior through the client, not the throttle class's
+    attributes. An earlier version of this test checked ``throttle.scope`` on a freshly
+    constructed instance and drove only reads — and passed against a throttle that could
+    never fire, because ``ScopedRateThrottle.allow_request`` reassigns ``self.scope`` from
+    ``view.throttle_scope`` and returns True when that is missing. Only a 429 through the
+    client distinguishes a working throttle from a dead one.
+    """
+    cache.clear()
+    client = _create(admin)
+    codes = [
+        client.put(DETAIL, {"display_name": f"Renamed {i}"}, format="json").status_code
+        for i in range(25)
+    ]
+
+    assert 429 in codes, f"no write was throttled; got {sorted(set(codes))}"
+    # The POST that created the provider already consumed one of the 20 allowances.
+    assert codes.index(429) < 25
+
+
+@pytest.mark.django_db
+def test_a_very_long_server_url_is_truncated_in_the_diff(admin: Any) -> None:
+    """``server_url`` is a CharField with no max_length and an unbounded path.
+
+    It is stored in a JSONField with no ceiling and an update row would hold it twice, so
+    without a string cap an Admin could inflate the unpruned audit table at will.
+    """
+    client = _create(admin)
+    long_url = "https://idp.example.com/" + ("a" * (_MAX_AUDITED_STRING + 500))
+
+    resp = client.put(DETAIL, {"server_url": long_url}, format="json")
+
+    assert resp.status_code == 200, resp.data
+    entry = _rows(AuditEventType.SSO_PROVIDER_UPDATED)[0].metadata["changed"]["server_url"]
+    assert entry["to"]["truncated"] is True
+    assert entry["to"]["total"] == len(long_url)
+    assert len(entry["to"]["value"]) == _MAX_AUDITED_STRING
+
+
+@pytest.mark.django_db
+def test_reads_are_not_capped_at_the_write_rate(admin: Any) -> None:
+    """The list GET backs the admin page — the SPA re-reads it on every save."""
+    cache.clear()
     client = api_client(admin)
-    throttle = _SsoProviderWriteThrottle()
-    # More requests than the 20/min write allowance would permit.
-    for _ in range(25):
-        resp = client.get(COLLECTION)
-        assert resp.status_code == 200
 
-    assert throttle.scope == "sso_provider_write"
+    codes = {client.get(COLLECTION).status_code for _ in range(30)}
+
+    assert codes == {200}
+
+
+@pytest.mark.django_db
+def test_reads_still_carry_the_global_user_ceiling(admin: Any) -> None:
+    """Exempting reads from the write scope must not leave them unbounded.
+
+    Declaring ``throttle_classes`` *replaces* ``DEFAULT_THROTTLE_CLASSES``, so listing the
+    write throttle alone would strip the global 1000/min ``user`` rate from these views —
+    ending up with less rate limiting than before the write throttle was added.
+    """
+    from trueppm_api.apps.sso.views import SsoProviderCollectionView, SsoProviderDetailView
+    from trueppm_api.core.throttling import ProbeExemptUserRateThrottle
+
+    for view in (SsoProviderCollectionView, SsoProviderDetailView):
+        assert ProbeExemptUserRateThrottle in view.throttle_classes, view.__name__
+        # ScopedRateThrottle reads the scope off the VIEW; without this the throttle is
+        # silently inert.
+        assert view.throttle_scope == "sso_provider_write", view.__name__
 
 
 @pytest.mark.django_db

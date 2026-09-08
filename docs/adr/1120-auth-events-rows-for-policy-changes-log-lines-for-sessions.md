@@ -147,7 +147,7 @@ three fields that matter most.
 | `sso_provider_created` | request user | `sso_provider` / policy id / slug | `config` (the audited fields' values at creation), `secret_set` (bool), `actor_kind` |
 | `sso_provider_updated` | request user | same | `changed` — `{field: {"from": …, "to": …}}` over the audited set only — plus `actor_kind` |
 | `sso_secret_rotated` | request user | same | `actor_kind` only. Nothing about the secret: not the plaintext, not the ciphertext, not a length, hash, or prefix |
-| `sso_provider_deleted` | request user | same | `linked_accounts`, `locked_out_accounts`, `confirmed_lockout` (bool), `actor_kind` |
+| `sso_provider_deleted` | request user | same | `linked_accounts`, `locked_out_accounts`, `confirmed_lockout` (bool), `config` (the audited fields as they stood, captured before the cascade), `actor_kind` |
 | `sso_account_linked` | the linked user | `user` / user pk / email | `via: "sso"`, `provider` (slug), `issuer`, `subject`, `role` |
 
 Four notes on that table, each of which a gate had to argue for:
