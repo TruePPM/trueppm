@@ -25,7 +25,10 @@ import {
   type AddedTimeShortForm,
 } from '@/features/project/addedTime';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { QueryErrorState } from '@/components/QueryErrorState';
+import { REPORTED_HEALTH_TITLE } from '@/features/project/projectHealth';
 import { HEALTH_BAND_LABEL, type HealthBand } from '@/lib/healthBand';
+import type { HealthBandSource } from '@/types';
 
 interface Props {
   /** Selects + scrolls to a task and routes to the schedule (owned by TopBar). */
@@ -130,6 +133,69 @@ const ROW_BTN =
   ' rounded-control hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
 const TASK_BTN =
   'w-full text-left px-2 py-1.5 rounded-control text-xs hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
+// Two-line row button — the shape `CrossTeamSprintRows` already uses inline,
+// named so the provenance row and it cannot drift apart. `ROW`'s single-line
+// label/value grid cannot hold the provenance copy: at the popover's 260px floor
+// "Reported by the project manager  Update on Overview ›" runs ~290px against a
+// `max-w-[calc(100vw-1rem)]` clamp that is 304px on the narrowest phone. It is
+// the same width argument `AddedTimeRows`' stale branch makes, and it is why
+// there is no `whitespace-nowrap` here — a longer locale must wrap, not clip.
+// `focus:` and not `focus-visible:`: every row in this popover is reachable by
+// the dialog's scripted focus trap, which browsers may decline to treat as
+// visible (rule 288(c)).
+const STACKED_BTN =
+  'w-full flex flex-col items-start gap-0 px-2 py-1.5 text-xs rounded-control ' +
+  'hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
+
+// The provenance line's copy. `Reported` leads because that is the word the
+// project Dashboard's own chip already uses ("Reported: Critical"), so the two
+// surfaces state one verdict in one vocabulary. The explanatory sentence is
+// IMPORTED from that chip rather than retyped: a comment claiming two literals
+// "cannot drift" holds nothing, where a shared constant makes a divergence a
+// missing import (rule 395(a)).
+const PROVENANCE_LABEL = 'Reported by the project manager';
+// "View", not "Update": editing the report is Admin+, and a Member or Viewer
+// offered "Update" follows it to a page whose dialog says "View only". The
+// aria-label already said "see or change"; the visible line now agrees with it.
+//
+// "Dashboard", not "Overview" — the route segment is `/overview` (rule 108) but
+// the project rail labels that view **Dashboard** (ADR-0942 §7), and "Overview"
+// names only the PROGRAM rail's first view. Sending a reader to look for an
+// "Overview" item they will not find is the dead end rule 403(b) exists to close.
+const PROVENANCE_ACTION = 'View on Dashboard ›';
+
+const PROVENANCE_ARIA =
+  'This health is reported by the project manager, not computed from the rows ' +
+  'below. Go to the project Dashboard to see or change the report.';
+
+// The chip's no-value read. Not new copy — it is this file's own idiom, already
+// used three times ("Forecast P50 —", "Velocity —", the chip's own "P80 —"), so
+// it needs no learning.
+//
+// Widths measured in Chromium against the bundled Inter at `text-xs
+// font-medium`, single-threaded on a private preview port (rule 397(c) — a
+// sibling worktree's server on 4173 would silently measure another branch's
+// bundle). The run reproduced 397(c)'s own three figures to the pixel, which is
+// what makes the fourth trustworthy:
+//
+//   "On track"  48.73px   (the widest BAND word — not the worst severity)
+//   "Critical"  40.55px
+//   "At risk"   36.47px
+//   "Health —"  53.44px   = 37.44 + 4 (`gap-1`) + 12.00
+//
+// So the shipped read is 4.70px wider than the widest band, inside the ~10px of
+// compressible slack a 375px screen leaves. The rejected alternatives are not:
+// "Health unavailable" (~96px) and "Unavailable" (~67px) both overflow it.
+// "Unknown" would fit, but it is the word Overview prints for the REAL
+// `schedule_health: unknown` server value, so on the chip it would read as a
+// fourth band word (rule 397(a) / ADR-0126).
+const HEALTH_UNAVAILABLE_WORD = 'Health';
+const HEALTH_UNAVAILABLE_ARIA =
+  "Project health unavailable — couldn't load the health summary. Open for details and retry.";
+// `aria-describedby` target on the unavailable popover: the failure is then read
+// WITH the dialog focus lands in, which works whether or not the live region
+// fires (rule 335(a)).
+const HEALTH_ERROR_MSG_ID = 'health-error-msg';
 
 interface SegmentRowsProps {
   segment: HealthSegment;
@@ -327,7 +393,11 @@ function SprintEmptyRows({
 }
 
 /** Committed-vs-completed points/items row for the active sprint. */
-function PointsRow({ segment }: { segment: Extract<HealthSegment, { kind: 'points' }> }): ReactNode {
+function PointsRow({
+  segment,
+}: {
+  segment: Extract<HealthSegment, { kind: 'points' }>;
+}): ReactNode {
   return (
     <div
       className={ROW}
@@ -515,9 +585,7 @@ function AddedTimeRows({ presentation }: { presentation: AddedTimePresentation }
       <div className="flex items-start justify-between gap-3 px-2 py-1.5 text-xs whitespace-nowrap">
         <span className="flex flex-col items-start">
           {label}
-          {asOfShort && (
-            <span className="text-neutral-text-secondary">as of {asOfShort}</span>
-          )}
+          {asOfShort && <span className="text-neutral-text-secondary">as of {asOfShort}</span>}
         </span>
         <span className="tppm-mono text-neutral-text-secondary underline decoration-dotted underline-offset-4">
           <span aria-hidden="true">{`${headline} vs ${cpmShort}`}</span>
@@ -621,7 +689,11 @@ function SegmentRows({
 
     case 'velocity':
       return (
-        <VelocityRow segment={segment} iterationLower={iterationLower} onGoToSprints={onGoToSprints} />
+        <VelocityRow
+          segment={segment}
+          iterationLower={iterationLower}
+          onGoToSprints={onGoToSprints}
+        />
       );
 
     case 'addedTime':
@@ -693,6 +765,158 @@ function DrillRows({
 }
 
 /**
+ * The band-change announcer (WCAG 2.1 AA 4.1.3).
+ *
+ * The chip's word can now change because a person changed their mind — a PM
+ * files a report and the top bar's verdict flips — with no focus move and no
+ * navigation event to carry the news. So it needs a status message.
+ *
+ * Mounted UNCONDITIONALLY in every state (loading, unavailable, loaded) with
+ * only its TEXT swapped: a `role="status"` node that mounts together with its own
+ * content is announced inconsistently across assistive tech (rule 335), so a
+ * region that appears only when there is something to say frequently says
+ * nothing.
+ *
+ * Silent on first render — a band is news only when it CHANGES, and announcing
+ * the initial value would fire on every project navigation — and silent in the
+ * loading and unavailable states, which are not bands.
+ */
+function BandAnnouncer({ text }: { text: string }): ReactNode {
+  return (
+    <span role="status" aria-live="polite" className="sr-only" data-testid="health-announcer">
+      {text}
+    </span>
+  );
+}
+
+/**
+ * Chip-shaped skeleton for the first load of a project.
+ *
+ * `useShellStats` returns `data: undefined` for an in-flight query AND for a
+ * failed one, and this component used to read neither flag — so a 5xx on
+ * `status-summary` printed a calm "On track" over a project that might be
+ * Critical, which is rule 301(d)'s reassuring-failure defect on the one surface
+ * that is the only health reading on Schedule and Board (#3525). An absent value
+ * renders NO value; it never falls back to the most reassuring word, and not to
+ * `at_risk` either — there is no band here to be cautious *about*, and inventing
+ * one is rule 397(b) re-derivation wearing a different hat.
+ *
+ * Width is DERIVED rather than pinned: the widest band label renders `invisible`
+ * beneath the pulse, so the skeleton is exactly as wide as the widest band chip.
+ * Measured in Chromium at `text-xs font-medium` (rule 397(c)): "On track"
+ * 48.73px > "Critical" 40.55px > "At risk" 36.47px — the widest word is the calm
+ * one, not the worst severity, which is the inversion 397(c) opens by warning
+ * about.
+ *
+ * Be precise about what that buys, because the obvious stronger claim is false.
+ * At PHONE width, where the P80 and added-time fragments are CSS-hidden, the
+ * loading→loaded-with-a-band swap can only ever narrow the cluster, and
+ * narrowing is free where widening is what pushes the account chip off a 375px
+ * screen. It does NOT hold at `md:` (the chip gains "P80 {date}"), at `xl:` (it
+ * gains "Added +11d"), or into the unavailable state at any width ("Health —" is
+ * 53.44px, the widest of the four reads). Those three still need their own clip
+ * check; this shim is not one.
+ *
+ * Decoration, not a control. A `<button disabled>` stays in the accessibility
+ * tree and announces "Project health, button, dimmed", offering an affordance
+ * that does not exist; there is nothing to explain yet, so this is `aria-hidden`
+ * with no name, no role and no tab stop, and the popover cannot open.
+ *
+ * It deliberately does NOT carry `data-testid="health-cluster"`: two dozen specs
+ * locate the surface by that id, and one of them measures its `boundingBox()` for
+ * a phone-clip guard — a placeholder answering to it would report a clip-safe
+ * width for a chip that never rendered, a green gate measuring the wrong element.
+ * Playwright's auto-waiting then does the right thing for free.
+ *
+ * `motion-safe:` on the pulse, unlike the rail's `PinsPlaceholder`: that one is
+ * transient, this is persistent top-bar chrome, and a permanent pulse is exactly
+ * what a reduced-motion reader turns off.
+ */
+function LoadingChip(): ReactNode {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="health-cluster-loading"
+      className="inline-flex items-center gap-1.5 h-[34px] rounded-full border border-neutral-border px-3 text-xs font-medium"
+    >
+      <span className="inline-block w-2 h-2 rounded-full bg-chrome-surface-raised motion-safe:animate-pulse" />
+      <span className="relative inline-block">
+        <span className="invisible">{HEALTH_BAND_LABEL.on_track}</span>
+        <span className="absolute inset-x-0 inset-y-[3px] rounded bg-chrome-surface-raised motion-safe:animate-pulse" />
+      </span>
+      <span className="invisible">▾</span>
+    </div>
+  );
+}
+
+/**
+ * The provenance line — rule 403(b), "name the source and route to it".
+ *
+ * Rendered only when the SERVER says the band came from a person
+ * (`health_band_source === 'reported'`). Nothing here compares the band against
+ * the at-risk / critical counts and nothing re-derives a band: rule 397(b)
+ * deleted the client's ability to compute one, and a comparison would be that
+ * rule broken by the back door — and wrong besides, since a report that agrees
+ * with the counts is indistinguishable from no report at all.
+ *
+ * It never repeats the band word. The header one line above already prints it,
+ * and a "Reported: Critical" form would state the same fact twice in adjacent
+ * lines — and invite rendering the *other* value for contrast, which is exactly
+ * the comparison this must not make. The row's only job is origin.
+ *
+ * Neutral ink, never the band color. Semantic hue belongs to the state itself,
+ * not to metadata about the state (ADR-0126's one status vocabulary): a red note
+ * under a red header reads as a second, independent health signal, and the
+ * popover would carry two red things saying one thing.
+ *
+ * Two lines rather than `ROW_BTN`'s label/value grid — see `STACKED_BTN`.
+ *
+ * The destination is named "Overview", not "Update": editing the report is
+ * Admin+, and Overview gates that itself. A Viewer who follows this row lands on
+ * a page that shows the report and offers no editor, which the wording already
+ * told them. The shell has no business carrying a second copy of that role rule.
+ */
+function ProvenanceRow({ onGoToOverview }: { onGoToOverview: () => void }): ReactNode {
+  return (
+    <button
+      type="button"
+      data-testid="health-provenance-row"
+      onClick={onGoToOverview}
+      aria-label={PROVENANCE_ARIA}
+      title={REPORTED_HEALTH_TITLE}
+      className={STACKED_BTN}
+    >
+      <span className="w-full text-left text-neutral-text-primary">{PROVENANCE_LABEL}</span>
+      <span className="w-full text-left text-brand-primary">{PROVENANCE_ACTION}</span>
+    </button>
+  );
+}
+
+/**
+ * The popover body when `status-summary` failed.
+ *
+ * The error card and NOTHING else — no header block, no provenance row, and
+ * deliberately no methodology segment rows. `healthClusterModel` takes `stats` as
+ * a whole-cluster input and three of its segment kinds degrade to confident
+ * zeros when it is `undefined` (`At risk — 0 tasks`, `Critical path — 0 tasks`,
+ * `Forecast P80 —`). Rendering those beneath a chip that has just said it could
+ * not read the project's health would reproduce, one level down, the same
+ * failure-as-good-news defect this change exists to fix.
+ *
+ * `QueryErrorState` rather than a hand-rolled banner (rule 246), `inline` rather
+ * than `fill`: this is one widget on a still-working page, and `fill`'s assertive
+ * alert for a chrome-scoped failure would interrupt the reader over a chip.
+ * Retry re-runs just this request.
+ */
+function HealthErrorBody({ onRetry }: { onRetry: () => void }): ReactNode {
+  return (
+    <div id={HEALTH_ERROR_MSG_ID} data-testid="health-error">
+      <QueryErrorState variant="inline" message="Couldn't load project health." onRetry={onRetry} />
+    </div>
+  );
+}
+
+/**
  * v2 methodology-adaptive project health surface (ADR-0128 §B, progressive
  * disclosure — issue 1644). A single all-width **status chip** shows the
  * project's band word (On track / At risk / Critical — the one health
@@ -713,15 +937,39 @@ function DrillRows({
 export function HealthCluster({ onTaskNavigate }: Props) {
   const projectId = useProjectId() ?? null;
   const { data: project } = useProject(projectId);
-  // Same predicate `ProjectShell` renders `ProjectNotFound` on (#3469). Every
-  // input below degrades to a plausible literal on a failed fetch — `stats`
-  // missing means `stats?.healthBand ?? 'on_track'`, i.e. a confident "On
-  // track" for a project that is not there — so the chip has to be suppressed
-  // at the source rather than repaired downstream. (#3469 wrote this against
-  // the counts derivation `deriveChipState(0, 0)`; #3501 moved the word to the
-  // server band and the same hole moved with it, which is #3525.)
+  // Same predicate `ProjectShell` renders `ProjectNotFound` on (#3469). The chip
+  // is suppressed entirely here rather than repaired downstream, and that is
+  // still right AFTER #3525 gave the component a real unavailable state: a 404 /
+  // 403 means the route itself is about to render "This project isn't
+  // available", so a "couldn't load project health" chip over it would be a
+  // second and wrong explanation of the same fact. The two do not overlap —
+  // this is the project read failing; the state below is `status-summary`
+  // failing on a project the caller CAN open.
   const projectUnavailable = useProjectUnavailable(projectId);
-  const { data: stats } = useShellStats();
+  // `data` alone is NOT enough: it is `undefined` for an in-flight query and for a
+  // failed one alike, so a component that destructures only `data` renders a 5xx
+  // as whatever its fallback says — which here was the most reassuring word in the
+  // vocabulary (rule 301(d), #3525). Read all three.
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+    refetch: refetchStats,
+  } = useShellStats();
+
+  // Derived here, above the hooks that consume it, rather than beside the render
+  // branches it drives: `useFocusTrap` below takes `unavailable` as its focusKey,
+  // and a hook cannot read a value computed after an early return.
+  //
+  // A band the client does not have is never printed. `statsError` is the 5xx;
+  // the `undefined` band beside it catches a 200 whose body did not carry one
+  // (an older server, a proxy, a test mock serving the wrong shape) — the same
+  // "no value" outcome reached by a different door, and the failure direction is
+  // identical, so it takes the same branch rather than falling through to a word.
+  const band = stats?.healthBand;
+  const unavailable = statsError !== null || band === undefined;
+  const chip = band !== undefined ? deriveChipState(band) : null;
+  const healthBandSource: HealthBandSource | undefined = stats?.healthBandSource;
   const { sprint: activeSprint } = useActiveSprint(projectId);
   const { data: velocity } = useProjectVelocity(projectId);
   const iteration = useIterationLabel(projectId);
@@ -739,12 +987,30 @@ export function HealthCluster({ onTaskNavigate }: Props) {
 
   const [open, setOpen] = useState(false);
   const [showMCPanel, setShowMCPanel] = useState(false);
+  // Band-change announcement (WCAG 4.1.3).
+  //
+  // The memo carries its SUBJECT, not just the value. `HealthCluster` is mounted
+  // by the app shell and outlives any one project, so a ref holding only the last
+  // band still holds project A's when project B's arrives — and a direct
+  // project→project navigation (the rail switcher, ⌘K, My Work's worst-project
+  // link, and this popover's own cross-team sprint rows) would announce "Project
+  // health changed to Critical, reported by the project manager" about a project
+  // the reader has merely arrived at. A `staleTime` hit serves B synchronously, so
+  // there is not even a loading tick to mask it. Starting null prevents the
+  // announcement once per MOUNT; the mount is what outlives the project.
+  const lastBand = useRef<{ projectId: string; band: HealthBand } | null>(null);
+  const [bandAnnouncement, setBandAnnouncement] = useState('');
   // Portaled-panel fixed coords (web-rule 253); null until measured (#1969).
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Focus trap on the popover panel (rule 206): moves focus in on open, wraps
   // Tab, routes Escape to close, and restores focus to the chip trigger on close.
-  const dialogRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false));
+  // `unavailable` is the focusKey (rule 245(a)): the popover is now a MULTI-STATE
+  // dialog, and its two bodies share no focusable. A successful Retry unmounts the
+  // button that currently holds focus and mounts the segment rows in its place
+  // while `open` stays true — without a key the re-seat effect never re-runs,
+  // focus falls to `<body>`, and Tab escapes to the page behind the dialog.
+  const dialogRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false), unavailable);
 
   // Position the portaled panel below the chip, right-aligned to it, but clamped
   // so it never leaves the viewport — on a phone the chip sits mid-bar, so a
@@ -806,6 +1072,43 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [open, dialogRef]);
 
+  // Announce a band CHANGE, never the band itself.
+  //
+  // Three traps, each of which makes this read correctly while doing the wrong
+  // thing. (1) `lastBand` is written AFTER the comparison — write it first and
+  // nothing ever differs, so the region is permanently silent and every spec
+  // asserting "no announcement on mount" still passes. (2) The absent branch does
+  // NOT reset `lastBand`: clearing it would make every recovery from a 5xx
+  // announce as a change, because the band coming back is then compared against
+  // nothing rather than against the band that was on screen before the failure.
+  // (3) …and (2) is exactly what would carry a STALE band across a project
+  // switch, because a failure and a navigation are indistinguishable at that
+  // check. The projectId in the memo is what separates them; without it the two
+  // requirements are in direct conflict and the correct-looking one wins.
+  useEffect(() => {
+    const band = stats?.healthBand;
+    if (band === undefined) {
+      // Loading or failed — not a band, so there is nothing to announce and the
+      // previously-known one must survive the gap.
+      setBandAnnouncement('');
+      return;
+    }
+    if (
+      lastBand.current !== null &&
+      lastBand.current.projectId === projectId &&
+      lastBand.current.band !== band
+    ) {
+      // The source clause matters most here: a band that changed with no edit to
+      // the plan is precisely the case a reader cannot otherwise account for.
+      setBandAnnouncement(
+        stats?.healthBandSource === 'reported'
+          ? `Project health changed to ${HEALTH_BAND_LABEL[band]}, reported by the project manager.`
+          : `Project health changed to ${HEALTH_BAND_LABEL[band]}.`,
+      );
+    }
+    lastBand.current = { projectId: projectId ?? '', band };
+  }, [projectId, stats?.healthBand, stats?.healthBandSource]);
+
   // Project-scoped chrome; suppressed on project settings routes (rule 123 — the
   // SettingsShell carries its own chrome). The `useProjectId()` null path already
   // covers My Work / Notifications / Portfolio / Program / workspace settings.
@@ -813,6 +1116,27 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   // absence. Stating a health for a project the route itself is about to render as
   // "This project isn't available" is worse than saying nothing.
   if (!projectId || onSettingsRoute || projectUnavailable) return null;
+
+  // ── The three states of the band (#3525) ──────────────────────────────────
+  // Suppression above still outranks both of the states below: a project the
+  // caller cannot open renders nothing at all, because the route itself is about
+  // to say "This project isn't available" and a "couldn't load" chip over it
+  // would be a second, wrong explanation. The two do not overlap — 404/403 on
+  // `GET /projects/{id}/` is `projectUnavailable`; a 5xx on `status-summary` is
+  // the error state here.
+  //
+  // In flight comes first and renders a skeleton. It is a separate state from the
+  // failure on purpose: `staleTime` is 30s with no retry override, so the error
+  // state can persist for as long as the server keeps failing, and a skeleton
+  // that never resolves is the perpetual-pulse defect rule 246 names.
+  if (statsLoading) {
+    return (
+      <div className="relative">
+        <BandAnnouncer text={bandAnnouncement} />
+        <LoadingChip />
+      </div>
+    );
+  }
 
   // ── Added time (#2531) ────────────────────────────────────────────────────
   // Suppressed on Overview, which mounts `AddedTimeCard` — one value, one render
@@ -841,17 +1165,16 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   });
 
   // The chip word is the server's band for the whole project, independent of
-  // which segments this methodology renders (see deriveChipState). The band is
-  // never computed from the counts.
+  // which segments this methodology renders (see deriveChipState) and never
+  // computed from the counts.
   //
-  // `on_track` is the pre-load fallback, and it is the reassuring word — which
-  // is the failure direction #3501 was filed about, so state what makes it safe:
-  // `health_band` is a REQUIRED field on the response, and the web bundle ships
-  // in the same artifact as the API that serves it, so "loaded but no band" is
-  // not a state this client can reach. It is the fallback and not a neutral
-  // fourth word because the vocabulary has exactly three (rule 396) — a chip
-  // that printed "Unknown" for one render tick would be inventing one.
-  const chip = deriveChipState(stats?.healthBand ?? 'on_track');
+  // There is no longer a `?? 'on_track'` fallback here, and the reasoning that
+  // justified one was wrong. It argued that "loaded but no band" is unreachable
+  // because `health_band` is required and the bundle ships with its own API — but
+  // `stats` is `undefined` for a FAILED fetch as much as for an unresolved one,
+  // so the fallback was not covering a pre-load tick, it was printing the most
+  // reassuring word in the vocabulary over a project whose health nobody could
+  // read (#3525). `chip` is now null in that case and nothing prints a band.
 
   // P80 fragment on the chip: shown only when the methodology cluster has a
   // forecast segment (omitted entirely for pure Agile). The value text stays
@@ -860,18 +1183,31 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     (s): s is Extract<HealthSegment, { kind: 'forecast' }> => s.kind === 'forecast',
   );
 
-  let chipAria = `Project health: ${chip.word}`;
-  if (forecastSeg) {
-    chipAria +=
-      forecastSeg.p80 != null
-        ? `, forecast P80 ${formatForecastDate(forecastSeg.p80)}`
-        : ', forecast not run';
-  }
   // The chip is a button with an aria-label, so its inner text is suppressed for
   // assistive tech — anything not in this string does not exist to a screen reader.
-  // The clause therefore tracks the *popover row*, not the CSS-hidden fragment: the
-  // value is available at every width, exactly as the P80 clause already is.
-  chipAria += addedTimeAriaClause(addedTime);
+  // That is why every clause below lives here rather than only in the popover, and
+  // why the unavailable state gets its own sentence instead of inheriting a word
+  // the chip no longer prints.
+  let chipAria = HEALTH_UNAVAILABLE_ARIA;
+  if (chip) {
+    chipAria = `Project health: ${chip.word}`;
+    // Immediately after the word, before the forecast: it QUALIFIES the word, and
+    // on Board and Schedule this label is the only health reading a screen-reader
+    // user gets — the provenance row in the popover is not reachable from it
+    // (rule 403(b)).
+    if (healthBandSource === 'reported') {
+      chipAria += ', reported by the project manager';
+    }
+    if (forecastSeg) {
+      chipAria +=
+        forecastSeg.p80 != null
+          ? `, forecast P80 ${formatForecastDate(forecastSeg.p80)}`
+          : ', forecast not run';
+    }
+    // The clause tracks the *popover row*, not the CSS-hidden fragment: the value
+    // is available at every width, exactly as the P80 clause already is.
+    chipAria += addedTimeAriaClause(addedTime);
+  }
 
   // The inline fragment. Held to the methodologies whose cluster carries a forecast at
   // all — an added-time read is a forecast derivative, so a chip with no forecast must
@@ -911,6 +1247,16 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     void navigate(`/projects/${projectId}/${'sprints'}`);
   }
 
+  // Rule 403(b): the chip is on Schedule and Board, where the surface owning the
+  // report is not, so a reader who meets a reported band there has nowhere to go.
+  // A plain navigation, deliberately — mounting `UpdateStatusDialog` from the
+  // shell would drag a role-ordinal edit gate into the TopBar, and Overview
+  // already gates the editor correctly for every role.
+  function goToOverview() {
+    setOpen(false);
+    void navigate(`/projects/${projectId}/overview`);
+  }
+
   function jumpToBoard(path: string) {
     setOpen(false);
     void navigate(path);
@@ -928,12 +1274,19 @@ export function HealthCluster({ onTaskNavigate }: Props) {
 
   return (
     <div className="relative">
+      <BandAnnouncer text={bandAnnouncement} />
       {/* Status chip trigger — all-width (no md:flex / md:hidden split). The
-          data-testid stays on the trigger: e2e locates the surface by it. */}
+          data-testid stays on the trigger: e2e locates the surface by it. The
+          skeleton above deliberately does NOT take it — see `LoadingChip`. */}
       <button
         ref={triggerRef}
         type="button"
         data-testid="health-cluster"
+        // Pinned on the chip so a spec can assert the branch without opening the
+        // popover. Both are omitted in the state they do not describe: there is
+        // no source when there is no band.
+        data-health-source={chip ? healthBandSource : undefined}
+        data-state={unavailable ? 'unavailable' : undefined}
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -942,9 +1295,34 @@ export function HealthCluster({ onTaskNavigate }: Props) {
           hover:bg-neutral-surface-raised
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
-        <span aria-hidden="true" className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`} />
-        <span className={chip.wordClass}>{chip.word}</span>
-        {forecastSeg && forecastSeg.p80 != null && (
+        {chip ? (
+          <span
+            aria-hidden="true"
+            className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
+          />
+        ) : (
+          // A hollow ring in the same 8px box, so nothing reflows — and no hue at
+          // all, so it cannot be read as green/amber/red under any color-vision
+          // profile. `CHIP_DOT_CLASS` is deliberately not consulted: there is no
+          // band to reinforce.
+          <span
+            aria-hidden="true"
+            className="inline-block w-2 h-2 rounded-full border border-neutral-text-secondary"
+          />
+        )}
+        {chip ? (
+          <span className={chip.wordClass}>{chip.word}</span>
+        ) : (
+          // "Health —", this file's own no-value idiom (see the constant). Real
+          // status text, so `text-neutral-text-secondary` and never
+          // `text-neutral-text-disabled`, which fails contrast for anything a
+          // reader has to read (#2265).
+          <span className="inline-flex items-center gap-1 text-neutral-text-secondary">
+            <span>{HEALTH_UNAVAILABLE_WORD}</span>
+            <span>—</span>
+          </span>
+        )}
+        {chip && forecastSeg && forecastSeg.p80 != null && (
           // P80 value stays neutral even inside an amber/red chip (rule 172).
           // Held to md+ (tablet and up, #1562): on a phone the fixed-width right
           // cluster can't compress (TopBar rule 174), so the extra "P80 {date}"
@@ -958,7 +1336,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
             </span>
           </span>
         )}
-        {forecastSeg && forecastSeg.p80 == null && (
+        {chip && forecastSeg && forecastSeg.p80 == null && (
           <span
             className="hidden md:inline-flex items-center gap-1 text-neutral-text-secondary"
             title="Run the scheduler"
@@ -967,7 +1345,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
             <span>—</span>
           </span>
         )}
-        {addedTimeShort && (
+        {chip && addedTimeShort && (
           // Trailing, immediately before the caret: this is the only element on the
           // chip that disappears by width budget, so at the edge its absence leaves
           // no hole for the rest of the chip to reflow around. It also reads in the
@@ -1016,45 +1394,71 @@ export function HealthCluster({ onTaskNavigate }: Props) {
             ref={dialogRef}
             role="dialog"
             aria-label="Project health"
+            // Bound only in the failure state, where it makes the message read
+            // WITH the dialog focus is moved into — which works whether or not
+            // the live region fires (rule 335(a)). A dangling reference in the
+            // healthy state would be worse than none.
+            aria-describedby={unavailable ? HEALTH_ERROR_MSG_ID : undefined}
             tabIndex={-1}
             style={{ position: 'fixed', top: pos?.top ?? 0, left: pos?.left ?? 0 }}
             className={`z-50 min-w-[260px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-card shadow-pop border border-neutral-border bg-neutral-surface p-1.5 focus:outline-none ${
               pos ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}
           >
-            {/* Header — the project's band dot + word, same read as the chip.
-                Not necessarily the worst state in the rows beneath it: a manual
-                report outranks the counts, so a Critical header can sit over
-                "0 tasks" rows. The popover does not yet say which of the two it
-                is showing — #3525. */}
-            <div className="flex items-center gap-2 px-2 py-1.5 mb-1 border-b border-neutral-border">
-              <span
-                aria-hidden="true"
-                className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
-              />
-              <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
-            </div>
+            {/* Header block — the band dot + word, and (only when the server says
+                the word came from a person rather than from the plan) the line
+                that explains it.
+                
+                The two share ONE bordered block on purpose. Provenance is a
+                statement about the WORD, not about the evidence rows below it, so
+                a separately-fenced row would read as a fourth methodology segment
+                — and it sits here, above `segments.map` and unconditional on
+                methodology, because `healthClusterModel` emits no at-risk or
+                critical segment at all for AGILE. A provenance segment threaded
+                through that model would be invisible on exactly the methodology
+                where a Critical chip has no drill-through of any kind, which is
+                the worst case in #3525 rather than an edge of it.
+                
+                The header is not necessarily the worst state in the rows beneath
+                it: a manual report outranks the counts, so a Critical header can
+                sit over "0 tasks" rows. That is now explained rather than left to
+                read as a broken tool. */}
+            {chip && (
+              <div className="mb-1 border-b border-neutral-border">
+                <div className="flex items-center gap-2 px-2 py-1.5">
+                  <span
+                    aria-hidden="true"
+                    className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
+                  />
+                  <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
+                </div>
+                {healthBandSource === 'reported' && <ProvenanceRow onGoToOverview={goToOverview} />}
+              </div>
+            )}
 
-            {segments.map((segment) => (
-              <SegmentRows
-                // Keyed on `kind` alone, not on the index: a cluster never carries
-                // two segments of the same kind, and the added-time segment is
-                // spliced in mid-list once the forecast query resolves — an index
-                // key would renumber every row after it and remount them, dropping
-                // keyboard focus if the popover happened to be open.
-                key={segment.kind}
-                segment={segment}
-                iterationSingular={iteration.singular}
-                iterationLower={iteration.lower}
-                canOpenForecast={Boolean(mcResult)}
-                onOpenForecast={openForecast}
-                onGoToSprints={goToSprints}
-                onTaskNavigate={drillTask}
-                inContextBoardPath={inContextBoardPath}
-                crossTeamTargets={crossTeamTargets}
-                onJumpToBoard={jumpToBoard}
-              />
-            ))}
+            {unavailable && <HealthErrorBody onRetry={refetchStats} />}
+
+            {!unavailable &&
+              segments.map((segment) => (
+                <SegmentRows
+                  // Keyed on `kind` alone, not on the index: a cluster never carries
+                  // two segments of the same kind, and the added-time segment is
+                  // spliced in mid-list once the forecast query resolves — an index
+                  // key would renumber every row after it and remount them, dropping
+                  // keyboard focus if the popover happened to be open.
+                  key={segment.kind}
+                  segment={segment}
+                  iterationSingular={iteration.singular}
+                  iterationLower={iteration.lower}
+                  canOpenForecast={Boolean(mcResult)}
+                  onOpenForecast={openForecast}
+                  onGoToSprints={goToSprints}
+                  onTaskNavigate={drillTask}
+                  inContextBoardPath={inContextBoardPath}
+                  crossTeamTargets={crossTeamTargets}
+                  onJumpToBoard={jumpToBoard}
+                />
+              ))}
           </div>,
           document.body,
         )}
