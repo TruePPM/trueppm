@@ -64,7 +64,7 @@ export function ProjectNotificationsPage() {
   // The two delivery axes, resolved once. Every surface that speaks about them — the
   // column markers, the banner, the card below, and each switch's accessible name —
   // reads these, so the page cannot say two different things about the same channel
-  // (web-rule 406). Prose that names members is built from `deadChannels`, never
+  // (web-rule 407). Prose that names members is built from `deadChannels`, never
   // written as literals: the set is server-owned now and can shrink without a web
   // release, and a hardcoded paragraph would outlive the marker it contradicts.
   const deadChannels = PROJECT_NOTIFICATION_CHANNELS.filter((c) =>
@@ -178,7 +178,7 @@ export function ProjectNotificationsPage() {
               alone, a server that dispatches every event and delivers on no channel
               rendered two column markers whose consequence was stated nowhere but a
               `title` and a popover — rule 328(b)'s defect, re-created by making the
-              set dynamic while its explanation stayed static (web-rule 406(c)). */}
+              set dynamic while its explanation stayed static (web-rule 407(c)). */}
           {(hasDeadEvents || deadChannels.length > 0) && (
             <p className="px-4 py-2 text-[12px] text-neutral-text-secondary border-b border-neutral-border/55">
               Rows and columns marked <span className="font-medium">not delivered yet</span>{' '}
@@ -246,7 +246,7 @@ export function ProjectNotificationsPage() {
               the set is empty. Hardcoded as "Slack & mobile delivery" over present-tense
               prose, this card outlived the marker it explains: the day the server
               delivers on Slack the 10px caption disappears and an <h2> plus a paragraph
-              keep asserting the opposite — and the loud half wins (web-rule 406). */}
+              keep asserting the opposite — and the loud half wins (web-rule 407). */}
           {deadChannels.length > 0 && (
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
             <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">
