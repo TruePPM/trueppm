@@ -3,10 +3,10 @@ import { useId } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
   PROJECT_NOTIFICATION_CHANNELS,
-  PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS,
   PROJECT_NOTIFICATION_EVENTS,
   ProjectNotificationChannel,
   ProjectNotificationEventType,
+  isChannelUndeliverable,
   useProjectNotificationPreferences,
 } from '@/hooks/useProjectNotificationPreferences';
 import { SettingsPageTitle } from '../SettingsShell';
@@ -60,6 +60,21 @@ export function ProjectNotificationsPage() {
     preferences?.quietHoursTimezoneSource,
   );
   const quietZoneNoteId = `quiet-hours-tz-${noteId}`;
+
+  // The two delivery axes, resolved once. Every surface that speaks about them — the
+  // column markers, the banner, the card below, and each switch's accessible name —
+  // reads these, so the page cannot say two different things about the same channel
+  // (web-rule 406). Prose that names members is built from `deadChannels`, never
+  // written as literals: the set is server-owned now and can shrink without a web
+  // release, and a hardcoded paragraph would outlive the marker it contradicts.
+  const deadChannels = PROJECT_NOTIFICATION_CHANNELS.filter((c) =>
+    isChannelUndeliverable(preferences?.channelDelivery ?? {}, c.channel),
+  );
+  const hasDeadEvents = PROJECT_NOTIFICATION_EVENTS.some(
+    (evt) => preferences?.eventDelivery[evt.type] === false,
+  );
+  const deadChannelNames = formatList(deadChannels.map((c) => c.label.toLowerCase()));
+  const slackIsDead = deadChannels.some((c) => c.channel === 'slack');
 
   if (isLoading) {
     return (
@@ -133,14 +148,20 @@ export function ProjectNotificationsPage() {
               Event
               <FieldHelp
                 label="Notification routing"
-                body="Each row is an event that can happen on this project; each column is a delivery channel. Turn a cell on to have that event delivered through that channel, off to silence it. These are your personal routing rules for this project — other members set their own, and you can override them in your account-wide notification preferences."
+                body="Each row is an event that can happen on this project; each column is a delivery channel. Turning a cell on says you want that event on that channel; turning it off silences it. That is a routing choice, not a promise that it reaches you — rows and columns marked not delivered yet send nothing today, and your choice is saved until they do. These are your personal rules for this project: other members set their own, and you can override them in your account-wide notification preferences."
                 docHref="features/settings/project-notifications/#the-default-matrix"
               />
             </span>
+            {/* Column marker, from the server's `channel_delivery` (#3378) — the
+                per-column twin of the per-row `eventDelivery` badges below. The
+                two axes are independent: `comment_mention` IS dispatched and its
+                Slack cell still delivers nothing, so a row badge cannot cover
+                this. The hardcoded list this used to read stays only as the
+                answer for a server too old to send the map. */}
             {PROJECT_NOTIFICATION_CHANNELS.map((c) => (
               <span key={c.channel} className="text-center">
                 {c.label}
-                {PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS.includes(c.channel) && (
+                {deadChannels.some((d) => d.channel === c.channel) && (
                   <span
                     className="block font-normal normal-case tracking-normal text-[10px] text-neutral-text-secondary"
                     title="TruePPM does not deliver on this channel yet — your choice is saved and will apply once delivery ships."
@@ -152,13 +173,17 @@ export function ProjectNotificationsPage() {
             ))}
           </div>
 
-          {PROJECT_NOTIFICATION_EVENTS.some(
-            (evt) => preferences.eventDelivery[evt.type] === false,
-          ) && (
+          {/* The only at-rest explanation of either marker, so it has to cover both
+              axes and appear whenever EITHER has a dead member. Gated on the row axis
+              alone, a server that dispatches every event and delivers on no channel
+              rendered two column markers whose consequence was stated nowhere but a
+              `title` and a popover — rule 328(b)'s defect, re-created by making the
+              set dynamic while its explanation stayed static (web-rule 406(c)). */}
+          {(hasDeadEvents || deadChannels.length > 0) && (
             <p className="px-4 py-2 text-[12px] text-neutral-text-secondary border-b border-neutral-border/55">
-              Rows marked <span className="font-medium">not delivered yet</span> are not
-              dispatched by TruePPM yet, so changing them has no effect today. Your choice is
-              saved and will apply once the event ships.
+              Rows and columns marked <span className="font-medium">not delivered yet</span>{' '}
+              send nothing today, so changing them has no effect. Your choice is saved and
+              applies once delivery ships.
             </p>
           )}
 
@@ -182,14 +207,24 @@ export function ProjectNotificationsPage() {
                   </span>
                 )}
               </span>
-              {PROJECT_NOTIFICATION_CHANNELS.map(({ channel }) => {
+              {PROJECT_NOTIFICATION_CHANNELS.map(({ channel, label }) => {
                 const on = preferences.matrix[evt.type]?.[channel] ?? false;
+                // The name is synthesized, so it is the ONLY place a screen-reader
+                // user can learn either fact: `aria-label` overrides sibling content,
+                // the row badge is a sibling span, the column marker lives in an
+                // unrelated header row, and the CSS grid carries no table semantics
+                // to associate either. Without this a sighted user sees two markers
+                // and an SR user gets none while operating 36 switches, some inert.
+                // `label`, not `channel` — the raw enum key announced as "mobile_push".
+                const dead =
+                  deadChannels.some((d) => d.channel === channel) ||
+                  preferences.eventDelivery[evt.type] === false;
                 return (
                   <span key={channel} className="flex justify-center">
                     <Toggle
                       on={on}
                       onToggle={() => setCell(evt.type, channel, !on)}
-                      ariaLabel={`${evt.label} via ${channel}`}
+                      ariaLabel={`${evt.label} via ${label}${dead ? ', not delivered yet' : ''}`}
                     />
                   </span>
                 );
@@ -198,26 +233,43 @@ export function ProjectNotificationsPage() {
           ))}
         </div>
 
-        {/* Slack routing + Quiet hours */}
-        <div className="grid grid-cols-2 gap-3.5">
+        {/* Undelivered-channel explainer + Quiet hours. The row collapses to one
+            column when there is no dead channel to explain, so Quiet hours takes the
+            width rather than sitting beside a hole. */}
+        <div
+          className={[
+            'grid gap-3.5',
+            deadChannels.length > 0 ? 'grid-cols-2' : 'grid-cols-1',
+          ].join(' ')}
+        >
+          {/* Built from `deadChannels`, heading included, and not rendered at all when
+              the set is empty. Hardcoded as "Slack & mobile delivery" over present-tense
+              prose, this card outlived the marker it explains: the day the server
+              delivers on Slack the 10px caption disappears and an <h2> plus a paragraph
+              keep asserting the opposite — and the loud half wins (web-rule 406). */}
+          {deadChannels.length > 0 && (
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
             <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-3">
-              Slack &amp; mobile delivery
+              Channels TruePPM does not deliver on yet
             </h2>
             <p className="text-[12px] text-neutral-text-secondary leading-snug mb-3">
-              TruePPM does not deliver notifications to Slack or mobile push yet, and no
-              setting turns them on. The columns above are kept so you can record your
-              routing intent now — it applies once delivery ships.
+              TruePPM does not deliver notifications to {deadChannelNames} yet, and no
+              setting turns {deadChannels.length > 1 ? 'them' : 'it'} on. Those columns are
+              kept so you can record your routing intent now — it applies once delivery
+              ships.
             </p>
-            <p className="text-[12px] text-neutral-text-secondary leading-snug">
-              To get project events into Slack today, add a Slack-format webhook under{' '}
-              <span className="font-semibold text-neutral-text-primary">
-                Project Settings → Integrations
-              </span>
-              . That is a project-wide feed on its own event list — it does not read the
-              matrix above, and it is not per-person routing.
-            </p>
+            {slackIsDead && (
+              <p className="text-[12px] text-neutral-text-secondary leading-snug">
+                To get project events into Slack today, add a Slack-format webhook under{' '}
+                <span className="font-semibold text-neutral-text-primary">
+                  Project Settings → Integrations
+                </span>
+                . That is a project-wide feed on its own event list — it does not read the
+                matrix above, and it is not per-person routing.
+              </p>
+            )}
           </div>
+          )}
 
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-card p-4">
             <div className="flex items-center gap-1.5 mb-3">
@@ -268,6 +320,19 @@ export function ProjectNotificationsPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * "Slack", "Slack and mobile push", "a, b, and c" — for prose built from a set.
+ *
+ * Exported for its own vitest: the card is gated on a non-empty set and only two of
+ * four columns are dead, so the empty and three-or-more branches are unreachable
+ * through the component and testable nowhere else.
+ */
+export function formatList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
 }
 
 function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel: string }) {

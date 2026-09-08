@@ -5,8 +5,10 @@ import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
   useProjectNotificationPreferences,
+  isChannelUndeliverable,
   PROJECT_NOTIFICATION_EVENTS,
   PROJECT_NOTIFICATION_CHANNELS,
+  PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS,
   type ProjectNotificationChannel,
   type ProjectNotificationEventType,
   type ProjectNotificationMatrix,
@@ -19,6 +21,8 @@ interface ApiPayload {
   matrix: ProjectNotificationMatrix;
   /** #2904 — which rows have a dispatcher wired server-side. */
   event_delivery?: Partial<Record<ProjectNotificationEventType, boolean>>;
+  /** #3378 — which columns the server delivers on at all. */
+  channel_delivery?: Partial<Record<ProjectNotificationChannel, boolean>>;
   paused?: boolean;
   quiet_hours_enabled: boolean;
   quiet_hours_from: string;
@@ -60,6 +64,7 @@ function payload(overrides: Partial<ApiPayload> = {}): ApiPayload {
   return {
     matrix: makeMatrix({ task_assigned: { email: true } }),
     event_delivery: { comment_mention: true },
+    channel_delivery: { in_app: true, email: true, slack: false, mobile_push: false },
     paused: false,
     quiet_hours_enabled: false,
     quiet_hours_from: '22:00:00',
@@ -76,6 +81,7 @@ function cachedPreferences(
   return {
     matrix: makeMatrix({ task_assigned: { email: true } }),
     eventDelivery: { comment_mention: true },
+    channelDelivery: { in_app: true, email: true, slack: false, mobile_push: false },
     paused: false,
     quietHoursEnabled: false,
     quietHoursFrom: '22:00:00',
@@ -108,6 +114,34 @@ function mountFor(qc: QueryClient, projectId: string | null | undefined) {
   });
 }
 
+describe('isChannelUndeliverable — server first, hardcoded list only as fallback (#3378)', () => {
+  it('takes the answer from the server map when one was sent', () => {
+    const fromServer = { in_app: true, email: true, slack: true, mobile_push: false };
+
+    // A server that has shipped Slack delivery must be able to un-mark the column
+    // without a web release — the drift this map exists to end.
+    expect(isChannelUndeliverable(fromServer, 'slack')).toBe(false);
+    expect(isChannelUndeliverable(fromServer, 'mobile_push')).toBe(true);
+    expect(isChannelUndeliverable(fromServer, 'email')).toBe(false);
+  });
+
+  it('falls back per key, not per map, when the server is silent about a channel', () => {
+    // Deliberately asymmetric with `eventDelivery`'s "no claim made" contract. There,
+    // silence costs a missing badge; here it restores the #3249 defect outright — a
+    // dead control rendered as a working one. A partial body is exactly when the safe
+    // default matters, so the fallback answers per channel.
+    expect(isChannelUndeliverable({ in_app: true }, 'slack')).toBe(true);
+    expect(isChannelUndeliverable({ in_app: true }, 'email')).toBe(false);
+  });
+
+  it('falls back to the hardcoded list when no map was sent at all', () => {
+    for (const channel of PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS) {
+      expect(isChannelUndeliverable({}, channel)).toBe(true);
+    }
+    expect(isChannelUndeliverable({}, 'email')).toBe(false);
+  });
+});
+
 describe('useProjectNotificationPreferences — loading', () => {
   beforeEach(() => {
     getMock.mockReset();
@@ -122,6 +156,7 @@ describe('useProjectNotificationPreferences — loading', () => {
     expect(result.current.preferences).toEqual({
       matrix: payload().matrix,
       eventDelivery: { comment_mention: true },
+      channelDelivery: { in_app: true, email: true, slack: false, mobile_push: false },
       paused: false,
       quietHoursEnabled: false,
       quietHoursFrom: '22:00:00',
@@ -130,6 +165,15 @@ describe('useProjectNotificationPreferences — loading', () => {
       quietHoursTimezoneSource: 'project',
     });
     expect(result.current.error).toBeNull();
+  });
+
+  it('maps a response with no channel_delivery to an empty record (#3378)', async () => {
+    // An older server sends nothing; the hook must not invent a map. The fallback
+    // decision belongs to isChannelUndeliverable, not to fromApi.
+    getMock.mockResolvedValue({ data: payload({ channel_delivery: undefined }) });
+    const { result } = mount(newQc());
+    await waitFor(() => expect(result.current.preferences).toBeDefined());
+    expect(result.current.preferences?.channelDelivery).toEqual({});
   });
 
   it.each([
