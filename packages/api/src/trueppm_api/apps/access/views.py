@@ -312,6 +312,17 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             ).data
         )
 
+    @extend_schema(
+        responses={
+            201: ProjectMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, or "
+                "``user`` names an account the caller cannot reach (#3641). The "
+                "unreachable-target message is identical to the one a nonexistent id "
+                "gets, so the field is not an existence oracle."
+            ),
+        }
+    )
     def create(self, request: Request, **kwargs: object) -> Response:
         project = self._get_project_or_404()
         self._require_actor_role(request, project.pk, Role.OWNER)
@@ -412,6 +423,17 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             ProjectMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(
+        responses={
+            200: ProjectMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, "
+                "demoting this member would strand the project without an Owner, or the "
+                "body carried ``user`` — a membership's account is fixed at creation "
+                "(#3641)."
+            ),
+        }
+    )
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         project = self._get_project_or_404()
         instance = self.get_object()
@@ -1302,6 +1324,16 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         instance = self.get_object()
         return Response(ProgramMembershipReadSerializer(instance).data)
 
+    @extend_schema(
+        responses={
+            201: ProgramMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, or "
+                "``user`` names an account the caller cannot reach (#3641) — see the "
+                "project twin."
+            ),
+        }
+    )
     def create(self, request: Request, **kwargs: object) -> Response:
         program = self._get_program_or_404()
         self._require_actor_role(request, program.pk, Role.OWNER)
@@ -1359,6 +1391,17 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             ProgramMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(
+        responses={
+            200: ProgramMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, "
+                "demoting this member would strand the program without an Owner, or the "
+                "body carried ``user`` — a membership's account is fixed at creation "
+                "(#3641)."
+            ),
+        }
+    )
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         program = self._get_program_or_404()
         instance = self.get_object()

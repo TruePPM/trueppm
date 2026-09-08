@@ -217,6 +217,30 @@ deprecation window rather than being removed outright:
    branched on `200` to mean "already existed" was reading a bug and should branch on
    `201` for "created" instead.
 
+   **Bypassed a seventh time, in 0.4 (#3641).** `user` stops being accepted in the
+   request body of `PATCH /api/v1/projects/{id}/members/{mid}/` and
+   `PATCH /api/v1/programs/{id}/members/{mid}/`; a body carrying it is answered `400`
+   where it previously reassigned the membership row and answered `200`. Removing a
+   field and changing an existing status code are both **Breaking** by the table
+   above. The two `PatchedProject/ProgramMembershipWriteRequest` component schemas are
+   also renamed to `…UpdateRequest`, which renames the generated model classes in an
+   SDK built from this schema.
+
+   The reasoning: the field was an address-disclosure door. `POST /api/v1/projects/`
+   is ungated and makes its caller an Owner, and a membership write answers with the
+   target account's email address — so an unbounded `user` let any signed-in account
+   read every address on the installation, one request per account. Reassigning a live
+   row was the same disclosure a second way, and it silently rewrote who held access
+   while keeping the row's `joined_at` access evidence. This is deliberately the
+   inverse of the `group_by=project` decision below, which kept a useless enum value
+   accepted for its window rather than start answering `400`: a value with no effect
+   can wait out a deprecation window, and an open disclosure door cannot.
+
+   A client that PATCHed `user` was reassigning a membership. Remove the member and add
+   the other account instead — two requests, and the second is subject to the same
+   target bound as any other add. `role` (and `role_title` on the program route) are
+   unchanged, and the response body is unchanged on both routes.
+
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for
    removals after GA.

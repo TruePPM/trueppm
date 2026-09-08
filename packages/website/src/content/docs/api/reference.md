@@ -435,10 +435,43 @@ governs uploads.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/projects/{id}/members/` | List (Viewer+) |
-| POST | `/api/v1/projects/{id}/members/` | Add member (Owner only) |
+| POST | `/api/v1/projects/{id}/members/` | Add member (Owner only; see the target rule below) |
 | GET | `/api/v1/projects/{id}/members/{mid}/` | Retrieve |
-| PATCH | `/api/v1/projects/{id}/members/{mid}/` | Change role (Owner only) |
+| PATCH | `/api/v1/projects/{id}/members/{mid}/` | Change role (Owner only). `role` only — `user` is not accepted |
 | DELETE | `/api/v1/projects/{id}/members/{mid}/` | Remove (Owner, or self) |
+
+Program membership is the same shape, one tier up:
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/v1/programs/{id}/members/` | List (Viewer+) |
+| POST | `/api/v1/programs/{id}/members/` | Add member (Owner only; same target rule) |
+| GET | `/api/v1/programs/{id}/members/{mid}/` | Retrieve |
+| PATCH | `/api/v1/programs/{id}/members/{mid}/` | Change `role` (Owner) or `role_title` (Admin+). `user` is not accepted |
+| DELETE | `/api/v1/programs/{id}/members/{mid}/` | Remove (Owner, or self) |
+
+#### Who `user` may name
+
+:::note[Ships in 0.4]
+Until 0.4, `user` accepts any account on the installation and `PATCH` accepts it too.
+:::
+
+From 0.4 the caller's role decides who they may add, not just whether they may add:
+
+- a workspace **Admin** or **Owner** may name any active account;
+- anyone else may name themselves, or an account already on a project or program
+  roster they belong to — including one whose membership was revoked, so re-adding
+  somebody you removed keeps working.
+
+Deactivated accounts are never accepted. An id outside the caller's reach is refused
+with `400` and a `user` error carrying the **same message a nonexistent id gets**, so
+this field cannot be used to test whether an account exists. To bring in somebody
+further out, send a [workspace invite](/administration/workspace-settings/) — it is
+keyed on an email address the sender already holds.
+
+`user` is not part of a `PATCH` body on either route. A membership's account is fixed
+at creation; remove the member and add the other account instead. See
+[API stability](/api/stability/) for the Breaking-change record.
 
 See [RBAC](/administration/rbac/) for the permission matrix and role escalation rules.
 
