@@ -136,9 +136,25 @@ class TestSkillViewSet:
         scheduler_membership: ProjectMembership,
     ) -> None:
         res = scheduler_client.post("/api/v1/skills/", {"name": "  TypeScript  "})
-        assert res.status_code in (200, 201)
+        assert res.status_code == 201
         assert res.data["normalized_name"] == "typescript"
         assert res.data["name"] == "TypeScript"
+
+    def test_create_new_skill_returns_201(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        """A skill that did not exist is an insert and must answer 201 (#3573).
+
+        Asserted as an exact status: the pair with
+        ``test_create_dedup_returns_existing`` is the whole point, and
+        ``status_code in (200, 201)`` passed on the build where every create
+        answered 200.
+        """
+        res = scheduler_client.post("/api/v1/skills/", {"name": "Rust"})
+        assert res.status_code == 201
+        assert Skill.objects.filter(normalized_name="rust").count() == 1
 
     def test_create_dedup_returns_existing(
         self,
@@ -146,10 +162,11 @@ class TestSkillViewSet:
         react_skill: Skill,
         scheduler_membership: ProjectMembership,
     ) -> None:
-        """Creating a skill with same normalised name returns the existing row."""
+        """Creating a skill with same normalised name returns the existing row with 200."""
         res = scheduler_client.post("/api/v1/skills/", {"name": "REACT"})
-        assert res.status_code in (200, 201)
+        assert res.status_code == 200
         assert res.data["id"] == str(react_skill.pk)
+        assert Skill.objects.filter(normalized_name="react").count() == 1
 
     def test_search(
         self,

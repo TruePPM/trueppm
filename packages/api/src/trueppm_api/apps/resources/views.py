@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from django.db import models, transaction
 from django.db.models import DateField, ProtectedError, QuerySet
@@ -127,6 +127,29 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
 
 
 @extend_schema_view(
+    create=extend_schema(
+        summary="Create a skill, or return the existing one",
+        description=(
+            "Adds a skill to the org-level catalog.\n\n"
+            "Names are de-duplicated case-insensitively on `normalized_name`, so "
+            "posting a name that already exists is not an error: the existing row is "
+            "returned with `200` instead of `201`. Callers that need to know whether "
+            "they added the skill must read the status code — the body is identical "
+            "either way."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=SkillSerializer,
+                description=(
+                    "A skill with this normalized name already existed; it is returned unchanged."
+                ),
+            ),
+            201: OpenApiResponse(
+                response=SkillSerializer,
+                description="Skill created.",
+            ),
+        },
+    ),
     destroy=extend_schema(
         summary="Delete a skill",
         description=(
@@ -148,7 +171,7 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
                 ),
             ),
         },
-    )
+    ),
 )
 class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
     """CRUD for the org-level skill catalog.
@@ -195,13 +218,21 @@ class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
-        """Create or return existing skill — de-dup by normalized_name."""
-        serializer = self.get_serializer(data=request.data)
+        """Create the skill (201), or return the existing row on a de-dup hit (200).
+
+        The status comes from the ``get_or_create`` flag the serializer records,
+        not from an inspection of the saved row. Nothing on a saved ``Skill``
+        distinguishes a fresh insert from a de-dup hit, so any re-derived flag is
+        a guess: this used to probe ``server_version=0``, which
+        ``VersionedModel.save`` never leaves behind (it stamps 1 on insert), so
+        the endpoint answered 200 for every create (#3573).
+        """
+        # ``get_serializer`` is typed as ``BaseSerializer[Skill]``; this viewset
+        # never swaps ``serializer_class``, so the concrete type is exact.
+        serializer = cast("SkillSerializer", self.get_serializer(data=request.data))
         serializer.is_valid(raise_exception=True)
         skill = serializer.save()
-        # Return 200 if skill already existed, 201 if newly created.
-        created = not Skill.objects.filter(pk=skill.pk, server_version=0).exists()
-        http_status = status.HTTP_201_CREATED if not created else status.HTTP_200_OK
+        http_status = status.HTTP_201_CREATED if serializer.created else status.HTTP_200_OK
         return Response(
             self.get_serializer(skill).data,
             status=http_status,

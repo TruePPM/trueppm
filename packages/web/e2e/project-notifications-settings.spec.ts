@@ -50,7 +50,9 @@ const FIXTURE_PREFERENCES = {
   matrix: {
     task_assigned: { in_app: true, email: true, slack: true, mobile_push: true },
     task_overdue: { in_app: true, email: true, slack: true, mobile_push: true },
-    comment_mention: { in_app: true, email: true, slack: true, mobile_push: true },
+    // The one dispatched row, seeded as #3378 defaults it: the two undeliverable
+    // columns are OFF even here.
+    comment_mention: { in_app: true, email: true, slack: false, mobile_push: false },
     status_change: { in_app: true, email: false, slack: false, mobile_push: false },
     budget_alert: { in_app: true, email: true, slack: true, mobile_push: true },
     risk_created: { in_app: true, email: true, slack: true, mobile_push: true },
@@ -71,6 +73,16 @@ const FIXTURE_PREFERENCES = {
     milestone_reached: false,
     sprint_start: false,
     sprint_end: false,
+  },
+  // #3378 — the per-column twin. Two of the four columns have no delivery path at
+  // all, and the page reads THIS rather than a hardcoded list. Served on the PATCH
+  // echo too (see the route below): the app writes the PATCH response straight into
+  // the query cache, so a PATCH body without it un-marks every column mid-session.
+  channel_delivery: {
+    in_app: true,
+    email: true,
+    slack: false,
+    mobile_push: false,
   },
   paused: false,
   quiet_hours_enabled: true,
@@ -144,7 +156,17 @@ async function setup(page: Page, captures: Captures) {
         captures.patches.push(body);
         // Merge so subsequent GETs (e.g. after reload) see the latest state
         // — required for the pause-persist test (#589).
-        captures.current = { ...(captures.current ?? FIXTURE_PREFERENCES), ...body };
+        // The server re-injects both delivery maps on the echo (views.py), so spread
+        // the write UNDER them — a PATCH body can never overwrite a server fact.
+        // Read from `captures.current`, not the fixture constant, so a test that
+        // seeds a different server is echoed as that server.
+        const before = captures.current ?? FIXTURE_PREFERENCES;
+        captures.current = {
+          ...before,
+          ...body,
+          event_delivery: before.event_delivery,
+          channel_delivery: before.channel_delivery,
+        };
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -219,6 +241,82 @@ test.describe('Project Settings → Notifications (#522)', () => {
     await sprintStart.click();
     await expect.poll(() => captures.patches.length).toBeGreaterThan(0);
     expect(captures.patches[0]).toEqual({ matrix: { sprint_start: { email: false } } });
+  });
+
+  test('labels the two columns with no delivery path (#3249)', async ({ page }) => {
+    const captures: Captures = { patches: [] };
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
+
+    const section = page.locator('[data-settings-section="notifications"]');
+    await expect(
+      section.getByRole('heading', { name: 'Notifications', exact: true }),
+    ).toBeVisible();
+
+    // Two of the four columns, on the shape the API returns today. Located by title,
+    // like the row badges: the visible label is the same wording on both, and the
+    // banner repeats it.
+    //
+    // A count of 2 is what the hardcoded fallback produces too, so this test cannot
+    // show WHERE the answer came from — it pins the #3249 outcome only. The test
+    // below carries the #3378 claim, on a count the fallback cannot reach.
+    await expect(section.getByTitle(/does not deliver on this channel yet/i)).toHaveCount(2);
+  });
+
+  test('keeps the column markers against a server that sends no map (#3378)', async ({
+    page,
+  }) => {
+    const captures: Captures = { patches: [] };
+    await setup(page, captures);
+    // An older API. The fallback's whole purpose is this deployment, and it is
+    // covered at vitest but never through the real hook → query-cache → render path.
+    const olderServer: Record<string, unknown> = { ...FIXTURE_PREFERENCES };
+    delete olderServer.channel_delivery;
+    captures.current = olderServer;
+    await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
+
+    const section = page.locator('[data-settings-section="notifications"]');
+    await expect(
+      section.getByRole('heading', { name: 'Notifications', exact: true }),
+    ).toBeVisible();
+    // Un-marking two columns that are still dead on that server is #3249 returning.
+    await expect(section.getByTitle(/does not deliver on this channel yet/i)).toHaveCount(2);
+  });
+
+  test('reads the column markers off the server, and keeps them across a write (#3378)', async ({
+    page,
+  }) => {
+    const captures: Captures = { patches: [] };
+    await setup(page, captures);
+    // A hypothetical server that has shipped Slack delivery. The count is what makes
+    // this test discriminating: with today's shape the page shows two markers either
+    // way, so a client still reading its hardcoded ['slack','mobile_push'] list — or
+    // one falling back to it because the map went missing — passes a count of 2 while
+    // being exactly the drift this change exists to end. One marker can only come
+    // from the server.
+    captures.current = {
+      ...FIXTURE_PREFERENCES,
+      channel_delivery: { in_app: true, email: true, slack: true, mobile_push: false },
+    };
+    await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
+
+    const section = page.locator('[data-settings-section="notifications"]');
+    await expect(
+      section.getByRole('heading', { name: 'Notifications', exact: true }),
+    ).toBeVisible();
+    await expect(section.getByTitle(/does not deliver on this channel yet/i)).toHaveCount(1);
+
+    // The marker must survive a write. The app writes the PATCH response straight
+    // into the query cache, so a server that dropped the map from its echo would
+    // silently fall the client back to its hardcoded list — re-marking a column that
+    // works — the moment a member touched anything. That is why the echo injects the
+    // map by hand rather than assembling it from the bound write serializer.
+    const mentionEmail = section.getByRole('switch', {
+      name: /mention \(@\) in a comment via email/i,
+    });
+    await mentionEmail.click();
+    await expect.poll(() => captures.patches.length).toBe(1);
+    await expect(section.getByTitle(/does not deliver on this channel yet/i)).toHaveCount(1);
   });
 
   test('pauses all notifications and persists the kill-switch across reload (#589)', async ({ page }) => {

@@ -1641,7 +1641,12 @@ class _SeedImporter:
             if not spec:
                 continue
             project = self.projects[project_data["slug"]]
-            task_count = Task.objects.filter(project=project, is_deleted=False).count()
+            # Must match the population capture_forecast_snapshot aggregates over
+            # (Task.committed, #3539), not every non-deleted task: the synthesized
+            # history and the sample's first *real* capture sit next to each other on
+            # the forecast-trend chart, and a task_count that steps at the join is a
+            # discontinuity in demo data with no cause a viewer can find.
+            task_count = Task.committed.filter(project=project).count()
             backfill_forecast_history(
                 project,
                 spec,
