@@ -262,17 +262,28 @@ def _names_a_project_or_program(path: str) -> bool:
     )
 
 
-def _human_reachable(cls: type) -> bool:
-    """Can a person holding a session or JWT reach this view at all?
+def _human_reachable(view: Any) -> bool:
+    """Can a person holding a session or JWT reach this view, for THIS request?
 
-    Falls back to the project-wide default when the view declares nothing, so a view
-    that simply never mentions authentication is judged by what DRF would really apply
-    rather than by its silence.
+    Resolved through ``get_authenticators()`` on a request-bound view, not off the
+    ``authentication_classes`` attribute, for the same reason the permission side calls
+    ``get_permissions()`` rather than reading ``permission_classes``: the runtime method
+    is overridden in this codebase and the attribute would report the wrong answer.
+    ``McpReadableViewMixin.get_authenticators`` prepends a token authenticator on 19
+    views, and ``WorkspaceLogoView.get_authenticators`` returns ``[]`` **for GET only** —
+    a per-method answer a per-class attribute read cannot express at all.
+
+    Falls back to the attribute, then to the project-wide default, when the method
+    raises: a view that cannot be asked is judged by what DRF would apply, never
+    silently treated as unreachable (which would read as a clean ``-------``).
     """
-    declared = getattr(cls, "authentication_classes", None)
-    if declared is None:
-        declared = api_settings.DEFAULT_AUTHENTICATION_CLASSES
-    return bool({a.__name__ for a in declared} & _HUMAN_AUTHENTICATORS)
+    try:
+        return bool({type(a).__name__ for a in view.get_authenticators()} & _HUMAN_AUTHENTICATORS)
+    except Exception:  # an un-askable view must not read as locked down
+        declared = getattr(type(view), "authentication_classes", None)
+        if declared is None:
+            declared = api_settings.DEFAULT_AUTHENTICATION_CLASSES
+        return bool({a.__name__ for a in declared} & _HUMAN_AUTHENTICATORS)
 
 
 def _exemption_reason(cls: type, action: str | None) -> str | None:
@@ -409,6 +420,44 @@ def _url_kwargs(path: str, cls: type, project: Project, program: Program) -> dic
     return kwargs
 
 
+def _bind(cls: type, action: str | None, method: str, kwargs: dict[str, Any], user: Any) -> Any:
+    """A request-bound view instance carrying ``user`` as the already-authenticated
+    principal.
+
+    ``request.auth`` is set explicitly, and that line is load-bearing rather than
+    tidiness. DRF's ``Request.auth`` is lazy: the first read calls ``_authenticate()``,
+    which — on a request built with no authenticators, as this one is — falls through to
+    ``_not_authenticated()``, whose ``self.user = UNAUTHENTICATED_USER()`` **overwrites
+    the principal we just installed**. Every permission after that point in the same
+    chain would then be judged against an anonymous user, and the resulting false ``-``
+    is invisible: both hard invariants below only fire on ``+``, so a row would quietly
+    read as more locked down than the route is. Assigning ``auth`` up front makes
+    ``hasattr(self, "_auth")`` true, so the lazy read never runs.
+
+    This was not hypothetical. ``IsNotTokenAuthenticated`` reads ``request.auth``, and
+    without this line **ten** rows — the personal, project and program API-token
+    management routes — came out ``-------`` when they are in fact member-readable and
+    Admin-writable. The oracle was reporting the most locked-down mask in the file for
+    six routes a Viewer can read. ``IsNotTokenAuthenticated``'s own docstring is about
+    exactly this trap ("an identity refusal is raised by the *authenticator*, so on that
+    path ``request.auth`` is still ``None``"), which is a fair warning that an oracle
+    fabricating requests has to model the authenticator or it will measure itself.
+    """
+    django_request = APIRequestFactory().generic(method, "/")
+    django_request.user = user
+    request = Request(django_request)
+    request.user = user
+    request.auth = None
+    request._authenticator = None
+    view = cls()
+    view.action = action
+    view.args = ()
+    view.kwargs = dict(kwargs)
+    view.format_kwarg = None
+    view.request = request
+    return view
+
+
 def _verdict(cls: type, action: str | None, method: str, kwargs: dict[str, Any], user: Any) -> str:
     """Run the chain the view would really apply and report one character.
 
@@ -417,21 +466,21 @@ def _verdict(cls: type, action: str | None, method: str, kwargs: dict[str, Any],
     either would let a broken permission class read as a clean verdict — the "non-zero
     total with every verdict bucket at zero means the tool died" failure, one route at
     a time.
+
+    Reachability is decided here rather than per route, because it is a per-*method*
+    property: ``WorkspaceLogoView`` authenticates its writes and not its GET. A view no
+    human authenticator can reach sees an anonymous request from every principal — the
+    role never enters the decision, so feeding it a real user would let a
+    ``request.auth``-keyed class abstain and read as a permit.
     """
-    django_request = APIRequestFactory().generic(method, "/")
-    django_request.user = user
-    request = Request(django_request)
-    request.user = user
-    view = cls()
-    view.action = action
-    view.args = ()
-    view.kwargs = dict(kwargs)
-    view.format_kwarg = None
-    view.request = request
+    view = _bind(cls, action, method, kwargs, user)
+    if not _human_reachable(view):
+        view = _bind(cls, action, method, kwargs, AnonymousUser())
+    request = view.request
     try:
         permissions = view.get_permissions()
         return "+" if all(p.has_permission(request, view) for p in permissions) else "-"
-    except Exception:
+    except Exception:  # a raising chain is a finding, not a crash
         return "!"
 
 
@@ -454,16 +503,9 @@ def _build_matrix(ctx: dict[str, Any]) -> tuple[list[_Row], list[str]]:
         if cls is None:
             continue
         kwargs = _url_kwargs(path, cls, ctx["project"], ctx["program"])
-        # A view no human authenticator can reach sees an anonymous request from every
-        # principal — the role never enters the decision, so pretending otherwise would
-        # let a `request.auth`-keyed class abstain and read as a permit.
-        reachable = _human_reachable(cls)
         for method, action in _method_action_pairs(entry, cls):
             key = _entry_key(method, path, action)
-            mask = "".join(
-                _verdict(cls, action, method, kwargs, users[p] if reachable else users["anon"])
-                for p in PRINCIPALS
-            )
+            mask = "".join(_verdict(cls, action, method, kwargs, users[p]) for p in PRINCIPALS)
             existing = seen.get(key)
             if existing is None:
                 seen[key] = _Row(key, mask, path, method, action, cls)
@@ -502,10 +544,21 @@ _HEADER = f"""\
 #
 # `+` the chain admits this principal, `-` it refuses, `!` it raised.
 #
-# `-` covers refusal by the AUTHENTICATOR as well as by a permission class: a view
-# whose authentication_classes admit no human principal (the project-API-token
-# ingest endpoints) sees an anonymous request from all seven, and reads `-------`.
-# The token surface is pinned separately, in token_write_surface.txt.
+# A `-` has THREE causes, and `-------` does not mean "maximally safe":
+#   1. a permission class refused;
+#   2. the AUTHENTICATOR refused — a view whose get_authenticators() yields no human
+#      authenticator (the project-API-token ingest endpoints) sees an anonymous
+#      request from all seven. The token surface is pinned separately, in
+#      token_write_surface.txt;
+#   3. the FIXTURE could not build the scope — a route gated on something other than
+#      a project or program (a team, a workspace role, a superuser) gets a random
+#      UUID for that kwarg, so its gate is refused rather than exercised. Change
+#      detection still holds for those rows; discovery does not.
+#
+# Read `-----++` with the scope in mind too. On a project-scoped route it means
+# Admin+ on THAT project. On an install-global route gated by IsOrgAdmin it means
+# Admin on ANY live project — and nothing gates project creation (#3569), so that
+# mask is reachable by any authenticated account in one request.
 #
 # The five roles hold that role on the fixture project AND the fixture program.
 # A `+` here means only that the request gets past `has_permission`; object-level

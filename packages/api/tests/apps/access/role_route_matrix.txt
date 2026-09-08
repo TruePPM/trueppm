@@ -10,10 +10,21 @@
 #
 # `+` the chain admits this principal, `-` it refuses, `!` it raised.
 #
-# `-` covers refusal by the AUTHENTICATOR as well as by a permission class: a view
-# whose authentication_classes admit no human principal (the project-API-token
-# ingest endpoints) sees an anonymous request from all seven, and reads `-------`.
-# The token surface is pinned separately, in token_write_surface.txt.
+# A `-` has THREE causes, and `-------` does not mean "maximally safe":
+#   1. a permission class refused;
+#   2. the AUTHENTICATOR refused — a view whose get_authenticators() yields no human
+#      authenticator (the project-API-token ingest endpoints) sees an anonymous
+#      request from all seven. The token surface is pinned separately, in
+#      token_write_surface.txt;
+#   3. the FIXTURE could not build the scope — a route gated on something other than
+#      a project or program (a team, a workspace role, a superuser) gets a random
+#      UUID for that kwarg, so its gate is refused rather than exercised. Change
+#      detection still holds for those rows; discovery does not.
+#
+# Read `-----++` with the scope in mind too. On a project-scoped route it means
+# Admin+ on THAT project. On an install-global route gated by IsOrgAdmin it means
+# Admin on ANY live project — and nothing gates project creation (#3569), so that
+# mask is reachable by any authenticated account in one request.
 #
 # The five roles hold that role on the fixture project AND the fixture program.
 # A `+` here means only that the request gets past `has_permission`; object-level
@@ -45,14 +56,14 @@
 -++++++  DELETE api/v1/me/credentials/<slug:provider>/::destroy
 -++++++  DELETE api/v1/me/time-entries/<uuid:pk>/::delete
 -++++++  DELETE api/v1/me/timesheets/<str:week_start>/submit::delete
--------  DELETE api/v1/programs/<program_pk>/api-tokens/<pk>/::destroy
+-----++  DELETE api/v1/programs/<program_pk>/api-tokens/<pk>/::destroy
 ---++++  DELETE api/v1/programs/<program_pk>/backlog-items/<pk>/::destroy
 -----++  DELETE api/v1/programs/<program_pk>/ceremonies/<pk>/::destroy
 -----++  DELETE api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/::destroy
 --+++++  DELETE api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/::destroy
 ------+  DELETE api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/::destroy
 --+++++  DELETE api/v1/projects/<pk>/board-views/<view_pk>/::delete
--------  DELETE api/v1/projects/<project_pk>/api-tokens/<pk>/::destroy
+-----++  DELETE api/v1/projects/<project_pk>/api-tokens/<pk>/::destroy
 ------+  DELETE api/v1/projects/<project_pk>/baselines/<pk>/::destroy
 ----+++  DELETE api/v1/projects/<project_pk>/fields/<pk>/::destroy
 -----++  DELETE api/v1/projects/<project_pk>/labels/<pk>/::destroy
@@ -213,9 +224,9 @@
 -++++++  GET api/v1/me/time-entries/::get
 -++++++  GET api/v1/me/timer/::get
 -++++++  GET api/v1/me/work/::get
--------  GET api/v1/programs/<program_pk>/api-token-audit/::get
--------  GET api/v1/programs/<program_pk>/api-tokens/::list
--------  GET api/v1/programs/<program_pk>/api-tokens/<pk>/::retrieve
+--+++++  GET api/v1/programs/<program_pk>/api-token-audit/::get
+--+++++  GET api/v1/programs/<program_pk>/api-tokens/::list
+--+++++  GET api/v1/programs/<program_pk>/api-tokens/<pk>/::retrieve
 --+++++  GET api/v1/programs/<program_pk>/assets/::get
 --+++++  GET api/v1/programs/<program_pk>/backlog-items/::list
 --+++++  GET api/v1/programs/<program_pk>/backlog-items/<pk>/::retrieve
@@ -244,9 +255,9 @@
 --+++++  GET api/v1/projects/<pk>/sprint-forecast/::get
 --+++++  GET api/v1/projects/<pk>/sprint-health/::get
 --+++++  GET api/v1/projects/<pk>/velocity/::get
--------  GET api/v1/projects/<project_pk>/api-token-audit/::get
--------  GET api/v1/projects/<project_pk>/api-tokens/::list
--------  GET api/v1/projects/<project_pk>/api-tokens/<pk>/::retrieve
+--+++++  GET api/v1/projects/<project_pk>/api-token-audit/::get
+--+++++  GET api/v1/projects/<project_pk>/api-tokens/::list
+--+++++  GET api/v1/projects/<project_pk>/api-tokens/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/assets/::get
 --+++++  GET api/v1/projects/<project_pk>/baselines/::list
 --+++++  GET api/v1/projects/<project_pk>/baselines/<pk>/::retrieve
@@ -480,7 +491,7 @@
 -++++++  POST api/v1/poker/<pk>/reopen/::post
 -++++++  POST api/v1/poker/<pk>/reveal/::post
 -++++++  POST api/v1/poker/<pk>/vote/::post
--------  POST api/v1/programs/<program_pk>/api-tokens/::create
+-----++  POST api/v1/programs/<program_pk>/api-tokens/::create
 ---++++  POST api/v1/programs/<program_pk>/backlog-items/::create
 ---++++  POST api/v1/programs/<program_pk>/backlog-items/<pk>/pull/::pull
 -----++  POST api/v1/programs/<program_pk>/ceremonies/::create
@@ -502,7 +513,7 @@
 ---+-++  POST api/v1/projects/<pk>/tasks/group/::post
 ---++++  POST api/v1/projects/<pk>/tasks/reorder/::post
 ---+-++  POST api/v1/projects/<pk>/tasks/ungroup/::post
--------  POST api/v1/projects/<project_pk>/api-tokens/::create
+-----++  POST api/v1/projects/<project_pk>/api-tokens/::create
 -----++  POST api/v1/projects/<project_pk>/baselines/::create
 -----++  POST api/v1/projects/<project_pk>/baselines/<baseline_pk>/activate/::post
 ----+++  POST api/v1/projects/<project_pk>/fields/::create

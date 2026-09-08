@@ -214,7 +214,12 @@ become a seven-character mask, and every mask is checked in to
 ------+  PATCH api/v1/projects/<uuid:project_pk>/members/<uuid:pk>/::partial_update
 ```
 
-`+` means the caller gets past the entry gate; `-` means they are refused. A route with
+`+` means the caller gets past the entry gate. `-` means they are refused — by a
+permission class, by the *authenticator* (a view that accepts only a project API token
+sees an anonymous request from every human caller and reads `-------`), or because the
+route is scoped to something the fixture does not grant, such as a team or a workspace
+role. So `-------` is not a claim that a route is maximally locked down; it is a claim
+that these seven callers do not get in. A route with
 no line **fails** — absence is the defect, so it cannot be the default-pass — and a route
 whose mask *changes* fails with both masks in the message. That second case is the one
 that matters: a `-` becoming `+` is a role gate that stopped firing, and it is invisible
