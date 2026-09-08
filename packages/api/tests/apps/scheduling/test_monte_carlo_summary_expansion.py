@@ -9,7 +9,9 @@ dependencies of its own, so each phase entered the simulation as a large,
 never-started, unconstrained block floored at the data date, and the longest one
 became the simulated project finish. The forecast was flat, unrelated to the
 network, inflated by reading a summary's calendar-day span as working days, and
-pushed *further out* by recording real progress.
+pushed *further out* by recording real progress. (#3530 has since made that stored
+span working days, removing the inflation but not the phantom — a summary is still
+not schedulable work.)
 
 Every project with phases was affected; a flat-WBS project was not, which is why
 the existing Monte Carlo suites did not catch it. So each test here builds a phase
@@ -22,7 +24,7 @@ what-if endpoint, and the derivation builder.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -57,6 +59,32 @@ LEAF_FINISH = "2026-01-07"
 # data date. Never asserted as an expected value — it is the wrong answer these
 # tests exist to exclude — but named so the numbers below are readable.
 PHANTOM_PHASE_DURATION_DAYS = 60
+
+# The all-complete spine fixture below: its leaves finish here, so this is both the
+# deterministic finish and the end of the phase's rolled-up span.
+COMPLETE_FINISH = date(2026, 2, 27)
+
+# A data date placed mid-flight, deliberately later than the phase's start. Since
+# #3530 a summary stores the working days of its own span, so a phase that starts on
+# the data date now stores exactly the distance from the data date to its finish —
+# and the phantom (that span, floored at the data date) lands *on* the real finish
+# instead of past it. Offsetting the data date is what keeps the two distinguishable;
+# see the negative control in TestForecastMatchesTheDeterministicSpine.
+MIDFLIGHT_DATA_DATE = date(2026, 2, 2)
+
+
+def working_days_between(start: date, end: date) -> int:
+    """Working days from ``start`` to ``end`` inclusive of both endpoints.
+
+    Mirrors the engine's duration convention (``_finish_from_start(start, 1) ==
+    start``) on the Mon-Fri `calendar` fixture, which declares no exceptions.
+    """
+    day, count = start, 0
+    while day <= end:
+        if day.weekday() < 5:
+            count += 1
+        day += timedelta(days=1)
+    return count
 
 
 @pytest.fixture(autouse=True)
@@ -103,10 +131,14 @@ def phase(project: Project) -> Task:
     """A phase row whose stored duration dwarfs the work beneath it.
 
     That is not a contrived value: the CPM write-back sets a summary's `duration` to
-    its calendar-day span (`test_summary_rollup.py::test_summary_duration_equals_span`),
-    so a phase spanning a quarter of real work stores ~60-90 while its leaves store a
-    handful of days each. Reading that span back as working days is what inflated the
-    phantom another ~1.4x.
+    its rolled-up span, so a phase spanning a quarter of real work stores ~40-90 while
+    its leaves store a handful of days each — the phantom dominates on span alone.
+
+    Until #3530 that span was stored in *calendar* days and then read back as working
+    days, inflating the phantom another ~1.4x. Tests in this file that set the phase's
+    duration by hand still exercise the same shape; the one that runs the deterministic
+    pass (TestForecastMatchesTheDeterministicSpine) lost that margin and carries its
+    own note on what replaced it.
     """
     return Task.objects.create(
         project=project, name="1 Migrate", duration=PHANTOM_PHASE_DURATION_DAYS, wbs_path="1"
@@ -291,9 +323,9 @@ class TestForecastMatchesTheDeterministicSpine:
     """The report's own acceptance criterion, run against real persisted CPM output.
 
     Unlike the tests above these do not hand-set the phase's duration: they run the
-    deterministic pass first, which writes each summary's `duration` as its
-    calendar-day span (#3530) exactly as production does. So the phantom under test is
-    the one the product actually manufactures, not a stand-in for it.
+    deterministic pass first, which writes each summary's `duration` as the working
+    days of its rolled-up span (#3530) exactly as production does. So the phantom under
+    test is the one the product actually manufactures, not a stand-in for it.
     """
 
     def test_p50_equals_cpm_finish_when_every_leaf_is_complete(
@@ -308,7 +340,7 @@ class TestForecastMatchesTheDeterministicSpine:
             wbs_path="1.1",
             percent_complete=100,
             actual_start=START,
-            actual_finish=date(2026, 2, 27),
+            actual_finish=COMPLETE_FINISH,
         )
         Task.objects.create(
             project=project,
@@ -319,17 +351,31 @@ class TestForecastMatchesTheDeterministicSpine:
             actual_start=START,
             actual_finish=date(2026, 1, 6),
         )
+        # Move the data date off the phase's start before scheduling. With both on
+        # START the phantom is indistinguishable from the right answer — see
+        # MIDFLIGHT_DATA_DATE.
+        project.status_date = MIDFLIGHT_DATA_DATE
+        project.save(update_fields=["status_date"])
+
         _run_deterministic_schedule(project)
 
-        # Negative control: the deterministic pass has just written a phase duration
-        # long enough to dominate the simulation, so a run that still lands on the
-        # leaf finish can only be reading the leaf network.
+        # Negative control: feeding the phase back into the network as a real task
+        # would finish it at the data date plus its stored duration. That has to land
+        # clear of the leaf finish, or this test would pass with the #3527 defect
+        # reintroduced and prove nothing.
+        #
+        # Before #3530 the phase stored its *calendar*-day span, so `>= 50` expressed
+        # this: 54 calendar days read as working days overshot the finish by a month.
+        # A summary now stores working days, so the comparison has to be against the
+        # distance the phantom actually has to cover — the working days from the data
+        # date to the finish — not a constant that silently became satisfiable by the
+        # correct answer.
         phase.refresh_from_db()
-        assert phase.duration >= 50
+        assert phase.duration > working_days_between(MIDFLIGHT_DATA_DATE, COMPLETE_FINISH)
 
         res = admin_client.post(run_url(project), {"n_simulations": 200}, format="json")
         assert res.status_code == 200, res.data
-        assert res.data["cpm_finish"] == "2026-02-27"
+        assert res.data["cpm_finish"] == COMPLETE_FINISH.isoformat()
         assert res.data["p50"] == res.data["cpm_finish"]
         assert res.data["p80"] == res.data["cpm_finish"]
         assert res.data["p95"] == res.data["cpm_finish"]

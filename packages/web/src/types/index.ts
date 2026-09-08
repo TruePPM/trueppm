@@ -375,7 +375,12 @@ export interface Task {
   budgetAtCompletion?: number | null;
   /** Actual cost incurred to date. Null until cost data is available (board batch 4). */
   actualCost?: number | null;
-  /** True when the assignee's total units across active tasks for this project exceeds 1.0. */
+  /**
+   * True when the assignee's total units across active tasks for this project exceed
+   * their capacity on this project — the roster's `units_override` when one is set,
+   * else the resource's `max_units`, else 1.0 when nothing links the assignee to a
+   * resource. Server-owned; never re-derive it client-side.
+   */
   assigneeIsOverallocated?: boolean;
   /** Monotonically increasing version counter — used for optimistic locking on phase reorder. */
   serverVersion?: number;
