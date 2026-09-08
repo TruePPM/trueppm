@@ -614,6 +614,40 @@ def _request_is_org_admin(request: Request) -> bool:
     ).exists()
 
 
+def _caller_is_project_member(request: Request, project_id: Any) -> bool:
+    """Return True when the caller holds an active membership on ``project_id``.
+
+    Gates the catalog list's project-scoped query parameters (#3571). The resource
+    catalog is readable by any authenticated user (ADR-0034), so a parameter that
+    reaches *through* that open read into one project's data — its roster, its
+    tasks' skill requirements — has to carry its own membership check; the
+    endpoint's permission class cannot supply one, because the endpoint is not
+    project-scoped.
+
+    A malformed id is deliberately *not* pre-validated here: letting it reach the
+    UUID column keeps the install-wide malformed-uuid contract
+    (``core.exception_handlers`` maps it to 400 for a query param), rather than
+    quietly downgrading a typo to an ignored parameter.
+    """
+    return _membership_role(request, project_id) is not None
+
+
+def _caller_may_read_task(request: Request, task_id: Any) -> bool:
+    """Return True when the caller is a member of the project owning ``task_id``.
+
+    The ``?task=`` skill-fit annotation echoes a task's full requirement set back
+    through the open catalog read, so those rows need the same project scoping
+    :meth:`TaskSkillRequirementViewSet.get_queryset` already applies to them
+    (#3571). An unknown task id and a foreign one are equally un-annotated, so the
+    parameter cannot be used to confirm that a task id exists. A malformed id is
+    left to the install-wide malformed-uuid contract (400), as above.
+    """
+    project_id = Task.objects.filter(pk=task_id).values_list("project_id", flat=True).first()
+    if project_id is None:
+        return False
+    return _membership_role(request, project_id) is not None
+
+
 class ResourceCatalogThrottle(UserRateThrottle):
     """Per-user rate limit on the org-wide resource catalog (#891).
 
@@ -817,7 +851,10 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                 type=OpenApiTypes.UUID,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Exclude resources already in this project's roster.",
+                description=(
+                    "Exclude resources already in this project's roster. Only "
+                    "honoured for members of that project; ignored otherwise."
+                ),
             ),
             OpenApiParameter(
                 name="task",
@@ -827,7 +864,8 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                 description=(
                     "Annotate each resource with skill_fit (exact/partial/missing) "
                     "against this task's skill requirements and group results "
-                    "accordingly."
+                    "accordingly. Only honoured for members of the task's project; "
+                    "ignored otherwise."
                 ),
             ),
             OpenApiParameter(
@@ -857,12 +895,22 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     deactivated resource. The resource record is never hard-deleted.
 
     Query params:
-      ?search=             — filter by name/email (DRF SearchFilter)
-      ?exclude_project=    — exclude resources already in a project's roster
+      ?search=             — filter by name/email (DRF SearchFilter); email is
+                             searchable only for org admins (#892)
+      ?exclude_project=    — exclude resources already in a project's roster;
+                             only honoured for members of that project (#3571)
       ?task=               — annotate with skill_fit against the task's skill
-                             requirements; groups results into exact/partial/missing
+                             requirements; groups results into exact/partial/missing.
+                             Only honoured for members of the task's project (#3571)
       ?include_deleted=true — include soft-deleted (deactivated) resources;
                              only honoured for org admin users
+      ?ordering=           — order by name (DRF OrderingFilter)
+
+    Every parameter that names a project- or task-scoped id is gated on the
+    caller's membership of that project. The catalog read itself is open, so a
+    parameter is the only place a project boundary can be crossed here; an
+    unauthorized id is treated as absent rather than refused, so no parameter
+    doubles as an existence oracle.
     """
 
     queryset = (
@@ -915,8 +963,15 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         if not include_deleted:
             qs = qs.filter(is_deleted=False)
 
+        # ?exclude_project= reaches through the open catalog read into one
+        # project's roster: diffing the filtered list against the bare one names
+        # every resource on that roster. Honour it only for members of that
+        # project (#3571). A non-member's parameter is ignored rather than
+        # refused, which is exactly the response they get by omitting it, so the
+        # parameter confirms nothing about the project id either — the same
+        # treatment ?include_deleted= gets for non-admins above.
         exclude_project = self.request.query_params.get("exclude_project")
-        if exclude_project:
+        if exclude_project and _caller_is_project_member(self.request, exclude_project):
             already_in = ProjectResource.objects.filter(
                 project_id=exclude_project, is_deleted=False
             ).values_list("resource_id", flat=True)
@@ -1089,7 +1144,13 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         """List resources, optionally annotated with skill_fit for a task."""
         task_id = request.query_params.get("task")
         requirements: list[TaskSkillRequirement] = []
-        if task_id:
+        # missing_skills[] echoes skill_name/required/required_label for every
+        # requirement on the task, so an unscoped ?task= published a foreign
+        # project's requirement set through a read any authenticated user may
+        # make. Annotate only for members of the task's project (#3571) — the
+        # same scoping TaskSkillRequirementViewSet.get_queryset applies to these
+        # rows. A non-member gets the plain, un-annotated catalog.
+        if task_id and _caller_may_read_task(request, task_id):
             requirements = list(
                 TaskSkillRequirement.objects.filter(
                     task_id=task_id, is_deleted=False
