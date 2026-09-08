@@ -48,14 +48,33 @@
  * run reconciles the authoritative dates. This mirrors the same fidelity
  * tradeoff already accepted for the resize-commit preview (issue #951).
  *
+ * Relaxation is BIDIRECTIONAL (issue #3535). The pass places every task AT the
+ * date its constraint set implies — later than where it sits when the drag
+ * pushes work out, earlier when the drag pulls it in. It used to move a
+ * successor only later, which made the ordinary "we finished early, pull it in"
+ * gesture show nothing at all downstream: a sole-predecessor successor with zero
+ * slack stayed frozen at a position the server was about to vacate. Both #3535
+ * mechanisms failed in that same direction — the preview never showed MORE
+ * movement than the server would produce, only less — so the user committed
+ * believing nothing else moved.
+ *
+ * Pulling earlier is what makes `planned_start` (SNET) load-bearing here, and
+ * `CpmTask.plannedStart` now carries it: while the pass only pushed forward, a
+ * task's current start already satisfied its own SNET and the constraint was
+ * redundant. Two floors are deliberately NOT re-derived for non-dragged tasks —
+ * see the note on floor 3 above for the data date, and the gap list below for
+ * the project start.
+ *
  * Known remaining gaps, all reconciled by the server on commit:
- *  - the fixed Mon–Fri week above (#1493);
- *  - `planned_start` (SNET) is not carried, so a downstream task's own start
- *    constraint is not re-applied. Harmless while relaxation is forward-only —
- *    a task's current start already satisfies it — but it would matter if this
- *    pass ever learned to pull tasks earlier;
+ *  - the fixed Mon–Fri week above (#1493). Quantified in #3535: against the
+ *    shared fixtures a holiday week or a six-day mask moves the client's answer
+ *    2–7 days off the server's. Nothing in the UI says so beyond the tooltip's
+ *    "Estimate — confirmed on drop";
  *  - the project-start floor, which the pull-to-commit prompt (#868/#884)
- *    covers at commit time instead.
+ *    covers at commit time instead. A drag that pulls work before the project
+ *    start now carries its successors back with it, so the preview can show a
+ *    pre-project-start date the commit prompt then negotiates — the same
+ *    disclosure the drag target itself has always had.
  */
 
 import type {
@@ -110,6 +129,13 @@ interface TaskState {
   isPinned: boolean;
   /** Recorded `actual_start` in ms, or null — the in-progress ES floor. */
   actualStartMs: number | null;
+  /**
+   * `planned_start` (SNET) in ms, already snapped to a working day, or null.
+   * An ES lower bound AND the span floor: the bar paints
+   * `max(planned_start, scheduled_start)` (ADR-0752), so this is the one piece
+   * of the incoming span that survives a task being re-placed (#3535).
+   */
+  plannedStartMs: number | null;
   isMilestone: boolean;
   name: string;
   /** Original earlyFinish before this recalc (baseline for deltaDays). */
@@ -379,6 +405,10 @@ function toTaskState(t: CpmTask): TaskState {
     // full-duration position through the network.
     isPinned: isComplete && (actualStartMs !== null || t.actualFinish != null),
     actualStartMs,
+    // Snapped on the way in, mirroring the server's
+    // `_next_working_day(task.planned_start, cal)` — a SNET pinned to a Sunday
+    // constrains the following Monday, not the Sunday.
+    plannedStartMs: t.plannedStart ? nextWorkingDay(toMs(t.plannedStart)) : null,
     isMilestone: t.isMilestone,
     name: t.name,
     baselineFinishMs: earlyFinishMs,
@@ -442,9 +472,27 @@ function setEarlyWindow(task: TaskState, earlyStartMs: number, spanFloorMs: numb
 }
 
 /**
- * Push each task forward to the latest date its predecessors allow, in
- * topological order (so every predecessor is final before its successors are
- * read). Mutates `stateMap` in place.
+ * Place each task AT the date its constraint set implies, in topological order
+ * (so every predecessor is final before its successors are read). Mutates
+ * `stateMap` in place.
+ *
+ * Relaxation runs in BOTH directions (issue #3535). The pass used to write the
+ * new window only when it was LATER than the incoming one, which is right for a
+ * drag that pushes work out and wrong for the ordinary "we finished early, pull
+ * it in" gesture: a sole-predecessor successor with zero slack — the common
+ * critical-path case — stayed frozen at a slot the server was about to vacate,
+ * and the user committed with no downstream signal at all. Taking the maximum
+ * of the constraint set unconditionally is what the server's forward pass does
+ * (`engine.py::_forward_pass` computes `ES = max(es_constraints)` with no
+ * regard for where the task previously sat), so this is a convergence, not a
+ * new rule.
+ *
+ * The constraint set is the server's minus two floors it deliberately does not
+ * re-derive here: the data date (see floor 3 in the file header — re-deriving
+ * it for the whole subgraph would attribute a stale schedule's catch-up shift
+ * to the user's drag) and the project start (#868/#884 handles it at commit).
+ * Both are ES lower bounds, so omitting them can only ever let the preview show
+ * a date EARLIER than the server's — never a slip it will not honor.
  *
  * The dragged task is skipped: its start is the user's input, not something the
  * network derives. Pinned tasks are skipped too — recorded actuals leave the
@@ -467,16 +515,32 @@ function relaxForward(
     if (preds.length === 0) continue; // No predecessors — keep original dates.
 
     let maxEarlyStart = latestConstraint(preds, stateMap, task);
+    // A task whose every predecessor edge left the subgraph is not derived by
+    // this pass — leave it where the last server CPM put it. Previously the
+    // `>` guard below made this unreachable-by-accident; now that the write is
+    // unconditional, -Infinity has to be rejected explicitly.
+    if (!Number.isFinite(maxEarlyStart)) continue;
+
     // ADR-0132 §2: work already underway is floored at where it actually
-    // started and is never smoothed back to an earlier network slot. Redundant
-    // while this pass only pushes tasks forward, but the floor belongs with the
-    // constraint set rather than resting on that invariant holding forever.
+    // started and is never smoothed back to an earlier network slot. This was
+    // documented as "redundant while this pass only pushes tasks forward" —
+    // it is now the floor that stops a pull-in from rewriting recorded history.
     if (task.actualStartMs !== null && task.actualStartMs > maxEarlyStart) {
       maxEarlyStart = task.actualStartMs;
     }
-    if (maxEarlyStart > task.earlyStartMs) {
-      setEarlyWindow(task, maxEarlyStart, task.spanStartMs);
+    // `planned_start` (SNET), the other constraint the old invariant made
+    // redundant: the PM pinned a date this task may not start before, and a
+    // pull-in is exactly the move that would slide straight through it.
+    if (task.plannedStartMs !== null && task.plannedStartMs > maxEarlyStart) {
+      maxEarlyStart = task.plannedStartMs;
     }
+
+    // The span floor is the task's own `planned_start`, NOT the span it arrived
+    // with. The incoming span already bakes in `max(planned_start,
+    // scheduled_start)`, which is a correct floor only while dates move
+    // forward; on a pull-in it would pin the bar's left edge to the stale
+    // position while the finish moved back, painting an incoherent bar.
+    setEarlyWindow(task, maxEarlyStart, task.plannedStartMs ?? -Infinity);
   }
 }
 
@@ -498,7 +562,19 @@ function latestConstraint(
 
 /**
  * Turn the relaxed state map into the preview payload, and pick the milestone
- * that slipped furthest — the one headline the drag overlay shows.
+ * this drag MOVES FURTHEST — the one headline the drag overlay shows.
+ *
+ * "Furthest" is by magnitude, not by slip (issue #3535). The scan used to seed
+ * its best delta at 0 and only ever accept a larger one, so a milestone the
+ * drag pulled EARLIER scored -7 and was discarded — the user pulling work in
+ * got no headline at all for the improvement the server was about to make, on
+ * the one gesture whose whole purpose is to move a milestone. Both the tooltip
+ * (`MilestoneDeltaTooltip`) and the aria-live announcements already rendered a
+ * negative delta correctly; nothing ever handed them one.
+ *
+ * A zero delta still yields no milestone: nothing moved, so there is no
+ * headline to show, and that is the pre-existing "returns null when nothing is
+ * impacted" contract.
  */
 function collectResults(stateMap: Map<string, TaskState>): {
   results: PreviewTaskResult[];
@@ -506,6 +582,8 @@ function collectResults(stateMap: Map<string, TaskState>): {
 } {
   const results: PreviewTaskResult[] = [];
   let worstMilestone: PreviewMilestone | null = null;
+  // Compared against |deltaDays|, so a pull-in competes with a slip on equal
+  // terms; 0 keeps "nothing moved ⇒ no milestone".
   let worstDelta = 0;
 
   for (const task of stateMap.values()) {
@@ -529,8 +607,8 @@ function collectResults(stateMap: Map<string, TaskState>): {
       deltaDays,
     });
 
-    if (task.isMilestone && deltaDays > worstDelta) {
-      worstDelta = deltaDays;
+    if (task.isMilestone && Math.abs(deltaDays) > worstDelta) {
+      worstDelta = Math.abs(deltaDays);
       worstMilestone = {
         taskId: task.id,
         name: task.name,

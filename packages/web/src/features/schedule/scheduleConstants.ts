@@ -375,7 +375,7 @@ export function resolveGripWidth(coarse: boolean): number {
  * corollary says to **pay the honest width for a pair of 44px targets rather
  * than letting one cover the other** — scoped, in its own words, to the
  * coarse-pointer half (`design_handoff_trueppm_v4/README.md` "Reading
- * structure"). Rule 405 extends it: two controls overlap at 14px exactly as
+ * structure"). Rule 406 extends it: two controls overlap at 14px exactly as
  * they do at 44px, and nothing in the 44 was doing the work. So the reserve now
  * follows `resolveGripWidth` at both pointer classes, and the fine-pointer
  * outline pays 14px for the grip it has always drawn there.

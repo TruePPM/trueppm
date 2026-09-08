@@ -217,6 +217,31 @@ describe('PreviewOverlay', () => {
       expect(bar?.style.top).toBe(`${ROW_HEIGHT + BAR_TOP_OFFSET}px`);
     });
 
+    // #3535: relaxation is bidirectional, so a preview result can now place a
+    // task EARLIER than where it currently sits and `deltaDays` can be negative.
+    // Every fixture in this file was a forward slip (deltaDays 2 and 5), which
+    // left the bar geometry's direction-independence resting on inspection
+    // rather than on a test.
+    it('draws a normal bar for a task the drag pulls EARLIER (#3535)', () => {
+      const PULLED_IN: DragPreviewResult = {
+        taskId: 't1',
+        earlyStart: '2024-12-30',
+        earlyFinish: '2025-01-03',
+        isCritical: false,
+        deltaDays: -7,
+      };
+      useDragStore.getState().startDrag('t1');
+      useDragStore.getState().updatePreview([PULLED_IN], null, 0);
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+      const bar = overlay.querySelector<HTMLElement>('div.overflow-hidden > div');
+
+      // Width is derived from this result's own start/finish pair, never from
+      // the task's stale current start — so a pull-in must not invert the
+      // rectangle or collapse it to the 2px floor.
+      expect(bar).not.toBeNull();
+      expect(Number.parseFloat(bar!.style.width)).toBeGreaterThan(2);
+    });
+
     it('re-positions horizontally when the engine scrolls', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([NORMAL_RESULT], null, 0);

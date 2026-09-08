@@ -506,3 +506,117 @@ def test_settings_endpoint_rejects_out_of_range(janet: Any, payload: dict[str, A
 
     resp = client.patch("/api/v1/me/notification-settings/", payload, format="json")
     assert resp.status_code == 400, resp.data
+
+
+# ---------------------------------------------------------------------------
+# Account deactivation — the second revocation axis (#3523)
+# ---------------------------------------------------------------------------
+#
+# Off-boarding writes ``User.is_active = False`` and never touches
+# ``ProjectMembership``/``ProgramMembership`` (``access/signals.py``), so the
+# membership floor landed by #3456 does not reach it. These pin the account axis at
+# the sweep, above both digest event types and above the ledger insert.
+
+
+@pytest.fixture
+def deactivated_janet(janet: Any) -> Any:
+    """An off-boarded account: live memberships, dead credentials, no digest."""
+    janet.is_active = False
+    janet.save(update_fields=["is_active"])
+    return janet
+
+
+@pytest.mark.django_db
+def test_deactivated_user_receives_no_program_health_digest(
+    deactivated_janet: Any, program: Program, late_project: Project
+):
+    """The digest names the program, its band and its worst project — pushed mail.
+
+    The membership row is deliberately left live, because that is exactly what
+    off-boarding leaves behind: only ``is_active`` distinguishes this user from the
+    one in ``test_digest_sends_when_opted_in``.
+    """
+    ProgramMembership.objects.create(program=program, user=deactivated_janet, role=Role.ADMIN)
+    _opt_in(deactivated_janet, HEALTH_EVENT, in_app=True, email=True)
+
+    assert send_due_digests(now=SUNDAY_1700_UTC) == 0
+    assert not Notification.objects.filter(recipient=deactivated_janet).exists()
+
+
+@pytest.mark.django_db
+def test_deactivated_user_receives_no_overallocation_digest(
+    deactivated_janet: Any, late_project: Project
+):
+    """The floor is at the sweep, so it covers the second digest with no second fix."""
+    ProjectMembership.objects.create(
+        project=late_project, user=deactivated_janet, role=Role.SCHEDULER
+    )
+    _opt_in(deactivated_janet, OVERALLOC_EVENT, in_app=True, email=True)
+
+    assert send_due_digests(now=SUNDAY_1700_UTC) == 0
+    assert not Notification.objects.filter(recipient=deactivated_janet).exists()
+
+
+@pytest.mark.django_db
+def test_deactivated_user_consumes_no_digest_ledger_row(
+    deactivated_janet: Any, program: Program, late_project: Project
+):
+    """The guard sits above ``NotificationDigestRun``, not below it.
+
+    A guard inside ``_maybe_send_for_user`` would suppress the mail and still write a
+    ledger row for this user every week, forever. This is what pins the guard to
+    ``_opted_in_user_ids`` rather than to the per-user send.
+    """
+    ProgramMembership.objects.create(program=program, user=deactivated_janet, role=Role.ADMIN)
+    _opt_in(deactivated_janet, HEALTH_EVENT)
+    _opt_in(deactivated_janet, OVERALLOC_EVENT)
+
+    send_due_digests(now=SUNDAY_1700_UTC)
+
+    assert not NotificationDigestRun.objects.filter(user=deactivated_janet).exists()
+
+
+@pytest.mark.django_db
+def test_deactivating_mid_stream_stops_the_next_send(
+    janet: Any, program: Program, late_project: Project
+):
+    """The negative control the class needs: same user, same data, one field flipped.
+
+    Sending first proves the fixture, the opt-in and the membership are all sound, so
+    the second sweep's zero can only be the ``is_active`` floor — not a mis-built
+    program, an unmatched slot, or a ledger row left over from the first send.
+    """
+    ProgramMembership.objects.create(program=program, user=janet, role=Role.ADMIN)
+    _opt_in(janet, HEALTH_EVENT)
+
+    assert send_due_digests(now=SUNDAY_1700_UTC) == 1
+
+    janet.is_active = False
+    janet.save(update_fields=["is_active"])
+    Notification.objects.filter(recipient=janet).delete()
+    NotificationDigestRun.objects.filter(user=janet).delete()
+
+    assert send_due_digests(now=SUNDAY_1700_UTC) == 0
+    assert not Notification.objects.filter(recipient=janet).exists()
+
+
+@pytest.mark.django_db
+def test_active_users_still_receive_theirs_alongside_a_deactivated_one(
+    deactivated_janet: Any, program: Program, late_project: Project
+):
+    """The floor must remove one audience member, not collapse the sweep.
+
+    ``deactivated_janet`` deactivates the ``janet`` fixture in place, so the active
+    recipient here is a second account with the same opt-in and the same membership.
+    """
+    active = User.objects.create_user(username="digest_omar", password="pw", email="omar@x.io")
+    for user in (deactivated_janet, active):
+        ProgramMembership.objects.create(program=program, user=user, role=Role.ADMIN)
+        _opt_in(user, HEALTH_EVENT)
+
+    assert send_due_digests(now=SUNDAY_1700_UTC) == 1
+
+    notif = Notification.objects.get(event_type=HEALTH_EVENT)
+    assert notif.recipient_id == active.pk
+    assert "Apollo" in notif.body
+    assert NotificationDigestRun.objects.filter(user=active).exists()

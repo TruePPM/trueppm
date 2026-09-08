@@ -135,7 +135,7 @@ describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', (
     // free when #3026 moved the ⇤/⇥/◆ lane to that same edge: the grip is
     // `z-10 absolute left-0`, so it covered 14 of the ⇤'s 16px and took its
     // clicks. The lane is now the grip's width at either class.
-    // The identity, not the literals — this branch's own rule 405(b). A `toBe(14)`
+    // The identity, not the literals — this branch's own rule 406(b). A `toBe(14)`
     // would still pass if the grip grew and its lane did not, which is the drift
     // that put the grip on top of the ⇤ in the first place.
     for (const coarse of [false, true]) {

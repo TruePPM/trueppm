@@ -215,6 +215,151 @@ class TestDoDrainEmails:
 
 
 # ---------------------------------------------------------------------------
+# Queued mail for a deactivated recipient (#3523)
+# ---------------------------------------------------------------------------
+
+
+class TestDeactivatedRecipientRetirement:
+    """Rows queued *before* off-boarding must not drain — and must not park.
+
+    This drain is the single egress for every notification email in OSS (mention,
+    stale-task, event and digest rails all funnel through it), so the account axis is
+    closed here once rather than at each producer.
+    """
+
+    @pytest.mark.django_db
+    def test_pending_row_for_a_deactivated_recipient_is_never_sent(
+        self, recipient: object, project: Project, comment: TaskComment, author: object
+    ) -> None:
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        User.objects.filter(pk=recipient.pk).update(is_active=False)
+
+        with patch("django.core.mail.EmailMessage.send") as send:
+            _do_drain_emails()
+
+        assert send.call_count == 0
+        notif.refresh_from_db()
+        assert notif.email_sent_at is None
+
+    @pytest.mark.django_db
+    def test_the_row_is_retired_rather_than_left_pending(
+        self, recipient: object, project: Project, comment: TaskComment, author: object
+    ) -> None:
+        """Excluding it from the query alone would age it into ``queued_aging``.
+
+        ``observability.selectors.notification_email_signals`` reads
+        ``email_pending=True`` past an hour as "Beat is dead, the worker is gone, or
+        the transport cannot be built" — a permanent System Health false alarm. The
+        row has to reach a terminal state, not sit in the backlog.
+
+        The transport is mocked as **down** on purpose. With a succeeding send the
+        unfixed drain also lands on ``email_pending=False`` — by delivering the mail —
+        so the assertion would hold on the broken build and prove nothing. Failing the
+        send separates "retired without sending" from "sent".
+        """
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        User.objects.filter(pk=recipient.pk).update(is_active=False)
+
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")) as send:
+            _do_drain_emails()
+
+        assert send.call_count == 0
+        notif.refresh_from_db()
+        assert notif.email_pending is False
+        assert notif.email_sent_at is None
+
+    @pytest.mark.django_db
+    def test_retirement_is_not_recorded_as_a_delivery_failure(
+        self, recipient: object, project: Project, comment: TaskComment, author: object
+    ) -> None:
+        """``failed_recent`` must not count an off-boarding as a broken mail relay.
+
+        That signal is ``email_pending=False`` AND ``email_attempts >=
+        EMAIL_MAX_RETRIES`` AND a recent ``email_failed_at``. Retirement writes only
+        the first, so stamping either of the others would report a personnel change
+        as an outage.
+
+        Seeded one attempt below the ceiling and run against a **dead** transport, so
+        that on the unfixed drain this row burns its last retry and lands on exactly
+        the ``failed_recent`` state being asserted against. With a succeeding send the
+        assertions would hold on the broken build too and prove nothing.
+        """
+        notif = _make_pending_notification(
+            recipient=recipient,
+            project=project,
+            comment=comment,
+            author=author,
+            attempts=EMAIL_MAX_RETRIES - 1,
+        )
+        User.objects.filter(pk=recipient.pk).update(is_active=False)
+
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")):
+            _do_drain_emails()
+
+        notif.refresh_from_db()
+        assert notif.email_pending is False  # retired
+        assert notif.email_attempts == EMAIL_MAX_RETRIES - 1  # no retry burned
+        assert notif.email_failed_at is None  # not a delivery failure
+
+    @pytest.mark.django_db
+    def test_the_inbox_row_itself_survives(
+        self, recipient: object, project: Project, comment: TaskComment, author: object
+    ) -> None:
+        """Only the outbound channel is closed. The durable record is not deleted —
+        it is unreadable anyway, because ``is_active=False`` closes every credential
+        path (JWT, session, PAT) that could open the inbox.
+
+        Stated for the record: this one **passes on the unfixed build too**, and is
+        meant to. It is not a repro — it is the ceiling on the fix, pinning that a
+        later "purge the deactivated user's notifications" reading of #3523 would be
+        a behavior change, not a tightening of this one.
+        """
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        User.objects.filter(pk=recipient.pk).update(is_active=False)
+
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")):
+            _do_drain_emails()
+
+        assert Notification.objects.filter(pk=notif.pk).exists()
+
+    @pytest.mark.django_db
+    def test_an_active_recipients_queued_mail_still_drains(
+        self,
+        recipient: object,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """The retirement pass must claim only the deactivated recipient's rows."""
+        offboarded = User.objects.create_user(username="gone", password="pw", email="gone@x.io")
+        ProjectMembership.objects.create(project=project, user=offboarded, role=Role.MEMBER)
+        dead = _make_pending_notification(
+            recipient=offboarded, project=project, comment=comment, author=author
+        )
+        live = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        offboarded.is_active = False
+        offboarded.save(update_fields=["is_active"])
+
+        with patch("django.core.mail.EmailMessage.send", return_value=1) as send:
+            _do_drain_emails()
+
+        assert send.call_count == 1
+        live.refresh_from_db()
+        dead.refresh_from_db()
+        assert live.email_sent_at is not None
+        assert dead.email_sent_at is None
+        assert dead.email_pending is False
+
+
+# ---------------------------------------------------------------------------
 # _do_archive — 90-day window
 # ---------------------------------------------------------------------------
 

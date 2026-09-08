@@ -510,7 +510,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
                 code: 'resource_overallocated',
                 resource_id: 'res-1',
                 resource_name: 'Alice Nguyen',
-                detail: 'Alice Nguyen is allocated 150% across active tasks (capacity: 100%).',
+                detail: 'Alice Nguyen is allocated 150% on 2026-09-09 (capacity: 100%).',
               },
             ],
           }),
@@ -554,7 +554,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
                 code: 'resource_overallocated',
                 resource_id: 'res-1',
                 resource_name: 'Alice Nguyen',
-                detail: 'Alice Nguyen is allocated 150% across active tasks (capacity: 100%).',
+                detail: 'Alice Nguyen is allocated 150% on 2026-09-09 (capacity: 100%).',
               },
             ],
           }),
@@ -632,7 +632,10 @@ test.describe('ResourceAssignmentSection — remove resource flow', () => {
     // The row is gone and the DELETE hit the specific assignment resource.
     await expect(section.getByText('Alice Nguyen')).toHaveCount(0);
     await expect(section.getByText('None')).toBeVisible();
-    expect(deleted).toBe(true);
+    // `useRemoveAssignment` drops the row in `onMutate`, so the two assertions
+    // above are satisfied by the OPTIMISTIC update and prove nothing about the
+    // DELETE reaching the handler. Poll for the capture instead (#3545).
+    await expect.poll(() => deleted).toBe(true);
     expect(deletePath).toContain('/task-resources/tr-1/');
   });
 

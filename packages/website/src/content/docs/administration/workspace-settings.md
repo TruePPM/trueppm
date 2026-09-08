@@ -273,10 +273,13 @@ restore access, set their status back to `active`.
 #### Off-boarding also revokes long-lived credentials
 
 :::note[Ships in 0.4]
-Credential revocation on deactivate/remove ships in **TruePPM 0.4**. In
-`v0.3.0-alpha.3` (the latest release), deactivation disables the account but
-leaves the member's personal access tokens live — revoke them by hand from their
-token list before treating an off-boarding as complete.
+Credential revocation on deactivate/remove ships in **TruePPM 0.4**, and so does
+the outbound-mail stop described below. In `v0.3.0-alpha.3` (the latest release),
+deactivation disables the account but leaves the member's personal access tokens
+live — revoke them by hand from their token list before treating an off-boarding
+as complete — and a deactivated member who had opted into a
+[weekly digest](/features/notifications/) keeps receiving it. Turn their digest
+preferences off before deactivating them on that release.
 :::
 
 Deactivating a member — and removing one, which is a deactivation here — also, in
@@ -301,6 +304,28 @@ credentials. They are neither revoked nor rejected, and keep authenticating even
 when the member who minted them is deactivated — a token's authority comes from
 its own project or program scope, not from that person's account, so off-boarding
 one person never breaks a team's CI integration.
+
+#### Off-boarding also stops outbound mail
+
+Deactivation closes the ways a member can *reach in*. TruePPM also stops the ways
+it reaches *out* to them, which are not credential-gated and would otherwise
+continue on a schedule of their own:
+
+- **Neither [weekly digest](/features/notifications/) is sent to a deactivated
+  member**, even though their project and program memberships stay live — the
+  program-health digest names each at-risk program, its health band and the
+  project driving it, so a digest that outlived an off-boarding would keep
+  delivering program state to a former colleague's inbox every week.
+- **Notification email already queued for them is dropped rather than delivered.**
+  A mention or stale-task nudge sitting in the outbox when the account is
+  deactivated is retired without being sent. This is not recorded as a mail
+  failure and does not show up on the
+  [System Health](/administration/system-health/) email card.
+
+The in-app inbox rows themselves are kept. Deactivation already makes them
+unreachable — there is no credential left that can open the inbox — and keeping
+them means a member who is reinstated finds their history intact. A retired
+outbound email is not re-sent on reinstatement.
 
 ### Last-Owner guard
 

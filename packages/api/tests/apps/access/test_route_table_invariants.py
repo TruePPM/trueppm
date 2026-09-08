@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from django.urls import URLPattern, URLResolver, get_resolver
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 from rest_framework.viewsets import ViewSetMixin
 
 from trueppm_api.apps.access import permissions as permissions_module
@@ -498,52 +500,554 @@ def test_the_inventory_is_not_vacuous() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_no_viewset_but_projectviewset_exposes_an_archive_bypass_action() -> None:
-    """`_ARCHIVE_BYPASS_ACTIONS` matches on action NAME, for any viewset carrying
-    `IsProjectNotArchived` — so the permission class's own comment says to scope it
-    by viewset class before a second viewset ever names one of those actions.
+def test_the_archive_bypass_is_scoped_to_the_project_viewset() -> None:
+    """`_ARCHIVE_BYPASS_ACTIONS` must only exempt ProjectViewSet's own lifecycle actions.
 
-    Nothing enforced that. #3354 took the class from one viewset to four; all four
-    are safe today because the three new ones are `ReadOnlyModelViewSet`s whose only
-    extra action is `undo`. The live hazard is a later promotion to `ModelViewSet`,
-    which mints a `destroy` route that would silently inherit an archived bypass —
-    re-opening exactly the hole #3354 closed, in a diff that would look like it only
-    changed a base class. This is the test that turns that into a loud failure.
+    **This test used to be vacuous, and the way it was is the finding (#3414.)** It read
+    the action map off ``entry.callback.initkwargs``. DRF's ``ViewSetMixin.as_view``
+    assigns the map to ``view.actions`` and passes only the *remaining* kwargs to
+    ``view.initkwargs``, so ``initkwargs["actions"]`` does not exist on any route in this
+    project: the walk built an empty set and the assertion held over nothing from the day
+    it was written. Meanwhile the premise it was defending had already failed — ``destroy``
+    is router-minted on every ``ModelViewSet``, and twenty project-scoped viewsets carried
+    ``IsProjectNotArchived`` while exposing it, so ``DELETE`` on a task, risk, dependency,
+    comment, attachment, label, phase, baseline, membership or assignment answered 204 on
+    an archived project.
+
+    The bypass is now decided by ``_bypasses_archive_check``, which requires the view to
+    be a ``ProjectViewSet`` instance. This asserts that property directly against a real
+    view rather than re-deriving it from the route table, so it cannot be defeated the
+    same way twice.
     """
     from trueppm_api.apps.access.permissions import IsProjectNotArchived
 
-    bypass = IsProjectNotArchived._ARCHIVE_BYPASS_ACTIONS
-    seen: set[str] = set()
-    offenders: list[str] = []
+    class _NotTheProjectViewSet:
+        action = "destroy"
 
+    class _AlsoNotIt:
+        action = "restore"
+
+    for view in (_NotTheProjectViewSet(), _AlsoNotIt()):
+        assert not IsProjectNotArchived._bypasses_archive_check(view), (  # type: ignore[arg-type]
+            f"{type(view).__name__}.{view.action} still bypasses the archived check by "
+            "action name. The bypass must be scoped to ProjectViewSet — every other "
+            "viewset's destroy/restore is an ordinary write on a frozen plan."
+        )
+
+    from trueppm_api.apps.projects.views import ProjectViewSet
+
+    lifecycle = ProjectViewSet()
+    for action in sorted(IsProjectNotArchived._ARCHIVE_BYPASS_ACTIONS):
+        lifecycle.action = action
+        assert IsProjectNotArchived._bypasses_archive_check(lifecycle), (
+            f"ProjectViewSet.{action} no longer bypasses the archived check — an Owner "
+            "can no longer unarchive, delete or restore an archived project, which is "
+            "the catch-22 the bypass exists to prevent."
+        )
+    lifecycle.action = "partial_update"
+    assert not IsProjectNotArchived._bypasses_archive_check(lifecycle), (
+        "ProjectViewSet.partial_update is an ordinary write and must not bypass"
+    )
+
+    # Guard the guard: the route table must still contain viewsets in the shape the
+    # bypass used to leak through, or a later refactor could make this test theoretical.
+    exposed: set[str] = set()
     for _path, entry in _walk():
         cls = _view_class(entry)
         if cls is None or not issubclass(cls, ViewSetMixin):
             continue
-        perms = getattr(cls, "permission_classes", []) or []
-        if not any(p is IsProjectNotArchived for p in perms):
+        if not any(
+            p is IsProjectNotArchived for p in (getattr(cls, "permission_classes", []) or [])
+        ):
             continue
-        seen.add(cls.__name__)
-        if cls.__name__ == "ProjectViewSet":
-            continue
-        # `initkwargs["actions"]` maps HTTP method -> action name for a router route.
-        actions = set((getattr(entry.callback, "initkwargs", {}) or {}).get("actions", {}).values())
-        for action in sorted(actions & bypass):
-            offenders.append(f"{cls.__name__}.{action}")
+        actions = set((getattr(entry.callback, "actions", None) or {}).values())
+        if (
+            actions & IsProjectNotArchived._ARCHIVE_BYPASS_ACTIONS
+            and cls.__name__ != "ProjectViewSet"
+        ):
+            exposed.add(cls.__name__)
+    assert len(exposed) >= 10, (
+        f"expected many non-ProjectViewSet viewsets to expose a bypass-named action "
+        f"(they are why the scoping exists), found {sorted(exposed)} — the walker is "
+        "probably reading the wrong attribute again."
+    )
 
-    assert not offenders, (
-        "these viewsets carry IsProjectNotArchived AND expose an action named in "
-        f"_ARCHIVE_BYPASS_ACTIONS, so that action bypasses the archived check: "
-        f"{sorted(set(offenders))}. Scope the bypass by viewset class (see the NOTE "
-        "on _ARCHIVE_BYPASS_ACTIONS) before shipping this."
+
+# ---------------------------------------------------------------------------
+# Invariant 3 — every project-scoped WRITE route enforces archived state (#3414)
+# ---------------------------------------------------------------------------
+#
+# The membership invariant above is scoped to routes whose URL NAMES a project. That is
+# the right scope for #2745 and the wrong one for archived enforcement: the routes that
+# skip the archived gate are overwhelmingly top-level — `poker/<pk>/vote/`,
+# `slip-conflicts/<pk>/acknowledge/`, `project-resources/` — so the suite was green while
+# the class was unprotected. !2318 censused 168 `permission_classes` declarations by
+# hand, narrowed to one family, and said in as many words that a route-table invariant
+# was the durable fix. This is it.
+#
+# Four things make it more than a second frozen list:
+#
+# 1. **It resolves what the view REALLY applies.** `get_permissions()` is called on an
+#    instantiated view with the action bound, exactly as `test_action_permission_chain`
+#    does — because 38 viewsets hand-roll `get_permissions` and a class-level
+#    `permission_classes` read reports the wrong answer on all of them (`CalendarViewSet`
+#    declares three project classes and applies `IsOrgAdmin`).
+#
+# 2. **The unit is a (route, action) pair, not a route.** One router route serves several
+#    actions with different permission chains — `members/<pk>/` gates `partial_update`
+#    and exempts `destroy`, `webhooks/<pk>/` gates the writes and leaves `deliveries`
+#    a plain read. Unioning a route's permissions would let one gated action vouch for
+#    an ungated sibling, which is the exact masking this file exists to prevent.
+#
+# 3. **A declared class does not count unless it can FIRE.** This is the whole point.
+#    `IsProjectNotArchived` on a route whose kwarg is `pk` with no `project_url_kwarg`
+#    resolves nothing and returns True (#2745); on a viewset whose model has no route to
+#    a project, `has_object_permission` resolves nothing and returns True; on a top-level
+#    `create`, DRF never calls `has_object_permission` at all. All three shapes shipped
+#    in this codebase with the class declared, which is why "add the permission class" is
+#    a review-proof false fix.
+#
+# 4. **The denominator is pinned**, so the scan cannot go green by enumerating nothing.
+
+ARCHIVED_BY_KWARG = "IsProjectNotArchived resolves the project in has_permission"
+ARCHIVED_BY_OBJECT = "object-level check — has_object_permission resolves the project"
+ARCHIVED_IN_BODY = "explicit archived check in the view body"
+ARCHIVED_EXEMPT = "declared archived_write_exempt on the view"
+
+#: Idioms that count as an in-body archived check. Deliberately broad — `is_archived`
+#: matches a `filter(is_archived=False)` and even a comment — and therefore paired with
+#: `ARCHIVED_BODY_ENTRIES` below: a match only counts for an entry that is *also* pinned
+#: there by name. A substring scan can show that a mention exists; only the pinned list
+#: says a human decided it was a check.
+_ARCHIVED_BODY_IDIOMS = (
+    "assert_project_not_archived(",
+    "_is_project_archived(",
+    "IsProjectNotArchived(",
+    "is_archived",
+)
+
+#: The minimum size of the enumerated write surface. A refactor that renames
+#: `get_permissions`, moves the URLconf, or breaks `_walk` would otherwise empty the scan
+#: and pass over nothing — the failure mode #2877 recorded on the token inventory, where
+#: a walker that could not see its own guard reported "no change" for a ~50-route
+#: widening. Raise this when the surface genuinely grows; never lower it to get green.
+_MIN_PROJECT_SCOPED_WRITE_ENTRIES = 180
+
+#: Attribute a view sets to opt out. Either a string (the whole view is exempt) or a
+#: ``{action: reason}`` mapping when only some of a viewset's actions are — revoking a
+#: project API token is exempt while minting one is not, and they share a class.
+#:
+#: It lives ON THE VIEW rather than in a list here so it travels with the code it
+#: excuses — the same reason `data-clip-ok` lives on the element. A list in this file
+#: would keep passing after the view it names was rewritten into something the reason no
+#: longer describes.
+ARCHIVED_EXEMPT_ATTR = "archived_write_exempt"
+
+
+def _archived_kwargs_in(path: str) -> set[str]:
+    """Every URL kwarg name a route captures, in `path()` and `re_path()` form."""
+    pattern = re.compile(r"<(?:[a-z]+:)?(\w+)>|\(\?P<(\w+)>")
+    return {m.group(1) or m.group(2) for m in pattern.finditer(path)}
+
+
+def _effective_permission_names(cls: type, action: str | None, method: str) -> set[str]:
+    """The permission classes `get_permissions()` really returns for this (route, action).
+
+    Runtime, not AST, and for the same reason `test_action_permission_chain` is: a
+    hand-rolled `get_permissions` chain can name an action with `==`, `in`, a dict, or a
+    helper, and a static reader that missed one form would silently stop covering that
+    viewset instead of failing.
+    """
+    view = cls()
+    view.action = action
+    view.format_kwarg = None
+    view.kwargs = {}
+    view.request = Request(APIRequestFactory().generic(method, "/"))
+    return {type(permission).__name__ for permission in view.get_permissions()}
+
+
+def _unsafe_pairs(entry: URLPattern, cls: type) -> list[tuple[str, str | None]]:
+    """`(method, action)` for each unsafe method this route serves.
+
+    Reads `entry.callback.actions`, **not** `initkwargs["actions"]`. DRF's
+    `ViewSetMixin.as_view` assigns the action map to `view.actions` and passes only the
+    remaining kwargs to `view.initkwargs`, so the latter never contains an `actions`
+    key — a reader of `initkwargs` enumerates an empty map for every router route in the
+    project and reports no findings forever. That is exactly what
+    `test_no_viewset_but_projectviewset_exposes_an_archive_bypass_action` did before
+    #3414.
+    """
+    actions = getattr(entry.callback, "actions", None) or {}
+    if actions:
+        return [(m.upper(), a) for m, a in actions.items() if m.upper() in UNSAFE_METHODS]
+    return [
+        (m.upper(), None)
+        for m in getattr(cls, "http_method_names", [])
+        if m.upper() in UNSAFE_METHODS and hasattr(cls, m)
+    ]
+
+
+def _own_source(cls: type | None) -> str:
+    """Source of every class in the MRO that we wrote, plus any `@api_view` body.
+
+    The MRO walk matters: `_PokerBase` holds the `check_object_permissions` call that
+    gates all six poker routes, and reading only the leaf class would report six ungated
+    write routes that are in fact gated. It is filtered to `trueppm_api` modules because
+    DRF's own `APIView` source contains the *definition* of `check_object_permissions`,
+    which would make every view in the project match.
+    """
+    if cls is None:
+        return ""
+    targets: list[Any] = [
+        k
+        for k in getattr(cls, "__mro__", [cls])
+        if getattr(k, "__module__", "").startswith("trueppm_api")
+    ]
+    targets += _wrapped_function_views(cls)
+    out = []
+    for target in targets:
+        try:
+            out.append(inspect.getsource(target))
+        except (OSError, TypeError):
+            continue
+    return "\n".join(out)
+
+
+def _object_hop_resolves(cls: type) -> bool:
+    """Can `_get_project_id_from_obj` reach a project from this viewset's model?
+
+    `has_object_permission` returns True when it cannot resolve a project id — a
+    fail-open — so a detail route on a model with no route to a project is NOT gated by
+    a declared `IsProjectNotArchived`, however it reads.
+
+    Two details, both load-bearing:
+
+    - checked with `hasattr` on the model CLASS, because the resolver uses `hasattr`
+      too and several models expose `project_id` as a *property* rather than a column
+      (`RetroBoardItem.project_id` walks retro → sprint → project, `TaskResource`'s
+      walks task → project). A `_meta.get_fields()` check would report those as
+      unresolvable and demand exemptions for routes that are correctly gated.
+    - a NULLABLE concrete FK does not count. Django installs the descriptor on the class
+      either way, so `hasattr` is True while `obj.project_id` is `None` at runtime — and
+      `None` is the fail-open. A property cannot be inspected for nullability, so it is
+      taken at its word; a concrete field is checked.
+    """
+    queryset = getattr(cls, "queryset", None)
+    if queryset is None:
+        return True  # APIView, or a get_queryset-only viewset — nothing to judge.
+    model = queryset.model
+    if model.__name__ == "Project":
+        return True
+    for attr in ("project_id", "predecessor_id"):
+        if not hasattr(model, attr):
+            continue
+        try:
+            field = model._meta.get_field(attr.removesuffix("_id"))
+        except Exception:
+            return True
+        if not getattr(field, "null", False):
+            return True
+    return False
+
+
+def _project_resolving_permission_classes() -> set[str]:
+    """Permission classes that resolve a project from EITHER a URL kwarg or an object.
+
+    Wider than `_project_scoped_permission_classes` above, which the membership
+    invariant uses: that one keys on `_project_pk_from_view` alone, because #2745 is a
+    URL-kwarg defect. Archived enforcement also runs object-level, so a class that only
+    resolves through `_get_project_id_from_obj` — `IsTaskScopeManager` is the live
+    example, and it is the only thing marking `slip-conflicts/<pk>/acknowledge/` as
+    project-scoped — has to count here or that route leaves the denominator entirely.
+    """
+    found: set[str] = {"IsProjectNotArchived"}
+    for name, obj in vars(permissions_module).items():
+        if not (inspect.isclass(obj) and hasattr(obj, "has_permission")):
+            continue
+        try:
+            source = inspect.getsource(obj)
+        except (OSError, TypeError):
+            continue
+        if "_project_pk_from_view" in source or "_get_project_id_from_obj" in source:
+            found.add(name)
+    return found
+
+
+def _entry_key(path: str, action: str | None, method: str) -> str:
+    """Stable name for one (route, action) pair — what the pinned sets are keyed by."""
+    return f"{path}::{action or method.lower()}"
+
+
+def _project_scoped_write_entries() -> list[
+    tuple[str, str, URLPattern, str | None, set[str], list[str]]
+]:
+    """Every (write route, action) pair that touches a single project.
+
+    Discovery is a union of four runtime signals rather than one, because no single one
+    covers the surface: `slip-conflicts/<pk>/acknowledge/` names no project and applies
+    no project-scoped class (its gate is in the body), while `project-resources/` names
+    no project but applies four.
+
+    Returns `(key, path, entry, action, effective_permission_names, why_project_scoped)`.
+    """
+    scoped = _project_resolving_permission_classes()
+    rows = []
+    for path, entry in _walk():
+        if _FORMAT_SUFFIX.search(path) or path.startswith("admin/"):
+            continue
+        cls = _view_class(entry)
+        if cls is None:
+            continue
+        inherited: set[str] = set()
+        for klass in getattr(cls, "__mro__", []):
+            declared = klass.__dict__.get("permission_classes") or []
+            inherited |= {p.__name__ for p in declared}
+        kwargs = _archived_kwargs_in(path)
+        for method, action in _unsafe_pairs(entry, cls):
+            effective = _effective_permission_names(cls, action, method)
+            why: list[str] = []
+            if _PROJECT_SEGMENT.search(path) or DEFAULT_PROJECT_URL_KWARG in kwargs:
+                why.append("url names a project")
+            if isinstance(getattr(cls, "project_url_kwarg", None), str):
+                why.append("view declares project_url_kwarg")
+            if effective & scoped:
+                why.append(f"applies {sorted(effective & scoped)}")
+            elif inherited & scoped:
+                # A viewset whose chain drops the project classes for THIS action still
+                # belongs to the surface — `DependencyViewSet.accept` swaps them for a
+                # body check, and dropping it from the denominator would excuse exactly
+                # the actions most likely to have lost the gate by accident.
+                why.append(f"inherits {sorted(inherited & scoped)}")
+            if why:
+                rows.append((_entry_key(path, action, method), path, entry, action, effective, why))
+    return rows
+
+
+def _archived_exemption_reason(cls: type, action: str | None) -> str | None:
+    """The stated reason this (view, action) is exempt, or None.
+
+    A plain string exempts the whole view. A mapping exempts only the actions it names,
+    which is what lets `ProjectApiTokenViewSet` refuse token *minting* on an archived
+    project while still allowing token *revocation* — two actions, one class.
+    """
+    declared = getattr(cls, ARCHIVED_EXEMPT_ATTR, None)
+    if isinstance(declared, str):
+        return declared
+    if isinstance(declared, dict) and action is not None:
+        value = declared.get(action)
+        return value if isinstance(value, str) else None
+    return None
+
+
+def _archived_enforcement_path(
+    key: str, path: str, entry: URLPattern, action: str | None, effective: set[str]
+) -> str | None:
+    """How this (route, action)'s archived check actually fires — or None if it does not."""
+    cls = _view_class(entry)
+    assert cls is not None
+    reason = _archived_exemption_reason(cls, action)
+    if reason is not None and reason.strip():
+        return ARCHIVED_EXEMPT
+
+    source = _own_source(cls)
+    if "IsProjectNotArchived" in effective:
+        if _declared_project_kwarg(entry) in _archived_kwargs_in(path):
+            return ARCHIVED_BY_KWARG
+        if (
+            issubclass(cls, ViewSetMixin)
+            and "pk" in _archived_kwargs_in(path)
+            and _object_hop_resolves(cls)
+        ):
+            return ARCHIVED_BY_OBJECT
+        if "check_object_permissions(" in source:
+            # The view hands DRF an object itself — `_PokerBase._session` resolves the
+            # round's Project and checks against that, `ProjectCommitView` against the
+            # project it just fetched. Every declared class's `has_object_permission`
+            # runs on it, `IsProjectNotArchived` included, so the gate does fire even
+            # though neither the kwarg nor the viewset path above can see it.
+            return ARCHIVED_BY_OBJECT
+    if key in ARCHIVED_BODY_ENTRIES and any(idiom in source for idiom in _ARCHIVED_BODY_IDIOMS):
+        return ARCHIVED_IN_BODY
+    return None
+
+
+#: (route, action) pairs whose archived enforcement lives in the view body rather than in
+#: a permission class that can fire on its own. Pinned by name so deleting one of those
+#: calls is a failing test with a route in the message, not a silent return to fail-open
+#: — and so the deliberately loose `is_archived` idiom above cannot certify a route
+#: nobody decided about.
+#:
+#: Every entry is here for one of the structural reasons the permission class cannot
+#: cover: the project arrives in the request BODY, the route is an `@api_view` function
+#: whose generated class carries no `project_url_kwarg`, or the object handed to
+#: `has_object_permission` has no relation the resolver walks.
+ARCHIVED_BODY_ENTRIES: frozenset[str] = frozenset(
+    {
+        "api/v1/^project-resources/$::create",
+        "api/v1/^task-resources/$::create",
+        "api/v1/^slip-conflicts/(?P<pk>[^/.]+)/acknowledge/$::acknowledge",
+        "api/v1/integrations/projects/<uuid:project_pk>/git-webhook/::post",
+        "api/v1/projects/<str:pk>/monte-carlo/::post",
+        "api/v1/projects/<str:pk>/schedule/::post",
+        "api/v1/projects/<uuid:pk>/sync/::post",
+        "api/v1/^acceptance-criteria/$::create",
+        # ADR-0120 D2/C2: `accept`/`reject` deliberately swap the project-scoped classes
+        # for a body check, because authority over a pending cross-project edge belongs
+        # to the DOWNSTREAM project and the generic classes resolve the predecessor's.
+        # The archived check follows the same successor project.
+        "api/v1/^dependencies/(?P<pk>[^/.]+)/accept/$::accept",
+        "api/v1/^dependencies/(?P<pk>[^/.]+)/reject/$::reject",
+    }
+)
+
+
+def test_every_project_scoped_write_route_enforces_archived_state() -> None:
+    """A write that touches one project must be refusable when that project is archived.
+
+    Archived is a hard read-only contract (#530), and it is *lifecycle state, not
+    authority* — which is why it cannot be left to the role classes and why a route that
+    omits it does not look wrong in review. The four accepted enforcement paths are the
+    four ways it can actually run; anything else is a route where the contract is
+    documented and not kept.
+    """
+    unenforced = [
+        (key, getattr(_view_class(entry), "__name__", "?"), why)
+        for key, path, entry, action, effective, why in _project_scoped_write_entries()
+        if _archived_enforcement_path(key, path, entry, action, effective) is None
+    ]
+
+    assert unenforced == [], (
+        "project-scoped write route(s) with no archived enforcement on any path:\n"
+        + "\n".join(f"    {k}  view={v}  ({'; '.join(w)})" for k, v, w in sorted(unenforced))
+        + "\n\nFix by (a) adding IsProjectNotArchived where the route names the project "
+        "in a kwarg the view declares, (b) calling assert_project_not_archived(...) in "
+        "the body where the project comes from the request body or a relation the "
+        "permission class cannot walk — and adding the entry to ARCHIVED_BODY_ENTRIES — "
+        'or (c) setting `archived_write_exempt = "<reason>"` (or `{"<action>": '
+        '"<reason>"}`) on the view if the write genuinely must survive archiving. '
+        "Appending the permission class WITHOUT a resolvable kwarg is the false fix this "
+        "test exists to catch (#2745, #3414)."
     )
-    # Guard the guard: if the walk stopped finding these viewsets, the assertion
-    # above would pass vacuously forever.
-    assert "ProjectViewSet" in seen, (
-        "the walker found no ProjectViewSet route carrying IsProjectNotArchived — "
-        "it is broken, not the surface"
+
+
+def test_body_enforced_archived_entries_keep_their_check() -> None:
+    """The entries that can only be gated in the body are an inventory, not an accident.
+
+    `_archived_enforcement_path` reports the FIRST path it finds, so an entry that later
+    gains a resolvable kwarg legitimately leaves this set — but one that leaves it
+    because someone deleted the call is a live fail-open, and the first test would only
+    catch it if nothing else on the class happened to match an idiom.
+    """
+    actual = {
+        key
+        for key, path, entry, action, effective, _ in _project_scoped_write_entries()
+        if _archived_enforcement_path(key, path, entry, action, effective) == ARCHIVED_IN_BODY
+    }
+    missing = sorted(ARCHIVED_BODY_ENTRIES - actual)
+    assert missing == [], (
+        "entry/entries no longer carry an in-body archived check:\n"
+        + "\n".join(f"    {p}" for p in missing)
+        + "\n\nIf the route moved to a permission class that really fires, drop it from "
+        "ARCHIVED_BODY_ENTRIES. If the call was refactored away, that route now accepts "
+        "writes to archived projects — restore it."
     )
-    assert len(seen) >= 4, (
-        f"expected at least the 4 viewsets carrying IsProjectNotArchived after "
-        f"#3354, found {sorted(seen)}"
+
+
+def test_archived_write_exemptions_state_a_reason() -> None:
+    """Every opt-out names itself and says why, and the set of them is pinned.
+
+    An exemption is a decision that archived does not apply to a particular write. It is
+    allowed — revoking a share link, revoking a leaked API token, removing yourself from
+    a project and cancelling an in-flight run all have to survive archiving — but it must
+    be a sentence somebody wrote, on the view, and adding one must show up as a diff in
+    this file rather than as one more quiet attribute.
+    """
+    exempt: dict[str, str] = {}
+    for key, _path, entry, action, _effective, _why in _project_scoped_write_entries():
+        cls = _view_class(entry)
+        assert cls is not None
+        reason = _archived_exemption_reason(cls, action)
+        if reason is not None:
+            assert len(reason.strip()) >= 40, (
+                f"{cls.__name__}.{action} sets {ARCHIVED_EXEMPT_ATTR} to {reason!r} — it "
+                "must be a sentence saying why this write survives archiving, not a flag."
+            )
+            exempt[key] = reason
+
+    added = sorted(set(exempt) - ARCHIVED_EXEMPT_ENTRIES)
+    removed = sorted(ARCHIVED_EXEMPT_ENTRIES - set(exempt))
+    assert not added, (
+        "new archived-write exemption(s) not recorded in ARCHIVED_EXEMPT_ENTRIES:\n"
+        + "\n".join(f"    {p}\n        {exempt[p]}" for p in added)
+        + "\n\nAdd them here in the same MR so the opt-out is reviewed rather than "
+        "merged as an attribute nobody read."
+    )
+    assert not removed, (
+        "ARCHIVED_EXEMPT_ENTRIES names entry/entries that no longer claim an exemption:\n"
+        + "\n".join(f"    {p}" for p in removed)
+        + "\n\nA stale entry makes this test vacuous for that route — remove it."
+    )
+
+
+#: The (route, action) pairs that deliberately keep working on an archived project. Each
+#: one's reason lives on its view; this set exists so adding one is a reviewable diff.
+#:
+#: Three of the six are *revocation* — a share link, a project API token, a membership.
+#: They share one argument: archiving freezes a plan, it does not stop an already-issued
+#: credential or an already-granted seat from working, so closing the only route that
+#: takes one away would strand an admin holding a live grant on a frozen project.
+ARCHIVED_EXEMPT_ENTRIES: frozenset[str] = frozenset(
+    {
+        "api/v1/^calendars/$::create",
+        "api/v1/^calendars/(?P<pk>[^/.]+)/$::destroy",
+        "api/v1/^calendars/(?P<pk>[^/.]+)/$::partial_update",
+        "api/v1/^calendars/(?P<pk>[^/.]+)/$::update",
+        "api/v1/programs/<program_pk>/api-tokens/::create",
+        "api/v1/programs/<program_pk>/api-tokens/<pk>/::destroy",
+        "api/v1/^projects/(?P<pk>[^/.]+)/export/$::export",
+        "api/v1/^projects/(?P<pk>[^/.]+)/visit/$::visit",
+        "api/v1/projects/<project_pk>/api-tokens/<pk>/::destroy",
+        "api/v1/projects/<uuid:project_pk>/members/<uuid:pk>/::destroy",
+        "api/v1/projects/<project_pk>/share-links/<link_id>/revoke/::post",
+        "api/v1/projects/<project_pk>/task-runs/<pk>/cancel/::cancel",
+        "api/v1/projects/<uuid:pk>/notification-preferences/::patch",
+        "api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::delete",
+        "api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::post",
+    }
+)
+
+
+def test_the_archived_scan_is_not_vacuous() -> None:
+    """Guard the guard.
+
+    Every assertion above is over a set this walker builds. If the walker breaks — a
+    URLconf move, a `get_permissions` rename, a `_walk` regression — the set empties and
+    all three tests pass while covering nothing. That is not hypothetical: the archive
+    bypass test in this file read the action map off `initkwargs`, where DRF never puts
+    it, and asserted over an empty set from the day it was written until #3414.
+    """
+    entries = _project_scoped_write_entries()
+    assert len(entries) >= _MIN_PROJECT_SCOPED_WRITE_ENTRIES, (
+        f"only {len(entries)} project-scoped write entries enumerated (expected >= "
+        f"{_MIN_PROJECT_SCOPED_WRITE_ENTRIES}). The walker has stopped seeing them — fix "
+        "the discovery rather than lowering the floor."
+    )
+
+    keys = {key for key, *_ in entries}
+    # Three entries that must stay in the denominator, one per discovery signal, so a
+    # narrowing of any single signal fails loudly instead of shrinking the surface.
+    for probe in (
+        "api/v1/projects/<pk>/tasks/bulk/::post",  # url names a project
+        "api/v1/^task-resources/$::create",  # top-level; found via its permission classes
+        "api/v1/^slip-conflicts/(?P<pk>[^/.]+)/acknowledge/$::acknowledge",  # via inheritance
+    ):
+        assert probe in keys, f"{probe} dropped out of the project-scoped write surface"
+
+    assert keys >= ARCHIVED_BODY_ENTRIES, (
+        "ARCHIVED_BODY_ENTRIES names entry/entries outside the enumerated surface: "
+        f"{sorted(ARCHIVED_BODY_ENTRIES - keys)}"
+    )
+    assert keys >= ARCHIVED_EXEMPT_ENTRIES, (
+        "ARCHIVED_EXEMPT_ENTRIES names entry/entries outside the enumerated surface: "
+        f"{sorted(ARCHIVED_EXEMPT_ENTRIES - keys)}"
     )
