@@ -13,17 +13,7 @@
 /** Floor on the bar track's width — below this the timeline stops being one. */
 export const MIN_BAR_TRACK = 320;
 
-/**
- * Floor on the outline's **column** width, once the pane makes it yield.
- *
- * Columns, not the rendered box — the two stopped being the same thing when the
- * row grew lanes. `outlinePaneWidthFor` adds the caller's `leftReserve` on top
- * of this, and the reason is that the lanes are rendered *inside* the outline's
- * box and subtracted from no column: floor the box at 240 and every pixel the
- * lanes take is a pixel of WBS-plus-name that the floor was declared to protect.
- * #3026 took 52 of them and #3078 took 14 more, which is 27.5% of this constant
- * gone to two changes that each had no reason to look here (#3078).
- */
+/** Floor on the outline's rendered width, once the pane makes it yield. */
 export const MIN_OUTLINE_WIDTH = 240;
 
 /**
@@ -55,28 +45,11 @@ export const SPLITTER_WIDTH = 4;
  * nothing is announced to assistive tech as a new bound, and widening the window
  * restores the user's outline exactly. `MIN_OUTLINE_WIDTH` keeps WBS + a readable
  * name on screen so the clamp can never trade one useless pane for another.
- *
- * `leftReserve` is the row's lane block — the ⋮⋮ grip's lane plus the ⇤/⇥/◆
- * lane, i.e. `resolveOutlineLeftReserve(coarse, authorable)` — and it is ADDED
- * to the floor rather than counted inside it. It is passed in rather than
- * imported to keep this module import-free (see the file docstring); the caller
- * already resolves it for the panel's own width, so there is one owner and this
- * cannot drift from it.
- *
- * Why it has to be added: the lanes render inside the outline's box and are
- * subtracted from no column, so at a 240px floor they come out of the name.
- * With both lanes at a fine pointer that left 174px for every column and ~126px
- * of visible name against a 120px `MIN_TASK_WIDTH` — 6px of headroom on a
- * promise this constant's own docstring makes. Neither #3026 nor #3078 had any
- * reason to read this file, which is the seam rule 405(c) is about; the fix is
- * to make the floor state the dependency instead of relying on the next author
- * to notice it.
  */
 export function outlinePaneWidthFor(
   containerWidth: number,
   outlineWidth: number,
   reservedWidth = 0,
-  leftReserve = 0,
 ): number {
   // Not laid out yet (first paint, jsdom) — render what the columns ask for
   // rather than clamping against a zero that means "unknown", not "no room".
@@ -86,8 +59,5 @@ export function outlinePaneWidthFor(
   // the track short by exactly whatever was forgotten.
   const room = containerWidth - MIN_BAR_TRACK - reservedWidth;
   if (room >= outlineWidth) return outlineWidth;
-  // Never clamp ABOVE what the columns actually ask for: a floor that exceeds
-  // `outlineWidth` would pad the outline wider than its own content on a narrow
-  // pane, taking track width to buy nothing.
-  return Math.min(outlineWidth, Math.max(MIN_OUTLINE_WIDTH + leftReserve, room));
+  return Math.max(MIN_OUTLINE_WIDTH, room);
 }

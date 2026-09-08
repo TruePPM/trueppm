@@ -389,10 +389,21 @@ export function resolveGripWidth(coarse: boolean): number {
  *
  * No column pays the 14px in the ordinary case: the lanes are ADDED to the
  * panel's width (`resolveOutlineLeftReserve`) and subtracted from nothing, so
- * the bar track absorbs it. Where it does bite is the narrow-pane floor, and
- * that is handled where the floor lives — `outlinePaneWidthFor` now takes the
- * lane block as `leftReserve` and raises `MIN_OUTLINE_WIDTH` by it, so the
- * lanes cannot be paid for out of the name column.
+ * the bar track absorbs it. Two places it does bite, both pre-existing
+ * conditions this widens rather than creates, and both left alone deliberately:
+ *
+ * - At the narrow-pane floor, `MIN_OUTLINE_WIDTH` clamps the outline's RENDERED
+ *   box and the lanes sit inside it, so lane width is paid out of the name
+ *   column. Raising that floor by the lane block was tried and reverted: the
+ *   outline may only grow into what `MIN_BAR_TRACK` leaves, so a track-safe
+ *   raised floor reduces algebraically to the floor that is already there, and
+ *   an unsafe one takes the bar track below the floor it is declared to defend
+ *   (294px at a 600px pane). Which floor yields is a design decision, not a
+ *   bugfix — #3078's follow-up.
+ * - At 1440px with all ten columns shown, the summed outline no longer fits and
+ *   the rightmost column clips. That margin was already exactly zero on main:
+ *   `schedule-float-columns.spec.ts` documents "18px to spare", which was
+ *   measured when this lane held two controls, and #3257's ◆ spent all of it.
  */
 export function resolveGripReserve(coarse: boolean): number {
   return resolveGripWidth(coarse);

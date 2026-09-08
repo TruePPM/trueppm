@@ -142,7 +142,7 @@ test.describe('Schedule float columns — Waterfall (#3344)', () => {
   });
 
   test.describe('fit', () => {
-    // 1440, not Playwright's 1280 default, and the reason is measured rather
+    // 1536, not Playwright's 1280 default, and the reason is measured rather
     // than convenient. The outline paints at its own summed width and the canvas
     // beside it gives way, so the room the clamp has for the outline at 1280 is
     // 1280 − 248 (sidebar) − 320 (MIN_BAR_TRACK) − 4 (splitter) = 708px — and the
@@ -150,9 +150,24 @@ test.describe('Schedule float columns — Waterfall (#3344)', () => {
     // these two columns existed. Asserting at 1280 would therefore be asserting a
     // pre-existing defect (web rule 366(d): a pre-existing overflow is a finding,
     // not a baseline — filed separately), and it would fail whatever width these
-    // columns took. 1440 is the first common viewport where the full ten-column
-    // set fits, with 18px to spare at the shipped 56px defaults.
-    test.use({ viewport: { width: 1440, height: 900 } });
+    // columns took.
+    //
+    // The threshold is the ten columns (816px at the shipped 56px defaults) PLUS
+    // the row's lane block, and the lane block has grown twice since this number
+    // was chosen. It read 1440 "with 18px to spare", which was measured when the
+    // structural-nudge lane held two controls and totalled 34px. #3257 added the
+    // ◆ milestone toggle (34 → 52) and spent every one of those 18px without
+    // touching this file: on main the sum is 816 + 52 + 248 + 320 + 4 = exactly
+    // 1440, i.e. zero spare, and the comment went on claiming 18. #3078 gives the
+    // ⋮⋮ grip the lane it was drawing in anyway (52 → 66), which needs 1454.
+    //
+    // So this moves to the next common viewport, 1536, with 82px of headroom —
+    // and the arithmetic is written out so the next lane change can see what it
+    // is spending instead of discovering it in a red pipeline. That the ten-column
+    // set no longer fits at 1440 is a real user-facing consequence, recorded in
+    // #3078's MR rather than hidden by this edit: at 1440 the rightmost column
+    // clips by 14px, which rule 366(d) makes a finding rather than a baseline.
+    test.use({ viewport: { width: 1536, height: 900 } });
 
     test('neither float column is clipped once the outline fits', async ({ page }) => {
       // `toBeVisible()` cannot see this: a clipped cell keeps a non-empty box and

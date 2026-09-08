@@ -6434,10 +6434,6 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   // DOM (#2997) — it is what makes the last row reachable. Read through the hook
   // so a pointer-class flip resizes it, not just the canvas.
   const rowHeight = useRowHeight();
-  // The pointer class, for the outline floor's lane block (#3078) — the lanes
-  // are 14+52 on a mouse and 44+136 on a finger, so a floor that assumed either
-  // would be wrong on the other surface.
-  const coarsePointer = useIsCoarsePointer();
   // The other half of that spacer: its origin. The cadence rail grows the chart
   // header band, and a spacer still sized from the ruler alone makes the last
   // row unreachable by exactly the rail's height (#3012).
@@ -6537,18 +6533,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   // The bar track's floor, taken out of the pane before the outline gets the rest
   // (#3279). Only the Timeline surface passes this — the Grid has no bar track, so
   // there is nothing there for the outline to crowd out.
-  //
-  // The lane block goes in as `leftReserve` (#3078): the clamp floors the
-  // outline's RENDERED box, the lanes live inside that box and cost no column
-  // its width, so a floor that does not know about them spends them on the name
-  // column instead. Same resolver and the same `!readOnly` question the panel's
-  // own width uses, so the two cannot disagree.
-  const outlinePaneWidth = outlinePaneWidthFor(
-    paneWidth,
-    totalWidth,
-    SPLITTER_WIDTH,
-    resolveOutlineLeftReserve(coarsePointer, !readOnly),
-  );
+  const outlinePaneWidth = outlinePaneWidthFor(paneWidth, totalWidth, SPLITTER_WIDTH);
 
   /**
    * Where the canvas actually starts — which is NOT `panelWidth` once the clamp

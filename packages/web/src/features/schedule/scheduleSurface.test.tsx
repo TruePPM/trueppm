@@ -258,29 +258,6 @@ describe('The bar track keeps its floor when the pane shrinks (#3279)', () => {
     expect(outlinePaneWidthFor(0 + 1, 738)).toBe(240);
   });
 
-  it('raises the floor by the lane block, so the lanes are not paid for in name (#3078)', () => {
-    // The floor clamps the outline's RENDERED box and the lanes live inside it,
-    // so a floor that ignores them hands 240px to the box and lets the lanes
-    // eat the name column. #3026's 52px and #3078's 14px between them are 27.5%
-    // of the constant, and neither change had a reason to read `paneFloors.ts`.
-    //
-    // Stated against the resolver, not against 306: the point is that the floor
-    // TRACKS the lanes, and a literal would go on describing today's lane widths
-    // after the next control joins the cluster.
-    const lanes = resolveOutlineLeftReserve(false, true);
-    expect(lanes).toBeGreaterThan(0);
-    expect(outlinePaneWidthFor(400, 738, 0, lanes)).toBe(240 + lanes);
-
-    // A viewer has no lanes, so it keeps the bare floor — the reserve is not a
-    // blanket widening, it is the width of controls that are actually drawn.
-    expect(outlinePaneWidthFor(400, 738, 0, resolveOutlineLeftReserve(false, false))).toBe(240);
-
-    // …and the raised floor never exceeds what the columns asked for: a narrow
-    // outline must not be padded WIDER than its own content, which would spend
-    // bar-track width to buy nothing.
-    expect(outlinePaneWidthFor(400, 200, 0, lanes)).toBe(200);
-  });
-
   it('renders what the columns ask for before the pane has been measured', () => {
     // 0 means "not laid out yet" (first paint, jsdom), never "no room". Clamping
     // against it would park the outline at its floor in every environment that
