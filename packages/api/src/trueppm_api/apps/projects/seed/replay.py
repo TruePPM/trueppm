@@ -370,14 +370,18 @@ def _finalize_sprints(ctx: ReplayContext, day: date) -> None:
 
 
 def _finalize_tasks(ctx: ReplayContext, day: date) -> None:
-    """Restore the authored progress of every task that ends in flight (#3486).
+    """Restore the authored progress of every task that ends in flight or in review.
 
-    A task whose end column is IN_PROGRESS is born at 0% with its full points
-    remaining so the timeline has room to walk it forward, and nothing ever puts
-    the authored numbers back: ``_apply_task_status`` writes only the column and
-    the actual dates, and ``Task._coerce_signoff_percent`` — which is what
-    rescues REVIEW and COMPLETE — does not reach this column. Without this pass
-    every in-flight task in every v2 seed loads at 0%.
+    A task whose end column is IN_PROGRESS or REVIEW is born at 0% with its full
+    points remaining so the timeline has room to walk it forward, and nothing
+    ever puts the authored numbers back on its own: ``_apply_task_status``
+    writes only the column and the actual dates. For IN_PROGRESS neither field
+    is rescued elsewhere (#3486). For REVIEW, ``Task._coerce_signoff_percent``
+    fixes ``percent_complete`` to 100 by design ("work done, awaiting
+    sign-off") but has no opinion on ``remaining_points`` — a story in review
+    with points still open is a real, authorable state (#3518). Without this
+    pass every in-flight or in-review task in every v2 seed loads holding its
+    full ``story_points``.
 
     That is not cosmetic. ``percent_complete`` sets the *remaining* duration CPM
     schedules (ADR-0132/0136), so a 0% in-flight task is billed at its full
@@ -387,10 +391,13 @@ def _finalize_tasks(ctx: ReplayContext, day: date) -> None:
 
     Only fields the document actually authored are written, which is what keeps
     a dated ``task.points`` beat authoritative: a task that declares no
-    ``remaining_points`` of its own is left holding whatever the timeline gave it.
+    ``remaining_points`` of its own is left holding whatever the timeline gave
+    it. The importer never hands back ``percent_complete`` for a REVIEW task
+    (see its ``final_progress`` construction), so the coerced 100 is never
+    fought here even though this loop treats both statuses uniformly.
     """
     for key, task in ctx.tasks.items():
-        if ctx.final_status.get(key) != TaskStatus.IN_PROGRESS:
+        if ctx.final_status.get(key) not in (TaskStatus.IN_PROGRESS, TaskStatus.REVIEW):
             continue
         authored = ctx.final_progress.get(key)
         if not authored:
