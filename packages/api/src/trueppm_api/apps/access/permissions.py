@@ -1424,9 +1424,10 @@ def has_org_role_from_live_project(user: Any, floor: int) -> bool:
     ``apps.resources`` used to carry two hand-copied mirrors of this query — one in
     ``ResourceSerializer`` gating email exposure, one in ``views`` gating email search
     and the deactivated pool. They are *not* callers of this helper: #3569 moved both
-    to :class:`IsWorkspaceOperator`'s superuser test instead, so there is nothing left
-    to keep in sync with this function. Do not add a third copy of the query; if a new
-    surface needs the org derivation, call this.
+    to :func:`~trueppm_api.apps.workspace.permissions.is_workspace_admin` (the stored
+    ``WorkspaceRole.ADMIN``), so there is nothing left to keep in sync with this
+    function. Do not add a third copy of the query; if a new surface needs the org
+    derivation, call this.
 
     **Both soft-deleted and archived projects are excluded, and that is the point.**
     The historical filter was ``ProjectMembership.objects.filter(user=…,
@@ -1496,11 +1497,15 @@ class IsOrgAdmin(BasePermission):
     creation — so any authenticated account can reach ADMIN on a project of its
     own in one request. That is correct behavior for a project role and fatal for
     an org-wide one. Surfaces whose blast radius is the whole install and whose
-    effect is irreversible or exfiltrating therefore use
-    :class:`IsWorkspaceOperator`, not this gate; the argument is the one
-    ``IsWorkspaceOperator``'s docstring already makes for mail transport
-    (ADR-0213 C1). What is left here is shared-catalog curation, where the worst
-    outcome is a bad edit another admin can revert.
+    effect is irreversible or exfiltrating therefore use a **stored** principal,
+    not this gate. Which stored principal depends on the surface: routine
+    install-wide work (the resource catalog's deactivation lifecycle, its email
+    exposure, the cross-project assignments view) uses
+    :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict`, the
+    workspace ADMIN role, which an owner can grant in-app; set-once infrastructure
+    (mail transport) uses :class:`IsWorkspaceOperator`, the install superuser
+    (ADR-0213 C1). What is left on *this* gate is shared-catalog curation, where the
+    worst outcome is a bad edit another admin can revert.
 
     Note: this used to claim that enterprise overrides (LDAP group claims, SAML
     attributes) are "injected via signals/middleware before this check runs".
@@ -1549,36 +1554,35 @@ class IsWorkspaceOperator(BasePermission):
     the correct and only such principal; Enterprise may widen this via a
     registered override without changing the OSS baseline.
 
-    **Extended beyond mail transport in #3569.** The same reasoning applies
-    unchanged to any surface that is install-global *and* either irreversible or
-    exfiltrating, so this gate now also covers the resource-catalog deactivation
-    lifecycle (``DELETE``/``restore``/``?include_deleted=true``), ``email``
-    exposure and email search on catalog rows (the #891 harvest control), and the
-    cross-project ``/resources/{id}/assignments/`` view (ADR-0499). Reach for this
-    gate, not :class:`IsOrgAdmin`, whenever the answer to "what is the worst a
-    low-trust project admin does with this?" is disclosure or destruction across
-    projects they are not a member of.
+    **Scope: set-once infrastructure only. This gate does NOT cover the resource
+    catalog.** An intermediate revision of #3569 routed the catalog's deactivation
+    lifecycle, ``email`` exposure and the cross-project assignments view here; they
+    were re-gated onto
+    :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict` before
+    merge. The live callers of this class are the notification transport views.
 
-    **Two claims above are stale; they are kept because they are load-bearing for
-    why this class exists, and corrected here rather than silently rewritten.**
+    The reason that split is the right one, and the rule for choosing next time: the
+    defect #3569 fixed was that org authority came from a *self-grantable* project
+    role, **not** that it was insufficiently powerful. Any stored principal answers
+    that. So pick by how often the work happens, not by how bad it would be —
+    deactivating a departed employee is routine and belongs on a role an owner can
+    grant in-app (workspace ADMIN); repointing outbound mail is set-once and belongs
+    on the install operator, because there is no in-app grant path for a superuser
+    and there should not need to be one.
 
-    1. "In OSS there is no separate org-operator entity" was true for #712 and is
-       false now. ``workspace.models.WorkspaceRole`` / ``WorkspaceMembership`` is a
-       **stored** workspace tier (MEMBER/ADMIN/OWNER), granted only by an existing
-       workspace admin or an SSO claim mapping, and therefore *not* self-grantable;
-       ``workspace.permissions.IsWorkspaceAdminStrict`` already gates comparable
-       PII-bearing reads, and ``workspace_role`` is already published on
-       ``/auth/me``. #3569 routed its six surfaces here (superuser) rather than
-       there because the issue's scope ruling named this gate explicitly. Superuser
-       is *narrower* than workspace ADMIN, so that is over-restriction, not a hole —
-       but whether routine lifecycle work belongs on the install operator at all is
-       an open question, tracked with the follow-ups to #3569. Do not cite this
-       docstring as evidence that no stored workspace principal exists.
-    2. "Enterprise may widen this via a registered override" describes no seam that
-       exists: there is no registration hook for this class anywhere in the tree.
-       It is the same false-seam class :class:`IsOrgAdmin` records for itself under
-       #2609. Treat the superuser test as the whole story until such a seam is
-       actually built.
+    **One claim above is stale; it is kept because it is load-bearing for why this
+    class exists, and corrected here rather than silently rewritten.** "In OSS there
+    is no separate org-operator entity" was true for #712 and is false now:
+    ``workspace.models.WorkspaceRole`` / ``WorkspaceMembership`` is a **stored**
+    workspace tier (MEMBER/ADMIN/OWNER), granted only by an existing workspace admin
+    or by SSO provisioning, and therefore not self-grantable. Do not cite this
+    docstring as evidence that no stored workspace principal exists — that reading is
+    what sent #3569's first pass to superuser.
+    A second stale claim: "Enterprise may widen this via a registered override"
+    describes no seam that exists — there is no registration hook for this class
+    anywhere in the tree. It is the same false-seam class :class:`IsOrgAdmin` records
+    for itself under #2609. Treat the superuser test as the whole story until such a
+    seam is actually built.
     """
 
     message = "Only a workspace operator (superuser) may change this setting."

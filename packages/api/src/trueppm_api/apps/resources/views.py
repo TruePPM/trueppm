@@ -1095,8 +1095,8 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         responses=ResourceAssignmentSerializer(many=True),
         description=(
             "Cross-project task assignments for one resource — the org catalog's "
-            "'what is this person working on' view (#2047). Requires workspace "
-            "workspace Admin because it carries task/project names across "
+            "'what is this person working on' view (#2047). Requires the workspace "
+            "Admin role because it carries task/project names across "
             "project boundaries. "
             "Soft-deleted tasks are excluded; a deactivated resource still returns "
             "its assignments. Ordered by project then task."

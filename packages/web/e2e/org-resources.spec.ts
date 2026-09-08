@@ -95,6 +95,25 @@ async function mockResourceRoutes(
   // packages/api/tests/apps/resources/test_org_resources.py. Read a passing spec here
   // as "the workspace-admin flow works", never as "any catalog admin can do this".
   //
+  // The catalog toolbar's "Show deactivated" toggle renders only for a workspace
+  // Admin (#3569) — ?include_deleted=true is silently ignored below that floor, so an
+  // always-visible toggle would be a dead control. Without this /auth/me the catch-all
+  // 404s it, the page sees no workspace_role, and the toggle is hidden.
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      json: {
+        id: 'u1',
+        username: 'admin',
+        display_name: 'Admin',
+        initials: 'AD',
+        email: 'admin@example.com',
+        can_access_admin_settings: true,
+        // 300 = WorkspaceRole.ADMIN
+        workspace_role: 300,
+      },
+    }),
+  );
+
   // Stateful lists so mutations are reflected in subsequent GET re-fetches.
   const deletedIds = new Set<string>();
   const created: typeof resources = [];
