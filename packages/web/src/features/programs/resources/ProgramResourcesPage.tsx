@@ -12,6 +12,7 @@ import {
   detectOverallocationWeekRange,
   taskSpanStart,
 } from '@/features/resource/resourceUtils';
+import { AllocationTruncationNotice } from '@/features/resource/AllocationTruncationNotice';
 import { PermissionDeniedNotice } from '@/features/resource/PermissionDeniedNotice';
 
 /**
@@ -72,6 +73,13 @@ export function ProgramResourcesPage() {
         >
           Couldn&rsquo;t load resource contention. Try again.
         </div>
+      )}
+
+      {status === 'success' && data?.truncated && (
+        <AllocationTruncationNotice
+          resourceCount={data.resource_count}
+          shownCount={data.resources.length}
+        />
       )}
 
       {status === 'success' && data && <ContentionList resources={data.resources} />}

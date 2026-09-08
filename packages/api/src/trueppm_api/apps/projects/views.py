@@ -435,6 +435,73 @@ def _parse_window_date(value: str, param: str) -> datetime.date:
         raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
 
 
+# Cap on the number of assignment rows an allocation / contention read will
+# materialize (ADR-1118, #3576). These endpoints cannot be bounded by their
+# window — tasks with null CPM dates are deliberately retained for the client's
+# "Unscheduled" section, so narrowing start/end does not shrink the row count.
+#
+# The cap falls on a *resource boundary*, and that is the load-bearing part.
+# ADR-0031 puts overallocation detection client-side: the caller sums daily units
+# across every span a resource holds. A cut landing mid-resource would therefore
+# not merely shorten the response, it would make that resource's load verdict
+# wrong — and wrong in the direction that looks safe (under-reported load). Every
+# resource in the response is whole or absent; `truncated` / `resource_count` say
+# which happened.
+#
+# Set clear of the supported ceiling, deliberately. MC_TASK_CAP is 5,000 tasks;
+# at the ~1.5 assignments/task the issue measures that is ~7,500 rows, and a
+# heavily-staffed project at 3/task is ~15,000. 20,000 is above all of those, so
+# a project inside the documented envelope is never truncated — this is a
+# backstop against a pathological project, NOT a payload-size optimization. A
+# supported 5,000-task project still returns a multi-MB body; bounding *that*
+# needs windowing or pagination, which ADR-1118 rejected for this change and
+# #3594 tracks separately. Tests monkeypatch this rather than build 20,000 rows,
+# following `_TASK_TRASH_LIMIT`.
+#
+# That arithmetic is PER PROJECT, and `program_views.resource_contention` reuses
+# this same constant across every member project of a program. A program of six
+# well-staffed projects can therefore reach the cap without any single member
+# being pathological. That is a deliberate simplification — one number, one
+# meaning, no second constant to keep in sync — and the disclosure is identical
+# either way: whole resources are dropped and `truncated` says so. If it starts
+# firing on real programs, split the constant rather than raising it blindly.
+_ALLOCATION_ASSIGNMENT_LIMIT = 20000
+
+
+def _cap_assignments_at_resource_boundary(
+    qs: Any, limit: int
+) -> tuple[list[Any], bool, Callable[[int], int]]:
+    """Materialize at most ``limit`` assignment rows, cut on a resource boundary.
+
+    ``qs`` must already be ordered so that a resource's rows are contiguous (the
+    callers order by ``resource_id`` first). One row past the cap is fetched so
+    ``truncated`` is exact rather than a ``>=`` guess — the same idiom as the task
+    Trash list — and the trailing, possibly-partial resource group is then dropped
+    whole. See :data:`_ALLOCATION_ASSIGNMENT_LIMIT` for why a partial group must
+    never be returned.
+
+    Returns ``(rows, truncated, resource_count)`` where ``resource_count`` is a
+    callable taking the number of resources actually grouped. It costs an extra
+    ``COUNT(DISTINCT resource_id)`` only on the truncated path; when nothing was
+    cut the count the caller already has is exact, so the common request pays
+    nothing for the field.
+    """
+    rows = list(qs[: limit + 1])
+    truncated = len(rows) > limit
+    if not truncated:
+        return rows, False, lambda grouped: grouped
+
+    # Rows of one resource are contiguous, so the resource owning the overflow row
+    # is exactly the one that may be half-fetched. Drop all of its rows.
+    partial_resource_id = rows[-1].resource_id
+    rows = [row for row in rows[:limit] if row.resource_id != partial_resource_id]
+    return (
+        rows,
+        True,
+        lambda _grouped: qs.order_by().values("resource_id").distinct().count(),
+    )
+
+
 def _resolve_allocation_window(request: Request, tasks: Any) -> tuple[datetime.date, datetime.date]:
     """Resolve the ``[start, end]`` allocation window from the ?start/?end params.
 
@@ -2918,10 +2985,17 @@ class ProjectViewSet(
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Per-resource task spans within the window: "
-                    "{project_id, window_start, window_end, resources: "
+                    "{project_id, window_start, window_end, resource_count, "
+                    "truncated, resources: "
                     "[{id, name, email, max_units, tasks: [{assignment_id, id, "
                     "name, early_start, early_finish, scheduled_start, units, "
-                    "status}]}]}. scheduled_start (ADR-0752) is the task's SPAN "
+                    "status}]}]}. resource_count is the number of resources in "
+                    "scope and truncated is true when the assignment cap "
+                    "(ADR-1118) dropped whole resources from the list — the cut "
+                    "always falls on a resource boundary, so every resource "
+                    "returned carries all of its in-window spans and the "
+                    "client-side overallocation verdict (ADR-0031) stays exact "
+                    "for it. scheduled_start (ADR-0752) is the task's SPAN "
                     "start — early_start narrows toward early_finish as an "
                     "in-progress task's percent_complete rises, so the client "
                     "renders the span (scheduled_start..early_finish), falling "
@@ -2957,6 +3031,12 @@ class ProjectViewSet(
 
         Overallocation detection is intentionally client-side: the caller receives
         all spans and computes daily unit sums against max_units. See ADR-0031.
+
+        Bounded by ``_ALLOCATION_ASSIGNMENT_LIMIT`` assignment rows, cut on a
+        resource boundary and disclosed as ``truncated`` / ``resource_count``
+        (ADR-1118). Because ADR-0031's verdict is computed over the whole of a
+        resource's spans, a partial resource would report a *wrong* load rather
+        than an incomplete one, so a resource is either returned whole or omitted.
 
         Query parameters:
           start    (YYYY-MM-DD, optional) — window start; defaults to earliest
@@ -3013,7 +3093,17 @@ class ProjectViewSet(
                     "task__scheduled_start", "task__early_start", output_field=DateField()
                 )
             )
-            .order_by("resource__name", "task__early_start")
+            # Ordered by resource_id, a local column of resources_task_resource,
+            # NOT by resource__name (ADR-1118 / #3576). resources_resource.name is
+            # two joins away, so sorting on it forces Postgres to materialize and
+            # sort the whole joined set with the far table in the sort input, and
+            # no index can serve a key that lives in a different table from the
+            # rows. Ordering by resource_id keeps a resource's rows contiguous —
+            # which is what lets the cap below fall on a resource boundary — and
+            # the by-name ordering the response promises is restored in Python
+            # after grouping, where it costs one sort of ~dozens of resources
+            # instead of thousands of assignment rows.
+            .order_by("resource_id", "task__early_start")
         )
 
         if resource_ids:
@@ -3036,8 +3126,11 @@ class ProjectViewSet(
         )
 
         # --- Build response grouped by resource ---
+        rows, truncated, resource_count_for = _cap_assignments_at_resource_boundary(
+            qs, _ALLOCATION_ASSIGNMENT_LIMIT
+        )
         resources_map: dict[str, dict[str, Any]] = {}
-        for assignment in qs:
+        for assignment in rows:
             resource = assignment.resource
             rid = str(resource.id)
             if rid not in resources_map:
@@ -3068,12 +3161,18 @@ class ProjectViewSet(
                 }
             )
 
+        # Restore the by-name resource ordering the query no longer does in SQL
+        # (ADR-1118). `sorted` is stable, so same-named resources keep the
+        # resource_id order the query produced rather than an arbitrary one.
+        resources_out = sorted(resources_map.values(), key=lambda r: r["name"])
         return Response(
             {
                 "project_id": str(project.id),
                 "window_start": window_start.isoformat(),
                 "window_end": window_end.isoformat(),
-                "resources": list(resources_map.values()),
+                "resources": resources_out,
+                "resource_count": resource_count_for(len(resources_out)),
+                "truncated": truncated,
             }
         )
 

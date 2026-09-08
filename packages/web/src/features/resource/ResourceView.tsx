@@ -32,6 +32,7 @@ import {
 } from './resourceUtils';
 import type { AllocationResponse, UtilizationResponse } from './resourceUtils';
 import { useResourceUtilization } from '@/hooks/useResourceUtilization';
+import { AllocationTruncationNotice } from './AllocationTruncationNotice';
 import {
   useResourceAllocation,
   useInvalidateAllocation,
@@ -494,6 +495,18 @@ export function ResourceView({
           resourceSearch={resourceSearch}
           onResourceSearchChange={setResourceSearch}
         />
+
+        {/* The server capped the read (ADR-1118). Whole resources are missing, so
+            a view about who is over-committed must say so rather than present a
+            complete-looking roster. Rendered against the UNFILTERED payload —
+            `filteredAllocationData` reflects the client-side search box, whose
+            own hiding is deliberate and already visible to the user. */}
+        {viewMode === 'timeline' && allocationResult.data?.truncated && (
+          <AllocationTruncationNotice
+            resourceCount={allocationResult.data.resource_count}
+            shownCount={allocationResult.data.resources.length}
+          />
+        )}
 
         {viewMode === 'timeline' && filteredAllocationData && (
           <TimelinePanel

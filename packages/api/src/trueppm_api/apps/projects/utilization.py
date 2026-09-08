@@ -37,7 +37,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import DateField
+from django.db.models import DateField, Exists, OuterRef
 from django.db.models.functions import Coalesce
 
 # weekday() returns 0=Mon, 1=Tue, …, 6=Sun.
@@ -292,20 +292,29 @@ def compute_utilization(
     prefetch_related("assignments__resource__calendar__exceptions") applied.
     The caller (ProjectViewSet.utilization) handles the prefetch.
     """
+    # Imported here rather than at module scope: resources.models imports Task
+    # from this app, so a top-level import would close the cycle.
+    from trueppm_api.apps.resources.models import TaskResource
+
     # Delegate to the internal engine, then count unassigned tasks separately.
     rows = _compute_utilization_internal(project, window_start, window_end)
 
     # Count tasks in window that have no assignments (unassigned_task_count).
-    assigned_task_ids: set[str] = set()
-    for row in rows:
-        for day_data in row["_days"].values():
-            assigned_task_ids.update(day_data["tasks"])
-
+    #
+    # Asked as a correlated NOT EXISTS, not as a literal `NOT IN (<uuid>, …)`
+    # built from the day expansion above (#3576). The old form shipped one UUID
+    # of SQL text per in-window task — ~40 bytes each, and O(N) to evaluate per
+    # candidate row — and it answered a subtly different question: its set came
+    # from `_days`, which only holds a task if one of its assignments produced a
+    # *working day of load* inside the window. A task whose span falls entirely
+    # on non-working days therefore counted as unassigned despite plainly having
+    # an assignment. `~Exists` answers the question the field name asks, and it
+    # is served by the FK index on resources_task_resource.task_id.
     unassigned_count = (
         project.tasks.filter(is_deleted=False, early_start__isnull=False)
         .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
         .filter(_span_start__lte=window_end, early_finish__gte=window_start)
-        .exclude(pk__in=assigned_task_ids)
+        .filter(~Exists(TaskResource.objects.filter(task=OuterRef("pk"))))
         .count()
     )
 

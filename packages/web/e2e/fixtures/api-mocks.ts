@@ -414,6 +414,8 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
         window_start: '2026-01-01',
         window_end: '2026-03-01',
         resources: [],
+        resource_count: 0,
+        truncated: false,
       }),
     ),
   );

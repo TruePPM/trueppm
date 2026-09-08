@@ -593,6 +593,19 @@ returns `409` if no member project has a computed schedule yet, and `400` for an
 invalid date or a `start` after `end`. This is within-program visibility only —
 cross-program leveling and the portfolio heat map remain Enterprise.
 
+Both `resource-contention` and the per-project `resource-allocation` cap how many
+assignment rows one response carries. When the cap is reached the response sets
+`truncated: true` and `resource_count` reports how many resources were in scope, so a
+client can tell a complete roster from a cut one. **The cut always falls on a resource
+boundary**: a resource is either returned with every one of its in-window spans or left
+out entirely, never returned half-complete. That matters because overallocation is
+detected client-side by summing a resource's spans — a partial resource would report a
+*lower* load than the real one, which is the one error a contention view must not make.
+The cap is set clear of the supported project size — it is a backstop against a
+pathological project, not a page size, and a project inside the documented envelope does
+not reach it. If a response does come back truncated, narrow the window or pass
+`?resource=` to see the resources it omitted.
+
 Each task span in `resource-contention` (and the per-project
 `resource-allocation` it mirrors) windows and renders on `scheduled_start`
 through `early_finish` — the task's **span** — not `early_start` through

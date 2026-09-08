@@ -64,6 +64,8 @@ function response(resources: AllocationResource[]): AllocationResponse {
     window_start: '2026-04-01',
     window_end: '2026-04-30',
     resources,
+    resource_count: resources.length,
+    truncated: false,
   };
 }
 

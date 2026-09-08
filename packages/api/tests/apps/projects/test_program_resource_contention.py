@@ -19,6 +19,8 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, Role
@@ -336,3 +338,120 @@ class TestResourceContentionUsesSpanNotRemainingWindow:
         resp = self.client.get(_url(self.program))
         assert resp.status_code == 200
         assert resp.json()["window_start"] == "2026-03-02"
+
+
+# ---------------------------------------------------------------------------
+# Perf contract (#3576 / ADR-1118) — mirrors the per-project endpoint
+# ---------------------------------------------------------------------------
+
+
+def _seed_contention(project: Project, count: int, per_resource: int = 2, offset: int = 0) -> None:
+    """Create ``count`` resources on ``project``, each with ``per_resource`` spans."""
+    for r in range(offset, offset + count):
+        resource = Resource.objects.create(
+            name=f"C{r:03d}", email=f"c{r:03d}@example.com", max_units=Decimal("1.00")
+        )
+        for t in range(per_resource):
+            task = _scheduled_task(project, f"T{r:03d}-{t}", date(2026, 7, 6), date(2026, 7, 10))
+            TaskResource.objects.create(task=task, resource=resource, units=Decimal("0.50"))
+
+
+@pytest.mark.django_db
+class TestResourceContentionQueryBudget:
+    """Contention aggregates across every member project — the row count is the
+    product of projects and assignments, so an unbounded read is worse here than
+    on the per-project endpoint, not better."""
+
+    def test_query_count_is_flat_in_the_number_of_resources(
+        self, program: Program, project_a: Project, project_b: Project
+    ) -> None:
+        client = _auth_client(Role.SCHEDULER, program)
+
+        _seed_contention(project_a, count=1)
+        assert client.get(_url(program)).status_code == 200  # warm caches
+
+        with CaptureQueriesContext(connection) as small:
+            small_body = client.get(_url(program)).json()
+
+        _seed_contention(project_a, count=5, offset=1)
+        _seed_contention(project_b, count=5, offset=6)
+        with CaptureQueriesContext(connection) as large:
+            large_body = client.get(_url(program)).json()
+
+        assert len(small_body["resources"]) == 1
+        assert len(large_body["resources"]) == 11
+        assert sum(len(r["tasks"]) for r in large_body["resources"]) == 22
+
+        assert len(large.captured_queries) == len(small.captured_queries), (
+            f"{len(small.captured_queries)} → {len(large.captured_queries)}"
+        )
+
+    def test_the_assignment_read_is_bounded_and_sorted_on_local_columns(
+        self, program: Program, project_a: Project
+    ) -> None:
+        client = _auth_client(Role.SCHEDULER, program)
+        _seed_contention(project_a, count=3)
+
+        with CaptureQueriesContext(connection) as ctx:
+            body = client.get(_url(program)).json()
+
+        row_read = next(
+            q["sql"]
+            for q in ctx.captured_queries
+            if "resources_task_resource" in q["sql"] and "ORDER BY" in q["sql"]
+        )
+        assert "LIMIT" in row_read
+        order_clause = row_read.split("ORDER BY", 1)[1]
+        # Neither the resource name nor the project name — both are joins away.
+        assert "resources_resource" not in order_clause, order_clause
+        assert "projects_project" not in order_clause, order_clause
+
+        names = [r["name"] for r in body["resources"]]
+        assert names == sorted(names)
+
+    def test_spans_stay_ordered_by_source_project_name(
+        self, program: Program, project_a: Project, project_b: Project, janus: Resource
+    ) -> None:
+        """The Python sort must reproduce the by-project-name span ordering the
+        SQL used to do — SOC2 before Security, regardless of insert order."""
+        client = _auth_client(Role.SCHEDULER, program)
+        for project, name in ((project_a, "SecurityWork"), (project_b, "SOC2Work")):
+            task = _scheduled_task(project, name, date(2026, 7, 6), date(2026, 7, 10))
+            TaskResource.objects.create(task=task, resource=janus, units=Decimal("0.50"))
+
+        body = client.get(_url(program)).json()
+        (row,) = body["resources"]
+        assert [t["project_name"] for t in row["tasks"]] == ["SOC2", "Security"]
+
+
+@pytest.mark.django_db
+class TestResourceContentionCap:
+    def test_untruncated_response_reports_its_own_resource_count(
+        self, program: Program, project_a: Project
+    ) -> None:
+        client = _auth_client(Role.SCHEDULER, program)
+        _seed_contention(project_a, count=4)
+
+        body = client.get(_url(program)).json()
+        assert body["truncated"] is False
+        assert body["resource_count"] == 4
+
+    def test_cap_drops_whole_resources_and_says_so(
+        self, program: Program, project_a: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same boundary rule as the per-project endpoint: a resource returned
+        with only part of its cross-project spans would under-report exactly the
+        contention this endpoint exists to surface."""
+        from trueppm_api.apps.projects import program_views
+
+        client = _auth_client(Role.SCHEDULER, program)
+        _seed_contention(project_a, count=4, per_resource=3)
+
+        monkeypatch.setattr(program_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 7)
+        body = client.get(_url(program)).json()
+
+        assert body["truncated"] is True
+        assert body["resource_count"] == 4
+        assert len(body["resources"]) == 2
+        for resource in body["resources"]:
+            assert len(resource["tasks"]) == 3

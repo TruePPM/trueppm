@@ -186,6 +186,8 @@ describe('fitToAllocationWindow', () => {
       window_start: '2026-03-02',
       window_end: '2026-03-31',
       resources: [],
+      resource_count: 0,
+      truncated: false,
     };
     const win = fitToAllocationWindow('2026-03-02', data);
     // minStart = maxEnd = projectStartDate
