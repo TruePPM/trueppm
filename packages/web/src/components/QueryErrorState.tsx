@@ -50,9 +50,15 @@ export function QueryErrorState({
   const container = isFill
     ? `flex h-full items-center justify-center bg-neutral-surface ${className}`
     : `flex min-h-24 items-center justify-center rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-6 ${className}`;
+  // `focus:`, not `focus-visible:` (rule 4's standalone-control carve-out, rule
+  // 288(c)). Retry is frequently the ONLY focusable in its container — inside the
+  // health chip's popover it is the sole control, so the dialog's focus trap seats
+  // it with a SCRIPTED `.focus()`, which Firefox and desktop Safari routinely
+  // decline to match `:focus-visible` against. Paired with `outline-none` that
+  // left the one control in a modal with no visible indicator at all (#3525).
   const offset = isFill
-    ? 'focus-visible:ring-offset-neutral-surface'
-    : 'focus-visible:ring-offset-neutral-surface-raised';
+    ? 'focus:ring-offset-neutral-surface'
+    : 'focus:ring-offset-neutral-surface-raised';
 
   return (
     <div role={isFill ? 'alert' : 'status'} className={container}>
@@ -60,7 +66,7 @@ export function QueryErrorState({
         {message}{' '}
         <button
           type="button"
-          className={`underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 ${offset}`}
+          className={`underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${offset}`}
           onClick={retry}
         >
           Retry

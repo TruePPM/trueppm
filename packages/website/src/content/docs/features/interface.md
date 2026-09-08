@@ -138,6 +138,32 @@ critical counts above zero open a task popover; a forecast date is neutral
 (informational, not a risk colour); and team-private velocity shows a "kept to
 the team" wall rather than a number when the team's privacy policy withholds it.
 
+### The health word, and where it came from
+
+The chip's word — **On track**, **At risk**, or **Critical** — is the project's
+health as the server decides it, and a project manager's **manual health report**
+outranks the task counts. So the word can be worse (or better) than anything in
+the rows beneath it: a PM who reports **Critical** on a plan with no at-risk and
+no critical tasks knows something the float numbers do not.
+
+When that is what you are looking at, the popover says so. Under the word you get
+**Reported by the project manager**, with **View on Dashboard ›** taking you to
+the project's Dashboard, where the report lives and — if you are an Admin or Owner
+— where you change it. Without that line, the word came from the plan itself, and
+the at-risk and critical rows below it are the whole explanation.
+
+This matters most on **Schedule** and **Board**, where the top bar is the only
+health reading on the page.
+
+### When health can't be read
+
+If the health summary fails to load, the chip does **not** fall back to a
+reassuring word. It shows a muted **Health —** with a hollow dot; opening it tells
+you the read failed and offers **Retry**, which re-runs just that request rather
+than reloading the app. A calm "On track" over a project nobody could read is
+worse than saying nothing. While the summary is still loading for the first time,
+the chip is a plain placeholder — no word, no colour.
+
 ## Grouped, methodology-adaptive project views
 
 :::note[Ships in 0.4]
