@@ -1206,15 +1206,23 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
     permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
 
     def get_permissions(self) -> list[BasePermission]:
-        """Express the Owner-only create gate at the permission layer (#1351).
+        """Express the create/update role floors at the permission layer (#1351).
 
         ``create`` is Owner-only, so IsProgramOwner is added as defense-in-depth
-        over the in-body ``_require_actor_role(OWNER)`` check. ``partial_update``
-        is deliberately excluded: a ``role_title``-only PATCH (benign descriptive
-        metadata, #565) is permitted at Admin+, and the body already escalates to
-        the Owner gate only when ``role``/``user`` change — gating the whole action
-        on Owner here would regress that Admin metadata branch. ``destroy`` allows
-        self-remove, so it is excluded too.
+        over the in-body ``_require_actor_role(OWNER)`` check.
+
+        ``partial_update`` carries **Admin**, not Owner: a ``role_title``-only PATCH
+        (benign descriptive metadata, #565) is permitted at Admin+, and the body
+        escalates to the Owner gate only when ``role`` changes. Gating the whole
+        action on Owner here would regress that Admin metadata branch. Admin is the
+        floor the body already enforces, and stating it here is what keeps a
+        below-Admin caller's refusal a **403 about their authority** rather than a
+        400 from whichever field validator happened to run first — the convention
+        ``destroy`` states at the bottom of this class (#3365). It matters since
+        #3641: ``user`` is now refused by the serializer, which runs before the
+        in-body role check.
+
+        ``destroy`` allows self-remove, so it is excluded.
         """
         perms: list[BasePermission] = [
             IsAuthenticated(),
@@ -1223,6 +1231,8 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         ]
         if self.action == "create":
             perms.append(IsProgramOwner())
+        elif self.action in ("partial_update", "update"):
+            perms.append(IsProgramAdmin())
         return perms
 
     def get_queryset(self) -> QuerySet[ProgramMembership]:

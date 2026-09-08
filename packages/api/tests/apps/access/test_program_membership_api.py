@@ -1002,3 +1002,30 @@ def test_patch_still_changes_a_role_and_role_title(
     target.refresh_from_db()
     assert target.role == Role.SCHEDULER
     assert target.role_title == "Tech Lead"
+
+
+@pytest.mark.django_db
+def test_below_admin_reassignment_attempt_is_a_403_not_a_400(
+    program: Program, owner: object, member: object
+) -> None:
+    """A below-Admin caller is refused on *authority*, before the field is examined.
+
+    ``user`` is now refused by the serializer, which runs before the in-body role
+    check — so without an Admin floor at the permission layer a plain Member would
+    read "bad request" for what is a permission refusal, inverting this file's own
+    convention (#3365). ``get_permissions`` states the floor the body already
+    enforces, which keeps the status honest.
+    """
+    ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    target = ProgramMembership.objects.create(
+        program=program, user=_make_user("floor-target"), role=Role.MEMBER
+    )
+    victim = User.objects.create_user(username="floor-victim", password="pw")
+
+    resp = _client(member).patch(
+        f"{_members_url(program)}{target.pk}/", {"user": str(victim.pk)}, format="json"
+    )
+
+    assert resp.status_code == 403, resp.data
+    target.refresh_from_db()
+    assert target.user_id != victim.pk

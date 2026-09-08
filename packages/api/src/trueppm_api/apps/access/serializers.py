@@ -43,6 +43,16 @@ _USER_IMMUTABLE_ERROR = (
     "A membership's user cannot be changed. Remove this member and add the other account."
 )
 
+_TARGET_HELP_TEXT = (
+    "The stock auth.User integer primary key of the account to add. Bounded to accounts "
+    "you can already reach: a workspace Admin may name any active account; anyone else "
+    "may name themselves or somebody already on a project or program roster they belong "
+    "to. Deactivated accounts are never accepted. An id outside that set is refused with "
+    "400 and the same message a nonexistent id gets, so this field is not an existence "
+    "oracle — use a workspace invite to bring in anyone further out. Accepted on add "
+    "only; a membership's user cannot be changed."
+)
+
 
 def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
     """Accounts ``actor`` may name as the target of a membership write (#3641).
@@ -74,6 +84,13 @@ def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
     roster, and requiring a live one would make re-adding a member you just removed
     impossible — the revive path ``_revive_revoked_membership`` exists for (#3410).
 
+    So "reachable" means **ever introduced to a roster I am on**, not *currently
+    readable there*. The deliberate consequence: somebody revoked from a project before
+    the caller joined it is nameable even though the caller never saw them on it. That
+    is bounded to accounts already adjacent to the caller's own projects, never the
+    install, and it is the price of keeping re-add working. Do not silently narrow this
+    to the live set without restoring the re-add path some other way.
+
     ``is_active=False`` accounts are excluded at every tier, matching ``UserSearchView``:
     the deactivated pool is admin-only state (#1724) and must not be reachable through
     a roster write either.
@@ -100,12 +117,16 @@ def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
     # Subqueries rather than a join + ``.distinct()``: a caller on many projects would
     # otherwise fan the join out per shared roster row, and a bare ``.distinct()`` is
     # silently defeated by any model ordering the queryset picks up.
-    actor_project_ids = ProjectMembership.objects.filter(user=actor, is_deleted=False).values(
-        "project_id"
-    )
-    actor_program_ids = ProgramMembership.objects.filter(user=actor, is_deleted=False).values(
-        "program_id"
-    )
+    # The actor's own row must be live and its scope must still exist — a trashed
+    # project's roster is unreadable (``_get_project_or_404`` filters it out), so it
+    # must not confer reach either. Archived is deliberately NOT excluded: an archived
+    # project is read-only, not invisible, and its members still see each other.
+    actor_project_ids = ProjectMembership.objects.filter(
+        user=actor, is_deleted=False, project__is_deleted=False
+    ).values("project_id")
+    actor_program_ids = ProgramMembership.objects.filter(
+        user=actor, is_deleted=False, program__is_deleted=False
+    ).values("program_id")
     return active.filter(
         Q(pk=actor.pk)
         | Q(
@@ -282,6 +303,7 @@ class ProjectMembershipWriteSerializer(
     user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.none(),
         error_messages={"does_not_exist": _UNREACHABLE_TARGET_ERROR},
+        help_text=_TARGET_HELP_TEXT,
     )
     role = serializers.IntegerField(
         required=False,
@@ -400,6 +422,7 @@ class ProgramMembershipWriteSerializer(
     user = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.none(),
         error_messages={"does_not_exist": _UNREACHABLE_TARGET_ERROR},
+        help_text=_TARGET_HELP_TEXT,
     )
 
     class Meta:
