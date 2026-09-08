@@ -163,6 +163,22 @@ class TaskSkillRequirement(VersionedModel):
     def __str__(self) -> str:
         return f"{self.task} requires {self.skill} ({self.get_min_proficiency_display()}+)"
 
+    @property
+    def project_id(self) -> object:
+        """Expose the task's project_id so _get_project_id_from_obj can find it.
+
+        The same shape, and the same reason, as ``TaskResource.project_id`` below: the
+        resolver walks ``project_id`` / ``project`` / ``predecessor`` and nothing else,
+        and it returns ``None`` — which ``IsProjectNotArchived.has_object_permission``
+        reads as "permitted" — for a model that reaches its project only through ``task``.
+        Declaring the permission class without this property is a fail-open that reads as
+        a gate (#3570). Deliberately a property rather than a widening of the resolver:
+        #3414 removed a generic ``task_id -> task.project_id`` hop because it would have
+        flipped eleven fail-closed classes from deny to role-based grant on models that
+        never intended to be project-scoped.
+        """
+        return self.task.project_id
+
 
 class TaskResource(models.Model):
     """Many-to-many through table for task–resource assignments."""

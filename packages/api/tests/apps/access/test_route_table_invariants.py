@@ -783,7 +783,7 @@ def _project_scoped_write_entries() -> list[
 ]:
     """Every (write route, action) pair that touches a single project.
 
-    Discovery is a union of four runtime signals rather than one, because no single one
+    Discovery is a union of five runtime signals rather than one, because no single one
     covers the surface: `slip-conflicts/<pk>/acknowledge/` names no project and applies
     no project-scoped class (its gate is in the body), while `project-resources/` names
     no project but applies four.
@@ -804,6 +804,7 @@ def _project_scoped_write_entries() -> list[
             inherited |= {p.__name__ for p in declared}
         kwargs = _archived_kwargs_in(path)
         for method, action in _unsafe_pairs(entry, cls):
+            key = _entry_key(path, action, method)
             effective = _effective_permission_names(cls, action, method)
             why: list[str] = []
             if _PROJECT_SEGMENT.search(path) or DEFAULT_PROJECT_URL_KWARG in kwargs:
@@ -818,8 +819,20 @@ def _project_scoped_write_entries() -> list[
                 # body check, and dropping it from the denominator would excuse exactly
                 # the actions most likely to have lost the gate by accident.
                 why.append(f"inherits {sorted(inherited & scoped)}")
+            if key in ARCHIVED_BODY_ENTRIES:
+                # A route pinned here can have no permission class left to discover it
+                # by (#3569 dropped `TaskSkillRequirementViewSet`'s declared-but-inert
+                # `IsProjectNotArchived` — it could never fire on `create` anyway, and
+                # keeping it declared just to be found by this scan is the exact
+                # "declared class that cannot fire" anti-pattern this file's own
+                # rationale above argues against). Being pinned in
+                # `ARCHIVED_BODY_ENTRIES` is itself the human decision that the route is
+                # project-scoped, so it has to count as a discovery signal in its own
+                # right — otherwise the route silently falls out of the enumerated
+                # surface the moment its last permission-class trace is removed.
+                why.append("pinned in ARCHIVED_BODY_ENTRIES")
             if why:
-                rows.append((_entry_key(path, action, method), path, entry, action, effective, why))
+                rows.append((key, path, entry, action, effective, why))
     return rows
 
 
@@ -885,6 +898,7 @@ ARCHIVED_BODY_ENTRIES: frozenset[str] = frozenset(
     {
         "api/v1/^project-resources/$::create",
         "api/v1/^task-resources/$::create",
+        "api/v1/^task-skill-requirements/$::create",
         "api/v1/^slip-conflicts/(?P<pk>[^/.]+)/acknowledge/$::acknowledge",
         "api/v1/integrations/projects/<uuid:project_pk>/git-webhook/::post",
         "api/v1/projects/<str:pk>/monte-carlo/::post",

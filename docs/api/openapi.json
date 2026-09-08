@@ -2073,7 +2073,7 @@
         "/api/v1/calendars/": {
             "get": {
                 "operationId": "v1_calendars_list",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -2149,7 +2149,7 @@
             },
             "post": {
                 "operationId": "v1_calendars_create",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "tags": [
                     "calendars"
                 ],
@@ -2251,7 +2251,7 @@
         "/api/v1/calendars/{calendar_pk}/exceptions/": {
             "get": {
                 "operationId": "v1_calendars_exceptions_list",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2335,7 +2335,7 @@
             },
             "post": {
                 "operationId": "v1_calendars_exceptions_create",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2447,7 +2447,7 @@
         "/api/v1/calendars/{calendar_pk}/exceptions/{id}/": {
             "get": {
                 "operationId": "v1_calendars_exceptions_retrieve",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2512,7 +2512,7 @@
             },
             "put": {
                 "operationId": "v1_calendars_exceptions_update",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2630,7 +2630,7 @@
             },
             "patch": {
                 "operationId": "v1_calendars_exceptions_partial_update",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2747,7 +2747,7 @@
             },
             "delete": {
                 "operationId": "v1_calendars_exceptions_destroy",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2807,7 +2807,7 @@
         "/api/v1/calendars/{id}/": {
             "get": {
                 "operationId": "v1_calendars_retrieve",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "in": "path",
@@ -2866,7 +2866,7 @@
             },
             "put": {
                 "operationId": "v1_calendars_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "in": "path",
@@ -2978,7 +2978,7 @@
             },
             "patch": {
                 "operationId": "v1_calendars_partial_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "in": "path",
@@ -5204,7 +5204,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5212,7 +5212,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -5311,7 +5311,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5319,7 +5319,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -5421,7 +5421,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5429,7 +5429,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -5510,7 +5510,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5518,7 +5518,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -5590,7 +5590,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5598,7 +5598,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -6055,7 +6055,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6063,7 +6063,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -6144,7 +6144,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6152,7 +6152,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -6315,7 +6315,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6323,7 +6323,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -6410,7 +6410,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6418,7 +6418,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -11629,7 +11629,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -11637,7 +11637,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -11745,7 +11745,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -11753,7 +11753,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -11865,7 +11865,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -11873,7 +11873,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -11962,7 +11962,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -11970,7 +11970,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -12050,7 +12050,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -12058,7 +12058,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -19083,7 +19083,7 @@
         "/api/v1/projects/{id}/burn/": {
             "get": {
                 "operationId": "v1_projects_burn_retrieve",
-                "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. Includes a planned overlay\nderived from the project's active baseline when one exists.\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default) or ``burnup``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today",
+                "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. Includes a planned overlay\nderived from the project's active baseline when one exists.\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today\n\nThe window is bounded on both axes — a maximum span, and a short horizon past\ntoday; see the ``since`` / ``until`` parameter descriptions for the limits. A\nwindow outside either bound is a 400.",
                 "parameters": [
                     {
                         "in": "query",
@@ -19125,7 +19125,7 @@
                             "type": "string",
                             "format": "date"
                         },
-                        "description": "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start date."
+                        "description": "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start date. The window may not exceed 366 days: an explicit since that far from until is a 400, while a defaulted since is clamped to until minus 366 days."
                     },
                     {
                         "in": "query",
@@ -19134,7 +19134,7 @@
                             "type": "string",
                             "format": "date"
                         },
-                        "description": "Window end, ISO 8601 YYYY-MM-DD. Defaults to today."
+                        "description": "Window end, ISO 8601 YYYY-MM-DD. Defaults to today. May not be more than 31 days in the future."
                     }
                 ],
                 "tags": [
@@ -19186,7 +19186,7 @@
                                 }
                             }
                         },
-                        "description": "Burn series. For burndown/burnup: {chart_type, metric, since, until, series: [{date, actual, scope, ideal}]}. For combined: series rows are {date, remaining, completed, total, ideal}."
+                        "description": "Burn series. For burndown/burnup: {chart_type, metric, since, until, series: [{date, actual, scope, ideal}]}, plus a top-level baseline_series ([{date, planned}]) when the project has an active baseline. For combined: series rows are {date, remaining, completed, total, ideal}, and there is never a baseline_series. since is the window actually used, which may be later than a defaulted one that was clamped."
                     },
                     "400": {
                         "content": {
@@ -19197,7 +19197,7 @@
                                 }
                             }
                         },
-                        "description": "Invalid chart_type, metric, or date parameter."
+                        "description": "Invalid chart_type, metric, or date parameter; an until more than 31 days in the future; or an explicit since putting the window over 366 days. The body is {detail} and names the bound."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -24373,7 +24373,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -24381,7 +24381,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -24489,7 +24489,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -24497,7 +24497,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -24609,7 +24609,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -24617,7 +24617,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -24706,7 +24706,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -24714,7 +24714,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -24794,7 +24794,7 @@
                         }
                     },
                     "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -24802,7 +24802,7 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string",
-                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
                                         },
                                         "refusal": {
                                             "type": "object",
@@ -37248,7 +37248,7 @@
         "/api/v1/resource-skills/": {
             "get": {
                 "operationId": "v1_resource_skills_list",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -37324,7 +37324,7 @@
             },
             "post": {
                 "operationId": "v1_resource_skills_create",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "tags": [
                     "resources"
                 ],
@@ -37426,7 +37426,7 @@
         "/api/v1/resource-skills/{id}/": {
             "get": {
                 "operationId": "v1_resource_skills_retrieve",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37485,7 +37485,7 @@
             },
             "put": {
                 "operationId": "v1_resource_skills_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37597,7 +37597,7 @@
             },
             "patch": {
                 "operationId": "v1_resource_skills_partial_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37708,7 +37708,7 @@
             },
             "delete": {
                 "operationId": "v1_resource_skills_destroy",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37771,7 +37771,7 @@
                             "type": "string",
                             "format": "uuid"
                         },
-                        "description": "Exclude resources already in this project's roster."
+                        "description": "Exclude resources already in this project's roster. Only honoured for members of that project; ignored otherwise."
                     },
                     {
                         "in": "query",
@@ -37779,7 +37779,7 @@
                         "schema": {
                             "type": "boolean"
                         },
-                        "description": "When 'true', include soft-deleted (deactivated) resources. Only honoured for org admin callers."
+                        "description": "When 'true', include soft-deleted (deactivated) resources. Only honoured for callers holding workspace Admin or above; silently ignored for everyone else."
                     },
                     {
                         "name": "ordering",
@@ -37815,7 +37815,7 @@
                             "type": "string",
                             "format": "uuid"
                         },
-                        "description": "Annotate each resource with skill_fit (exact/partial/missing) against this task's skill requirements and group results accordingly."
+                        "description": "Annotate each resource with skill_fit (exact/partial/missing) against this task's skill requirements and group results accordingly. Only honoured for members of the task's project; ignored otherwise."
                     }
                 ],
                 "tags": [
@@ -37864,7 +37864,7 @@
             },
             "post": {
                 "operationId": "v1_resources_create",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "tags": [
                     "resources"
                 ],
@@ -37966,7 +37966,7 @@
         "/api/v1/resources/{id}/": {
             "get": {
                 "operationId": "v1_resources_retrieve",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38025,7 +38025,7 @@
             },
             "put": {
                 "operationId": "v1_resources_update",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38137,7 +38137,7 @@
             },
             "patch": {
                 "operationId": "v1_resources_partial_update",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38248,7 +38248,7 @@
             },
             "delete": {
                 "operationId": "v1_resources_destroy",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38302,7 +38302,7 @@
         "/api/v1/resources/{id}/assignments/": {
             "get": {
                 "operationId": "v1_resources_assignments_list",
-                "description": "Cross-project task assignments for one resource — the org catalog's 'what is this person working on' view (#2047). Gated on IsOrgAdmin because it carries task/project names across project boundaries. Soft-deleted tasks are excluded; a deactivated resource still returns its assignments. Ordered by project then task.",
+                "description": "Cross-project task assignments for one resource — the org catalog's 'what is this person working on' view (#2047). Requires the workspace Admin role because it carries task/project names across project boundaries. Soft-deleted tasks are excluded; a deactivated resource still returns its assignments. Ordered by project then task.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38390,7 +38390,7 @@
         "/api/v1/resources/{id}/restore/": {
             "post": {
                 "operationId": "v1_resources_restore_create",
-                "description": "Restore a soft-deleted resource back to active status.\n\nRequires IsOrgAdmin (checked in get_permissions since this is a write\naction). Fetches from the unfiltered queryset so soft-deleted records\nare reachable; the standard get_object() path excludes them.",
+                "description": "Restore a soft-deleted resource back to active status.\n\nRequires IsWorkspaceAdminStrict (checked in get_permissions since this is a\nwrite action; raised from IsOrgAdmin in #3569 so the whole deactivation\nlifecycle sits on one principal). Fetches from the unfiltered queryset so\nsoft-deleted records are reachable; the standard get_object() path\nexcludes them.",
                 "summary": "Restore a deactivated resource",
                 "parameters": [
                     {
@@ -38995,7 +38995,8 @@
             },
             "post": {
                 "operationId": "v1_skills_create",
-                "description": "Create or return existing skill — de-dup by normalized_name.",
+                "description": "Adds a skill to the org-level catalog.\n\nNames are de-duplicated case-insensitively on `normalized_name`, so posting a name that already exists is not an error: the existing row is returned with `200` instead of `201`. Callers that need to know whether they added the skill must read the status code — the body is identical either way.",
+                "summary": "Create a skill, or return the existing one",
                 "tags": [
                     "resources"
                 ],
@@ -39031,6 +39032,16 @@
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Skill"
+                                }
+                            }
+                        },
+                        "description": "A skill with this normalized name already existed; it is returned unchanged."
+                    },
                     "201": {
                         "content": {
                             "application/json": {
@@ -39039,7 +39050,7 @@
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Skill created."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -39090,8 +39101,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Create skill"
+                }
             }
         },
         "/api/v1/skills/{id}/": {
@@ -44819,7 +44829,7 @@
         "/api/v1/task-skill-requirements/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_list",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -44895,7 +44905,7 @@
             },
             "post": {
                 "operationId": "v1_task_skill_requirements_create",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "tags": [
                     "resources"
                 ],
@@ -44940,6 +44950,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Caller lacks the Resource Manager role on the target task's project, or that project is archived (#3570). The project is reached only through the body's task here, so the refusal comes from the view rather than a permission class — the status and body are the same either way."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -44997,7 +45010,7 @@
         "/api/v1/task-skill-requirements/{id}/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_retrieve",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45056,7 +45069,7 @@
             },
             "put": {
                 "operationId": "v1_task_skill_requirements_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45168,7 +45181,7 @@
             },
             "patch": {
                 "operationId": "v1_task_skill_requirements_partial_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45279,7 +45292,7 @@
             },
             "delete": {
                 "operationId": "v1_task_skill_requirements_destroy",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -50789,15 +50802,12 @@
         "/api/v1/workspace/sso/providers/": {
             "get": {
                 "operationId": "v1_workspace_sso_providers_list",
-                "description": "``/workspace/sso/providers/`` — list (GET) and create (POST) providers.\n\n``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology\n(issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like\nwrites.",
+                "description": "``/workspace/sso/providers/`` — list (GET) and create (POST) providers.\n\n``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology\n(issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like\nwrites. Session/JWT only on top of that (``IsNotTokenAuthenticated``): an API token\ncannot read or change SSO provider configuration at all.",
                 "summary": "List configured SSO providers",
                 "tags": [
                     "workspace"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -50834,12 +50844,45 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
             "post": {
                 "operationId": "v1_workspace_sso_providers_create",
-                "description": "``/workspace/sso/providers/`` — list (GET) and create (POST) providers.\n\n``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology\n(issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like\nwrites.",
+                "description": "``/workspace/sso/providers/`` — list (GET) and create (POST) providers.\n\n``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology\n(issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like\nwrites. Session/JWT only on top of that (``IsNotTokenAuthenticated``): an API token\ncannot read or change SSO provider configuration at all.",
                 "summary": "Add an SSO provider (secret write-only; sending it stores it)",
                 "tags": [
                     "workspace"
@@ -50864,9 +50907,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -50936,6 +50976,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -50943,7 +51016,7 @@
         "/api/v1/workspace/sso/providers/{slug}/": {
             "get": {
                 "operationId": "v1_workspace_sso_providers_retrieve",
-                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.",
+                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.\n\nSession/JWT only, like the collection: an API token cannot read or change SSO\nprovider configuration (#3551 — see the section comment above for why).",
                 "summary": "Get one SSO provider configuration",
                 "parameters": [
                     {
@@ -50959,9 +51032,6 @@
                     "workspace"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -50995,12 +51065,45 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
             "put": {
                 "operationId": "v1_workspace_sso_providers_update",
-                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.",
+                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.\n\nSession/JWT only, like the collection: an API token cannot read or change SSO\nprovider configuration (#3551 — see the section comment above for why).",
                 "summary": "Update an SSO provider (secret write-only; sending it rotates)",
                 "parameters": [
                     {
@@ -51035,9 +51138,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -51104,12 +51204,45 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
             "delete": {
                 "operationId": "v1_workspace_sso_providers_destroy",
-                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.",
+                "description": "``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.\n\nSession/JWT only, like the collection: an API token cannot read or change SSO\nprovider configuration (#3551 — see the section comment above for why).",
                 "summary": "Delete an SSO provider configuration",
                 "parameters": [
                     {
@@ -51133,9 +51266,6 @@
                     "workspace"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -51165,6 +51295,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -51172,7 +51335,7 @@
         "/api/v1/workspace/sso/providers/{slug}/test-connection/": {
             "post": {
                 "operationId": "v1_workspace_sso_providers_test_connection_create",
-                "description": "``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.",
+                "description": "``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.\n\nSession/JWT only, like the rest of the admin surface (#3551 — see the section\ncomment above). Included even though the probe mutates nothing: it is server-side\negress an admin's leaked token could aim at an arbitrary configured issuer, and\nleaving one method of the surface token-reachable is how a guard erodes.",
                 "summary": "Test a provider's discovery/JWKS (OIDC) or API (GitHub) reachability",
                 "parameters": [
                     {
@@ -51188,9 +51351,6 @@
                     "workspace"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -51219,6 +51379,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -59709,7 +59902,7 @@
             },
             "PatchedResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -59889,7 +60082,7 @@
             },
             "PatchedSkillRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — the status code, not the body,\ndistinguishes the two (200 vs 201).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -64138,7 +64331,7 @@
             },
             "ProjectNotificationPreferenceDocument": {
                 "type": "object",
-                "description": "What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).\n\nThe stored row's fields **plus** ``event_delivery``, which the view adds on both\nmethods and which is not a model field. Declaring the plain serializer as the\n``200`` would have been the obvious fix and a worse one: the schema would be\nself-consistent, ``api:schema-drift`` would pass, and a generated SDK would\nsilently drop the one key a client needs to label the rows nothing dispatches.\nA declared lie is more dangerous than a declared absence.\n\nSubclasses rather than restating the field list, so a field added to the parent\nreaches the published response without a second edit. Only ``event_delivery`` is\nnamed here, because only ``event_delivery`` is the difference.",
+                "description": "What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).\n\nThe stored row's fields **plus** ``event_delivery`` and ``channel_delivery``,\nwhich the view adds on both methods and which are not model fields. Declaring\nthe plain serializer as the ``200`` would have been the obvious fix and a worse\none: the schema would be self-consistent, ``api:schema-drift`` would pass, and a\ngenerated SDK would silently drop the two keys a client needs to label the rows\nnothing dispatches and the columns nothing delivers on. A declared lie is more\ndangerous than a declared absence.\n\nSubclasses rather than restating the field list, so a field added to the parent\nreaches the published response without a second edit. Only the two delivery maps\nare named here, because only they are the difference.",
                 "properties": {
                     "matrix": {
                         "type": "object",
@@ -64390,9 +64583,36 @@
                         ],
                         "additionalProperties": false,
                         "readOnly": true
+                    },
+                    "channel_delivery": {
+                        "type": "object",
+                        "description": "Which matrix columns TruePPM has a delivery path for. `true` means an enabled cell in that column can reach you once its event is also dispatched; `false` means the column is rendered and the preference stored, but nothing delivers on it yet and no setting anywhere turns it on, so a client should label it rather than imply a delivery that never happens. Orthogonal to `event_delivery`: a cell is live only when its event is dispatched AND its channel delivers. Server-global — it does not vary by user or project, and rides on this per-user document only so a client can label the whole grid in one render. Reported as a server fact so every client does not hard-code the same list and drift from it.",
+                        "properties": {
+                            "email": {
+                                "type": "boolean"
+                            },
+                            "in_app": {
+                                "type": "boolean"
+                            },
+                            "mobile_push": {
+                                "type": "boolean"
+                            },
+                            "slack": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "email",
+                            "in_app",
+                            "mobile_push",
+                            "slack"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "channel_delivery",
                     "event_delivery",
                     "matrix",
                     "quiet_hours_timezone",
@@ -65283,7 +65503,7 @@
             },
             "Resource": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -65338,7 +65558,7 @@
             },
             "ResourceAssignment": {
                 "type": "object",
-                "description": "Read-only projection of one resource's task assignments across all projects.\n\nBacks the org catalog's \"Assignments\" panel (#2047, ADR-0499): it answers the\nresource manager's daily question \"what is this person working on / are they\noverloaded?\". Purely read-only — assignment *writes* still go through\n``TaskResourceSerializer`` on the project-nested route. It carries the task and\nproject *names* (which ``TaskResourceSerializer`` deliberately omits), so the\naction that serves it is gated on ``IsOrgAdmin`` rather than the base catalog\nread gate — those names are project-scoped confidential data.",
+                "description": "Read-only projection of one resource's task assignments across all projects.\n\nBacks the org catalog's \"Assignments\" panel (#2047, ADR-0499): it answers the\nresource manager's daily question \"what is this person working on / are they\noverloaded?\". Purely read-only — assignment *writes* still go through\n``TaskResourceSerializer`` on the project-nested route. It carries the task and\nproject *names* (which ``TaskResourceSerializer`` deliberately omits), so the\naction that serves it is gated on ``IsWorkspaceAdminStrict`` rather than the base\ncatalog read gate — those names are project-scoped confidential data.\n\nADR-0499 chose ``IsOrgAdmin`` for that gate and said it \"is what makes this\nsafe\". It was not: the org-admin derivation is reachable by any account that\ncreates a throwaway project, so the gate admitted everyone (#3569). Raised to\nworkspace admin; a member who needs only their *own* projects' view reads\n``/task-resources/?resource=``, which is membership-scoped and unchanged.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -65392,7 +65612,7 @@
             },
             "ResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -66869,7 +67089,7 @@
             },
             "Skill": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — the status code, not the body,\ndistinguishes the two (200 vs 201).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -66902,7 +67122,7 @@
             },
             "SkillRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — the status code, not the body,\ndistinguishes the two (200 vs 201).",
                 "properties": {
                     "name": {
                         "type": "string",
