@@ -17,7 +17,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus, TaskType
 from trueppm_api.apps.scheduling.models import (
     ForecastSnapshotTrigger,
     MonteCarloRun,
@@ -210,6 +210,156 @@ class TestCapture:
         # Must not raise — recompute on_commit relies on this being non-fatal.
         safe_capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
         assert ProjectForecastSnapshot.objects.filter(project=project).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Capture population (#3539)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestCapturePopulation:
+    """The aggregate is over ``Task.committed``, not every non-deleted task (#3539).
+
+    A BACKLOG row, an EPIC grouping node and a recurring occurrence are never fed
+    to CPM, so any ``early_finish`` / ``total_float`` they carry is scheduling
+    output left over from before they left the schedulable set. Admitting them to
+    the aggregate makes the snapshot describe a schedule that was never computed.
+    """
+
+    def test_backlog_epic_and_recurring_rows_are_excluded(self, project: Project) -> None:
+        # The only row CPM would actually have scheduled.
+        Task.objects.create(
+            project=project,
+            name="Committed",
+            duration=5,
+            early_finish=date(2026, 3, 1),
+            total_float=2,
+            status=TaskStatus.NOT_STARTED,
+        )
+        # Each of the three carries a LATER finish and a LOOSER float than the
+        # committed row, so an aggregate that admits any one of them reports both
+        # a wrong finish date and a wrong slack figure.
+        Task.objects.create(
+            project=project,
+            name="Groomed back to the backlog",
+            duration=5,
+            early_finish=date(2026, 9, 1),
+            total_float=30,
+            status=TaskStatus.BACKLOG,
+        )
+        Task.objects.create(
+            project=project,
+            name="Epic",
+            duration=5,
+            early_finish=date(2026, 10, 1),
+            total_float=40,
+            status=TaskStatus.NOT_STARTED,
+            type=TaskType.EPIC,
+        )
+        Task.objects.create(
+            project=project,
+            name="Recurring occurrence",
+            duration=5,
+            early_finish=date(2026, 11, 1),
+            total_float=50,
+            status=TaskStatus.NOT_STARTED,
+            is_recurring=True,
+        )
+
+        snap = capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+        assert snap is not None
+        assert snap.cpm_finish == date(2026, 3, 1)
+        assert snap.total_float_days == 2
+        # The counts describe the same population as the forecast they annotate.
+        assert snap.task_count == 1
+        assert snap.completed_task_count == 0
+
+    def test_completed_count_is_over_the_committed_set(self, project: Project) -> None:
+        Task.objects.create(project=project, name="Done", duration=1, status=TaskStatus.COMPLETE)
+        Task.objects.create(
+            project=project, name="Doing", duration=1, status=TaskStatus.IN_PROGRESS
+        )
+        Task.objects.create(
+            project=project,
+            name="Completed epic",
+            duration=1,
+            status=TaskStatus.COMPLETE,
+            type=TaskType.EPIC,
+        )
+        snap = capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+        assert snap is not None
+        assert snap.task_count == 2
+        assert snap.completed_task_count == 1
+
+    def test_grooming_the_driving_task_out_pulls_the_finish_in(self, project: Project) -> None:
+        """A stale groomed-out row must stop holding the finish date open.
+
+        Sequence: B drives the finish to 2026-09-01, then the PM grooms it back to
+        the backlog. ``_apply_cpm_results`` only writes the rows it scheduled, so B
+        keeps ``early_finish = 2026-09-01`` forever. Over all non-deleted tasks that
+        stale value still wins the ``Max`` and the forecast never moves — masking a
+        real five-month pull-in. Over ``Task.committed`` the finish follows the work.
+        """
+        Task.objects.create(
+            project=project,
+            name="A",
+            duration=5,
+            early_finish=date(2026, 4, 1),
+            total_float=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        b = Task.objects.create(
+            project=project,
+            name="B",
+            duration=90,
+            early_finish=date(2026, 9, 1),
+            total_float=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        first = capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+        assert first is not None
+        assert first.cpm_finish == date(2026, 9, 1)  # correct while B is committed
+
+        # Groomed out. Nothing clears B's CPM output — that is the whole premise.
+        Task.objects.filter(pk=b.pk).update(status=TaskStatus.BACKLOG)
+        b.refresh_from_db()
+        assert b.early_finish == date(2026, 9, 1), "premise broken: the stale value was cleared"
+
+        second = capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+        assert second is not None
+        assert second.cpm_finish == date(2026, 4, 1)
+        assert second.task_count == 1
+
+    def test_a_stale_backlog_row_does_not_invent_float(self, project: Project) -> None:
+        """The Helios CRM shape: a project with no float figure reporting 30 days.
+
+        ``Min`` skips NULLs, so a committed set the engine has returned no float
+        for contributes nothing — and seven groomed-out stories carrying a stale
+        30 become the project's reported slack. NULL and 0 are different facts
+        here (``test_cpm_zero_float_writeback``): the corrected aggregate must
+        report *no* figure, not a healthy-looking one.
+        """
+        Task.objects.create(
+            project=project,
+            name="Unscheduled",
+            duration=5,
+            early_finish=date(2026, 4, 1),
+            total_float=None,
+            status=TaskStatus.NOT_STARTED,
+        )
+        for i in range(7):
+            Task.objects.create(
+                project=project,
+                name=f"Groomed story {i}",
+                duration=5,
+                early_finish=date(2026, 4, 1),
+                total_float=30,
+                status=TaskStatus.BACKLOG,
+            )
+        snap = capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+        assert snap is not None
+        assert snap.total_float_days is None
 
 
 # ---------------------------------------------------------------------------
