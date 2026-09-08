@@ -59261,7 +59261,7 @@
             },
             "PatchedProgramMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
+                "description": "Write serializer — accepts user, role, and the freeform role_title.\n\n``user`` is the stock ``auth.User`` **integer** primary key, bounded to\n:func:`reachable_membership_targets` on add and refused entirely on\n``partial_update`` (#3641) — the project twin carries the same constraint for the\nsame reason.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (a role change stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -59473,7 +59473,7 @@
             },
             "PatchedProjectMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
+                "description": "Write serializer — accepts user and role; project is injected from URL.\n\n``user`` is the stock ``auth.User`` **integer** primary key (TruePPM has no custom\nuser model), and it is bounded to :func:`reachable_membership_targets` — see that\nfunction for who a caller may name and why. It is accepted on add only; a\n``partial_update`` that carries it is refused (#3641).\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -62101,7 +62101,7 @@
             },
             "ProgramMembershipWrite": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
+                "description": "Write serializer — accepts user, role, and the freeform role_title.\n\n``user`` is the stock ``auth.User`` **integer** primary key, bounded to\n:func:`reachable_membership_targets` on add and refused entirely on\n``partial_update`` (#3641) — the project twin carries the same constraint for the\nsame reason.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (a role change stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -62127,7 +62127,7 @@
             },
             "ProgramMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
+                "description": "Write serializer — accepts user, role, and the freeform role_title.\n\n``user`` is the stock ``auth.User`` **integer** primary key, bounded to\n:func:`reachable_membership_targets` on add and refused entirely on\n``partial_update`` (#3641) — the project twin carries the same constraint for the\nsame reason.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (a role change stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -64299,7 +64299,7 @@
             },
             "ProjectMembershipWrite": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
+                "description": "Write serializer — accepts user and role; project is injected from URL.\n\n``user`` is the stock ``auth.User`` **integer** primary key (TruePPM has no custom\nuser model), and it is bounded to :func:`reachable_membership_targets` — see that\nfunction for who a caller may name and why. It is accepted on add only; a\n``partial_update`` that carries it is refused (#3641).\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
                 "properties": {
                     "user": {
                         "type": "integer"
@@ -64315,7 +64315,7 @@
             },
             "ProjectMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
+                "description": "Write serializer — accepts user and role; project is injected from URL.\n\n``user`` is the stock ``auth.User`` **integer** primary key (TruePPM has no custom\nuser model), and it is bounded to :func:`reachable_membership_targets` — see that\nfunction for who a caller may name and why. It is accepted on add only; a\n``partial_update`` that carries it is refused (#3641).\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
                 "properties": {
                     "user": {
                         "type": "integer"

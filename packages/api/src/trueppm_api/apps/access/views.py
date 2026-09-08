@@ -311,7 +311,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         project = self._get_project_or_404()
         self._require_actor_role(request, project.pk, Role.OWNER)
 
-        serializer = ProjectMembershipWriteSerializer(data=request.data)
+        # The write serializer bounds ``user`` to the accounts this caller may name
+        # (reachable_membership_targets, #3641) — it needs the request to do that,
+        # and resolves nobody without it.
+        serializer = ProjectMembershipWriteSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
         actor_role = _membership_role(request, project.pk)
@@ -406,7 +411,9 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         project = self._get_project_or_404()
         instance = self.get_object()
 
-        serializer = ProjectMembershipWriteSerializer(instance, data=request.data, partial=True)
+        serializer = ProjectMembershipWriteSerializer(
+            instance, data=request.data, partial=True, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
         new_role = serializer.validated_data.get("role")
@@ -1281,7 +1288,10 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         program = self._get_program_or_404()
         self._require_actor_role(request, program.pk, Role.OWNER)
 
-        serializer = ProgramMembershipWriteSerializer(data=request.data)
+        # See the project twin: ``user`` is caller-scoped and needs the request.
+        serializer = ProgramMembershipWriteSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
         actor_role = _program_membership_role(request, program.pk)
@@ -1335,18 +1345,23 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         program = self._get_program_or_404()
         instance = self.get_object()
 
-        serializer = ProgramMembershipWriteSerializer(instance, data=request.data, partial=True)
+        serializer = ProgramMembershipWriteSerializer(
+            instance, data=request.data, partial=True, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         new_role = serializer.validated_data.get("role")
-        new_user = serializer.validated_data.get("user")
 
-        # Reassigning the access role or the member identity stays Owner-only (the
-        # ADR-0070 matrix). The freeform role_title (#565) is benign descriptive
-        # metadata — not enforced anywhere — so a role_title-only PATCH is allowed
-        # at Admin+. A request that also touches role/user is privileged and falls
-        # back to the Owner gate.
-        privileged_change = new_role is not None or new_user is not None
-        required_role = Role.OWNER if privileged_change else Role.ADMIN
+        # Changing the access role stays Owner-only (the ADR-0070 matrix). The
+        # freeform role_title (#565) is benign descriptive metadata — not enforced
+        # anywhere — so a role_title-only PATCH is allowed at Admin+. A request that
+        # also touches role is privileged and falls back to the Owner gate.
+        #
+        # Reassigning the *member identity* is no longer a privileged change here
+        # because it is no longer a change at all: the serializer refuses ``user`` on
+        # update at any role (#3641). Swapping the account behind a live row was a
+        # second route to the same address harvest, and it rewrote who held access
+        # while keeping the row's ``joined_at`` access evidence.
+        required_role = Role.OWNER if new_role is not None else Role.ADMIN
 
         # Lock the actor's membership row inside an atomic block to close the
         # TOCTOU window where a concurrent demotion could let the actor assign

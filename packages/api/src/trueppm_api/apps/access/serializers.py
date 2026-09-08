@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
@@ -20,6 +21,8 @@ from trueppm_api.apps.access.models import (
     program_role_label,
 )
 from trueppm_api.apps.profiles.models import DateFormat, RoleContext
+from trueppm_api.apps.workspace.models import WorkspaceRole
+from trueppm_api.apps.workspace.permissions import workspace_role_for_user
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 User = get_user_model()
@@ -27,6 +30,130 @@ User = get_user_model()
 # A mention group key must be a valid mention token (the name class of
 # notifications.services._MENTION_RE) so it is actually addressable as @name.
 _GROUP_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+# Refusal copy for an unreachable membership target. Deliberately identical for
+# "no such account" and "an account you may not name" so the field leaks no
+# existence oracle — the same reasoning as ``ProjectSerializer.copy_settings_from``.
+_UNREACHABLE_TARGET_ERROR = (
+    "No such user, or not someone you can add. You can add people you already share a "
+    "project or program with; ask a workspace admin to invite anyone else."
+)
+
+_USER_IMMUTABLE_ERROR = (
+    "A membership's user cannot be changed. Remove this member and add the other account."
+)
+
+
+def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
+    """Accounts ``actor`` may name as the target of a membership write (#3641).
+
+    Membership writes take a bare ``auth.User`` integer primary key and answer with
+    the target's ``user_detail`` — including their email address. Left unbounded that
+    turns a self-minted project into an address-lookup oracle over sequential ids
+    (``POST /api/v1/projects/`` is ungated and mints the caller as Owner), which is
+    the harvest #815 and #891 were fixed to prevent. So the target set is bounded to
+    accounts the caller can *already* read, and a membership grant can therefore never
+    disclose an account they could not already see.
+
+    Two tiers, both mirroring rules the install already enforces elsewhere:
+
+    * **Workspace ADMIN or above** reaches every active account. That is the branch
+      ``WorkspaceMemberListView`` already takes for the directory listing, and the
+      principal that already owns ``/workspace/invites/`` and
+      ``/workspace/groups/{id}/members/``. It is not self-grantable: an implicit role
+      is MEMBER (superuser bootstrap aside) and an explicit row is written only by an
+      existing admin (``workspace_role_for_user``).
+    * **Everyone else** reaches themselves plus the people they already share a live
+      project or program roster with — the same "must already be a member" constraint
+      ``validate_lead`` and the mention-group ``_member_user_or_400`` helper apply,
+      with the caller exempt exactly as in ``seed.importer._resolve_accounts`` (#1057).
+
+    ``is_active=False`` accounts are excluded at every tier, matching ``UserSearchView``:
+    the deactivated pool is admin-only state (#1724) and must not be reachable through
+    a roster write either.
+
+    Bringing in somebody outside that set is the invite path
+    (``POST /api/v1/workspace/invites/``). It is keyed on an email address the inviter
+    must already possess, so it discloses nothing — it is the reason this narrowing does
+    not strand onboarding.
+
+    Args:
+        actor: The requesting user. An anonymous or deactivated principal reaches nobody.
+
+    Returns:
+        A ``User`` queryset of the accounts ``actor`` may name.
+    """
+    role = workspace_role_for_user(actor)
+    if role is None:
+        return User.objects.none()
+
+    active = User.objects.filter(is_active=True)
+    if role >= WorkspaceRole.ADMIN:
+        return active
+
+    # Subqueries rather than a join + ``.distinct()``: a caller on many projects would
+    # otherwise fan the join out per shared roster row, and a bare ``.distinct()`` is
+    # silently defeated by any model ordering the queryset picks up.
+    actor_project_ids = ProjectMembership.objects.filter(user=actor, is_deleted=False).values(
+        "project_id"
+    )
+    actor_program_ids = ProgramMembership.objects.filter(user=actor, is_deleted=False).values(
+        "program_id"
+    )
+    return active.filter(
+        Q(pk=actor.pk)
+        | Q(
+            pk__in=ProjectMembership.objects.filter(
+                project_id__in=actor_project_ids, is_deleted=False
+            ).values("user_id")
+        )
+        | Q(
+            pk__in=ProgramMembership.objects.filter(
+                program_id__in=actor_program_ids, is_deleted=False
+            ).values("user_id")
+        )
+    )
+
+
+class _ReachableMembershipTargetMixin:
+    """Bounds a membership write serializer's ``user`` field to reachable accounts.
+
+    ``user`` is declared with an **empty** queryset on the concrete serializers, so a
+    serializer built without a request context resolves nobody rather than everybody —
+    the field is its own IDOR gate, failing closed. Here the real, caller-scoped
+    queryset is swapped in (the structural precedent is
+    ``ProjectSerializer.__init__``'s ``copy_settings_from`` narrowing).
+
+    On **update** the field is made read-only and a supplied ``user`` is refused
+    outright: reassigning an existing row onto another account is the same harvest
+    through a second door, and it also silently rewrites who holds access while
+    keeping the row's ``joined_at`` access evidence (#3410). Refusing rather than
+    ignoring keeps a 200 from meaning two different things to the caller.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[misc]
+        field = self.fields.get("user")  # type: ignore[attr-defined]
+        if not isinstance(field, serializers.PrimaryKeyRelatedField):
+            return
+        if self.instance is not None:  # type: ignore[attr-defined]
+            field.read_only = True
+            return
+        request = self.context.get("request")  # type: ignore[attr-defined]
+        actor = getattr(request, "user", None)
+        if actor is not None and getattr(actor, "is_authenticated", False):
+            field.queryset = reachable_membership_targets(actor)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # ``user`` is read-only on update, so DRF drops it silently. Surface the
+        # refusal instead — a caller that asked to reassign the row must not read a
+        # 200 as "done". Checked against ``initial_data`` because the field never
+        # reaches ``attrs``; the body may not be a dict, so do not assume ``in`` works.
+        if self.instance is not None:  # type: ignore[attr-defined]
+            raw = getattr(self, "initial_data", None)
+            if isinstance(raw, dict) and "user" in raw:
+                raise serializers.ValidationError({"user": _USER_IMMUTABLE_ERROR})
+        return super().validate(attrs)  # type: ignore[misc,no-any-return]
 
 
 class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
@@ -128,8 +255,15 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
         ]
 
 
-class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMembership]):
-    """Write serializer — accepts user (UUID) and role; project is injected from URL.
+class ProjectMembershipWriteSerializer(
+    _ReachableMembershipTargetMixin, serializers.ModelSerializer[ProjectMembership]
+):
+    """Write serializer — accepts user and role; project is injected from URL.
+
+    ``user`` is the stock ``auth.User`` **integer** primary key (TruePPM has no custom
+    user model), and it is bounded to :func:`reachable_membership_targets` — see that
+    function for who a caller may name and why. It is accepted on add only; a
+    ``partial_update`` that carries it is refused (#3641).
 
     ``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls
     back to the project's ``default_member_role``. It remains required for a role
@@ -137,6 +271,12 @@ class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMember
     non-null — the fallback is resolved before ``save``.
     """
 
+    # Empty by construction — the mixin swaps in the caller-scoped queryset. Without a
+    # request context the field resolves nobody, so it fails closed.
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.none(),
+        error_messages={"does_not_exist": _UNREACHABLE_TARGET_ERROR},
+    )
     role = serializers.IntegerField(
         required=False,
         help_text=(
@@ -221,13 +361,26 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
         ]
 
 
-class ProgramMembershipWriteSerializer(serializers.ModelSerializer[ProgramMembership]):
-    """Write serializer — accepts user (UUID), role, and the freeform role_title.
+class ProgramMembershipWriteSerializer(
+    _ReachableMembershipTargetMixin, serializers.ModelSerializer[ProgramMembership]
+):
+    """Write serializer — accepts user, role, and the freeform role_title.
+
+    ``user`` is the stock ``auth.User`` **integer** primary key, bounded to
+    :func:`reachable_membership_targets` on add and refused entirely on
+    ``partial_update`` (#3641) — the project twin carries the same constraint for the
+    same reason.
 
     ``program`` is injected from the URL. ``role_title`` (#565) is optional; the
-    view gates *who* may set it (role/user reassignment stays Owner-only, while a
+    view gates *who* may set it (a role change stays Owner-only, while a
     role_title-only PATCH is allowed at Admin+).
     """
+
+    # Empty by construction — see the project twin.
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.none(),
+        error_messages={"does_not_exist": _UNREACHABLE_TARGET_ERROR},
+    )
 
     class Meta:
         model = ProgramMembership
