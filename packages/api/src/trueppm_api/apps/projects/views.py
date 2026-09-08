@@ -878,7 +878,8 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     They are shared org-level resources — not scoped to a single project.
 
     Read access: any authenticated user.
-    Write operations: org admin (Project Manager+ on at least one project).
+    Write operations: org admin (Project Manager+ on at least one *active* project —
+    #3569 stopped counting memberships on archived and soft-deleted projects).
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
@@ -908,6 +909,14 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
+        # Deliberately still IsOrgAdmin, though this surface meets the test stated in
+        # IsWorkspaceOperator's docstring (a calendar edit fans a CPM recompute to
+        # every bound project, including ones the actor cannot see). #3174 already
+        # decided this exact reach and chose attribution — a CALENDAR_CHANGED audit
+        # event naming the actor — over a raised gate; #3569 is a hardening fix and
+        # does not reopen a closed ADR. Tracked as #3600 and recorded as a known
+        # residual in ADR-0034's #3569 amendment. Do not read this as the
+        # derivation being right here.
         return [IsAuthenticated(), IsOrgAdmin()]
 
     def get_queryset(self) -> QuerySet[Calendar]:
@@ -1156,8 +1165,8 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     parent Calendar.server_version (so the change rides the existing calendar
     sync delta) and fans out a CPM recompute to affected projects.
 
-    Read access: any authenticated user. Writes: org admin (Project Manager+),
-    mirroring CalendarViewSet.
+    Read access: any authenticated user. Writes: org admin (Project Manager+ on at
+    least one *active* project, #3569), mirroring CalendarViewSet.
     """
 
     serializer_class = CalendarExceptionSerializer
@@ -1165,6 +1174,8 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
+        # Same deliberate exception as CalendarViewSet.get_permissions — see the note
+        # there before "fixing" this to IsWorkspaceOperator (#3174, #3569).
         return [IsAuthenticated(), IsOrgAdmin()]
 
     def get_queryset(self) -> QuerySet[CalendarException]:

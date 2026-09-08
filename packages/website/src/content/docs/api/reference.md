@@ -1528,17 +1528,34 @@ exceed the OSS simulation cap or the request returns `402`. See
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
-| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) |
-| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated |
-| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource (org admin only) |
+| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — **workspace Admin only from 0.4** |
+| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated; **workspace Admin only from 0.4** |
+| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource — **workspace Admin only from 0.4** |
+
+Creating and updating catalog rows requires the Project Manager or Project Admin
+role on at least one **active** project. From 0.4, deactivating and restoring a
+row, listing the deactivated pool with `?include_deleted=true`, and reading
+`assignments/` require the **workspace Admin** role.
+Those surfaces reach every project in the installation, and a project role cannot
+bound them: project creation is deliberately open, so any account can hold Owner
+on a project of its own.
 
 The resource catalog is readable by any authenticated user, so the `email` field
-is **gated** to prevent org-wide address harvesting: org admins (Admin or Owner
-on any project, or superusers) receive `email` on every row, and a caller
+is **gated** to prevent org-wide address harvesting. From 0.4 only a workspace
+Admin receives `email` on catalog rows (previously any org admin), and a caller
 always sees their own email (`is_me: true`). For all other callers the `email`
-field is **omitted** from the payload entirely. A per-user throttle of **60 req/min**
+field is **omitted** from the payload entirely — absent means *withheld*, not
+"this person has no address". `?search=` matches `email` only for a workspace Admin;
+everyone else searches by name alone. A per-user throttle of **60 req/min**
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
+
+:::caution[Catalog endpoints only]
+This gating covers the resource **catalog**. The project and program
+`resource-allocation` endpoints and `GET /api/v1/projects/{id}/export/` build their
+responses separately and still include `email` for resources attached to a project
+you administer.
+:::
 
 The list endpoint's two project-scoped filters are gated the same way, for the
 same reason. `?exclude_project=<project id>` drops the resources already on that
@@ -1547,15 +1564,17 @@ that task's skill requirements — both reach through an open catalog read into 
 project's data, so both are honored **only for members of the project they name**.
 For a non-member the parameter is ignored and the response is identical to
 omitting it, so neither filter can be used to confirm that a project or task id
-exists. `?include_deleted=true` is likewise honored only for org admins.
+exists. `?include_deleted=true` is likewise honored only for a workspace Admin.
 
 `assignments/` returns every task the resource is assigned to, across **all**
 projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
 Because it carries task and project **names** — project-scoped confidential data
-that the base catalog read deliberately withholds — it requires **org-admin**
-(resource-manager: Admin or Owner on any project); other callers receive
-`403 Forbidden`. It is a read-only projection: no utilization score, no
+that the base catalog read deliberately withholds — from 0.4 it requires the
+**workspace Admin** role; every other caller, project
+admins included, receives `403 Forbidden`. For the membership-scoped view of one
+person's assignments, use `GET /api/v1/task-resources/?resource=<id>`, which needs
+no elevated role. It is a read-only projection: no utilization score, no
 overallocation flag, and no cross-program rollup. Each row carries:
 
 | Field | Type | Description |
