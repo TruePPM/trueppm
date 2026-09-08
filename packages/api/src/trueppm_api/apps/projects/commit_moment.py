@@ -185,12 +185,20 @@ def _assigned_resource_ids(project: Project) -> list[str]:
 
     This is the audience a commit *concerns*, and the caller may say so — it is
     not a record of anyone having been told. Nothing here notifies (#3129).
+
+    ``.active()`` (#3572): by its own reasoning above this is a capacity read —
+    it counts who is carrying load in the plan — so a deactivated person, whose
+    assignment rows are retained only for audit, is not in it. That is the line
+    against the notification audiences in ``config_notice`` and ``amend``, which
+    stay unfiltered: those decide who *receives* something, which is an access
+    question and belongs to #3584.
     """
     from trueppm_api.apps.resources.models import TaskResource
 
     return [
         str(rid)
-        for rid in TaskResource.objects.filter(task__project_id=project.pk, task__is_deleted=False)
+        for rid in TaskResource.objects.active()
+        .filter(task__project_id=project.pk, task__is_deleted=False)
         .values_list("resource_id", flat=True)
         .distinct()
     ]

@@ -263,38 +263,59 @@ class TestAssigneeIsOverallocatedUsesEffectiveCapacity:
 
         assert self._flag(client, task) is False
 
-    def test_a_live_roster_row_wins_even_for_a_soft_deleted_resource(
+    def test_retiring_a_rostered_resource_drops_its_load_from_the_flag(
         self, client: APIClient, project: Project, owner: Any
     ) -> None:
-        """The two capacity candidates filter soft-deletes asymmetrically on purpose.
+        """The roster candidate supplies the capacity; #3572 then removes the load.
 
-        A live roster row is an explicit per-project statement and stands on its own,
-        so it applies even when the catalog row behind it has been retired. Only the
-        user-link FALLBACK excludes soft-deleted resources, so a retired resource
-        nobody put on this project cannot supply a capacity. Pinned because the
-        asymmetry reads like an oversight.
+        The live half is what pins ``roster_capacity_subq``: 0.6 units against a
+        0.5 roster override is over capacity, and only that candidate can produce
+        the 0.5. Retiring the catalog row then flips the flag OFF, because #3572
+        filters assignments through ``TaskResource.objects.active()`` *before*
+        either capacity candidate is consulted.
+
+        This used to assert the opposite (True after the soft-delete), pinning the
+        candidates' deliberate asymmetry: the roster candidate does not filter
+        soft-deletes while the user-link fallback does. That asymmetry still
+        exists in the two subqueries, but it is no longer reachable through this
+        endpoint — a retired resource contributes no load for a capacity to be
+        compared against. The drawer now agrees with the heat map, the utilization
+        view and program contention, which drop the same rows.
         """
         resource = _resource("Ada", user=owner)
         _roster(project, resource, "0.5")
-        resource.is_deleted = True
-        resource.save(update_fields=["is_deleted"])
         task = _task(project, assignee=owner)
         TaskResource.objects.create(task=task, resource=resource, units=Decimal("0.6"))
 
+        # Not vacuous: the flag is genuinely on while the resource still counts.
         assert self._flag(client, task) is True
 
-    def test_a_soft_deleted_resource_with_no_roster_row_falls_back_to_1_0(
-        self, client: APIClient, project: Project, owner: Any
-    ) -> None:
-        """The other half of the asymmetry: no roster row, retired resource at 1.5 —
-        the fallback skips it, so the flat 1.0 stands and 1.2 units is over."""
-        resource = _resource("Ada", max_units="1.5", user=owner)
         resource.is_deleted = True
         resource.save(update_fields=["is_deleted"])
+        assert self._flag(client, task) is False
+
+    def test_retiring_an_unrostered_resource_drops_its_load_too(
+        self, client: APIClient, project: Project, owner: Any
+    ) -> None:
+        """The same removal on the other capacity candidate.
+
+        No roster row, so the 1.5 can only come from ``resource_capacity_subq``
+        (the user-link fallback); 1.6 units is over it. Retiring the resource then
+        drops the assignment entirely.
+
+        Pre-#3572 this flipped the other way: the fallback excluded soft-deleted
+        resources, so retiring one made the flat 1.0 default apply and turned the
+        flag ON. The load is now gone before that choice is reached.
+        """
+        resource = _resource("Ada", max_units="1.5", user=owner)
         task = _task(project, assignee=owner)
-        TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.2"))
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.6"))
 
         assert self._flag(client, task) is True
+
+        resource.is_deleted = True
+        resource.save(update_fields=["is_deleted"])
+        assert self._flag(client, task) is False
 
 
 # ---------------------------------------------------------------------------

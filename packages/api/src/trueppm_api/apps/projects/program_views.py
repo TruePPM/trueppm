@@ -1691,8 +1691,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # _span_start (ADR-0752 / #2677): the task's SPAN start, not the
         # remaining-work window early_start narrows to as percent_complete
         # rises. Mirrors the per-project resource_allocation annotation.
+        # ``.active()`` (#3572): mirrors the per-project resource_allocation endpoint.
+        # Contention is a statement about who is over-committed across sibling
+        # projects; a deactivated person is not competing for anything.
         qs = (
-            TaskResource.objects.filter(
+            TaskResource.objects.active()
+            .filter(
                 task__project_id__in=member_project_ids,
                 task__is_deleted=False,
             )

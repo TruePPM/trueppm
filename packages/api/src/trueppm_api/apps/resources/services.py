@@ -94,12 +94,17 @@ def rostered_resource_ids(project: Project) -> set[str]:
     with no project FK, so resolving against it would let a value authored on one
     project bind to a person who is a member of none of the caller's — the
     reach-across-projects hole ``data-interchange.spec.md`` §5.3 exists to close.
+
+    ``.active()`` (#3572) so a deactivated person cannot be bound as an owner by an
+    ``@mention`` or an import column: they are off the roster, and an authoring
+    surface that still resolved them would re-create the very membership the
+    deactivation removed.
     """
     return {
         str(rid)
-        for rid in ProjectResource.objects.filter(project=project, is_deleted=False).values_list(
-            "resource_id", flat=True
-        )
+        for rid in ProjectResource.objects.active()
+        .filter(project=project)
+        .values_list("resource_id", flat=True)
     }
 
 

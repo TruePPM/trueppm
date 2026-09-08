@@ -211,6 +211,26 @@ A new `?include_deleted=true` query param surfaces them for the admin
 "Show deactivated" toggle. A `POST /api/v1/resources/{id}/restore/`
 custom action flips `is_deleted` back to `False`.
 
+> **Amended 2026-09-08 (#3572) — the `ProjectResource` half of this section no
+> longer holds.** The decision above is retained as written because it explains
+> why the code looked the way it did, but two of its claims have since changed:
+>
+> 1. **`ProjectResource` rows no longer "remain intact".** Deactivation now
+>    cascades: every live roster row is soft-deleted and stamped
+>    `deactivated_with_resource`, and `restore` reverses exactly those rows.
+>    `TaskResource` rows *are* still retained, and that half of the reasoning
+>    above stands — assignment history has to survive an off-boarding.
+> 2. **The "queryable for historical capacity reports" framing was the bug.**
+>    Nothing downstream read `is_deleted` at all, so a deactivated person kept
+>    appearing in every *current* capacity surface — roster, heat map, headcount,
+>    and the team-utilization denominator — not merely in historical ones. Those
+>    reads now filter through `ResourceScopedManager.active()`; the audit reads
+>    deliberately do not.
+>
+> The `perform_destroy` listing above is the pre-#3572 implementation and is kept
+> for the record. See `packages/api/src/trueppm_api/apps/resources/views.py` for
+> the current one.
+
 ### 3. Frontend page: `/resources/`
 
 A two-pane layout consistent with the project roster page from #149:
