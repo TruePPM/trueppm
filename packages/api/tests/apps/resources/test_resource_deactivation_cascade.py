@@ -38,6 +38,7 @@ from trueppm_api.apps.resources.models import (
     TaskResource,
 )
 from trueppm_api.apps.resources.services import rostered_resource_ids
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -71,13 +72,17 @@ def project(cal: Calendar, program: Program) -> Project:
 
 @pytest.fixture
 def admin(project: Project, program: Program) -> Any:
-    """One user who is org admin, project Scheduler+, and program Scheduler+.
+    """One user who is workspace Admin, project Scheduler+, and program Scheduler+.
 
-    OWNER on the project satisfies ``IsOrgAdmin`` (derived from membership, no
-    separate org-admin entity in OSS) as well as every project-scoped gate the
-    capacity endpoints apply; the program membership covers resource-contention.
+    The workspace ADMIN membership is what ``IsWorkspaceAdminStrict`` requires on
+    deactivate and restore — #3569 raised those two off ``IsOrgAdmin``, which a
+    project OWNER satisfied on its own. The project and program OWNER rows still
+    cover every project-scoped capacity gate and resource-contention.
     """
     user = User.objects.create_user(username="pm_3572", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=user, role=WorkspaceRole.ADMIN
+    )
     ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
     ProgramMembership.objects.create(program=program, user=user, role=Role.OWNER)
     return user
