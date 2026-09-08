@@ -143,11 +143,12 @@ describe('fitToAllocationWindow', () => {
         {
           id: 'r1',
           name: 'Alice',
-          email: 'alice@example.com',
           max_units: '1.00',
           tasks: tasks.map((t, i) => makeTask(`a${i}`, t.start, t.finish, '1.00')),
         },
       ],
+      resource_count: 1,
+      truncated: false,
     };
   }
 
@@ -186,6 +187,8 @@ describe('fitToAllocationWindow', () => {
       window_start: '2026-03-02',
       window_end: '2026-03-31',
       resources: [],
+      resource_count: 0,
+      truncated: false,
     };
     const win = fitToAllocationWindow('2026-03-02', data);
     // minStart = maxEnd = projectStartDate
@@ -338,7 +341,6 @@ describe('fitToAllocationWindow — SPAN start, not remaining-work window (#2677
         {
           id: 'r1',
           name: 'Alice',
-          email: 'alice@example.com',
           max_units: '1.00',
           tasks: [
             // Remaining window (early_start) is Mar 20; real span starts Mar 10.
@@ -346,6 +348,8 @@ describe('fitToAllocationWindow — SPAN start, not remaining-work window (#2677
           ],
         },
       ],
+      resource_count: 1,
+      truncated: false,
     };
     const win = fitToAllocationWindow('2026-03-15', data);
     expect(win.start).toBe(formatISODate(isoWeekMonday(parseUTCDate('2026-03-10'))));

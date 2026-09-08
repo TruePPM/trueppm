@@ -1415,31 +1415,68 @@ class IsProgramNotClosed(BasePermission):
         return not _is_program_closed(request, program_id)
 
 
+def has_org_role_from_live_project(user: Any, floor: int) -> bool:
+    """Return True when ``user`` holds ``floor`` or above on a *live* project (#3569).
+
+    The single derivation behind :class:`IsOrgScheduler` and :class:`IsOrgAdmin`, and
+    its only two callers. Superusers bypass.
+
+    ``apps.resources`` used to carry two hand-copied mirrors of this query — one in
+    ``ResourceSerializer`` gating email exposure, one in ``views`` gating email search
+    and the deactivated pool. They are *not* callers of this helper: #3569 moved both
+    to :func:`~trueppm_api.apps.workspace.permissions.is_workspace_admin` (the stored
+    ``WorkspaceRole.ADMIN``), so there is nothing left to keep in sync with this
+    function. Do not add a third copy of the query; if a new surface needs the org
+    derivation, call this.
+
+    **Both soft-deleted and archived projects are excluded, and that is the point.**
+    The historical filter was ``ProjectMembership.objects.filter(user=…,
+    role__gte=…, is_deleted=False)`` — the ``is_deleted`` there is the *membership's*
+    flag, so the project's own ``is_deleted`` / ``is_archived`` were never consulted.
+    A project that had been deleted or archived years ago still conferred live
+    org-wide authority on everyone who had once been its PM, and nothing anywhere
+    revoked it. Archived is the stronger case of the two: the project is declared
+    hard read-only, so continuing to read *authority* out of it contradicts the
+    declaration that made it read-only.
+
+    This narrows the derivation; it does not make it trustworthy. Project roles are
+    self-grantable by design (creating a project makes you its Owner, and that must
+    not change), so no filter here turns membership into an org principal. Surfaces
+    that are irreversible or exfiltrating use :class:`IsWorkspaceOperator` instead
+    (ADR-0213 C1); this gate is for the shared catalogs whose blast radius is a
+    curation mistake rather than a disclosure.
+    """
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser:
+        return True
+    return ProjectMembership.objects.filter(
+        user=user,
+        role__gte=floor,
+        is_deleted=False,
+        project__is_deleted=False,
+        project__is_archived=False,
+    ).exists()
+
+
 class IsOrgScheduler(BasePermission):
     """Org-level scheduler gate for the global skill catalog (#254).
 
     Skill and ResourceSkill catalogs are org-shared, not project-scoped. Their
-    write intent is "SCHEDULER+ on at least one project" — equivalent to
-    IsOrgAdmin's pattern but at the SCHEDULER floor instead of ADMIN.
+    write intent is "SCHEDULER+ on at least one *live* project" — equivalent to
+    IsOrgAdmin's pattern but at the SCHEDULER floor instead of ADMIN. Memberships
+    on archived or soft-deleted projects do not count (#3569).
 
     Django superusers bypass the membership check.
     """
 
     message = (
-        "You need at least Resource Manager role on at least one project "
+        "You need at least Resource Manager role on at least one active project "
         "to manage the skill catalog."
     )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if request.user.is_superuser:
-            return True
-        return ProjectMembership.objects.filter(
-            user=request.user,
-            role__gte=Role.SCHEDULER,
-            is_deleted=False,
-        ).exists()
+        return has_org_role_from_live_project(request.user, Role.SCHEDULER)
 
 
 class IsOrgAdmin(BasePermission):
@@ -1447,12 +1484,28 @@ class IsOrgAdmin(BasePermission):
 
     OSS has no separate org-admin entity. Admin authority is derived from
     project membership: any user with Project Manager (ADMIN, 3) or Owner
-    (4) role on at least one project may manage the resource catalog.
+    (4) role on at least one *live* project may manage the resource catalog.
+    Memberships on archived or soft-deleted projects do not count (#3569).
 
     Django superusers bypass the membership check.
 
     Enterprise installs satisfy this check implicitly — their admins always
     have at least one project with ADMIN role.
+
+    **This gate is not an org principal and must not be used as one (#3569).**
+    Creating a project makes the creator its Owner, and nothing gates project
+    creation — so any authenticated account can reach ADMIN on a project of its
+    own in one request. That is correct behavior for a project role and fatal for
+    an org-wide one. Surfaces whose blast radius is the whole install and whose
+    effect is irreversible or exfiltrating therefore use a **stored** principal,
+    not this gate. Which stored principal depends on the surface: routine
+    install-wide work (the resource catalog's deactivation lifecycle, its email
+    exposure, the cross-project assignments view) uses
+    :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict`, the
+    workspace ADMIN role, which an owner can grant in-app; set-once infrastructure
+    (mail transport) uses :class:`IsWorkspaceOperator`, the install superuser
+    (ADR-0213 C1). What is left on *this* gate is shared-catalog curation, where the
+    worst outcome is a bad edit another admin can revert.
 
     Note: this used to claim that enterprise overrides (LDAP group claims, SAML
     attributes) are "injected via signals/middleware before this check runs".
@@ -1462,19 +1515,30 @@ class IsOrgAdmin(BasePermission):
     """
 
     message = (
-        "You need Project Manager role on at least one project to manage the resource catalog."
+        "You need Project Manager role on at least one active project "
+        "to manage the resource catalog."
     )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if request.user.is_superuser:
-            return True
-        return ProjectMembership.objects.filter(
-            user=request.user,
-            role__gte=Role.ADMIN,
-            is_deleted=False,
-        ).exists()
+        return has_org_role_from_live_project(request.user, Role.ADMIN)
+
+
+def is_workspace_operator(user: Any) -> bool:
+    """Return True when ``user`` is the install operator — a Django superuser (#3569).
+
+    The single definition behind :class:`IsWorkspaceOperator`, and as of #3569 its
+    only caller. It gates the install-global *infrastructure* config — mail
+    transport (ADR-0213 C1) and the notification transport views.
+
+    An earlier revision of this branch also routed the resource catalog's email
+    exposure and deactivated pool through here. Those moved to
+    :func:`~trueppm_api.apps.workspace.permissions.is_workspace_admin` when #3569 was
+    re-gated onto the **stored** ``WorkspaceRole.ADMIN``: the defect being fixed is
+    that org authority was *self-grantable*, not that it was insufficiently powerful,
+    and a stored role answers that while remaining grantable in-app. Superuser stays
+    the right floor for set-once infrastructure, which is what is left here.
+    """
+    return bool(user is not None and getattr(user, "is_authenticated", False) and user.is_superuser)
 
 
 class IsWorkspaceOperator(BasePermission):
@@ -1489,12 +1553,42 @@ class IsWorkspaceOperator(BasePermission):
     superuser. In OSS there is no separate org-operator entity, so superuser is
     the correct and only such principal; Enterprise may widen this via a
     registered override without changing the OSS baseline.
+
+    **Scope: set-once infrastructure only. This gate does NOT cover the resource
+    catalog.** An intermediate revision of #3569 routed the catalog's deactivation
+    lifecycle, ``email`` exposure and the cross-project assignments view here; they
+    were re-gated onto
+    :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict` before
+    merge. The live callers of this class are the notification transport views.
+
+    The reason that split is the right one, and the rule for choosing next time: the
+    defect #3569 fixed was that org authority came from a *self-grantable* project
+    role, **not** that it was insufficiently powerful. Any stored principal answers
+    that. So pick by how often the work happens, not by how bad it would be —
+    deactivating a departed employee is routine and belongs on a role an owner can
+    grant in-app (workspace ADMIN); repointing outbound mail is set-once and belongs
+    on the install operator, because there is no in-app grant path for a superuser
+    and there should not need to be one.
+
+    **One claim above is stale; it is kept because it is load-bearing for why this
+    class exists, and corrected here rather than silently rewritten.** "In OSS there
+    is no separate org-operator entity" was true for #712 and is false now:
+    ``workspace.models.WorkspaceRole`` / ``WorkspaceMembership`` is a **stored**
+    workspace tier (MEMBER/ADMIN/OWNER), granted only by an existing workspace admin
+    or by SSO provisioning, and therefore not self-grantable. Do not cite this
+    docstring as evidence that no stored workspace principal exists — that reading is
+    what sent #3569's first pass to superuser.
+    A second stale claim: "Enterprise may widen this via a registered override"
+    describes no seam that exists — there is no registration hook for this class
+    anywhere in the tree. It is the same false-seam class :class:`IsOrgAdmin` records
+    for itself under #2609. Treat the superuser test as the whole story until such a
+    seam is actually built.
     """
 
     message = "Only a workspace operator (superuser) may change this setting."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+        return is_workspace_operator(request.user)
 
 
 class CanAssignResource(BasePermission):

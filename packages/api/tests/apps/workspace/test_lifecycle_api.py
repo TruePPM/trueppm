@@ -24,8 +24,14 @@ from trueppm_api.apps.workspace.models import (
     MemberStatus,
     Workspace,
     WorkspaceExportJob,
+    WorkspaceInvite,
     WorkspaceMembership,
     WorkspaceRole,
+)
+from trueppm_api.apps.workspace.tasks import (
+    _send_export_ready_email,
+    _send_invite_email,
+    run_workspace_export,
 )
 
 User = get_user_model()
@@ -414,3 +420,129 @@ def test_export_ready_email_handles_send_failure(owner: object) -> None:
     job = WorkspaceExportJob.objects.create(requested_by=owner)
     with patch("django.core.mail.EmailMessage.send", side_effect=RuntimeError("smtp down")):
         assert _send_export_ready_email(str(job.id)) is False
+
+
+# ---------------------------------------------------------------------------
+# Export-ready notice for a deactivated (off-boarded) requester (#3585)
+# ---------------------------------------------------------------------------
+
+
+class TestDeactivatedExportRequester:
+    """The export-ready notice must not reach an off-boarded account.
+
+    Off-boarding is a second revocation axis independent of membership: it sets
+    ``User.is_active = False`` and leaves the export job (and every project/program
+    membership) intact, so a job queued while the requester was active and completed
+    after off-boarding still announced a full workspace data export to an address the
+    account no longer controls.
+
+    Every test here runs against a **dead transport**. That is the correction !2399
+    had to make on the sibling fix (#3523): with a mocked-*successful* send the
+    suppressed path and the delivering path land on the same observable end state
+    (no exception, job SUCCESS, ``error_detail`` empty), so the assertions would hold
+    on the unfixed build and prove nothing. Killing the transport separates
+    "never attempted" from "attempted and delivered".
+    """
+
+    @pytest.mark.django_db
+    def test_a_deactivated_requester_is_never_mailed(self, owner: object) -> None:
+        """The repro. On the unfixed build ``send`` is reached and this fails."""
+        job = WorkspaceExportJob.objects.create(requested_by=owner)
+        User.objects.filter(pk=owner.pk).update(is_active=False)
+
+        with patch(
+            "django.core.mail.EmailMessage.send", side_effect=RuntimeError("smtp down")
+        ) as send:
+            assert _send_export_ready_email(str(job.id)) is False
+
+        assert send.call_count == 0
+        assert mail.outbox == []
+
+    @pytest.mark.django_db
+    def test_suppression_is_not_recorded_as_a_delivery_failure(self, owner: object) -> None:
+        """An off-boarding must not read as a broken mail relay.
+
+        There is no outbox row to retire on this rail — the notice is a single-shot
+        send off the back of ``run_workspace_export``, already terminal at
+        ``SUCCESS`` — so the analog of !2399's "clear ``email_pending`` only, leave
+        ``email_attempts``/``email_failed_at`` untouched" is that the floor sits
+        *above* the transport and the budget. The unfixed build resolves the
+        transport, fails to build it, and logs ``mail transport unusable`` — the
+        operator-facing relay signal — for what is a personnel change.
+        """
+        job = WorkspaceExportJob.objects.create(requested_by=owner)
+        User.objects.filter(pk=owner.pk).update(is_active=False)
+
+        with (
+            patch(
+                "trueppm_api.apps.notifications.email_backend.resolve_email_connection",
+                side_effect=RuntimeError("transport unusable"),
+            ) as resolve,
+            patch("trueppm_api.apps.notifications.delivery_limits.note_unbudgeted_send") as charge,
+        ):
+            assert _send_export_ready_email(str(job.id)) is False
+
+        resolve.assert_not_called()
+        charge.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_the_job_still_reaches_a_terminal_state(self, owner: object) -> None:
+        """Suppressing the notice must not strand or fail the job itself.
+
+        The archive is built and the row lands on ``SUCCESS`` with no
+        ``error_detail``, so nothing re-dispatches it: ``drain_workspace_exports``
+        only re-sends rows still ``PENDING``. The notice cannot retry forever because
+        there is no queue behind it.
+        """
+        job = WorkspaceExportJob.objects.create(requested_by=owner)
+        User.objects.filter(pk=owner.pk).update(is_active=False)
+
+        with patch(
+            "django.core.mail.EmailMessage.send", side_effect=RuntimeError("smtp down")
+        ) as send:
+            run_workspace_export.run(str(job.id))
+
+        assert send.call_count == 0
+        job.refresh_from_db()
+        assert job.status == ExportJobStatus.SUCCESS
+        assert job.error_detail == ""
+        assert job.file_path
+        assert mail.outbox == []
+
+    @pytest.mark.django_db
+    def test_an_active_requester_is_still_mailed(self, owner: object) -> None:
+        """The floor must claim only the deactivated requester's notice."""
+        job = WorkspaceExportJob.objects.create(requested_by=owner)
+
+        with patch("django.core.mail.EmailMessage.send", return_value=1) as send:
+            assert _send_export_ready_email(str(job.id)) is True
+
+        assert send.call_count == 1
+
+    @pytest.mark.django_db
+    def test_the_invite_rail_is_deliberately_not_floored(self, owner: object) -> None:
+        """``_send_invite_email`` stays unguarded, and this pins why.
+
+        An invite addresses a raw ``WorkspaceInvite.email`` for someone who has no
+        account yet, so ``is_active`` is not the right axis; the invite's revocation
+        axis is its own ``status``/``expires_at``. Re-inviting an off-boarded person
+        is a legitimate act, so an address that collides with a deactivated user's
+        must still send. Passes on the unfixed build too, by design — it is the
+        ceiling on the fix, not a repro.
+        """
+        User.objects.filter(pk=owner.pk).update(is_active=False)
+        invite = WorkspaceInvite.objects.create(
+            workspace=Workspace.load(),
+            email=owner.email,
+            role=WorkspaceRole.MEMBER,
+            invited_by=owner,
+            token_hash="d" * 64,
+            email_token="raw-token",
+            email_pending=True,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+
+        with patch("django.core.mail.EmailMessage.send", return_value=1) as send:
+            assert _send_invite_email(invite) is True
+
+        assert send.call_count == 1

@@ -3624,11 +3624,21 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # closer. See ADR-0035 § Q5.
 
     # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
-    # True when the assignee's TaskResource.units across active tasks in this
-    # project sum to > 1.0.  Annotated by TaskViewSet.get_queryset(); defaults
-    # to False so the drawer never shows a stale warning when called outside the
-    # viewset (e.g. in tests or nested serializers).
-    assignee_is_overallocated = serializers.BooleanField(read_only=True, default=False)
+    # Annotated by TaskViewSet.get_queryset(); defaults to False so the drawer never
+    # shows a stale warning when called outside the viewset (e.g. in tests or nested
+    # serializers). The comparison basis is published in help_text because it changed
+    # meaning without changing type (#3574) — it was a hardcoded 1.0.
+    assignee_is_overallocated = serializers.BooleanField(
+        read_only=True,
+        default=False,
+        help_text=(
+            "True when the assignee's TaskResource.units across active tasks in this "
+            "project exceed their capacity ON THIS PROJECT. Capacity is resolved in "
+            "three steps: the roster units_override for the Resource that "
+            "Resource.user links to this assignee (0 included), else that Resource's "
+            "max_units, else 1.0 for an assignee with no Resource row at all."
+        ),
+    )
 
     # Sprint → milestone rollup payload (ADR-0074). Populated only on milestone
     # tasks with at least one live targeting sprint; ``None`` otherwise. The

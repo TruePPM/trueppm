@@ -40,7 +40,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -84,7 +83,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -126,7 +124,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -160,7 +157,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -195,7 +191,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -231,7 +226,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -270,7 +264,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -316,7 +309,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: '1.00',
             tasks: [
               {
@@ -350,7 +342,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r1',
             name: 'Pat',
-            email: '',
             max_units: 'invalid',
             tasks: [
               {
@@ -367,7 +358,6 @@ describe('useBoardOverallocation', () => {
           {
             id: 'r2',
             name: 'Sam',
-            email: '',
             max_units: '0', // zero max_units → skip (≤0 check)
             tasks: [
               {

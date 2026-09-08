@@ -9,6 +9,8 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router';
 import { useResources } from '@/hooks/useResources';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { ResourceList, ResourceListSkeleton } from './ResourceList';
 import { ResourceDetailPanel } from './ResourceDetailPanel';
 
@@ -30,6 +32,9 @@ export function ResourcesPage() {
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
   const [showDeactivated, setShowDeactivated] = useState(false);
+  // Fails closed while /auth/me is loading or absent, matching the server's floor.
+  const { user } = useCurrentUser();
+  const canSeeDeactivated = (user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<'view' | 'create'>('view');
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
@@ -81,17 +86,26 @@ export function ResourcesPage() {
           />
         </div>
 
-        <label className="flex items-center gap-2 min-h-11 md:min-h-0 text-xs text-neutral-text-secondary cursor-pointer select-none">
-          <input
-            type="checkbox"
-            role="switch"
-            aria-label="Show deactivated resources"
-            checked={showDeactivated}
-            onChange={(e) => setShowDeactivated(e.target.checked)}
-            className="w-3.5 h-3.5 rounded accent-brand-primary"
-          />
-          Show deactivated
-        </label>
+        {/*
+          `?include_deleted=true` is honored only for workspace Admins (#1374, raised
+          in #3569) and is *silently ignored* for everyone else — deliberately, since
+          a 403 would itself confirm the caller's tier. That makes an always-visible
+          toggle a dead control: flip it, nothing happens, no explanation. Render it
+          only for callers the server will actually honor it for.
+        */}
+        {canSeeDeactivated && (
+          <label className="flex items-center gap-2 min-h-11 md:min-h-0 text-xs text-neutral-text-secondary cursor-pointer select-none">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Show deactivated resources"
+              checked={showDeactivated}
+              onChange={(e) => setShowDeactivated(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-brand-primary"
+            />
+            Show deactivated
+          </label>
+        )}
 
         {/* Slot: resources_page.toolbar_end — Enterprise injects sync button here */}
         <div data-slot="resources_page.toolbar_end" />

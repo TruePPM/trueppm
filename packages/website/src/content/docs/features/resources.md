@@ -21,8 +21,38 @@ Enterprise edition.
 A **resource** has a name, email, job role, an optional calendar (to model individual
 availability), and a **max units** value expressing capacity — `1.0` is a full-time
 equivalent, `0.5` is half-time. Resources are Workspace-level: create them once and use
-them across projects. Removing a resource soft-deletes it, so historical assignments stay
-intact, and it can be restored later.
+them across projects.
+
+### Deactivating a resource
+
+Removing a resource **deactivates** it rather than deleting it. Its task assignments are
+kept, so the record of who did what survives an off-boarding — which is the moment that
+record matters most. Everything that describes the *current* team drops the person
+immediately:
+
+- they leave every project roster;
+- their load disappears from the resource heatmap, the daily utilization view, and the
+  allocation timeline;
+- they stop counting toward the project's headcount;
+- they stop contributing capacity to the **Team utilization** denominator, so the card
+  reports the remaining team getting busier rather than the team getting calmer;
+- they drop out of program resource contention and sprint capacity;
+- their skill tags stop appearing in the Workspace skill list.
+
+While a resource is deactivated it cannot be added to a roster, assigned to a task, or
+tagged with a skill — those writes are refused rather than silently creating a row no
+view would show.
+
+**Restoring** the resource reverses all of it, including the roster memberships the
+deactivation removed. A membership somebody had already ended by hand stays ended — a
+restore puts back what the deactivation took away and nothing else.
+
+:::note[Ships in 0.4]
+The downstream effects of deactivation ship in 0.4. Through 0.3 deactivation hides the
+resource from the catalog only: the person keeps a full row on every project roster, keeps
+drawing load on the heatmap and the allocation timeline, keeps being counted in headcount,
+and keeps contributing capacity to the Team utilization denominator.
+:::
 
 ## Skills and proficiency
 
@@ -40,7 +70,8 @@ results.
 
 - **Project roster** — add resources to a project before (or without) assigning them to
   specific work. A roster entry can override the resource's job role or capacity for that
-  project.
+  project. The **capacity override** says "this person is only half on this project"; see
+  [what the capacity override governs](#what-the-capacity-override-governs).
 - **Task assignment** — assign a resource to a task at a fractional **units** value (e.g.
   `0.5` for half their capacity). Assigning someone who isn't yet on the roster adds them
   automatically.
@@ -71,10 +102,17 @@ It does **not** compute a utilization score, flag overallocation, or roll up acr
 programs — cross-program resource leveling and portfolio heat maps remain part of
 the Enterprise edition.
 
-Because task and project names are project-scoped, the Assignments section is
-visible only to **resource managers** — org admins (Admin or Owner on at least one
-project). Other users still see the rest of the resource card (role, capacity,
-skills) but not the assignments list.
+Because task and project names are project-scoped, the Assignments section will be
+visible only to a **workspace Admin**. Everyone else, project admins included,
+still sees the rest of the resource card
+(role, capacity, skills) but not the assignments list. The view reaches into every
+project in the installation, and a project-level role does not carry that far: any
+account can create a project and become its Owner, so a project role cannot stand in
+for installation-wide authority.
+
+To see what someone is working on **within the projects you are a member of**, read
+`GET /api/v1/task-resources/?resource=<id>`, which is scoped to your own
+memberships and needs no elevated role.
 
 ## Skill-fit and overallocation warnings
 
@@ -104,6 +142,17 @@ share a working day are 80% allocated, not 240%. Two consequences are worth know
   window that could rule out an overlap, so it is treated as concurrent with everything
   else. This keeps the warning meaningful on a project whose schedule has not been
   calculated yet — which is often when the first assignments are made.
+- **A very large project may show a partial roster, and says when it does.** The
+  allocation timeline and the program contention view cap how many assignments one
+  response carries. The cut always lands on a whole person: someone is either shown with
+  every one of their in-window tasks, or left out and counted in a notice above the list
+  ("Showing 40 of 62 resources"). Nobody is ever shown with only part of their work,
+  because a partial view of a person would under-report exactly the overcommitment these
+  views exist to surface. The cap is set clear of the supported project size, so you
+  should not meet it. If you do, the notice names the remedy that surface actually
+  offers: the project allocation timeline can narrow the window or search by name, and
+  the program contention view — which has no filters yet — points you at a member
+  project's Resources view instead.
 
 :::note[Ships in 0.4]
 Date windowing on the overallocation warning ships in 0.4. Through 0.3 the warning sums a
@@ -129,7 +178,8 @@ Three details are worth knowing:
   assignments is idle capacity and lowers the percentage; someone assigned without
   being on the roster still brings their own capacity, so they cannot show up as a
   phantom overallocation. A per-project **capacity override** on the roster wins
-  over the resource's default max units.
+  over the resource's default max units — as it does on every other per-project
+  capacity read; see [what the capacity override governs](#what-the-capacity-override-governs).
 - **A task's load is measured over its full span, not its remaining work.**
 
   :::note[Ships in 0.4]
@@ -162,9 +212,55 @@ Clicking the card opens the Team view, which is available to the **Scheduler** r
 and above; for a Member or Viewer the card is a static read rather than a link into
 a permission error.
 
+## What the capacity override governs
+
+:::note[Ships in 0.4]
+Applying the roster capacity override beyond the Team utilization card ships in **0.4**.
+In the current release only that card reads it: the heatmap, the Team summary, the
+allocation timeline, the overallocation warnings and the project attention feed all
+measure against the resource's catalog-wide **max units**, so a person rostered at `0.5`
+and assigned `0.5` reads 100% on the Overview card and 50% on the heatmap one click away.
+:::
+
+A roster entry's **capacity override** is a statement about *this project*: "this person
+is only half on this project." From 0.4 every capacity figure scoped to a single project
+will measure against it rather than against the resource's catalog-wide max units:
+
+- the **resource heatmap** and the **Team summary** (weekly percent, over-allocated count)
+- **daily utilization** and its load bands — on track, at risk, over
+- the **Team utilization** KPI card on the project Overview
+- the **allocation timeline** on the project's Team view
+- the **overallocation warning** shown when you assign someone
+- the **overallocated** row in the project's attention feed, and the overallocation
+  indicator on a task
+- the **sprint capacity** preflight panel
+
+Two things it deliberately does not change:
+
+- **Cross-project views keep the resource's own max units.** A person's row in a
+  program's **resource contention** view spans several projects at once, so there is no
+  single project whose override applies — and the overrides are slices of one person's
+  time rather than capacities that add up. That view states the whole person.
+- **`0` means zero, not "unset."** An override of `0` is a real value — rostered on this
+  project, holding no capacity here — and is never read as an absent override. Clear the
+  field instead to fall back to the resource's max units.
+
+The overallocation indicator on a task changes for a second reason: it compared every
+assignee against a flat 100%, with no capacity figure at all. From 0.4 it reads the same
+capacity as everything else, so a person whose **max units** is not `1.0` is affected even
+with no override — someone at `1.5` stops being flagged at 130%, and someone at `0.8`
+starts being flagged at 90%. An assignee with no linked resource still uses 100%.
+
 ## What a resource manager can do today
 
-1. Maintain the Workspace resource catalog (name, email, role, capacity, calendar).
+1. Maintain the Workspace resource catalog (name, role, capacity, calendar). Email
+   addresses can be **set**, but from 0.4 the **catalog** endpoints will not return
+   them to anyone except a workspace Admin and the person the resource
+   represents — the catalog is readable by every signed-in user, so echoing every
+   address would make it an org-wide address book. Note this covers the catalog
+   endpoints only. The project and program **resource-allocation** views and the
+   project **seed export** build their responses separately and still include
+   `email` for resources attached to a project you administer.
 2. Maintain the Workspace skill catalog and tag resources with proficiency.
 3. Build per-project rosters with role and capacity overrides.
 4. Assign resources to tasks at fractional capacity.
@@ -174,8 +270,16 @@ a permission error.
    this-week percentage on the project Overview.
 8. See, from a resource's card, every task they are assigned to across all
    projects — grouped by project, read-only (ships in 0.4).
-9. Deactivate and restore resources; remove them from a roster (cascading task
-   assignments when forced).
+9. Deactivate and restore resources — deactivation takes the person off every
+   roster and out of every capacity figure while keeping their assignment history,
+   and restore reverses both (ships in 0.4). Remove them from a roster (cascading
+   task assignments when forced).
+
+**Deactivating or restoring a resource in the Workspace catalog will require the
+workspace Admin role from 0.4** — it soft-deletes a shared record and recalculates
+the schedule of every project that person is assigned to, including projects the
+actor cannot see. Taking someone off *your* project's roster is unchanged and stays
+with the Resource Manager role.
 
 ## API
 
@@ -183,9 +287,12 @@ The catalog and assignment surfaces are exposed under
 `/api/v1/resources/`, `/api/v1/skills/`, `/api/v1/resource-skills/`,
 `/api/v1/project-resources/`, `/api/v1/task-resources/`, and
 `/api/v1/task-skill-requirements/`. Reading resources requires any authenticated user.
-Editing the resource catalog requires the **Project Manager** or **Project Admin** role on
-at least one project; editing the skill catalog, rosters, and task assignments requires
-the **Resource Manager** role or above on at least one project.
+Creating and editing catalog resources requires the **Project Manager** or **Project
+Admin** role on at least one **active** project; editing the skill catalog, rosters,
+and task assignments requires the **Resource Manager** role or above on at least one
+**active** project. Roles held on an archived or deleted project will stop counting
+in 0.4 — an archived project is declared read-only, so it no longer confers authority
+anywhere else either.
 
 `POST /api/v1/skills/` de-duplicates on the case-insensitive normalized name, so
 posting a name that already exists is not an error. Telling the two apart from the
@@ -208,8 +315,21 @@ In `v0.3.0-alpha.3` (the latest release) these writes still succeed on an archiv
 project.
 :::
 
-A read-only cross-project assignments feed for one resource is exposed at
-`GET /api/v1/resources/{id}/assignments/` (ships in 0.4). Unlike
-`/api/v1/task-resources/?resource=`, it is **not** scoped to the caller's own
-projects — it returns the full cross-project set — so it requires org-admin
-(resource-manager) access.
+From 0.4 the following four surfaces will require the **workspace Admin** role
+rather than a project role:
+
+| Surface | Why |
+| --- | --- |
+| `DELETE /api/v1/resources/{id}/` and `POST .../restore/` | Soft-deletes a shared record and recalculates every project the person is assigned to. |
+| `email` on catalog rows, and `?search=` by email | The catalog is readable by every signed-in user; a project role would make it an org-wide address book. |
+| `?include_deleted=true` on the catalog | Enumerates the deactivated pool. |
+| `GET /api/v1/resources/{id}/assignments/` | Returns task and project names for one person across every project in the installation. |
+
+Each of these reaches the whole installation, and a project role cannot bound it:
+project creation is deliberately open, so any account can hold Owner on a project of
+its own. A workspace role is different — it is granted from **Settings → Members** by
+someone who already holds it (or by your identity provider, if you use SSO), so it
+cannot be self-assigned. If you are the only administrator of a fresh install, you
+already have it: an account with Django superuser rights and no workspace membership
+row resolves to workspace Owner. Use `GET /api/v1/task-resources/?resource=<id>` for the membership-scoped
+view of one person's assignments.
