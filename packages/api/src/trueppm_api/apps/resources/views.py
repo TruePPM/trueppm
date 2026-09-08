@@ -522,12 +522,27 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
             ),
         ],
     ),
+    create=extend_schema(
+        responses={
+            201: TaskSkillRequirementSerializer,
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks the Resource Manager role on the target task's project, "
+                    "or that project is archived (#3570). The project is reached only "
+                    "through the body's task here, so the refusal comes from the view "
+                    "rather than a permission class — the status and body are the same "
+                    "either way."
+                )
+            ),
+        },
+    ),
 )
 class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSkillRequirement]):
     """CRUD for skill requirements on tasks.
 
     Read: authenticated users scoped to their member projects.
-    Write: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).
+    Write: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),
+    and the requirement's task must live in a project that is not archived.
     """
 
     serializer_class = TaskSkillRequirementSerializer
@@ -539,7 +554,12 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
 
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
-        return [IsAuthenticated(), IsOrgScheduler()]
+        # ``IsProjectNotArchived`` fires object-level here — the route is top-level, so
+        # ``has_permission`` finds no project kwarg and stands down, and the detail
+        # routes resolve the project through ``TaskSkillRequirement.project_id``. The
+        # create path is covered in the body instead (see ``_require_scheduler_on_task``),
+        # because DRF never calls ``has_object_permission`` when there is no object yet.
+        return [IsAuthenticated(), IsOrgScheduler(), IsProjectNotArchived()]
 
     def _require_scheduler_on_task(self, task: Task) -> None:
         # IsOrgScheduler only proves SCHEDULER on *some* project; DRF never runs
@@ -559,6 +579,13 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
             raise PermissionDenied(
                 "You need at least Resource Manager role on the target task's project."
             )
+        # Archived is lifecycle state, not authority, so it is checked after the role
+        # floor and against the same target project. It is enforced HERE as well as by
+        # the class-level ``IsProjectNotArchived`` because this route is top-level: on a
+        # create there is no object for ``has_object_permission`` to resolve, and on an
+        # update that repoints ``task`` the object DRF checked is the OLD row, whose
+        # project may be live while the destination is archived (#3570).
+        assert_project_not_archived(task.project_id)
 
     def perform_create(self, serializer: BaseSerializer[TaskSkillRequirement]) -> None:
         self._require_scheduler_on_task(serializer.validated_data["task"])
