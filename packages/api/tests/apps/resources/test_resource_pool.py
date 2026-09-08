@@ -23,6 +23,7 @@ from trueppm_api.apps.resources.models import (
     TaskResource,
     TaskSkillRequirement,
 )
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -84,6 +85,55 @@ def resource(db: object) -> Resource:
     return Resource.objects.create(
         name="Alice", email="alice@example.com", max_units=Decimal("1.0")
     )
+
+
+@pytest.fixture
+def project_admin_user(db: object) -> object:
+    return User.objects.create_user(username="roster_project_admin", password="pw")
+
+
+@pytest.fixture
+def project_admin_membership(project_admin_user: object, project: Project) -> ProjectMembership:
+    return ProjectMembership.objects.create(
+        project=project, user=project_admin_user, role=Role.ADMIN
+    )
+
+
+@pytest.fixture
+def project_admin_client(
+    project_admin_user: object, project_admin_membership: ProjectMembership
+) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=project_admin_user)
+    return c
+
+
+@pytest.fixture
+def workspace_admin_user(db: object) -> object:
+    """A *stored* workspace ADMIN, not a project role — see #3569.
+
+    Deliberately not a member of ``project``: the roster read is scoped by project
+    membership, so this fixture is combined with a project-member role in tests that
+    need both (see ``workspace_admin_project_member_client``).
+    """
+    user = User.objects.create_user(username="roster_workspace_admin", password="pw")
+    ws = Workspace.objects.first() or Workspace.objects.create()
+    WorkspaceMembership.objects.create(workspace=ws, user=user, role=WorkspaceRole.ADMIN)
+    return user
+
+
+@pytest.fixture
+def workspace_admin_project_member_client(
+    workspace_admin_user: object, project: Project
+) -> APIClient:
+    """A workspace ADMIN who also holds a (low) project role, so they can read the
+    project-scoped roster (``ProjectResourceViewSet.get_queryset`` is scoped to
+    project membership regardless of workspace role).
+    """
+    ProjectMembership.objects.create(project=project, user=workspace_admin_user, role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(user=workspace_admin_user)
+    return c
 
 
 @pytest.fixture
@@ -428,6 +478,46 @@ class TestProjectResourceViewSet:
         res = scheduler_client.get(f"/api/v1/project-resources/?project={project.pk}")
         assert res.status_code == 200
         assert len(res.data["results"]) == 1
+
+
+@pytest.mark.django_db
+class TestProjectResourceEmailExposure:
+    """Regression guard for #3647: ``resource_detail`` nests ``ResourceSerializer``,
+
+    so the #3569 email-exposure gate (workspace ADMIN, not a self-grantable project
+    role) also strips ``email`` from ``GET /api/v1/project-resources/`` — a fifth
+    surface that #3569's own changelog, ADR-0034 amendment, and docs did not name.
+    A project ADMIN is exactly the role #3569 revoked this from: before it, holding
+    ADMIN on one's own project (self-grantable via ``POST /projects/``) was enough
+    to see every rostered person's address on that project's roster.
+    """
+
+    def test_project_admin_sees_no_email_key(
+        self,
+        project_admin_client: APIClient,
+        project: Project,
+        resource: Resource,
+        project_admin_membership: ProjectMembership,
+    ) -> None:
+        ProjectResource.objects.create(project=project, resource=resource)
+        res = project_admin_client.get(f"/api/v1/project-resources/?project={project.pk}")
+        assert res.status_code == 200
+        assert len(res.data["results"]) == 1
+        assert "email" not in res.data["results"][0]["resource_detail"]
+
+    def test_workspace_admin_sees_email(
+        self,
+        workspace_admin_project_member_client: APIClient,
+        project: Project,
+        resource: Resource,
+    ) -> None:
+        ProjectResource.objects.create(project=project, resource=resource)
+        res = workspace_admin_project_member_client.get(
+            f"/api/v1/project-resources/?project={project.pk}"
+        )
+        assert res.status_code == 200
+        assert len(res.data["results"]) == 1
+        assert res.data["results"][0]["resource_detail"]["email"] == "alice@example.com"
 
 
 # ---------------------------------------------------------------------------
