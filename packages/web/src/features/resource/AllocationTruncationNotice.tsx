@@ -8,7 +8,13 @@
  * over-committed must not conceal. Without this notice the roster reads as
  * complete and the omission is invisible.
  *
- * The cap sits above the supported project ceiling, so in practice this renders
+ * `remedy` is required rather than defaulted (web rule 408): the sentence telling
+ * the reader what to do is a claim about the *caller's* affordances, not this
+ * component's. `ResourceView` has a window nav and a resource filter; the program
+ * Contention page has neither, so hardcoding one sentence for both would send
+ * half the readers looking for controls that are not there.
+ *
+ * The cap sits above the supported project size, so in practice this renders
  * only for a project already outside the documented envelope.
  */
 interface Props {
@@ -16,18 +22,23 @@ interface Props {
   resourceCount: number;
   /** Resources actually present in the response. */
   shownCount: number;
+  /**
+   * What the reader can do about it *on this surface*. Must name a control that
+   * actually exists here — see the note above.
+   */
+  remedy: string;
 }
 
-export function AllocationTruncationNotice({ resourceCount, shownCount }: Props) {
+export function AllocationTruncationNotice({ resourceCount, shownCount, remedy }: Props) {
   const hidden = Math.max(0, resourceCount - shownCount);
   return (
     <div
       role="status"
-      className="mx-4 mt-3 rounded-card border border-semantic-warning/40 bg-semantic-warning-bg px-4 py-3 text-sm text-semantic-warning"
+      className="rounded-card border border-semantic-warning/40 bg-semantic-warning-bg px-4 py-3 text-sm text-semantic-warning"
     >
-      Showing {shownCount} of {resourceCount} resources. This project has more assignments
-      than a single response carries, so {hidden} {hidden === 1 ? 'resource is' : 'resources are'}{' '}
-      not listed. Narrow the window or filter to specific resources to see them.
+      Showing {shownCount} of {resourceCount} resources. There are more people assigned here
+      than this view can show at once, so {hidden}{' '}
+      {hidden === 1 ? 'resource is' : 'resources are'} not listed. {remedy}
     </div>
   );
 }

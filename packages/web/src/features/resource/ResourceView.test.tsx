@@ -679,6 +679,22 @@ describe('ResourceView truncation notice (#3576 / ADR-1118)', () => {
     expect(screen.queryByText(/Showing \d+ of \d+ resources/)).not.toBeInTheDocument();
   });
 
+  it('does not contradict itself when the cap dropped every resource', () => {
+    // If the first resource's own rows exceed the cap, the boundary rewind keeps
+    // nothing: `resources: []` with `truncated: true`. Rendering "No assignments
+    // in this window" under "60 resources are not listed" would state both
+    // halves of a contradiction on one screen.
+    allocationSuccess({
+      ...allocation([]),
+      resource_count: 60,
+      truncated: true,
+    });
+    render(<ResourceView projectId="proj-1" />);
+
+    expect(screen.getByText(/Showing 0 of 60 resources/)).toBeInTheDocument();
+    expect(screen.queryByText('No assignments in this window.')).not.toBeInTheDocument();
+  });
+
   it('keeps the notice on the unfiltered payload when the search box narrows the list', () => {
     // The search box hides rows too, but that hiding is the user's own doing and
     // already visible to them. Counting filtered rows in the notice would make

@@ -211,6 +211,11 @@ function TimelinePanel({
   onRunScheduler: () => void;
 }) {
   if (data.resources.length === 0) {
+    // `truncated` means the server had rows and dropped them all at the resource
+    // boundary (ADR-1118) — the notice above already says so. Claiming "no
+    // assignments in this window" underneath it would contradict it on the same
+    // screen, so the notice stands alone.
+    if (data.truncated && !resourceSearch.trim()) return null;
     return (
       <div className="flex items-center justify-center flex-1 text-xs text-neutral-text-secondary">
         {resourceSearch.trim() ? 'No resources match the filter.' : 'No assignments in this window.'}
@@ -502,10 +507,13 @@ export function ResourceView({
             `filteredAllocationData` reflects the client-side search box, whose
             own hiding is deliberate and already visible to the user. */}
         {viewMode === 'timeline' && allocationResult.data?.truncated && (
-          <AllocationTruncationNotice
-            resourceCount={allocationResult.data.resource_count}
-            shownCount={allocationResult.data.resources.length}
-          />
+          <div className="mx-4 mt-3">
+            <AllocationTruncationNotice
+              resourceCount={allocationResult.data.resource_count}
+              shownCount={allocationResult.data.resources.length}
+              remedy="Narrow the date window, or use the resource filter to search for someone by name."
+            />
+          </div>
         )}
 
         {viewMode === 'timeline' && filteredAllocationData && (

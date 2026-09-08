@@ -455,3 +455,74 @@ class TestResourceContentionCap:
         assert len(body["resources"]) == 2
         for resource in body["resources"]:
             assert len(resource["tasks"]) == 3
+
+    def test_cap_exactly_on_a_boundary_keeps_every_whole_resource(
+        self, program: Program, project_a: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The overflow row belongs to the NEXT resource, so nothing is over-trimmed.
+
+        Asserted here and not only on the per-project endpoint because this call
+        site orders on an extra column (``task__project_id``). If that ever moved
+        ahead of ``resource_id`` a resource's rows would stop being contiguous,
+        the boundary rewind would silently keep a partial resource, and no test in
+        the sibling file would notice.
+        """
+        from trueppm_api.apps.projects import program_views
+
+        client = _auth_client(Role.SCHEDULER, program)
+        _seed_contention(project_a, count=3, per_resource=2)  # 6 rows, 3 resources
+
+        monkeypatch.setattr(program_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 4)
+        body = client.get(_url(program)).json()
+
+        assert body["truncated"] is True
+        assert len(body["resources"]) == 2
+        assert all(len(r["tasks"]) == 2 for r in body["resources"])
+
+    def test_a_single_resource_overflowing_the_cap_yields_no_resources_at_all(
+        self, program: Program, project_a: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every fetched row belongs to one resource, so the rewind keeps nothing.
+
+        An empty list with ``truncated: true`` is the honest answer: a resource
+        returned with part of its cross-project spans would under-report exactly
+        the contention this endpoint exists to surface.
+        """
+        from trueppm_api.apps.projects import program_views
+
+        client = _auth_client(Role.SCHEDULER, program)
+        _seed_contention(project_a, count=1, per_resource=5)
+
+        monkeypatch.setattr(program_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 3)
+        body = client.get(_url(program)).json()
+
+        assert body["truncated"] is True
+        assert body["resources"] == []
+        assert body["resource_count"] == 1
+
+    def test_spans_stay_contiguous_per_resource_across_projects(
+        self, program: Program, project_a: Project, project_b: Project, janus: Resource
+    ) -> None:
+        """The SQL must group a resource's rows together, whatever project they came from.
+
+        Contiguity is the precondition the boundary rewind rests on. Ordering by
+        ``task__project_id`` first would interleave two resources' rows and make
+        the cap cut mid-resource without any error.
+        """
+        client = _auth_client(Role.SCHEDULER, program)
+        other = Resource.objects.create(
+            name="Aaron", email="aaron@trueppm.demo", max_units=Decimal("1.00")
+        )
+        for project in (project_a, project_b):
+            for resource in (janus, other):
+                task = _scheduled_task(
+                    project, f"{resource.name}-{project.name}", date(2026, 7, 6), date(2026, 7, 10)
+                )
+                TaskResource.objects.create(task=task, resource=resource, units=Decimal("0.50"))
+
+        body = client.get(_url(program)).json()
+
+        # Each person appears exactly once, holding both of their projects' spans.
+        assert [r["name"] for r in body["resources"]] == ["Aaron", "Janus"]
+        for row in body["resources"]:
+            assert sorted(t["project_name"] for t in row["tasks"]) == ["SOC2", "Security"]

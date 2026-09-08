@@ -79,15 +79,28 @@ export function ProgramResourcesPage() {
         <AllocationTruncationNotice
           resourceCount={data.resource_count}
           shownCount={data.resources.length}
+          // This page has no window nav and no resource filter, so it cannot
+          // offer the remedy the per-project timeline offers (web rule 408).
+          // Point at the surface that can, rather than naming a control that is
+          // not here.
+          remedy="This page has no filters yet — open a member project's Resources view, which can narrow the window and search by name."
         />
       )}
 
-      {status === 'success' && data && <ContentionList resources={data.resources} />}
+      {status === 'success' && data && (
+        <ContentionList resources={data.resources} truncated={data.truncated} />
+      )}
     </div>
   );
 }
 
-function ContentionList({ resources }: { resources: ProgramAllocationResource[] }) {
+function ContentionList({
+  resources,
+  truncated,
+}: {
+  resources: ProgramAllocationResource[];
+  truncated: boolean;
+}) {
   // Contended people first (the point of the view), then the server's
   // alphabetical order is preserved by the stable sort.
   const rows = useMemo(() => {
@@ -102,6 +115,11 @@ function ContentionList({ resources }: { resources: ProgramAllocationResource[] 
   }, [resources]);
 
   if (rows.length === 0) {
+    // An empty list under `truncated` means the cap dropped everything at the
+    // resource boundary (ADR-1118), not that nobody is assigned. The truncation
+    // notice above already states that; repeating the opposite here would
+    // contradict it on the same screen.
+    if (truncated) return null;
     return (
       <div
         role="status"

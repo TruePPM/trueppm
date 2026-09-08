@@ -640,3 +640,39 @@ class TestResourceAllocationCap:
         assert body["truncated"] is True
         assert body["resources"] == []
         assert body["resource_count"] == 1
+
+    def test_the_distinct_count_query_fires_only_when_the_cap_actually_cut(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`resource_count` must cost a query on the truncated path and only there.
+
+        The helper returns the already-known group count when nothing was cut, so
+        the common request pays nothing for the field. Without this test a
+        regression that made the COUNT unconditional would charge every
+        allocation read an extra aggregate and nothing would notice —
+        `test_query_count_is_flat_in_the_number_of_resources` compares two
+        untruncated requests to each other and would stay green.
+        """
+        from trueppm_api.apps.projects import views as project_views
+
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=4, per_resource=3)
+        assert client.get(_url(project)).status_code == 200  # warm caches
+
+        def distinct_counts(queries: list[dict[str, str]]) -> list[str]:
+            return [
+                q["sql"]
+                for q in queries
+                if "COUNT(" in q["sql"] and "DISTINCT" in q["sql"] and "resource_id" in q["sql"]
+            ]
+
+        with CaptureQueriesContext(connection) as untruncated:
+            body = client.get(_url(project)).json()
+        assert body["truncated"] is False
+        assert distinct_counts(untruncated.captured_queries) == []
+
+        monkeypatch.setattr(project_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 7)
+        with CaptureQueriesContext(connection) as truncated:
+            body = client.get(_url(project)).json()
+        assert body["truncated"] is True
+        assert len(distinct_counts(truncated.captured_queries)) == 1
