@@ -2709,7 +2709,11 @@ class ProjectViewSet(
                 description=(
                     "A downloadable canonical JSON seed document (ADR-0109) describing this "
                     "single project inside a synthesized single-project program wrapper. "
-                    "Round-trips back through the importer."
+                    "Round-trips back through the importer. `resources[].email` and "
+                    "`accounts[].email` are withheld (key omitted) unless the caller holds "
+                    "workspace Admin+ — the endpoint itself stays reachable at project "
+                    "Admin+, which is self-grantable by creating a project, so the field "
+                    "is gated independently of endpoint access (#3627)."
                 ),
             ),
         },
@@ -2751,7 +2755,7 @@ class ProjectViewSet(
 
         from trueppm_api.apps.projects.seed.exporter import dump_seed, export_project
 
-        body = dump_seed(export_project(project))
+        body = dump_seed(export_project(project, requesting_user=request.user))
         filename = f"{project.code or project.pk}.json"
         response = HttpResponse(body, content_type="application/json")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'

@@ -9696,7 +9696,7 @@
                                 }
                             }
                         },
-                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer."
+                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at program Admin+, which is self-grantable by creating a project/program, so the field is gated independently of endpoint access (#3627)."
                     },
                     "403": {
                         "description": "Not a program Admin — or an agent (`mcp:read`) token where a member project has opted out of agent reads and `TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` is `withhold` (#3014). The body carries the ADR-0809 refusal envelope naming `capability_scope`."
@@ -19700,7 +19700,7 @@
                                 }
                             }
                         },
-                        "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer."
+                        "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at project Admin+, which is self-grantable by creating a project, so the field is gated independently of endpoint access (#3627)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

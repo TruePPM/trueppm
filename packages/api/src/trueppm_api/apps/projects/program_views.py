@@ -1336,7 +1336,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 description=(
                     "A downloadable canonical JSON seed document describing this program "
                     "and its member projects, delivered as a file attachment. Round-trips "
-                    "back through the importer."
+                    "back through the importer. `resources[].email` and `accounts[].email` "
+                    "are withheld (key omitted) unless the caller holds workspace Admin+ — "
+                    "the endpoint itself stays reachable at program Admin+, which is "
+                    "self-grantable by creating a project/program, so the field is gated "
+                    "independently of endpoint access (#3627)."
                 ),
             ),
             403: OpenApiResponse(
@@ -1386,7 +1390,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         from trueppm_api.apps.projects.seed.exporter import dump_seed, export_program
 
-        body = dump_seed(export_program(program))
+        body = dump_seed(export_program(program, requesting_user=request.user))
         filename = f"{program.code or program.pk}.json"
         response = HttpResponse(body, content_type="application/json")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
