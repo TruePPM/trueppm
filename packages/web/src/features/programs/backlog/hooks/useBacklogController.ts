@@ -121,7 +121,8 @@ export function useBacklogController(
   pullOptions?: UsePullItemOptions,
 ): BacklogController {
   const url = useBacklogUrlState();
-  const { data: program } = useProgram(programId);
+  const programQuery = useProgram(programId);
+  const program = programQuery.data;
   const itemsQuery = useBacklogItems(programId);
   const projectsQuery = useMemberProjects(programId);
   const mutations = useBacklogMutations(programId);
@@ -261,8 +262,23 @@ export function useBacklogController(
     // Identity fields for the backlog header marker (#963). A single-program
     // board marks the program once in the header — never per row.
     program: program ? { color: program.color, code: program.code, name: program.name } : undefined,
-    isLoading: itemsQuery.isLoading,
-    errorKind: itemsQuery.isError ? errorKind : null,
+    // BOTH queries gate the page, not just the items one (#3644). The program
+    // read supplies `methodology`, and `DetailCreate` SEEDS a `useDirtyDraft`
+    // baseline from it — a baseline the hook captures once at mount and
+    // deliberately never resyncs. Every other consumer of that value
+    // (`pointsLabel`, `typeOptions`) recomputes on render, so a late-arriving
+    // program silently desyncs the frozen one: the Type dropdown reorders to
+    // lead with Task while the selected value stays `story`, and the form then
+    // POSTs `item_type: 'story'` into a Waterfall program. The visible surface
+    // self-corrects and the persisted value does not, which is why gating is
+    // the fix rather than a re-render (web-rule 409).
+    //
+    // The error is folded in for the same reason in its deterministic form: a
+    // failed `GET /programs/{id}/` leaves `program` undefined forever, and
+    // `resolveMethodology(undefined)` then stands as HYBRID — one of the three
+    // REAL answers asserted as fact on a program that may be neither.
+    isLoading: itemsQuery.isLoading || programQuery.isLoading,
+    errorKind: itemsQuery.isError ? errorKind : programQuery.isError ? 'generic' : null,
 
     url,
     allItems,

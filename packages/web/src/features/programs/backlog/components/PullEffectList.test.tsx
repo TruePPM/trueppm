@@ -26,9 +26,10 @@ describe('PullEffectList', () => {
     it('states that tags become labels, and never that they are copied', () => {
       render(<PullEffectList projectName="Avionics" projectMethodology="AGILE" />);
 
-      expect(
-        screen.getByText(/Each tag matches or creates a label in Avionics/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Each tag matches a label in Avionics/)).toBeInTheDocument();
+      // Conditional, not a promise: past the project's label soft cap the server
+      // silently skips coining a new label and the pull still succeeds.
+      expect(screen.getByText(/or creates one if the project has room/)).toBeInTheDocument();
       expect(screen.getByText(/50 characters max/)).toBeInTheDocument();
       // The old copy listed tags inside the copied-fields bullet. Assert the
       // negative on that bullet specifically — a bare `queryByText(/tags/)`
@@ -68,7 +69,11 @@ describe('PullEffectList', () => {
       expect(screen.getByText(/New task in Avionics's backlog/)).toBeInTheDocument();
     });
 
-    it('stays methodology-neutral rather than guessing when no target is chosen', () => {
+    // Reachable on mobile, where `MobilePullSheet` starts with `selectedId =
+    // null` (the desktop pane preselects `projects[0]`). The old name for this
+    // case claimed "neutral" while asserting the agile noun — a test that pins
+    // the fallback and calls it neutrality proves nothing about either.
+    it('falls back to the agile wording, and never guesses a Waterfall destination', () => {
       render(<PullEffectList projectName={null} />);
       expect(screen.queryByText(/Unscheduled/)).not.toBeInTheDocument();
       expect(screen.getByText(/story points/)).toBeInTheDocument();

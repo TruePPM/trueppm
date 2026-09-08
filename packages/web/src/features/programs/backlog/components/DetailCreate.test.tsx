@@ -220,6 +220,53 @@ describe('DetailCreate', () => {
       expect(agile[0]).toBe('story');
     });
 
+    // #3644 / web-rule 409 — `useDirtyDraft` freezes its baseline at mount and
+    // deliberately never resyncs, while `pointsLabel` and `typeOptions` recompute
+    // every render. A late `methodology` therefore desyncs the one consumer that
+    // writes PERSISTED data: the dropdown reorders to lead with Task while the
+    // selected value stays `story`, and the form POSTs `story` into a Waterfall
+    // program. The page now gates on the program query so this cannot be reached
+    // in the app — this pins the component's own behavior so a future caller that
+    // drops the gate fails here rather than in production.
+    //
+    // Asserted by RERENDER, not by prop: a spec that only ever passes a settled
+    // methodology passes on the broken build.
+    it('does not silently keep the agile type default when methodology arrives late', () => {
+      const { rerender } = render(
+        <DetailCreate
+          tagSuggestions={[]}
+          estimationScale="fibonacci"
+          methodology="HYBRID"
+          onCancel={vi.fn()}
+          onCreate={vi.fn()}
+        />,
+      );
+      expect(screen.getByLabelText('Type')).toHaveValue('story');
+
+      rerender(
+        <DetailCreate
+          tagSuggestions={[]}
+          estimationScale="fibonacci"
+          methodology="WATERFALL"
+          onCancel={vi.fn()}
+          onCreate={vi.fn()}
+        />,
+      );
+
+      // The label and the option order both follow on re-render...
+      expect(screen.getByLabelText('Estimate')).toBeInTheDocument();
+      const options = Array.from(
+        screen.getByLabelText('Type').querySelectorAll('option'),
+      ).map((o) => o.value);
+      expect(options[0]).toBe('task');
+
+      // ...and this is the divergence the gate exists to prevent: the frozen
+      // seed still reads `story`. If a future change makes the draft re-seed,
+      // flip this to 'task' — but it must never be left UNASSERTED, because the
+      // failure is invisible on screen and lands in the database.
+      expect(screen.getByLabelText('Type')).toHaveValue('story');
+    });
+
     it('describes what tags are and become, bound to the tag input', () => {
       render(
         <DetailCreate

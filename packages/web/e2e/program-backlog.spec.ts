@@ -316,7 +316,7 @@ test.describe('Program backlog', () => {
 
     await page.getByLabel('Title').fill('First epic');
     // Story points are groomable at create time (#1991) — the pull dialog's
-    // "story points … copied over" promise is now real. The input is a scale-aware
+    // promise that the estimate carries across is now real. The input is a scale-aware
     // <select> (ADR-0510, #2027), Fibonacci by default — pick, don't fill.
     await page.getByLabel('Story points').selectOption('5');
     await page.getByRole('button', { name: 'Create item' }).click();
@@ -432,8 +432,22 @@ test.describe('Program backlog — methodology vocabulary (#3644)', () => {
     // destination for the one reader who most needs it right.
     await setup(page, BACKLOG_ITEMS, {
       projects: [
-        { id: 'proj-pad', name: 'Pad 39B Refit', methodology: 'WATERFALL' },
-        { id: 'proj-avionics', name: 'Avionics', methodology: 'AGILE' },
+        // `effective_methodology` is the field the picker must read (web-rule
+        // 196): a project that never set its own preset still inherits one. The
+        // Avionics row sets the two DIFFERENTLY on purpose, so a regression that
+        // reads the raw override would render "Waterfall" here and fail.
+        {
+          id: 'proj-pad',
+          name: 'Pad 39B Refit',
+          methodology: 'WATERFALL',
+          effective_methodology: 'WATERFALL',
+        },
+        {
+          id: 'proj-avionics',
+          name: 'Avionics',
+          methodology: 'WATERFALL',
+          effective_methodology: 'AGILE',
+        },
       ],
     });
 
@@ -450,6 +464,14 @@ test.describe('Program backlog — methodology vocabulary (#3644)', () => {
     await picker.getByRole('radio', { name: /Pad 39B Refit/ }).click();
     await expect(page.getByText(/on Schedule, under Unscheduled/)).toBeVisible();
     await expect(page.getByText(/New undated task in Pad 39B Refit/)).toBeVisible();
+    // The pane's own standing paragraph used to end "…in the target project's
+    // backlog" — the same claim, in larger prose, six lines above the corrected
+    // bullet, so the pane named two destinations at once and the wrong one was
+    // the louder. Asserting the bullet is right does not catch that; this does.
+    // The apostrophe is a character class on purpose: the paragraph renders
+    // `&rsquo;` (U+2019), so an ASCII `'` here matches nothing and the
+    // `toHaveCount(0)` passes on the broken build.
+    await expect(page.getByText(/target project['\u2019]s backlog/)).toHaveCount(0);
 
     // Switching to the agile sibling switches the destination back.
     await picker.getByRole('radio', { name: /Avionics/ }).click();
@@ -463,7 +485,10 @@ test.describe('Program backlog — methodology vocabulary (#3644)', () => {
     await page.getByRole('button', { name: 'Telemetry channel B', exact: true }).click();
     await page.getByRole('button', { name: 'Pull to project…' }).click();
 
-    await expect(page.getByText(/Each tag matches or creates a label in/)).toBeVisible();
+    await expect(page.getByText(/Each tag matches a label in/)).toBeVisible();
+    // Conditional, not a promise — the server silently skips coining a new label
+    // once the project is at its label soft cap.
+    await expect(page.getByText(/or creates one if the project has room/)).toBeVisible();
     await expect(page.getByText(/tags, and type are copied over/)).toHaveCount(0);
   });
 });

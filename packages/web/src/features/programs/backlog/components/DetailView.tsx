@@ -328,12 +328,25 @@ export function DetailView({
 
           <span className="self-start pt-1.5 text-neutral-text-secondary">Tags</span>
           {canEdit ? (
-            <TagInput
-              tags={draft.tags}
-              onChange={(tags) => setField('tags', tags)}
-              suggestions={tagSuggestions}
-              id={`${item.id}-tags`}
-            />
+            <div>
+              <TagInput
+                tags={draft.tags}
+                onChange={(tags) => setField('tags', tags)}
+                suggestions={tagSuggestions}
+                id={`${item.id}-tags`}
+                describedBy={`${item.id}-tags-hint`}
+              />
+              {/*
+                Same sentence as the create form (#3644). Grooming an existing
+                item is the commoner path once a pool exists, and what pull
+                converts is whatever the item holds THEN — so the reader most
+                likely to add a consequential tag was the one getting no
+                explanation.
+              */}
+              <p id={`${item.id}-tags-hint`} className="mt-1 text-xs text-neutral-text-secondary">
+                Program-wide free text. On pull, each tag becomes a project label.
+              </p>
+            </div>
           ) : (
             <span className="flex flex-wrap gap-1">
               {item.tags.length === 0 && <span className="text-neutral-text-disabled">None</span>}
