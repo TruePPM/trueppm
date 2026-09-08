@@ -4,6 +4,7 @@
  * of the feature never sees the wire shape.
  */
 
+import type { Methodology } from '@/types';
 import type { BacklogItem, BacklogItemStatus, BacklogItemType, MemberProject } from './types';
 
 /** Raw `BacklogItemSerializer` payload. */
@@ -93,11 +94,24 @@ export function toPatchPayload(patch: Partial<BacklogItem>): Record<string, unkn
   return body;
 }
 
-/** Map a program project (from `useProgramProjects`) into a pull target. */
+/**
+ * Map a program project (from `useProgramProjects`) into a pull target.
+ *
+ * `effectiveMethodology` is the resolved value (web-rule 196), never the raw
+ * per-project override — a project that never set its own preset inherits one,
+ * and the picker must show what the project actually behaves as (#3644).
+ */
 export function toMemberProject(project: {
   id: string;
   name: string;
   colorDot?: string;
+  effectiveMethodology?: Methodology;
+  methodology?: Methodology;
 }): MemberProject {
-  return { id: project.id, name: project.name, color: project.colorDot };
+  return {
+    id: project.id,
+    name: project.name,
+    color: project.colorDot,
+    methodology: project.effectiveMethodology ?? project.methodology,
+  };
 }

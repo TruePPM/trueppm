@@ -71,6 +71,7 @@ function makeController(over: Partial<BacklogController> = {}): BacklogControlle
     programId: 'pg-1',
     programName: 'Apollo',
     program: { color: '#336699', code: 'APL', name: 'Apollo' },
+    methodology: 'HYBRID',
     isLoading: false,
     errorKind: null,
     url: makeUrl(),

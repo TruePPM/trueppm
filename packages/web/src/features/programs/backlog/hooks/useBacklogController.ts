@@ -11,7 +11,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EstimationScale, Program } from '@/api/types';
+import type { Methodology } from '@/types';
 import { useProgram } from '@/hooks/useProgram';
+import { resolveMethodology } from '../methodologyVocabulary';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import {
   countByStatus,
@@ -80,6 +82,13 @@ export interface BacklogController {
   /** Program's resolved estimation scale (ADR-0510, #2027) — drives the points
    *  picker/labels on the create + detail panes. Fibonacci until the program loads. */
   estimationScale: EstimationScale;
+  /**
+   * The program's resolved methodology (#3644). Governs authoring vocabulary —
+   * an intake item is program-scoped and has no project until it is pulled, so
+   * this is the only methodology in scope while it is being written. The *pull*
+   * preview reads the target project's own value instead.
+   */
+  methodology: Methodology;
   selectedItem: BacklogItem | undefined;
   memberProjects: MemberProject[];
 
@@ -264,6 +273,7 @@ export function useBacklogController(
     counts,
     tagUniverse,
     estimationScale: program?.effective_estimation_scale ?? 'fibonacci',
+    methodology: resolveMethodology(program?.effective_methodology),
     selectedItem,
     memberProjects: projectsQuery.data,
 

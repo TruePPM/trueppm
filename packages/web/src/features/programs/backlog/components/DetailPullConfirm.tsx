@@ -105,7 +105,11 @@ export function DetailPullConfirm({
               <div className="text-xs font-semibold text-neutral-text-primary">
                 What will happen
               </div>
-              <PullEffectList projectName={selected?.name ?? null} className="mt-1.5" />
+              <PullEffectList
+                projectName={selected?.name ?? null}
+                projectMethodology={selected?.methodology}
+                className="mt-1.5"
+              />
             </div>
           </>
         ) : (

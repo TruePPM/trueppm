@@ -5,6 +5,7 @@
  */
 
 import { useRef, type KeyboardEvent } from 'react';
+import { methodologyLabel } from '@/lib/methodologyLabel';
 import type { MemberProject } from '../types';
 import { FOCUS_RING } from './styles';
 
@@ -60,6 +61,11 @@ export function ProjectPickerRadioList({
     >
       {projects.map((project, index) => {
         const selected = project.id === value;
+        // Absent on an older cached roster — the row then degrades to name-only
+        // rather than asserting a preset it cannot back up.
+        const meta = {
+          methodology: project.methodology ? methodologyLabel(project.methodology) : '',
+        };
         return (
           <button
             key={project.id}
@@ -94,10 +100,25 @@ export function ProjectPickerRadioList({
               <span className="block truncate text-sm font-medium text-neutral-text-primary">
                 {project.name}
               </span>
-              {(project.code || project.backlogCount !== undefined) && (
-                <span className="tppm-mono block text-xs text-neutral-text-secondary">
-                  {project.code}
-                  {project.code && project.backlogCount !== undefined ? ' · ' : ''}
+              {/*
+                Methodology leads the meta line rather than getting its own chip
+                (#3644). A chip is a color-encoded categorical, and DS v1.0
+                reserves color for meaning (red = critical, amber = at risk, …);
+                methodology is not a health axis, so a colored chip would recruit
+                a semantic channel for a non-semantic fact. Here it is also part
+                of the radio's own text content, so it lands inside the
+                accessible name — a screen-reader user hears the preset *with*
+                the choice rather than after it. `tppm-mono` stays on the code
+                alone; a mono "Waterfall" reads as a token rather than a word.
+              */}
+              {(meta.methodology || project.code || project.backlogCount !== undefined) && (
+                <span className="block text-xs text-neutral-text-secondary">
+                  {meta.methodology}
+                  {meta.methodology && project.code ? ' · ' : ''}
+                  {project.code && <span className="tppm-mono">{project.code}</span>}
+                  {(meta.methodology || project.code) && project.backlogCount !== undefined
+                    ? ' · '
+                    : ''}
                   {project.backlogCount !== undefined ? `${project.backlogCount} backlog` : ''}
                 </span>
               )}

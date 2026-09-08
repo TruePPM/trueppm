@@ -87,7 +87,22 @@ const BACKLOG_ITEMS = [
 
 type Page = import('@playwright/test').Page;
 
-async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS) {
+/**
+ * Overrides for the methodology cases (#3644). The program's preset drives the
+ * authoring vocabulary; each project's own preset drives the pull preview, and
+ * the two are deliberately independent — a HYBRID program can hold a WATERFALL
+ * project, which is exactly the case that used to be described wrongly.
+ */
+interface SetupOptions {
+  program?: Record<string, unknown>;
+  projects?: Record<string, unknown>[];
+}
+
+async function setup(
+  page: Page,
+  items: unknown[] = BACKLOG_ITEMS,
+  options: SetupOptions = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -111,10 +126,18 @@ async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS) {
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
   );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ ...FIXTURE_PROGRAM, ...options.program }),
+    }),
   );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(PROJECTS) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj(options.projects ?? PROJECTS),
+    }),
   );
   // Method-aware: GET lists `items`; POST (create) echoes the posted item back
   // so the create flow can resolve and select the new item; PATCH merges the
@@ -350,5 +373,97 @@ test.describe('Program backlog', () => {
     await expect(page.getByRole('button', { name: 'Remove tag backend' })).toBeVisible();
     // The input cleared and stays ready for the next tag.
     await expect(tagInput).toHaveValue('');
+  });
+});
+
+/**
+ * #3644 — the surface read `Program.methodology` nowhere at all, so a waterfall
+ * program met Scrum vocabulary it could not turn off and a pull into a waterfall
+ * project promised a Backlog tab `methodologyTabs` hides there.
+ *
+ * These assert the *rendered* vocabulary rather than the helper's return value —
+ * the unit tests pin the helpers, and a correct helper wired to nothing would
+ * pass them while the page still said "Story points".
+ */
+test.describe('Program backlog — methodology vocabulary (#3644)', () => {
+  test('a WATERFALL program authors in Estimate/Task, not Story points/Story', async ({
+    page,
+  }) => {
+    await setup(page, [], {
+      program: { methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
+    });
+
+    await page.getByRole('button', { name: 'New item' }).click();
+    await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
+
+    // The accessible name, not just the visible text — `getByLabel` resolves
+    // through it, so this proves `ariaLabel` moved with the `<label>` (WCAG
+    // 2.5.3). A visible-only assertion passes on the half-fix.
+    await expect(page.getByLabel('Estimate')).toBeVisible();
+    await expect(page.getByLabel('Story points')).toHaveCount(0);
+    await expect(page.getByLabel('Type')).toHaveValue('task');
+  });
+
+  test('an AGILE program keeps Story points and starts on Story', async ({ page }) => {
+    await setup(page, [], {
+      program: { methodology: 'AGILE', effective_methodology: 'AGILE' },
+    });
+
+    await page.getByRole('button', { name: 'New item' }).click();
+    await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
+    await expect(page.getByLabel('Story points')).toBeVisible();
+    await expect(page.getByLabel('Type')).toHaveValue('story');
+  });
+
+  test('the tags field says what tags are and what they become', async ({ page }) => {
+    await setup(page, []);
+
+    await page.getByRole('button', { name: 'New item' }).click();
+    await expect(
+      page.getByText('Program-wide free text. On pull, each tag becomes a project label.'),
+    ).toBeVisible();
+  });
+
+  test('pulling into a WATERFALL project names Schedule, not the hidden Backlog tab', async ({
+    page,
+  }) => {
+    // A HYBRID program holding one WATERFALL project — the case where reading
+    // the program's preset instead of the project's would describe the wrong
+    // destination for the one reader who most needs it right.
+    await setup(page, BACKLOG_ITEMS, {
+      projects: [
+        { id: 'proj-pad', name: 'Pad 39B Refit', methodology: 'WATERFALL' },
+        { id: 'proj-avionics', name: 'Avionics', methodology: 'AGILE' },
+      ],
+    });
+
+    await page.getByRole('button', { name: 'Telemetry channel B', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Telemetry channel B' })).toBeVisible();
+    await page.getByRole('button', { name: 'Pull to project…' }).click();
+
+    const picker = page.getByRole('radiogroup', { name: 'Target project' });
+    await expect(picker).toBeVisible();
+    // The preset is visible on the row itself, before the choice is committed —
+    // there is no un-pull endpoint, so this is the last moment it can matter.
+    await expect(picker.getByRole('radio', { name: /Pad 39B Refit.*Waterfall/s })).toBeVisible();
+
+    await picker.getByRole('radio', { name: /Pad 39B Refit/ }).click();
+    await expect(page.getByText(/on Schedule, under Unscheduled/)).toBeVisible();
+    await expect(page.getByText(/New undated task in Pad 39B Refit/)).toBeVisible();
+
+    // Switching to the agile sibling switches the destination back.
+    await picker.getByRole('radio', { name: /Avionics/ }).click();
+    await expect(page.getByText(/New task in Avionics's backlog/)).toBeVisible();
+    await expect(page.getByText(/on Schedule, under Unscheduled/)).toHaveCount(0);
+  });
+
+  test('the pull preview says tags are converted to labels, never copied', async ({ page }) => {
+    await setup(page);
+
+    await page.getByRole('button', { name: 'Telemetry channel B', exact: true }).click();
+    await page.getByRole('button', { name: 'Pull to project…' }).click();
+
+    await expect(page.getByText(/Each tag matches or creates a label in/)).toBeVisible();
+    await expect(page.getByText(/tags, and type are copied over/)).toHaveCount(0);
   });
 });
