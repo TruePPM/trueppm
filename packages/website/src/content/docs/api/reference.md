@@ -1540,6 +1540,15 @@ field is **omitted** from the payload entirely. A per-user throttle of **60 req/
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
 
+The list endpoint's two project-scoped filters are gated the same way, for the
+same reason. `?exclude_project=<project id>` drops the resources already on that
+project's roster, and `?task=<task id>` annotates each row with its fit against
+that task's skill requirements — both reach through an open catalog read into one
+project's data, so both are honored **only for members of the project they name**.
+For a non-member the parameter is ignored and the response is identical to
+omitting it, so neither filter can be used to confirm that a project or task id
+exists. `?include_deleted=true` is likewise honored only for org admins.
+
 `assignments/` returns every task the resource is assigned to, across **all**
 projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
@@ -1626,6 +1635,12 @@ resource has live task assignments on the project; the response body lists the
 `?force=true` cascades the deletion to the resource's `TaskResource` rows on the
 project and triggers a CPM recalculation for the affected tasks. All write and
 delete operations require the Scheduler role or higher on the project.
+
+From **0.4**, every write on `/api/v1/project-resources/`, `/api/v1/task-resources/`
+and `/api/v1/task-skill-requirements/` — create, update, delete, and the
+`?force=true` cascade — is refused with a `403` when the project is archived, at
+every role including Owner. Reads are unaffected. In `v0.3.0-alpha.3` (the latest
+release) those writes still succeed on an archived project.
 
 ### Workspace
 

@@ -7,6 +7,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -664,6 +665,80 @@ class TestSkillFitAnnotation:
         # exact should appear before missing
         assert fits.index("exact") < fits.index("missing")
 
+    def test_task_in_non_member_project_is_not_annotated(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        calendar: Calendar,
+        resource: Resource,
+        react_skill: Skill,
+        aws_skill: Skill,
+    ) -> None:
+        """?task= must not publish a foreign project's skill requirements (#3571).
+
+        The caller is a Viewer on project Alpha and a non-member of Beta. Passing
+        Beta's task id previously returned skill_fit plus missing_skills naming
+        every skill that task requires.
+        """
+        foreign_project = Project.objects.create(
+            name="Beta", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        foreign_task = Task.objects.create(
+            project=foreign_project,
+            name="Foreign",
+            duration=3,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 3),
+        )
+        TaskSkillRequirement.objects.create(task=foreign_task, skill=react_skill, min_proficiency=2)
+        TaskSkillRequirement.objects.create(task=foreign_task, skill=aws_skill, min_proficiency=1)
+
+        res = viewer_client.get(f"/api/v1/resources/?task={foreign_task.pk}")
+
+        assert res.status_code == 200
+        row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
+        assert "skill_fit" not in row
+        assert "missing_skills" not in row
+        body = str(res.data)
+        assert "React" not in body
+        assert "AWS" not in body
+
+    def test_task_in_member_project_is_still_annotated_for_a_viewer(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        resource: Resource,
+        task: Task,
+        react_skill: Skill,
+    ) -> None:
+        """Positive control: any membership is enough, matching TaskSkillRequirementViewSet."""
+        ResourceSkill.objects.create(resource=resource, skill=react_skill, proficiency=3)
+        TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=2)
+        res = viewer_client.get(f"/api/v1/resources/?task={task.pk}")
+        assert res.status_code == 200
+        row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
+        assert row["skill_fit"] == "exact"
+
+    def test_unknown_task_id_is_not_annotated(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+        resource: Resource,
+    ) -> None:
+        """An unknown task id annotates nothing; a malformed one keeps its 400 (#3571).
+
+        The unknown-id case must look exactly like the foreign-id case above, or
+        the parameter becomes an existence oracle for task uuids. The malformed
+        case still goes through the install-wide malformed-uuid contract in
+        ``core.exception_handlers`` — the membership gate must not swallow it.
+        """
+        res = scheduler_client.get(f"/api/v1/resources/?task={uuid4()}")
+        assert res.status_code == 200
+        assert "skill_fit" not in res.data["results"][0]
+
+        res = scheduler_client.get("/api/v1/resources/?task=not-a-uuid")
+        assert res.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # Skill mismatch warning on task-resource assignment
@@ -798,6 +873,53 @@ class TestExcludeProjectFilter:
         assert res.status_code == 200
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) not in ids
+
+    def test_non_member_project_id_is_ignored(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        calendar: Calendar,
+        resource: Resource,
+    ) -> None:
+        """?exclude_project= must not reveal a foreign project's roster (#3571).
+
+        The caller is a Viewer on project Alpha and a non-member of Beta. Diffing
+        the filtered list against the bare one previously named every resource on
+        Beta's roster; the filtered list must now be identical to the bare one.
+        """
+        foreign_project = Project.objects.create(
+            name="Beta", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        ProjectResource.objects.create(project=foreign_project, resource=resource)
+
+        bare = viewer_client.get("/api/v1/resources/")
+        filtered = viewer_client.get(f"/api/v1/resources/?exclude_project={foreign_project.pk}")
+
+        assert filtered.status_code == 200
+        assert str(resource.pk) in [r["id"] for r in filtered.data["results"]]
+        assert [r["id"] for r in filtered.data["results"]] == [
+            r["id"] for r in bare.data["results"]
+        ]
+
+    def test_unknown_project_id_is_ignored(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+        resource: Resource,
+    ) -> None:
+        """An unknown project id excludes nothing; a malformed one keeps its 400 (#3571).
+
+        The unknown-id case must look exactly like the foreign-id case above, or
+        the parameter becomes an existence oracle for project uuids. The malformed
+        case still goes through the install-wide malformed-uuid contract in
+        ``core.exception_handlers`` — the membership gate must not swallow it.
+        """
+        res = scheduler_client.get(f"/api/v1/resources/?exclude_project={uuid4()}")
+        assert res.status_code == 200
+        assert str(resource.pk) in [r["id"] for r in res.data["results"]]
+
+        res = scheduler_client.get("/api/v1/resources/?exclude_project=not-a-uuid")
+        assert res.status_code == 400
 
 
 # ---------------------------------------------------------------------------

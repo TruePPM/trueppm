@@ -885,6 +885,7 @@ ARCHIVED_BODY_ENTRIES: frozenset[str] = frozenset(
     {
         "api/v1/^project-resources/$::create",
         "api/v1/^task-resources/$::create",
+        "api/v1/^task-skill-requirements/$::create",
         "api/v1/^slip-conflicts/(?P<pk>[^/.]+)/acknowledge/$::acknowledge",
         "api/v1/integrations/projects/<uuid:project_pk>/git-webhook/::post",
         "api/v1/projects/<str:pk>/monte-carlo/::post",
