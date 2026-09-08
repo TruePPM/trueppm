@@ -176,7 +176,7 @@ async function previewBars(page: Page): Promise<{ top: number; left: number }[]>
     return Array.from(overlay.querySelectorAll('div'))
       .filter((el) => {
         const style = getComputedStyle(el);
-        return style.borderStyle === 'solid' && parseFloat(style.borderTopWidth) > 0;
+        return style.borderStyle === 'solid' && Number.parseFloat(style.borderTopWidth) > 0;
       })
       .map((el) => {
         const rect = el.getBoundingClientRect();
