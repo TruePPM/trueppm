@@ -773,7 +773,11 @@ describe('TaskListRow — the ⋮⋮ grip names the keyboard twins (#347, #2954)
     expect(handle.className).not.toMatch(/w-\[26px\]|md:w-/);
   });
 
-  it('stays narrow on a fine pointer — a mouse gives up no row width', () => {
+  it('stays narrow on a fine pointer — 14px, not the 44px touch box', () => {
+    // Named for the width, not for "gives up no row width": a mouse does now
+    // give up 14px, because the grip has a lane of its own at both pointer
+    // classes (#3078). What this case pins is unchanged — the grip does not take
+    // the 44px touch box on a pointer that can aim at 14.
     stubCoarsePointer(false);
     renderBuild({ siblingIds: ['t1', 't2', 't3'] });
     const handle = screen.getByTestId('row-reorder-grip');
