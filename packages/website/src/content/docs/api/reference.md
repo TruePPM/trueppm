@@ -1523,6 +1523,15 @@ field is **omitted** from the payload entirely. A per-user throttle of **60 req/
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
 
+The list endpoint's two project-scoped filters are gated the same way, for the
+same reason. `?exclude_project=<project id>` drops the resources already on that
+project's roster, and `?task=<task id>` annotates each row with its fit against
+that task's skill requirements — both reach through an open catalog read into one
+project's data, so both are honored **only for members of the project they name**.
+For a non-member the parameter is ignored and the response is identical to
+omitting it, so neither filter can be used to confirm that a project or task id
+exists. `?include_deleted=true` is likewise honored only for org admins.
+
 `assignments/` returns every task the resource is assigned to, across **all**
 projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
