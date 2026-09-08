@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -122,9 +123,20 @@ class ProjectResource(VersionedModel):
         return f"{self.resource} on {self.project}"
 
     @property
-    def effective_max_units(self) -> object:
-        """Return the project-specific override if set, otherwise the resource default."""
-        return self.units_override if self.units_override is not None else self.resource.max_units
+    def effective_max_units(self) -> Decimal:
+        """Return the project-specific override if set, otherwise the resource default.
+
+        Delegates to :func:`trueppm_api.apps.resources.capacity.effective_units`, the
+        single definition of this fallback (#1582) — the same one every per-project
+        capacity read applies, so no two surfaces can resolve it differently (#3574).
+        """
+        from trueppm_api.apps.resources.capacity import effective_units
+
+        # ``self.resource`` is dereferenced ONLY when there is no override, so a
+        # roster row loaded without select_related does not trigger a query it does
+        # not need. The rule itself still lives in one place.
+        override = self.units_override
+        return effective_units(override, None if override is not None else self.resource.max_units)
 
 
 class TaskSkillRequirement(VersionedModel):

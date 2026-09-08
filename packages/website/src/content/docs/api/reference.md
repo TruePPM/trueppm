@@ -610,8 +610,15 @@ returns `409` if no member project has a computed schedule yet, and `400` for an
 invalid date or a `start` after `end`. This is within-program visibility only —
 cross-program leveling and the portfolio heat map remain Enterprise.
 
+`resource-contention` and the per-project `resource-allocation` share a response
+shape but not a meaning for `max_units`: from 0.4 the per-project endpoint states
+the resource's capacity **on that project** (the roster's `units_override` when one
+is set), while `resource-contention` spans several projects at once and therefore
+states the whole person — the resource's catalog-wide `max_units`. A client that
+joins the two must not compare one against the other.
+
 Each task span in `resource-contention` (and the per-project
-`resource-allocation` it mirrors) windows and renders on `scheduled_start`
+`resource-allocation`) windows and renders on `scheduled_start`
 through `early_finish` — the task's **span** — not `early_start` through
 `early_finish`, the narrower *remaining-work* window `early_start` shrinks
 toward as an in-progress task's `percent_complete` rises (ADR-0752). `early_start`
@@ -1647,6 +1654,28 @@ See ADR-0774.
 | PUT / PATCH | `/api/v1/project-resources/{id}/` | Update (Scheduler+) |
 | DELETE | `/api/v1/project-resources/{id}/` | Remove from roster (Scheduler+) |
 | DELETE | `/api/v1/project-resources/{id}/?force=true` | Force-remove and cascade-delete the resource's task assignments |
+
+A roster entry carries `units_override`, a per-project capacity override, and the
+read-only `effective_max_units` it resolves to (`units_override` when set — `0`
+included — else the resource's catalog-wide `max_units`).
+
+:::note[Ships in 0.4]
+`units_override` reaches every per-project capacity read in **0.4**. In the current
+release only the project Overview's Team utilization card applies it; the utilization
+endpoint, the resources heatmap and summary, `resource-allocation`, the attention
+feed's `overallocation` items, `Task.assignee_is_overallocated`, the assignment-time
+`resource_overallocated` warning and the sprint capacity summary all measure against
+`Resource.max_units`.
+:::
+
+From 0.4 `effective_max_units` will be the denominator behind
+`GET /projects/{id}/utilization/` (`max_units`, `load_pct`, `load_band`,
+`overallocated`), `/resources/heatmap/`, `/resources/summary/`,
+`/resource-allocation/` (`max_units`), the `overallocation` items on
+`/projects/{id}/attention/`, `Task.assignee_is_overallocated`, the
+`resource_overallocated` warning on `POST /task-resources/`, and
+`GET /sprints/{id}/capacity/`. Cross-project reads keep `Resource.max_units` — see
+the note under **Programs** above.
 
 A plain `DELETE` returns `409 Conflict` with code `has_assignments` if the
 resource has live task assignments on the project; the response body lists the
