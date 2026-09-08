@@ -144,6 +144,19 @@ def admin_user(project: Project, program: Program) -> Any:
 
 
 @pytest.fixture
+def operator_user(db: Any) -> Any:
+    """A workspace operator — the install superuser (ADR-0213 C1).
+
+    Distinct from ``admin_user`` on purpose. #3569 raised the resource-catalog
+    deactivation lifecycle off the project-membership-derived ``IsOrgAdmin``, which
+    any account self-grants by creating a project, onto ``IsWorkspaceOperator``.
+    A contract test for one of those actions needs this principal; ``admin_user``
+    holds OWNER on a project and is no longer sufficient.
+    """
+    return User.objects.create_superuser(username="contract_operator", password="pw")
+
+
+@pytest.fixture
 def teammate(project: Project, program: Program) -> Any:
     user = User.objects.create_user(username="contract_mate", password="pw")
     ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
@@ -373,12 +386,16 @@ def test_velocity_suggestion_accept_succeeds_with_an_empty_body(
 
 
 @pytest.mark.django_db
-def test_resource_restore_succeeds_with_an_empty_body(admin_user: Any) -> None:
-    # IsOrgAdmin resolves off holding Admin+ on at least one project, which the
-    # admin_user fixture already carries.
+def test_resource_restore_succeeds_with_an_empty_body(operator_user: Any) -> None:
+    # `restore` requires IsWorkspaceOperator since #3569 — the whole deactivation
+    # lifecycle sits on the install superuser, because it reaches every project
+    # holding an assignment. This test pins the empty-body contract, not the gate,
+    # so it takes the principal that can reach the action; `admin_user` (OWNER on a
+    # project) is deliberately no longer enough. The gate itself is covered in
+    # tests/apps/resources/test_org_resources.py.
     resource = Resource.objects.create(name="Dana", is_deleted=True)
 
-    response = _client(admin_user).post(f"/api/v1/resources/{resource.id}/restore/")
+    response = _client(operator_user).post(f"/api/v1/resources/{resource.id}/restore/")
 
     assert response.status_code == 200, response.data
     resource.refresh_from_db()

@@ -716,6 +716,11 @@ def _roster_assigned_resources(
 
     Bulk-builds the rows because bulk_create skipped the per-row signal path used
     by the API ViewSet.
+
+    ``server_version=1`` is set explicitly because ``bulk_create`` does not call
+    ``Model.save()``, and ``ProjectResource`` is a ``VersionedModel`` whose INSERT path
+    is the only thing that sets that counter (#3575). A row left at the field default of
+    0 publishes an optimistic-lock token no client can have echoed back.
     """
     from trueppm_api.apps.resources.models import ProjectResource
 
@@ -727,7 +732,7 @@ def _roster_assigned_resources(
         ).values_list("resource_id", flat=True)
     )
     new_roster = [
-        ProjectResource(project_id=project_id, resource_id=pk)
+        ProjectResource(project_id=project_id, resource_id=pk, server_version=1)
         for pk in rostered_resource_pks
         if pk not in existing_pairs
     ]

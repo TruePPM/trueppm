@@ -340,14 +340,15 @@ governance, not part of this surface.
 | PUT / PATCH | `/api/v1/projects/{id}/` | Update |
 | DELETE | `/api/v1/projects/{id}/` | Soft-delete |
 | GET | `/api/v1/projects/{id}/status-summary/` | Health and recency summary for the shell — see [Status summary](#status-summary) |
-| GET | `/api/v1/projects/health-summary/` | One health row per project the caller is a member of: `id`, `name`, `health_band`, `at_risk_count`, `critical_count`. Same `health_band` rule as the status summary below |
+| GET | `/api/v1/projects/health-summary/` | One health row per project the caller is a member of: `id`, `name`, `health_band`, `health_band_source`, `at_risk_count`, `critical_count`. Same `health_band` and `health_band_source` rules as the status summary below |
 
 #### Status summary
 
 :::note[Ships in 0.4]
-`health_band` is added in **TruePPM 0.4** — `v0.3.0-alpha.3` (the latest release)
-does not return the field at all, and a client on that release has no way to see a
-project's manual health report from this endpoint.
+`health_band` and `health_band_source` are added in **TruePPM 0.4** —
+`v0.3.0-alpha.3` (the latest release) returns neither field, and a client on that
+release has no way to see a project's manual health report from this endpoint, nor
+to tell a reported band from a derived one.
 
 `monte_carlo_p80`, `last_saved` and `recalculated_at` also carry real values from
 **TruePPM 0.4**. In `v0.3.0-alpha.3` all three are returned as unconditional `null`
@@ -362,6 +363,7 @@ to fan out.
 |---|---|---|
 | `task_count` | `integer` | Live (non-deleted) tasks in the project |
 | `health_band` | `on_track \| at_risk \| critical` | The project's health band — see [Read `health_band`, do not re-derive it](#read-health_band-do-not-re-derive-it) |
+| `health_band_source` | `reported \| derived` | Which of the two branches below decided `health_band` — see [Which of the two produced the band](#which-of-the-two-produced-the-band) |
 | `at_risk_count` | `integer` | Incomplete tasks with `total_float` ≤ 5 working days, including negative float |
 | `critical_count` | `integer` | Incomplete tasks on the critical path |
 | `at_risk_tasks` | `array` | Up to 5 at-risk tasks as `{id, name, wbs}`, lowest float first |
@@ -388,10 +390,35 @@ same rule, so the two endpoints never disagree about one project.
 
 `AUTO` is the "no report filed" value of `health`; it is never returned as a band.
 
-Do not confuse it with `schedule_health` on `GET /api/v1/projects/{id}/overview/`.
-That is a different signal — a schedule-performance-index proxy, with a fourth
-value `unknown` for a project that has no planned work to measure against — and it
-does not read the manual report at all.
+Do not confuse `health_band` with `schedule_health` on
+`GET /api/v1/projects/{id}/overview/`. That is a different signal — a
+schedule-performance-index proxy, with a fourth value `unknown` for a project that
+has no planned work to measure against — and it does not read the manual report at
+all.
+
+##### Which of the two produced the band
+
+`health_band_source` says which of the two steps above ran: `reported` when a project
+manager's manual report decided the band, `derived` when no report is filed and the
+counts on this payload decided it. There is no third value — `AUTO` *is* the derived
+case.
+
+**A client cannot work this out for itself, which is why the server sends it.** A
+report that happens to agree with the counts is indistinguishable from no report at
+all: a PM who reports At risk on a plan whose float numbers also say at-risk produces
+exactly the band the counts would. Comparing `health_band` against the counts
+therefore misses that report silently — and on a reported `on_track` over a critical
+plan it blames the counts for a disagreement a person created.
+
+Read it whenever you show the band **next to the evidence the counts represent**. A
+surface that prints `Critical` above a list of at-risk and critical tasks is claiming
+those rows explain the word; when the source is `reported` they do not, and the
+surface has to say so and point at the report instead. TruePPM's own shell health chip
+does exactly this.
+
+For **who** filed a reported band and **when**, read `GET
+/api/v1/projects/{id}/history/` — `Project.health` is a tracked field. This field says
+which branch ran, not who ran it.
 
 **Read the nulls as facts.** Each of the last three is `null` for exactly one reason,
 and that reason is the answer rather than "not available yet":
@@ -610,8 +637,28 @@ returns `409` if no member project has a computed schedule yet, and `400` for an
 invalid date or a `start` after `end`. This is within-program visibility only —
 cross-program leveling and the portfolio heat map remain Enterprise.
 
+Both `resource-contention` and the per-project `resource-allocation` cap how many
+assignment rows one response carries. When the cap is reached the response sets
+`truncated: true` and `resource_count` reports how many resources were in scope, so a
+client can tell a complete roster from a cut one. **The cut always falls on a resource
+boundary**: a resource is either returned with every one of its in-window spans or left
+out entirely, never returned half-complete. That matters because overallocation is
+detected client-side by summing a resource's spans — a partial resource would report a
+*lower* load than the real one, which is the one error a contention view must not make.
+The cap is set clear of the supported project size — it is a backstop against a
+pathological project, not a page size, and a project inside the documented envelope does
+not reach it. If a response does come back truncated, narrow the window or pass
+`?resource=` to see the resources it omitted.
+
+`resource-contention` and the per-project `resource-allocation` share a response
+shape but not a meaning for `max_units`: from 0.4 the per-project endpoint states
+the resource's capacity **on that project** (the roster's `units_override` when one
+is set), while `resource-contention` spans several projects at once and therefore
+states the whole person — the resource's catalog-wide `max_units`. A client that
+joins the two must not compare one against the other.
+
 Each task span in `resource-contention` (and the per-project
-`resource-allocation` it mirrors) windows and renders on `scheduled_start`
+`resource-allocation`) windows and renders on `scheduled_start`
 through `early_finish` — the task's **span** — not `early_start` through
 `early_finish`, the narrower *remaining-work* window `early_start` shrinks
 toward as an in-progress task's `percent_complete` rises (ADR-0752). `early_start`
@@ -1528,17 +1575,34 @@ exceed the OSS simulation cap or the request returns `402`. See
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
-| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) |
-| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated |
-| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource (org admin only) |
+| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — also removes the resource from every project roster; **workspace Admin only from 0.4** |
+| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource, restoring the roster rows the deactivation removed — **no body**; `400` if it is not deactivated; **workspace Admin only from 0.4** |
+| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource — **workspace Admin only from 0.4** |
+
+Creating and updating catalog rows requires the Project Manager or Project Admin
+role on at least one **active** project. From 0.4, deactivating and restoring a
+row, listing the deactivated pool with `?include_deleted=true`, and reading
+`assignments/` require the **workspace Admin** role.
+Those surfaces reach every project in the installation, and a project role cannot
+bound them: project creation is deliberately open, so any account can hold Owner
+on a project of its own.
 
 The resource catalog is readable by any authenticated user, so the `email` field
-is **gated** to prevent org-wide address harvesting: org admins (Admin or Owner
-on any project, or superusers) receive `email` on every row, and a caller
+is **gated** to prevent org-wide address harvesting. From 0.4 only a workspace
+Admin receives `email` on catalog rows (previously any org admin), and a caller
 always sees their own email (`is_me: true`). For all other callers the `email`
-field is **omitted** from the payload entirely. A per-user throttle of **60 req/min**
+field is **omitted** from the payload entirely — absent means *withheld*, not
+"this person has no address". `?search=` matches `email` only for a workspace Admin;
+everyone else searches by name alone. A per-user throttle of **60 req/min**
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
+
+:::caution[Catalog endpoints only]
+This gating covers the resource **catalog**. The project and program
+`resource-allocation` endpoints and `GET /api/v1/projects/{id}/export/` build their
+responses separately and still include `email` for resources attached to a project
+you administer.
+:::
 
 The list endpoint's two project-scoped filters are gated the same way, for the
 same reason. `?exclude_project=<project id>` drops the resources already on that
@@ -1547,15 +1611,17 @@ that task's skill requirements — both reach through an open catalog read into 
 project's data, so both are honored **only for members of the project they name**.
 For a non-member the parameter is ignored and the response is identical to
 omitting it, so neither filter can be used to confirm that a project or task id
-exists. `?include_deleted=true` is likewise honored only for org admins.
+exists. `?include_deleted=true` is likewise honored only for a workspace Admin.
 
 `assignments/` returns every task the resource is assigned to, across **all**
 projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
 Because it carries task and project **names** — project-scoped confidential data
-that the base catalog read deliberately withholds — it requires **org-admin**
-(resource-manager: Admin or Owner on any project); other callers receive
-`403 Forbidden`. It is a read-only projection: no utilization score, no
+that the base catalog read deliberately withholds — from 0.4 it requires the
+**workspace Admin** role; every other caller, project
+admins included, receives `403 Forbidden`. For the membership-scoped view of one
+person's assignments, use `GET /api/v1/task-resources/?resource=<id>`, which needs
+no elevated role. It is a read-only projection: no utilization score, no
 overallocation flag, and no cross-program rollup. Each row carries:
 
 | Field | Type | Description |
@@ -1585,6 +1651,13 @@ task write's `owners` field below, which takes the authority of the task write i
 
 #### Assigning owners inline on a task write
 
+:::note[Ships in 0.4]
+The write-only `owners` field lands in **TruePPM 0.4**. On the latest release, an
+assignment is made with a separate `POST /api/v1/task-resources/`, which requires
+**Resource Manager (Scheduler)** or above rather than inheriting the task write's
+authority.
+:::
+
 `POST /api/v1/tasks/` and `PATCH /api/v1/tasks/{id}/` accept a **write-only** `owners`
 array that creates `TaskResource` rows in the same request:
 
@@ -1599,6 +1672,33 @@ array that creates `TaskResource` rows in the same request:
 |-------|------|-------|
 | `resource` | uuid | Must be on the **destination project's** roster (`/project-resources/`). An id outside it is a `400` on the `owners` field — never a silent drop, and never a match-or-create against the workspace-wide resource library. |
 | `units` | decimal | Fraction of full capacity, `0.01`–`2.0` (`0.5` = 50%). Defaults to `1.0`. |
+
+The array is capped at **100 entries** per task write. The cap counts *entries*, not
+distinct resources: repeating a resource id is legal and meaningful (see the audit note
+below), and each repeat spends one of the 100. A longer list is refused with `400` before
+any roster lookup runs, under `owners` → `non_field_errors`:
+
+```json
+{
+  "owners": {
+    "non_field_errors": [
+      "A task write may name at most 100 owners. Remove duplicate resource ids (naming the same resource twice only records an extra units change), or split the assignment across several task writes — owners are upserted, so a later write never removes an owner named by an earlier one."
+    ]
+  }
+}
+```
+
+Splitting is always safe because the field upserts: no later write removes an owner named
+by an earlier one. The cap is a bound on one *write*, not on a task — a task can still
+accumulate more than 100 owners across several writes.
+
+Every surface that validates a task through this serializer inherits the cap:
+
+| Surface | How the refusal reaches you |
+|---------|-----------------------------|
+| `POST /api/v1/tasks/`, `PATCH /api/v1/tasks/{id}/` | the `400` above |
+| `POST /api/v1/projects/{id}/tasks/bulk/` | `207` with the row in `rejected[]`, `code: "invalid"` and the same sentence in `message`. Bounded at 100 owners **per operation** on top of the endpoint's own 500-operation cap |
+| Offline-sync push (`POST /api/v1/projects/{id}/sync/`) | a pushed task row carrying more than 100 `owners` is refused like any other row the task serializer rejects |
 
 Semantics worth pinning down:
 
@@ -1629,12 +1729,41 @@ See ADR-0774.
 | DELETE | `/api/v1/project-resources/{id}/` | Remove from roster (Scheduler+) |
 | DELETE | `/api/v1/project-resources/{id}/?force=true` | Force-remove and cascade-delete the resource's task assignments |
 
+A roster entry carries `units_override`, a per-project capacity override, and the
+read-only `effective_max_units` it resolves to (`units_override` when set — `0`
+included — else the resource's catalog-wide `max_units`).
+
+:::note[Ships in 0.4]
+`units_override` reaches every per-project capacity read in **0.4**. In the current
+release only the project Overview's Team utilization card applies it; the utilization
+endpoint, the resources heatmap and summary, `resource-allocation`, the attention
+feed's `overallocation` items, `Task.assignee_is_overallocated`, the assignment-time
+`resource_overallocated` warning and the sprint capacity summary all measure against
+`Resource.max_units`.
+:::
+
+From 0.4 `effective_max_units` will be the denominator behind
+`GET /projects/{id}/utilization/` (`max_units`, `load_pct`, `load_band`,
+`overallocated`), `/resources/heatmap/`, `/resources/summary/`,
+`/resource-allocation/` (`max_units`), the `overallocation` items on
+`/projects/{id}/attention/`, `Task.assignee_is_overallocated`, the
+`resource_overallocated` warning on `POST /task-resources/`, and
+`GET /sprints/{id}/capacity/`. Cross-project reads keep `Resource.max_units` — see
+the note under **Programs** above.
+
 A plain `DELETE` returns `409 Conflict` with code `has_assignments` if the
 resource has live task assignments on the project; the response body lists the
 `affected_tasks`, a sample of `task_names`, and the `assignment_count`. Passing
 `?force=true` cascades the deletion to the resource's `TaskResource` rows on the
 project and triggers a CPM recalculation for the affected tasks. All write and
 delete operations require the Scheduler role or higher on the project.
+
+Deactivating a resource (`DELETE /api/v1/resources/{id}/`) removes it from every
+roster: the list no longer returns its row, and `POST` refuses the resource with
+`400`. `POST /api/v1/resources/{id}/restore/` puts back exactly the rows the
+deactivation removed — a membership already removed by hand stays removed. Task
+assignment rows are retained throughout, so assignment history survives an
+off-boarding; it is the roster and every capacity read that drop the person.
 
 From **0.4**, every write on `/api/v1/project-resources/`, `/api/v1/task-resources/`
 and `/api/v1/task-skill-requirements/` — create, update, delete, and the
@@ -1817,6 +1946,12 @@ and the team activity feed are tracked for a later release (#599). See
 `/api/v1/task-skill-requirements/` are documented alongside the rest of the
 resource catalog in [Resources](/features/resources/) — see that page for
 the full CRUD surface and the skill-match warning codes.
+
+`/api/v1/resource-skills/` lists tags for **active** resources only. A
+deactivated resource's catalog row is already admin-only, and its skill tags
+follow it: they leave the list for every caller, and `POST` refuses the resource
+with `400`. An org admin still sees them expanded on the resource itself via
+`GET /api/v1/resources/?include_deleted=true`.
 
 ### Assets (unified file/link feed)
 
@@ -2352,6 +2487,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `oidc_login` | 20/min | SSO login start |
 | `oidc_callback` | 30/min | SSO callback |
 | `sso_test_connection` | 20/min | SSO admin "Test connection" |
+| `sso_provider_write` | 20/min | SSO provider create/update/delete (reads exempt) |
 | `credential_rotate` | 10/min | Personal integration credentials + Git webhook secret rotation |
 | `external_sync` | 20/min | Manual external-connection pull trigger |
 | `monte_carlo` | 10/min | Synchronous Monte Carlo run |

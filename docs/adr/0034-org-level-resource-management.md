@@ -1,5 +1,49 @@
 # ADR-0034: Org-Level Resource Management Page
 
+> **Amended (2026-09-07, #3569).** This ADR's permission model — org authority
+> derived from holding ADMIN+ on at least one project — is retained for ordinary
+> catalog curation but is **no longer the gate on the catalog's destructive and
+> disclosing surfaces**. It never evaluated the self-creation path: nothing gates
+> `POST /api/v1/projects/` and `perform_create` makes the caller `Role.OWNER`, so
+> every account can reach `IsOrgAdmin` in two requests. `DELETE /resources/{id}/`,
+> `POST /resources/{id}/restore/`, `?include_deleted=true`, and `email` exposure and
+> email search now require **`IsWorkspaceAdminStrict`** — the stored
+> `WorkspaceRole.ADMIN` of ADR-0087 §6. The derivation itself additionally stopped
+> counting memberships on archived and soft-deleted projects. Creating and editing
+> catalog rows is unchanged.
+>
+> **On the choice of principal.** This ADR's §1 states "OSS has no first-class 'org
+> admin' concept" and derives one from project membership. That was true when written
+> and stopped being true when ADR-0087 landed `WorkspaceMembership`. The defect #3569
+> fixes is not "the principal is too weak" but "the principal is *self-grantable*":
+> creating a project makes you its Owner, by design. A workspace role is stored and
+> granted only by an existing workspace admin or by SSO provisioning, so it is not
+> reachable that way — while remaining an in-app role a workspace owner can hand out,
+> unlike a Django superuser. An earlier revision of this amendment named
+> `IsWorkspaceOperator` (superuser, ADR-0213 C1); that was corrected because the
+> install operator is the right floor for set-once infrastructure such as mail
+> transport, not for routine catalog lifecycle work. Superusers are unaffected:
+> `workspace_role_for_user` resolves a superuser with no membership row to implicit
+> OWNER.
+>
+> **Two surfaces were deliberately left on `IsOrgAdmin`, and that is a decision, not
+> an oversight.** (1) The shared **calendar library** (`CalendarViewSet`,
+> `CalendarExceptionViewSet`) meets the disclosure/destruction test on its face — a
+> calendar edit fans a CPM recompute to every project bound to it, including projects
+> the actor cannot see — but #3174 already chose a different remedy for exactly that
+> reach (an audit event naming the actor) and closed on it. Reopening the gate
+> question here would re-decide a closed ADR under a hardening fix; it is recorded as
+> a known residual instead. (2) Three endpoints outside this ADR's serializer
+> hand-build their payload and still return `email` to a caller holding a project
+> role they can grant themselves: the project and program **`resource-allocation`**
+> views (#3599) and the **project seed export** (#3627). So the #891 harvest control
+> is tightened on the catalog by this amendment, not completed — the invariant
+> "`Resource.email` is workspace-Admin-only" holds for `ResourceSerializer` and for
+> nothing else yet. A related asymmetry this amendment creates: `email` is now
+> *readable* only at workspace ADMIN but remains *writable* at the derived org gate
+> (#3625). Tracked as #3600, #3599, #3627 and #3625; none should be read as this ADR
+> endorsing the derivation for them.
+
 ## Status
 Accepted (2026-05-31) — implemented in #155
 
@@ -166,6 +210,26 @@ The default queryset filter (`is_deleted=False`) hides deactivated rows.
 A new `?include_deleted=true` query param surfaces them for the admin
 "Show deactivated" toggle. A `POST /api/v1/resources/{id}/restore/`
 custom action flips `is_deleted` back to `False`.
+
+> **Amended 2026-09-08 (#3572) — the `ProjectResource` half of this section no
+> longer holds.** The decision above is retained as written because it explains
+> why the code looked the way it did, but two of its claims have since changed:
+>
+> 1. **`ProjectResource` rows no longer "remain intact".** Deactivation now
+>    cascades: every live roster row is soft-deleted and stamped
+>    `deactivated_with_resource`, and `restore` reverses exactly those rows.
+>    `TaskResource` rows *are* still retained, and that half of the reasoning
+>    above stands — assignment history has to survive an off-boarding.
+> 2. **The "queryable for historical capacity reports" framing was the bug.**
+>    Nothing downstream read `is_deleted` at all, so a deactivated person kept
+>    appearing in every *current* capacity surface — roster, heat map, headcount,
+>    and the team-utilization denominator — not merely in historical ones. Those
+>    reads now filter through `ResourceScopedManager.active()`; the audit reads
+>    deliberately do not.
+>
+> The `perform_destroy` listing above is the pre-#3572 implementation and is kept
+> for the record. See `packages/api/src/trueppm_api/apps/resources/views.py` for
+> the current one.
 
 ### 3. Frontend page: `/resources/`
 

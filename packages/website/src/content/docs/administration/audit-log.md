@@ -11,10 +11,18 @@ beta is planned for 0.4.
 :::
 
 :::note[Ships in 0.4]
-The three **invite** event types (`invite_sent`, `invite_accepted`,
-`invite_revoked`) and the `?status=` filter on the invite list ship in **0.4**.
-On the latest release (`v0.3.0-alpha.3`) the log records no invite verb, and an
-invite disappears from the Members page the moment it is accepted or revoked.
+Several things on this page ship in **0.4** and are not in the latest release
+(`v0.3.0-alpha.3`):
+
+- the three **invite** event types (`invite_sent`, `invite_accepted`,
+  `invite_revoked`) and the `?status=` filter on the invite list — on 0.3 the log
+  records no invite verb, and an invite disappears from the Members page the
+  moment it is accepted or revoked;
+- the five **SSO** event types (`sso_provider_created`, `sso_provider_updated`,
+  `sso_provider_deleted`, `sso_secret_rotated`, `sso_account_linked`) and the
+  `auth.login_succeeded` log line — on 0.3 there is no single sign-on at all;
+- the `role` key on `member_added` rows written by an SSO join.
+
 Everything else on this page describes 0.3.
 :::
 
@@ -49,6 +57,12 @@ recorded:
 | `invite_sent` *(0.4)* | An Owner/Admin invites an email address | The invite | `role` |
 | `invite_accepted` *(0.4)* | An invited person joins the workspace | The invite | `role`, `invited_by`, `invited_by_id`, `invited_at` |
 | `invite_revoked` *(0.4)* | An Owner/Admin revokes a pending invite | The invite | `role`, `invited_by` |
+| `calendar_changed` | A shared working-time calendar is edited | The calendar | `fields` |
+| `sso_provider_created` *(0.4)* | An Admin adds a single sign-on provider | The provider | `config`, `secret_set`, `actor_kind` |
+| `sso_provider_updated` *(0.4)* | An Admin changes a provider's configuration | The provider | `changed` (per-field before/after), `actor_kind` |
+| `sso_provider_deleted` *(0.4)* | An Admin removes a provider | The provider | `linked_accounts`, `locked_out_accounts`, `confirmed_lockout`, `config`, `actor_kind` |
+| `sso_secret_rotated` *(0.4)* | An Admin supplies a new client secret for a provider | The provider | `actor_kind` |
+| `sso_account_linked` *(0.4)* | A single sign-on identity binds to an **existing** local account | The user | `via`, `provider`, `issuer`, `subject`, `role` |
 
 :::note[Why `invite_accepted` exists alongside `member_added`]
 They look redundant and are not. The invite-accept endpoint is **unauthenticated** —
@@ -73,6 +87,63 @@ why is their integration still 401-ing?*
 On a soft delete, the project's members also receive an in-app
 [project-delete notification](/features/task-collaboration/#project-delete-notification)
 so a project never simply vanishes from under the team.
+
+## Auth events: some are rows, login success is a log line
+
+Single sign-on administration is recorded as **audit rows**; a successful **login** is
+recorded as a **log line** on the `trueppm.auth` logger. The split is deliberate
+(ADR-1120), and knowing which is which is the difference between finding an event and
+concluding it never happened.
+
+| Question | Where to look |
+|---|---|
+| Who widened the allowed email domains, and to what? | `?event_type=sso_provider_updated` |
+| Who rotated the client secret, and when? | `?event_type=sso_secret_rotated` |
+| Which accounts got a federated credential? | `?event_type=sso_account_linked` |
+| Who signed in, from where, just now? | `trueppm.auth` in your log pipeline |
+| Who *failed* to sign in? | `trueppm.auth` (`auth.login_failed`, since 0.3) |
+
+Login success is not a row because its rate is set by user traffic rather than by
+administrative action, and the community audit table has no retention or pruning (see
+[Retention](#retention)) — a verb that fires per login would grow that table without
+bound. It also has no before and after to record. Both auth log lines therefore land on
+one logger, so an operator correlating "somebody was hammering this account, did they get
+in?" reads one channel:
+
+```
+auth.login_failed username_hash=<sha256> client_ip=<ip>
+auth.login_succeeded user_id=<id> method=password|sso:<provider> client_ip=<ip> remember=<bool>
+```
+
+The success line is emitted at **INFO**, so it requires `DJANGO_LOG_LEVEL=INFO` — which is
+the default. It carries the user **id**, never the email or username; the failure line
+hashes the submitted identifier for the same reason.
+
+`auth.login_succeeded` records a **new sign-in**, not a continued session. Refreshing an
+access token does not emit a line, so a session sustained by refresh-token rotation
+produces one entry — at the moment it began. If you are looking for evidence of ongoing
+access rather than of a sign-in, this channel is the wrong place to look for it.
+
+:::caution[Successful logins put a client IP in your logs]
+Before 0.4 `trueppm.auth` recorded a client IP only for *failed* sign-ins.
+`auth.login_succeeded` attaches one to every successful session. That is personal data
+in a stream TruePPM does not own — it goes to your log pipeline, and TruePPM cannot
+prune it, redact it, or honor an erasure request against it. Set your retention on that
+pipeline accordingly.
+
+As with the failure line, `client_ip` is best-effort: it prefers the left-most
+`X-Forwarded-For` hop and is spoofable behind a proxy that does not normalize that
+header. It is for correlation, never for a security decision.
+:::
+
+:::note[Why a refused login is never an audit row]
+Every write on this page happens on a path that **succeeded**. That is not incidental.
+Every API request runs inside a transaction, and a refusal (`400`, `403`, `409`) rolls
+that transaction back — so an audit row written while refusing a request is issued and
+then silently discarded. Refusals are therefore recorded as log lines, where no
+transaction can take them back. If you are looking for evidence of a *rejected* action,
+look in `trueppm.auth` (or `trueppm.sso` for single sign-on), not in the audit log.
+:::
 
 :::caution[The log records field names, not values]
 `workspace_settings_changed` records **which** settings changed (the field

@@ -59,7 +59,6 @@ overallocation client-side.
     {
       "id": "...",
       "name": "Ravi Singh",
-      "email": "ravi@example.com",
       "max_units": 0.5,
       "tasks": [
         {
@@ -232,3 +231,17 @@ frictionless editing requirement without navigating away from the view.
     assignments), unscheduled tasks (null early_start), resource + status filters
   - Web: vitest — overallocation detection logic, span geometry, inline edit flow,
     "My allocation" filter; Playwright E2E for full create-assign-view cycle
+
+## Amendment — 2026-09-08 (#3599)
+
+The resource row no longer carries `email`, and the example above has been
+corrected accordingly.
+
+Both this endpoint and its program-scoped mirror
+(`GET /programs/{id}/resource-contention/`, #1149) build the row as a hand-rolled
+dict, so neither passes through `ResourceSerializer.to_representation` — the only
+place the #891 org-wide address-harvest control lives. Both are gated Scheduler+
+on the caller's *own* project or program, which is self-grantable: project
+creation is ungated and `perform_create` makes the caller Owner. The field had no
+reader in the web client, so it was dropped rather than gated; a caller who
+legitimately needs an address reads the gated resource catalog.

@@ -20,6 +20,7 @@ import { UpdateStatusDialog } from '@/features/project/UpdateStatusDialog';
 import {
   HEALTH_LABEL as REPORTED_HEALTH_LABEL,
   HEALTH_ACTIVE as REPORTED_HEALTH_ACTIVE,
+  REPORTED_HEALTH_TITLE,
 } from '@/features/project/projectHealth';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
@@ -331,7 +332,7 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
           <span
             className={`bg-transparent border rounded-chip px-2 py-0.5 text-xs font-medium ${REPORTED_HEALTH_ACTIVE[reportedHealth]}`}
             aria-label={`Reported project health: ${REPORTED_HEALTH_LABEL[reportedHealth]}`}
-            title="Status reported by the project manager — separate from the schedule signal."
+            title={REPORTED_HEALTH_TITLE}
           >
             Reported: {REPORTED_HEALTH_LABEL[reportedHealth]}
           </span>

@@ -54,7 +54,6 @@ export function taskSpanStart(task: AllocationTask): string | null {
 export interface AllocationResource {
   id: string;
   name: string;
-  email: string;
   /** Decimal string, e.g. "1.00" */
   max_units: string;
   tasks: AllocationTask[];
@@ -65,6 +64,19 @@ export interface AllocationResponse {
   window_start: string;
   window_end: string;
   resources: AllocationResource[];
+  /**
+   * Resources in scope on the server, before the assignment cap (ADR-1118).
+   * Equals `resources.length` unless `truncated` is true.
+   */
+  resource_count: number;
+  /**
+   * True when the server's assignment cap dropped whole resources from
+   * `resources`. The cut always falls on a resource boundary, so every resource
+   * present carries all of its in-window spans and the client-side
+   * overallocation verdict (ADR-0031) stays exact for it — what is missing is
+   * entire people, which {@link AllocationTruncationNotice} must surface.
+   */
+  truncated: boolean;
 }
 
 // ---------------------------------------------------------------------------

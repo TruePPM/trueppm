@@ -863,6 +863,63 @@ def _require_active(user: Any, ctx: ProviderContext) -> Any:
     return user
 
 
+def _workspace_role_of(user: Any) -> int | None:
+    """The user's current workspace role, or ``None`` when they hold no membership.
+
+    Recorded on ``sso_account_linked`` so the row answers *what access did this federated
+    identity just get?* without a second lookup against state that may since have moved.
+    ``None`` is a real answer, not a failure: an account can exist with no membership (a
+    superuser holding implicit ownership, or a user provisioned outside the workspace).
+    """
+    membership = (
+        WorkspaceMembership.objects.filter(user=user, is_deleted=False)
+        .values_list("role", flat=True)
+        .first()
+    )
+    return int(membership) if membership is not None else None
+
+
+def _audit_account_linked(user: Any, ctx: ProviderContext, *, subject: str, email: str) -> None:
+    """Record that an IdP identity bound itself to a pre-existing local account (#3552).
+
+    Branch 3 of :func:`resolve_user`. Its sibling — the auto-create branch — has written
+    ``MEMBER_ADDED`` since the feature shipped, so the path that mints a *new* account was
+    legible while the path that hands a federated credential to an account that already
+    has one was not (ADR-1120).
+
+    Written inside :func:`resolve_user`'s transaction, so a link that fails afterwards
+    cannot leave a row claiming it happened. The actor is the **linked user**, matching the
+    ``member_added`` / ``invite_accepted`` convention for this unauthenticated join path:
+    there is no administrator in the request to attribute it to.
+
+    The metadata is enumerated deliberately and is **not** derived from the ``claims``
+    dict beyond ``subject``. ``record_audit_event`` stores ``metadata`` verbatim, and for
+    an OIDC provider ``claims`` is whatever the IdP chose to sign — group lists, phone
+    numbers, the nonce, sometimes an embedded token. ``subject`` is the durable
+    ``(issuer, subject)`` half an operator needs to correlate this row against their IdP's
+    own logs, and is already stored on the ``SocialAccount``.
+    """
+    # Lazily imported to avoid a workspace→sso import cycle at module load, matching the
+    # auto-create branch below and ``projects/views.py::_record_project_audit_event``.
+    from trueppm_api.apps.workspace.models import AuditEventType
+    from trueppm_api.apps.workspace.services import record_audit_event
+
+    record_audit_event(
+        event_type=AuditEventType.SSO_ACCOUNT_LINKED,
+        actor=user,
+        target_type="user",
+        target_id=user.pk,
+        target_label=email,
+        metadata={
+            "via": "sso",
+            "provider": ctx.slug,
+            "issuer": ctx.issuer,
+            "subject": subject,
+            "role": _workspace_role_of(user),
+        },
+    )
+
+
 @transaction.atomic
 def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, bool]:
     """Resolve (and possibly create/link) the local user for a validated identity.
@@ -946,6 +1003,7 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
         SocialAccount.objects.create(
             user=existing[0], provider=provider_key, uid=subject, extra_data={"iss": issuer}
         )
+        _audit_account_linked(existing[0], ctx, subject=subject, email=email)
         return existing[0], False
     if len(existing) > 1:
         # Email is not unique in Django's auth model; an ambiguous match must not
@@ -990,7 +1048,11 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
         target_type="user",
         target_id=user.pk,
         target_label=email,
-        metadata={"via": "sso", "issuer": issuer, "provider": provider_key},
+        # ``role`` added in #3552: ``administration/audit-log.md`` has documented
+        # ``member_added`` as carrying it since the verb shipped, and this emission site
+        # omitted it while having just computed it — leaving "what access did this
+        # federated identity get?" unanswerable from the row that grants it.
+        metadata={"via": "sso", "issuer": issuer, "provider": provider_key, "role": int(role)},
     )
     return user, True
 

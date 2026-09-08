@@ -3,11 +3,77 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
+from typing import TYPE_CHECKING, ClassVar, TypeVar
 
 from django.conf import settings
 from django.db import models
 
 from trueppm_api.apps.projects.models import Calendar, Project, Task, VersionedModel
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+#: THE single definition of "this row hangs off a resource that still counts" (#3572).
+#:
+#: Deactivating a resource (``DELETE /api/v1/resources/{id}/``) is catalog-only: the
+#: ``TaskResource`` rows are deliberately retained so an off-boarding does not erase
+#: assignment history (see ``ResourceViewSet.perform_destroy``). That retention is the
+#: whole reason this predicate has to exist — the rows survive, so every roster,
+#: capacity, and skill read has to exclude the deactivated person *itself*.
+#:
+#: One expression, imported by one manager method, rather than a
+#: ``resource__is_deleted=False`` clause copied into each of a dozen reads. The
+#: precedent is ``TaskManager.untouched_seeded``: two call sites that looked like they
+#: detected the same fact re-derived it independently, one read the wrong column, and a
+#: whole class of load went silently missing (#3572 is that failure again, in reverse —
+#: nobody derived it at all).
+ACTIVE_RESOURCE = models.Q(resource__is_deleted=False)
+
+_ResourceScoped = TypeVar("_ResourceScoped", bound=models.Model)
+
+
+class ResourceScopedManager(models.Manager[_ResourceScoped]):
+    """Default (unfiltered) manager for a table whose rows hang off a ``Resource``.
+
+    Stays unfiltered so it remains ``_default_manager`` — the audit reads, the
+    workspace export, and the "does this task have any assignment at all" structural
+    guards all need the retained rows. It exists only so :meth:`active` has one home;
+    no manager is registered for migrations, so swapping ``models.Manager`` for this
+    class is not a schema change.
+    """
+
+    def active(self) -> QuerySet[_ResourceScoped]:
+        """Rows whose resource has not been deactivated.
+
+        The read-side half of :data:`ACTIVE_RESOURCE`. Use this for anything that
+        answers a *capacity*, *roster*, or *catalog* question — who is on the team,
+        how loaded are they, who is over-allocated. Do **not** use it for the audit
+        reads: a deactivated person's assignment history is retained on purpose.
+        """
+        return self.get_queryset().filter(ACTIVE_RESOURCE)
+
+
+class ResourceSkillManager(ResourceScopedManager["ResourceSkill"]):
+    """Skill-tag manager. See :class:`ResourceScopedManager`."""
+
+
+class TaskResourceManager(ResourceScopedManager["TaskResource"]):
+    """Assignment manager. See :class:`ResourceScopedManager`."""
+
+
+class ProjectResourceManager(ResourceScopedManager["ProjectResource"]):
+    """Roster manager: :meth:`active` also excludes rows removed from the roster."""
+
+    def active(self) -> QuerySet[ProjectResource]:
+        """Live roster rows whose resource is also live.
+
+        Both halves matter and neither implies the other: ``is_deleted`` is the row's
+        own removal (hand removal, or the deactivation cascade in
+        ``ResourceViewSet.perform_destroy``), while ``ACTIVE_RESOURCE`` catches a
+        resource deactivated before the cascade existed or by a path that bypassed it.
+        """
+        return self.get_queryset().filter(ACTIVE_RESOURCE).filter(is_deleted=False)
 
 
 class Resource(VersionedModel):
@@ -78,6 +144,8 @@ class ResourceSkill(VersionedModel):
     skill = models.ForeignKey(Skill, on_delete=models.PROTECT, related_name="resources")
     proficiency = models.IntegerField(choices=Proficiency.choices, default=Proficiency.INTERMEDIATE)
 
+    objects: ClassVar[ResourceSkillManager] = ResourceSkillManager()
+
     class Meta:
         db_table = "resources_resource_skill"
         constraints = [
@@ -108,6 +176,23 @@ class ProjectResource(VersionedModel):
     role_title = models.CharField(max_length=120, blank=True)
     units_override = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     notes = models.TextField(blank=True, default="")
+    # The discriminator that makes reactivation reversible (#3572): it marks a roster
+    # row as soft-deleted BY the org-wide deactivation cascade in
+    # ResourceViewSet.perform_destroy, so ResourceViewSet.restore puts back exactly
+    # the rows that cascade took away and nothing else.
+    #
+    # Be precise about why that is not redundant with is_deleted. Roster removal
+    # through the API (ProjectResourceViewSet.destroy) is a HARD delete — it calls
+    # instance.delete() and VersionedModel has no delete() override — so a
+    # hand-removed membership leaves no row at all, and today the cascade is the only
+    # product path that produces a soft-deleted ProjectResource. The flag is what
+    # keeps that true rather than assumed: without it, restore would have to revive
+    # every is_deleted row for the resource, which silently adopts whatever the
+    # importer, a management command, a data repair, or a future soft-delete path
+    # left behind. Restore states what it reverses instead of inferring it.
+    deactivated_with_resource = models.BooleanField(default=False)
+
+    objects: ClassVar[ProjectResourceManager] = ProjectResourceManager()
 
     class Meta:
         db_table = "resources_project_resource"
@@ -122,9 +207,20 @@ class ProjectResource(VersionedModel):
         return f"{self.resource} on {self.project}"
 
     @property
-    def effective_max_units(self) -> object:
-        """Return the project-specific override if set, otherwise the resource default."""
-        return self.units_override if self.units_override is not None else self.resource.max_units
+    def effective_max_units(self) -> Decimal:
+        """Return the project-specific override if set, otherwise the resource default.
+
+        Delegates to :func:`trueppm_api.apps.resources.capacity.effective_units`, the
+        single definition of this fallback (#1582) — the same one every per-project
+        capacity read applies, so no two surfaces can resolve it differently (#3574).
+        """
+        from trueppm_api.apps.resources.capacity import effective_units
+
+        # ``self.resource`` is dereferenced ONLY when there is no override, so a
+        # roster row loaded without select_related does not trigger a query it does
+        # not need. The rule itself still lives in one place.
+        override = self.units_override
+        return effective_units(override, None if override is not None else self.resource.max_units)
 
 
 class TaskSkillRequirement(VersionedModel):
@@ -178,6 +274,8 @@ class TaskResource(models.Model):
     )
     # Units assigned as a fraction of full-time (mirrors max_units on Resource)
     units = models.DecimalField(max_digits=4, decimal_places=2, default=1.0)
+
+    objects: ClassVar[TaskResourceManager] = TaskResourceManager()
 
     class Meta:
         db_table = "resources_task_resource"

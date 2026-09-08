@@ -50,8 +50,12 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
   const addSkill = useAddResourceSkill(resource.id);
   const removeSkill = useRemoveResourceSkill(resource.id);
 
+  // `email` is absent from the payload when the caller may not see it, which is the
+  // common case since #3569 — distinct from an empty string, which means the resource
+  // genuinely has no address. Keep the input controlled either way.
+  const emailWithheld = resource.email === undefined;
   const [name, setName] = useState(resource.name);
-  const [email, setEmail] = useState(resource.email);
+  const [email, setEmail] = useState(resource.email ?? '');
   const [jobRole, setJobRole] = useState(resource.jobRole);
   const [maxUnits, setMaxUnits] = useState(resource.maxUnits);
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
@@ -60,7 +64,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
   // Sync form when selection changes
   useEffect(() => {
     setName(resource.name);
-    setEmail(resource.email);
+    setEmail(resource.email ?? '');
     setJobRole(resource.jobRole);
     setMaxUnits(resource.maxUnits);
     setSaveError(null);
@@ -70,7 +74,9 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
   function handleSave() {
     setSaveError(null);
     updateMutation.mutate(
-      { id: resource.id, name, email, jobRole, maxUnits },
+      // Omit `email` when it was withheld: sending the '' placeholder would erase an
+      // address the caller could not see. `useUpdateResource` skips undefined keys.
+      { id: resource.id, name, email: emailWithheld ? undefined : email, jobRole, maxUnits },
       {
         onError: (err) => {
           setSaveError(
@@ -81,19 +87,38 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
     );
   }
 
+  // Both paths need onError. Since #3569 deactivate/restore require workspace ADMIN,
+  // but the buttons are rendered for anyone who reaches this page — so a 403 is a
+  // real outcome for a project admin who holds no workspace role. Without this the
+  // click clears its pending state and nothing whatsoever happens, which reads as a
+  // broken button rather than a refusal. Reuses the same saveError banner as handleSave.
   function handleDeactivate() {
-    deactivateMutation.mutate(resource.id, { onSuccess: onDeactivated });
+    setSaveError(null);
+    deactivateMutation.mutate(resource.id, {
+      onSuccess: onDeactivated,
+      onError: (err) =>
+        setSaveError(
+          err.message ?? 'Deactivate failed. You need workspace Admin access to deactivate a resource.',
+        ),
+    });
     setConfirmDeactivate(false);
   }
 
   function handleRestore() {
-    restoreMutation.mutate(resource.id, { onSuccess: onRestored });
+    setSaveError(null);
+    restoreMutation.mutate(resource.id, {
+      onSuccess: onRestored,
+      onError: (err) =>
+        setSaveError(
+          err.message ?? 'Restore failed. You need workspace Admin access to restore a resource.',
+        ),
+    });
   }
 
   const isSaving = updateMutation.isPending;
   const hasChanges =
     name !== resource.name ||
-    email !== resource.email ||
+    (!emailWithheld && email !== resource.email) ||
     jobRole !== resource.jobRole ||
     maxUnits !== resource.maxUnits;
 
@@ -132,15 +157,32 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
           />
         </Field>
 
+        {/*
+          The server omits `email` entirely unless the caller holds workspace ADMIN
+          or is the resource's own user (#891/#3569). An editable input bound to an
+          undefined value would render blank for a resource that *does* have an
+          address, and anything typed into it would overwrite the address the caller
+          was never allowed to see. So when it is withheld, say so and do not offer
+          the field — the value is still there, it is just not ours to edit.
+        */}
         <Field label="Email" htmlFor="resource-email">
-          <input
-            id="resource-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={resource.isDeleted}
-            className="w-full h-8 px-2.5 rounded border border-neutral-border text-xs text-neutral-text-primary bg-neutral-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
-          />
+          {emailWithheld ? (
+            <p
+              id="resource-email"
+              className="text-xs text-neutral-text-secondary h-8 flex items-center"
+            >
+              Hidden — requires workspace Admin
+            </p>
+          ) : (
+            <input
+              id="resource-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={resource.isDeleted}
+              className="w-full h-8 px-2.5 rounded border border-neutral-border text-xs text-neutral-text-primary bg-neutral-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          )}
         </Field>
 
         <Field label="Job role" htmlFor="resource-job-role">

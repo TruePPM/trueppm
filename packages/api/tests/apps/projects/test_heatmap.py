@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -19,7 +20,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
-from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
 
@@ -317,3 +318,95 @@ class TestHeatmapGroupByEcho:
         """The 400 path stays intact for values that were never in the enum."""
         resp = self._heatmap(project, group_by="team")
         assert resp.status_code == 400  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# #3574 — the heat map and resources/summary inherit the daily engine's
+# per-project capacity, so they cannot disagree with the Overview card about
+# the same person. Before this, a 0.5-rostered person assigned 0.5 read 100%
+# on the card and 50% here.
+# ---------------------------------------------------------------------------
+
+
+def _roster(
+    project: Project,
+    resource: Resource,
+    units_override: str | None,
+    *,
+    is_deleted: bool = False,
+) -> ProjectResource:
+    return ProjectResource.objects.create(
+        project=project,
+        resource=resource,
+        units_override=Decimal(units_override) if units_override is not None else None,
+        is_deleted=is_deleted,
+    )
+
+
+@pytest.mark.django_db
+class TestHeatmapHonorsUnitsOverride:
+    def _week(
+        self, project: Project, cal: Calendar, override: str | None, units: float
+    ) -> list[int]:
+        resource = Resource.objects.create(name="Ada L", calendar=cal, max_units=Decimal("1.0"))
+        _roster(project, resource, override)
+        _assign(_make_task(project, date(2026, 4, 27), 5), resource, units)
+        resp = _auth_client(Role.SCHEDULER, project).get(
+            _heatmap_url(project), {"weeks": "4", "start": "2026-04-27"}
+        )
+        assert resp.status_code == 200
+        return list(resp.data["resources"][0]["util"])
+
+    def test_half_time_roster_reads_100_not_50(self, project: Project, cal: Calendar) -> None:
+        """The reported defect: 0.5 units against a 0.5 roster slot is a full week."""
+        assert self._week(project, cal, "0.5", 0.5)[0] == 100
+
+    def test_no_override_is_unchanged(self, project: Project, cal: Calendar) -> None:
+        """Negative control — the pre-existing 50% reading must survive."""
+        assert self._week(project, cal, None, 0.5)[0] == 50
+
+    def test_half_time_roster_over_capacity(self, project: Project, cal: Calendar) -> None:
+        assert self._week(project, cal, "0.5", 0.6)[0] == 120
+
+    def test_zero_override_is_not_read_as_unset(self, project: Project, cal: Calendar) -> None:
+        """A 0 override zeroes the denominator, which the guard reports as 0 — the
+        point is that it is NOT the 50% a truthiness fallback to max_units gives."""
+        assert self._week(project, cal, "0", 0.5)[0] == 0
+
+    def test_soft_deleted_roster_row_is_ignored(self, project: Project, cal: Calendar) -> None:
+        resource = Resource.objects.create(name="Gone", calendar=cal, max_units=Decimal("1.0"))
+        _roster(project, resource, "0.5", is_deleted=True)
+        _assign(_make_task(project, date(2026, 4, 27), 5), resource, 0.5)
+        resp = _auth_client(Role.SCHEDULER, project).get(
+            _heatmap_url(project), {"weeks": "4", "start": "2026-04-27"}
+        )
+        assert resp.status_code == 200
+        assert resp.data["resources"][0]["util"][0] == 50
+
+
+@pytest.mark.django_db
+class TestSummaryHonorsUnitsOverride:
+    def _summary(self, project: Project, cal: Calendar, override: str | None, units: float) -> dict:
+        resource = Resource.objects.create(name="Jo B", calendar=cal, max_units=Decimal("1.0"))
+        _roster(project, resource, override)
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        _assign(_make_task(project, monday, 5), resource, units)
+        resp = _auth_client(Role.SCHEDULER, project).get(_summary_url(project))
+        assert resp.status_code == 200
+        return dict(resp.data)
+
+    def test_over_allocated_against_the_override(self, project: Project, cal: Calendar) -> None:
+        """0.6 units is under a 1.0 default and over a 0.5 roster slot. The summary
+        must read the slot, or it contradicts the heat map it summarizes."""
+        data = self._summary(project, cal, "0.5", 0.6)
+        assert data["over_allocated_count"] == 1
+        assert data["avg_utilization_pct"] == 120
+
+    def test_same_load_is_not_over_allocated_without_the_override(
+        self, project: Project, cal: Calendar
+    ) -> None:
+        """The negative control that makes the assertion above non-vacuous."""
+        data = self._summary(project, cal, None, 0.6)
+        assert data["over_allocated_count"] == 0
+        assert data["avg_utilization_pct"] == 60

@@ -7,9 +7,14 @@ const STATS: ShellStats = {
   taskCount: 42,
   criticalPathCount: 3,
   monteCarlop80: '2026-11-03',
-  // The model does not read the band — it selects the methodology segments — but
-  // `ShellStats` requires it (#3501).
+  // The model reads neither the band nor its source — it selects the methodology
+  // segments — but `ShellStats` requires both (#3501, #3525). The provenance row
+  // is rendered by `HealthCluster` above `segments.map`, deliberately outside this
+  // model: an AGILE cluster emits no at-risk/critical segment at all, so a
+  // provenance segment threaded through here would be invisible on exactly the
+  // methodology that needs it most.
   healthBand: 'critical',
+  healthBandSource: 'derived',
   atRiskCount: 2,
   criticalCount: 1,
   atRiskTasks: [{ id: 't4', wbs: '1.3', name: 'Frontend Build' }],

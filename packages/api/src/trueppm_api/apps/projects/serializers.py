@@ -3158,6 +3158,37 @@ class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
         read_only_fields = fields
 
 
+#: Maximum ``owners`` entries carried on one task write (#3596).
+#:
+#: ``owners`` is an upsert keyed by resource, so a payload's *useful* length is bounded
+#: by the project's roster; entries beyond that are either duplicates or noise. Without a
+#: cap the only bound was ``DATA_UPLOAD_MAX_MEMORY_SIZE`` (100 MB), and because
+#: ``apply_task_owners`` deliberately replays the payload **entry by entry** into the
+#: ADR-0394 audit trail and the ``assignment_*`` fanout, one write naming one rostered
+#: resource ~100k times **with the units changing between entries** minted ~100k
+#: ``TaskActivityEvent`` rows and ~100k ``broadcast_board_event`` calls to every connected
+#: project member. The units have to vary: ``_write_one_owner`` returns no event and
+#: writes no audit row for a re-write at the same units, so a constant repeat costs one
+#: of each. That makes the amplification a payload the caller shapes, not an accident.
+#:
+#: 100 is chosen, not arbitrary: it is twice the closest shipped per-task budget
+#: (``MAX_ATTACHMENTS_PER_TASK = 50``) and a fifth of the per-batch
+#: ``TASK_BULK_MAX_OPERATIONS = 500``, keeping a single row's budget strictly under the
+#: batch's for the same reason ``operations`` and ``dependencies`` hold separate budgets.
+#: A task with more than 100 named owners is not a plan, and the cap cuts the blast
+#: radius of one write by three orders of magnitude.
+MAX_TASK_OWNERS_PER_WRITE = 100
+
+#: Emitted verbatim on a payload over the cap. States the limit and the two ways out —
+#: a bare "no more than N elements" leaves a caller who hit it with nowhere to go.
+MSG_TOO_MANY_OWNERS = (
+    "A task write may name at most {max_length} owners. Remove duplicate resource ids "
+    "(naming the same resource twice only records an extra units change), or split the "
+    "assignment across several task writes — owners are upserted, so a later write "
+    "never removes an owner named by an earlier one."
+)
+
+
 class TaskOwnerWriteSerializer(serializers.Serializer[dict[str, Any]]):
     """One inbound owner assignment carried on a task write (ADR-0774, #2718).
 
@@ -3476,7 +3507,38 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # task write (``IsProjectMemberWrite`` on create, ``can_user_edit_task`` on update),
     # which is why it declares no permission class of its own: when the authoring-role
     # predicate lands (#2719) this picks up the corrected bar without being touched.
-    owners = TaskOwnerWriteSerializer(many=True, write_only=True, required=False)
+    #
+    # Bounded at ``MAX_TASK_OWNERS_PER_WRITE`` (#3596). The cap lives on the list, not on
+    # the distinct resources, because the cost this bounds is per *payload row*: the audit
+    # replay and the ``assignment_*`` fanout are one each per entry by design, so
+    # de-duplicating would silently change audit semantics ``apply_task_owners`` defends.
+    # ``ListSerializer.to_internal_value`` checks it before ``validate`` runs, so an
+    # oversized payload is refused without touching the roster query in ``_resolve_owners``.
+    #
+    # ``max_length`` is a ``ListSerializer`` argument (the stubs declare it there), and
+    # ``many=True`` routes this construction through ``BaseSerializer.many_init`` — which
+    # mypy cannot follow, so it checks the call against ``Serializer.__init__``.
+    owners = TaskOwnerWriteSerializer(  # type: ignore[call-arg]
+        many=True,
+        write_only=True,
+        required=False,
+        max_length=MAX_TASK_OWNERS_PER_WRITE,
+        error_messages={"max_length": MSG_TOO_MANY_OWNERS},
+        # DRF checks ``max_length`` inline in ``ListSerializer.to_internal_value`` rather
+        # than through a ``MaxLengthValidator``, and drf-spectacular derives ``maxItems``
+        # only from validators — so the cap is invisible in the schema unless it is said
+        # here. A client discovers a 400 it cannot see coming otherwise.
+        #
+        # This is why ``TaskBulkRequest.operations`` publishes a machine-readable
+        # ``maxItems: 500`` and this does not: that one is a ``ListField``, which registers
+        # a real validator. Attaching one here purely for the schema would be dead code —
+        # ``to_internal_value`` raises first, so ``run_validators`` never sees the payload.
+        help_text=(
+            f"At most {MAX_TASK_OWNERS_PER_WRITE} entries. Owners are upserted, so a "
+            "longer assignment can be split across several writes without any of them "
+            "removing an owner named by an earlier one."
+        ),
+    )
 
     # Nested labels (ADR-0400) — read-only pills for board cards + schedule drawer.
     # Writes go through the task-nested attach/detach endpoints, never here, so the
@@ -3562,11 +3624,21 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # closer. See ADR-0035 § Q5.
 
     # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
-    # True when the assignee's TaskResource.units across active tasks in this
-    # project sum to > 1.0.  Annotated by TaskViewSet.get_queryset(); defaults
-    # to False so the drawer never shows a stale warning when called outside the
-    # viewset (e.g. in tests or nested serializers).
-    assignee_is_overallocated = serializers.BooleanField(read_only=True, default=False)
+    # Annotated by TaskViewSet.get_queryset(); defaults to False so the drawer never
+    # shows a stale warning when called outside the viewset (e.g. in tests or nested
+    # serializers). The comparison basis is published in help_text because it changed
+    # meaning without changing type (#3574) — it was a hardcoded 1.0.
+    assignee_is_overallocated = serializers.BooleanField(
+        read_only=True,
+        default=False,
+        help_text=(
+            "True when the assignee's TaskResource.units across active tasks in this "
+            "project exceed their capacity ON THIS PROJECT. Capacity is resolved in "
+            "three steps: the roster units_override for the Resource that "
+            "Resource.user links to this assignee (0 included), else that Resource's "
+            "max_units, else 1.0 for an assignee with no Resource row at all."
+        ),
+    )
 
     # Sprint → milestone rollup payload (ADR-0074). Populated only on milestone
     # tasks with at least one live targeting sprint; ``None`` otherwise. The

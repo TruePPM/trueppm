@@ -92,11 +92,13 @@ from trueppm_api.apps.projects.serializers import (
     SeedImportRequestSerializer,
 )
 from trueppm_api.apps.projects.views import (
+    _ALLOCATION_ASSIGNMENT_LIMIT,
     _SCHEDULE_NOT_COMPUTED,
     PIN_ENDPOINT_DESCRIPTION,
     PIN_LIMIT_RESPONSE,
     PROGRAM_PIN_RESPONSE,
     DirectoryPagination,
+    _cap_assignments_at_resource_boundary,
     _resolve_allocation_window,
     _ScheduleNotComputedError,
     pin_limit_detail,
@@ -1560,8 +1562,9 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description=(
-                    "{program_id, window_start, window_end, resources}. Each resource is "
-                    "{id, name, email, max_units, tasks[]} and each task span is "
+                    "{program_id, window_start, window_end, resource_count, truncated, "
+                    "resources}. Each resource is "
+                    "{id, name, max_units, tasks[]} and each task span is "
                     "{assignment_id, id, name, project_id, project_name, early_start, "
                     "early_finish, scheduled_start, units, status} — aggregated across "
                     "every member project of the program and tagged with its source "
@@ -1570,7 +1573,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "(ADR-0752) is the task's SPAN start; the client renders "
                     "scheduled_start..early_finish, falling back to early_start when "
                     "scheduled_start is null. Overallocation detection stays "
-                    "client-side per ADR-0031."
+                    "client-side per ADR-0031, so the assignment cap (ADR-1118) "
+                    "cuts on a resource boundary: resource_count is the number of "
+                    "resources in scope and truncated is true when whole resources "
+                    "were dropped — every resource returned carries all of its "
+                    "in-window spans, so its client-side verdict stays exact."
                 ),
             ),
             400: OpenApiResponse(
@@ -1594,6 +1601,20 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         portfolio heat map remain Enterprise. Overallocation detection is intentionally
         client-side (ADR-0031): the caller receives the merged spans and sums daily units
         against each resource's ``max_units``.
+
+        Bounded by ``_ALLOCATION_ASSIGNMENT_LIMIT`` assignment rows, cut on a resource
+        boundary and disclosed as ``truncated`` / ``resource_count`` (ADR-1118) — the
+        same contract as the per-project endpoint, and for the same reason: a resource
+        returned with only part of its spans would report a *wrong* load, not an
+        incomplete one, because ADR-0031's verdict is summed over the whole set.
+
+        ``max_units`` here is deliberately the resource's **own** default and NOT a
+        per-project ``units_override`` (#3574). This span is cross-project by
+        construction, so there is no single project whose override applies; and the
+        overrides are slices of one person's time rather than additive capacities, so
+        summing them would not produce a total ceiling either. The per-project reads
+        (``ProjectViewSet.resource_allocation``, the utilization engine, the heat map,
+        the Overview card) all apply the override; this one states the whole person.
 
         Windowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,
         ADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect
@@ -1670,8 +1691,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # _span_start (ADR-0752 / #2677): the task's SPAN start, not the
         # remaining-work window early_start narrows to as percent_complete
         # rises. Mirrors the per-project resource_allocation annotation.
+        # ``.active()`` (#3572): mirrors the per-project resource_allocation endpoint.
+        # Contention is a statement about who is over-committed across sibling
+        # projects; a deactivated person is not competing for anything.
         qs = (
-            TaskResource.objects.filter(
+            TaskResource.objects.active()
+            .filter(
                 task__project_id__in=member_project_ids,
                 task__is_deleted=False,
             )
@@ -1681,7 +1706,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "task__scheduled_start", "task__early_start", output_field=DateField()
                 )
             )
-            .order_by("resource__name", "task__project__name", "task__early_start")
+            # Ordered by resource_id rather than resource__name (ADR-1118 /
+            # #3576) — see the per-project endpoint for the full rationale. The
+            # by-name resource ordering and the by-project-name task ordering the
+            # response promises are both restored in Python after grouping;
+            # task__project__name in particular was a *third* table in the sort
+            # key, on top of the join-away resource name.
+            .order_by("resource_id", "task__project_id", "task__early_start")
         )
 
         if resource_ids:
@@ -1701,15 +1732,21 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         )
 
         # --- Build response grouped by resource, each span tagged with its project ---
+        rows, truncated, resource_count_for = _cap_assignments_at_resource_boundary(
+            qs, _ALLOCATION_ASSIGNMENT_LIMIT
+        )
         resources_map: dict[str, dict[str, Any]] = {}
-        for assignment in qs:
+        for assignment in rows:
             resource = assignment.resource
             rid = str(resource.id)
             if rid not in resources_map:
+                # ``email`` is deliberately absent (#3599). This dict bypasses
+                # ``ResourceSerializer.to_representation``, which is where the #891
+                # harvest control lives, so echoing it here re-opened that control
+                # to anyone who can reach a project they created themselves.
                 resources_map[rid] = {
                     "id": rid,
                     "name": resource.name,
-                    "email": resource.email,
                     "max_units": str(resource.max_units),
                     "tasks": [],
                 }
@@ -1735,12 +1772,29 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 }
             )
 
+        # Restore in Python the ordering the query no longer does in SQL
+        # (ADR-1118): resources by name, then each resource's spans by source
+        # project name and span start. `sorted` is stable and the DB already
+        # ordered within a resource by (project_id, early_start), so ties resolve
+        # deterministically. `early_start` is nullable — unscheduled spans sort
+        # last, matching Postgres' ASC NULLS LAST.
+        for row in resources_map.values():
+            row["tasks"].sort(
+                key=lambda t: (
+                    t["project_name"],
+                    t["early_start"] is None,
+                    t["early_start"] or "",
+                )
+            )
+        resources_out = sorted(resources_map.values(), key=lambda r: r["name"])
         return Response(
             {
                 "program_id": str(program.id),
                 "window_start": window_start.isoformat(),
                 "window_end": window_end.isoformat(),
-                "resources": list(resources_map.values()),
+                "resources": resources_out,
+                "resource_count": resource_count_for(len(resources_out)),
+                "truncated": truncated,
             }
         )
 
