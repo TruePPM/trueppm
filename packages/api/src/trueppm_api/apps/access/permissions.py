@@ -1540,6 +1540,27 @@ class IsWorkspaceOperator(BasePermission):
     gate, not :class:`IsOrgAdmin`, whenever the answer to "what is the worst a
     low-trust project admin does with this?" is disclosure or destruction across
     projects they are not a member of.
+
+    **Two claims above are stale; they are kept because they are load-bearing for
+    why this class exists, and corrected here rather than silently rewritten.**
+
+    1. "In OSS there is no separate org-operator entity" was true for #712 and is
+       false now. ``workspace.models.WorkspaceRole`` / ``WorkspaceMembership`` is a
+       **stored** workspace tier (MEMBER/ADMIN/OWNER), granted only by an existing
+       workspace admin or an SSO claim mapping, and therefore *not* self-grantable;
+       ``workspace.permissions.IsWorkspaceAdminStrict`` already gates comparable
+       PII-bearing reads, and ``workspace_role`` is already published on
+       ``/auth/me``. #3569 routed its six surfaces here (superuser) rather than
+       there because the issue's scope ruling named this gate explicitly. Superuser
+       is *narrower* than workspace ADMIN, so that is over-restriction, not a hole —
+       but whether routine lifecycle work belongs on the install operator at all is
+       an open question, tracked with the follow-ups to #3569. Do not cite this
+       docstring as evidence that no stored workspace principal exists.
+    2. "Enterprise may widen this via a registered override" describes no seam that
+       exists: there is no registration hook for this class anywhere in the tree.
+       It is the same false-seam class :class:`IsOrgAdmin` records for itself under
+       #2609. Treat the superuser test as the whole story until such a seam is
+       actually built.
     """
 
     message = "Only a workspace operator (superuser) may change this setting."

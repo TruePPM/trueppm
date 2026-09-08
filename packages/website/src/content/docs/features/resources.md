@@ -172,10 +172,12 @@ a permission error.
 ## What a resource manager can do today
 
 1. Maintain the Workspace resource catalog (name, role, capacity, calendar). Email
-   addresses can be **set** but are not returned in API responses or shown in the
-   UI to anyone except the workspace operator and the person the resource
+   addresses can be **set**, but from 0.4 the **catalog** endpoints will not return
+   them to anyone except the workspace operator and the person the resource
    represents — the catalog is readable by every signed-in user, so echoing every
-   address would make it an org-wide address book.
+   address would make it an org-wide address book. Note this covers the catalog
+   endpoints only: the project and program **resource-allocation** endpoints still
+   include `email` for resources assigned to a project you can already schedule.
 2. Maintain the Workspace skill catalog and tag resources with proficiency.
 3. Build per-project rosters with role and capacity overrides.
 4. Assign resources to tasks at fractional capacity.

@@ -10,6 +10,19 @@
 > email search now require `IsWorkspaceOperator` (ADR-0213 C1). The derivation
 > itself additionally stopped counting memberships on archived and soft-deleted
 > projects. Creating and editing catalog rows is unchanged.
+>
+> **Two surfaces were deliberately left on `IsOrgAdmin`, and that is a decision, not
+> an oversight.** (1) The shared **calendar library** (`CalendarViewSet`,
+> `CalendarExceptionViewSet`) meets the disclosure/destruction test on its face — a
+> calendar edit fans a CPM recompute to every project bound to it, including projects
+> the actor cannot see — but #3174 already chose a different remedy for exactly that
+> reach (an audit event naming the actor) and closed on it. Reopening the gate
+> question here would re-decide a closed ADR under a hardening fix; it is recorded as
+> a known residual instead. (2) The project and program **`resource-allocation`**
+> endpoints hand-build their payload and still return `email` for resources assigned
+> to a project the caller can schedule, so the #891 harvest control is *narrowed* by
+> this amendment, not completed. Both are tracked separately; neither should be read
+> as this ADR endorsing the derivation for them.
 
 ## Status
 Accepted (2026-05-31) — implemented in #155
