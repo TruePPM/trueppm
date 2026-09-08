@@ -310,12 +310,16 @@ def _build_sched_deps(project_pk: str, included_ids: set[str]) -> list[Any]:
     and would make the engine reject the network as referencing an unknown task.
     Mirrors the CPM guard in scheduling.tasks (ADR-0090) — a single-project run
     simulates only this project's committed tasks.
+
+    Reads through ``Dependency.live``: a soft-deleted edge is a constraint the
+    user removed, and forecasting against it reports a finish the plan no longer
+    implies (#3532).
     """
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
 
     db_deps = list(
-        Dependency.objects.filter(predecessor__project_id=project_pk).select_related(
+        Dependency.live.filter(predecessor__project_id=project_pk).select_related(
             "predecessor", "successor"
         )
     )
@@ -2308,6 +2312,10 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
     # was the same, so nothing was wrong today — but a duplicated edge filter is the
     # very drift class this issue is an instance of, and the next change to the edge
     # rules (soft-deleted dependencies, #3532) would have had to find both.
+    #
+    # #3532 is that next change, and it landed on the deduplicated shape: the
+    # soft-delete filter lives once, in _build_sched_deps' Dependency.live read, and
+    # the derivation inherits it here rather than carrying its own copy.
     sched_deps = _build_sched_deps(pk, included_ids)
 
     velocity_samples, sprint_length_days = scheduler_velocity_inputs(

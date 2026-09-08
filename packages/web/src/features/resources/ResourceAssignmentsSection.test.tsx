@@ -5,7 +5,7 @@ import { ResourceAssignmentsSection } from './ResourceAssignmentsSection';
 import type { ResourceAssignment } from '@/hooks/useResourceAssignments';
 
 interface MockUser {
-  user?: { can_access_admin_settings?: boolean };
+  user?: { workspace_role?: number; can_access_admin_settings?: boolean };
 }
 interface MockQuery {
   data?: ResourceAssignment[];
@@ -50,8 +50,14 @@ beforeEach(() => {
 });
 
 describe('ResourceAssignmentsSection (#2047)', () => {
-  it('renders nothing for a non-admin (section hidden, no request)', () => {
-    mockUseCurrentUser.mockReturnValue({ user: { can_access_admin_settings: false } });
+  it('renders nothing for a project admin who holds no workspace role', () => {
+    // The regression the gate switch fixes. can_access_admin_settings is
+    // `max_project_role >= ADMIN OR workspace_role >= ADMIN`, so this user was
+    // previously admitted to a section whose endpoint refuses them — a permanently
+    // empty panel with no explanation. workspace_role is the server's own question.
+    mockUseCurrentUser.mockReturnValue({
+      user: { workspace_role: 100, can_access_admin_settings: true },
+    });
     const { container } = renderWithProvidersAndRouter(
       <ResourceAssignmentsSection resourceId="r1" />,
     );
@@ -59,8 +65,23 @@ describe('ResourceAssignmentsSection (#2047)', () => {
     expect(mockUseResourceAssignments).not.toHaveBeenCalled();
   });
 
-  it('shows grouped assignments with a cross-project count for an admin', () => {
-    mockUseCurrentUser.mockReturnValue({ user: { can_access_admin_settings: true } });
+  it('renders nothing below workspace ADMIN (section hidden, no request)', () => {
+    // 100 = WorkspaceRole.MEMBER, which every authenticated user resolves to. #3569
+    // moved this gate from can_access_admin_settings (true for any *project* admin)
+    // onto workspace_role, so the section is hidden exactly when the request would
+    // 403 rather than merely usually.
+    mockUseCurrentUser.mockReturnValue({ user: { workspace_role: 100 } });
+    const { container } = renderWithProvidersAndRouter(
+      <ResourceAssignmentsSection resourceId="r1" />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(mockUseResourceAssignments).not.toHaveBeenCalled();
+  });
+
+  // "for a caller the server allowed through" — since #3569 that is the workspace
+  // operator only, not any org admin. The sibling 403 test below is the admin's case.
+  it('shows grouped assignments with a cross-project count when the read succeeds', () => {
+    mockUseCurrentUser.mockReturnValue({ user: { workspace_role: 300 } });
     mockUseResourceAssignments.mockReturnValue(
       query({
         data: rows([
@@ -87,14 +108,14 @@ describe('ResourceAssignmentsSection (#2047)', () => {
   });
 
   it('shows an empty state for an admin with no assignments', () => {
-    mockUseCurrentUser.mockReturnValue({ user: { can_access_admin_settings: true } });
+    mockUseCurrentUser.mockReturnValue({ user: { workspace_role: 300 } });
     mockUseResourceAssignments.mockReturnValue(query({ data: [] }));
     renderWithProvidersAndRouter(<ResourceAssignmentsSection resourceId="r1" />);
     expect(screen.getByText('No current assignments.')).toBeInTheDocument();
   });
 
   it('renders nothing on a 403 (server gate is authoritative)', () => {
-    mockUseCurrentUser.mockReturnValue({ user: { can_access_admin_settings: true } });
+    mockUseCurrentUser.mockReturnValue({ user: { workspace_role: 300 } });
     mockUseResourceAssignments.mockReturnValue(
       query({
         isError: true,
@@ -108,7 +129,7 @@ describe('ResourceAssignmentsSection (#2047)', () => {
   });
 
   it('shows an inline error + retry on a non-403 failure', () => {
-    mockUseCurrentUser.mockReturnValue({ user: { can_access_admin_settings: true } });
+    mockUseCurrentUser.mockReturnValue({ user: { workspace_role: 300 } });
     mockUseResourceAssignments.mockReturnValue(
       query({ isError: true, error: { isAxiosError: true, response: { status: 500 } } }),
     );
