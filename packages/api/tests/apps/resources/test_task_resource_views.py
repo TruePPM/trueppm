@@ -673,3 +673,215 @@ class TestTaskResourceActivityEvents:
         assert events[0].actor_id == user.pk
         assert events[0].detail["resource_name"] == "Alice"
         assert events[0].detail["units"] == "1.00"
+
+
+# ---------------------------------------------------------------------------
+# Date-windowed overallocation (#3534)
+#
+# The warning used to sum TaskResource.units across every active task in the
+# project with no date window at all, so three 0.8-unit tasks that never share
+# a calendar day reported as 240% allocated. It now compares the PEAK units held
+# on any single working day against max_units, using the same calendar
+# resolution the utilization engine applies.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def resource_80(db: object) -> Resource:
+    """Resource capped at 80% capacity — Raj Mehta's seeded figure (#3534)."""
+    return Resource.objects.create(name="Raj", email="raj@example.com", max_units=Decimal("0.8"))
+
+
+def _dated_task(project: Project, name: str, start: date, finish: date) -> Task:
+    """A committed task carrying a CPM span, the shape the engine windows on."""
+    return Task.objects.create(
+        project=project,
+        name=name,
+        duration=(finish - start).days + 1,
+        early_start=start,
+        early_finish=finish,
+        scheduled_start=start,
+    )
+
+
+@pytest.mark.django_db
+class TestOverallocationIsDateWindowed:
+    """_check_overallocation compares a peak working-day load, not a lifetime sum."""
+
+    def test_non_overlapping_tasks_do_not_warn(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        resource_80: Resource,
+    ) -> None:
+        """The reported defect: three 0.8-unit tasks, zero shared calendar days.
+
+        Raj Mehta's real seeded shape — Sep 7-14, Oct 13-16, Nov 6-9 at 0.8 units
+        each against an 0.8 capacity. The old lifetime sum reported 240%; the peak
+        on any one working day is 0.8, exactly at capacity, so nothing warns.
+        """
+        first = _dated_task(project, "Sep", date(2026, 9, 7), date(2026, 9, 14))
+        second = _dated_task(project, "Oct", date(2026, 10, 13), date(2026, 10, 16))
+        third = _dated_task(project, "Nov", date(2026, 11, 6), date(2026, 11, 9))
+        TaskResource.objects.create(task=first, resource=resource_80, units=Decimal("0.8"))
+        TaskResource.objects.create(task=second, resource=resource_80, units=Decimal("0.8"))
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(third.pk), "resource": str(resource_80.pk), "units": "0.8"},
+        )
+        assert r.status_code == 201
+        assert r.data["warnings"] == []
+
+    def test_overlapping_tasks_still_warn_and_name_the_day(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        resource_80: Resource,
+    ) -> None:
+        """A genuine same-day conflict still warns, and says which day."""
+        existing = _dated_task(project, "A", date(2026, 9, 7), date(2026, 9, 14))
+        overlapping = _dated_task(project, "B", date(2026, 9, 9), date(2026, 9, 18))
+        TaskResource.objects.create(task=existing, resource=resource_80, units=Decimal("0.5"))
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(overlapping.pk), "resource": str(resource_80.pk), "units": "0.5"},
+        )
+        assert r.status_code == 201
+        codes = [w["code"] for w in r.data["warnings"]]
+        assert codes == ["resource_overallocated"]
+        # 0.5 + 0.5 = 100% on the first working day both spans cover.
+        assert "100%" in r.data["warnings"][0]["detail"]
+        assert "2026-09-09" in r.data["warnings"][0]["detail"]
+
+    def test_weekend_only_touch_is_not_a_conflict(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        resource_80: Resource,
+    ) -> None:
+        """Spans that meet only on a non-working day are not an overallocation.
+
+        The heat map refuses to color a Saturday overlap; the write-time warning
+        must agree, or the two controls contradict each other on the same data.
+        """
+        # 2026-04-04 is a Saturday and the only day both spans cover.
+        first = _dated_task(project, "Wed-Sat", date(2026, 4, 1), date(2026, 4, 4))
+        second = _dated_task(project, "Sat-Fri", date(2026, 4, 4), date(2026, 4, 10))
+        TaskResource.objects.create(task=first, resource=resource_80, units=Decimal("0.6"))
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(second.pk), "resource": str(resource_80.pk), "units": "0.6"},
+        )
+        assert r.status_code == 201
+        assert r.data["warnings"] == []
+
+    def test_undated_tasks_remain_an_every_day_baseline(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        resource_80: Resource,
+    ) -> None:
+        """A task the CPM has never dated is counted as concurrent, not dropped.
+
+        Windowing must not become a way to hide load: an unscheduled task has no
+        span that could prove it does *not* overlap, so it applies to every day.
+        Assignments are routinely made before the first CPM run, which is exactly
+        when dropping them would silently disarm the warning.
+        """
+        undated = Task.objects.create(project=project, name="Unscheduled", duration=5)
+        TaskResource.objects.create(task=undated, resource=resource_80, units=Decimal("0.5"))
+        dated = _dated_task(project, "Scheduled", date(2026, 9, 7), date(2026, 9, 14))
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(dated.pk), "resource": str(resource_80.pk), "units": "0.5"},
+        )
+        assert r.status_code == 201
+        assert [w["code"] for w in r.data["warnings"]] == ["resource_overallocated"]
+        assert "2026-09-07" in r.data["warnings"][0]["detail"]
+
+    def test_all_undated_peak_has_no_day_to_name(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        resource_80: Resource,
+    ) -> None:
+        """With nothing dated there is no busiest day, only a floor — say so."""
+        other = Task.objects.create(project=project, name="Other", duration=5)
+        TaskResource.objects.create(task=other, resource=resource_80, units=Decimal("0.5"))
+        target = Task.objects.create(project=project, name="Target", duration=5)
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(target.pk), "resource": str(resource_80.pk), "units": "0.5"},
+        )
+        assert r.status_code == 201
+        detail = r.data["warnings"][0]["detail"]
+        assert "on their busiest day" in detail
+        assert "capacity: 80%" in detail
+
+
+@pytest.mark.django_db
+class TestBareAssigneeIsAlsoDateWindowed:
+    """The #3047 bare-assignee fallback is windowed by span like any other row."""
+
+    def test_non_overlapping_bare_assignee_caveats_without_overallocating(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        assignee_user: object,
+        resource_with_user: Resource,
+    ) -> None:
+        """The unit-tracking caveat still fires; the false overallocation does not.
+
+        The caveat and the overallocation warning are independent: the caller is
+        told the figures include a full-time estimate even when the estimate does
+        not push any single day over capacity.
+        """
+        bare = _dated_task(project, "Untracked", date(2026, 9, 7), date(2026, 9, 14))
+        bare.assignee = assignee_user
+        bare.save(update_fields=["assignee"])
+        tracked = _dated_task(project, "Tracked", date(2026, 10, 13), date(2026, 10, 16))
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(tracked.pk), "resource": str(resource_with_user.pk), "units": "0.5"},
+        )
+        assert r.status_code == 201
+        codes = [w["code"] for w in r.data["warnings"]]
+        assert codes == ["assignment_not_unit_tracked"]
+        assert str(bare.pk) in r.data["warnings"][0]["task_ids"]
+
+    def test_overlapping_bare_assignee_still_overallocates(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        assignee_user: object,
+        resource_with_user: Resource,
+    ) -> None:
+        """When the estimate really does land on the same days, both warnings fire."""
+        bare = _dated_task(project, "Untracked", date(2026, 9, 7), date(2026, 9, 14))
+        bare.assignee = assignee_user
+        bare.save(update_fields=["assignee"])
+        tracked = _dated_task(project, "Tracked", date(2026, 9, 9), date(2026, 9, 18))
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(tracked.pk), "resource": str(resource_with_user.pk), "units": "0.5"},
+        )
+        assert r.status_code == 201
+        codes = {w["code"] for w in r.data["warnings"]}
+        assert codes == {"assignment_not_unit_tracked", "resource_overallocated"}
+        over = next(w for w in r.data["warnings"] if w["code"] == "resource_overallocated")
+        assert "150%" in over["detail"]
+        assert "2026-09-09" in over["detail"]
