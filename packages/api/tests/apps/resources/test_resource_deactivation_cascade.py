@@ -548,7 +548,7 @@ class TestWritePathsRefuseADeactivatedResource:
     a 500 on a conflict the caller had no way to see.
     """
 
-    def test_re_adding_to_a_roster_is_refused_not_a_500(
+    def test_re_adding_to_a_roster_is_refused_against_the_resource_field(
         self, client: APIClient, project: Project, alice: Resource, staffed: dict[str, Any]
     ) -> None:
         _deactivate(client, alice)
