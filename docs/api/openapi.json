@@ -5119,7 +5119,7 @@
                                 }
                             }
                         },
-                        "description": "Array of per-project summary cards, one for each project where the caller owns a non-complete task in that project's ACTIVE sprint. Each entry carries `{project_id, project_name, sprint, capacity_ratio, capacity_label, velocity}`, where `sprint` holds the burndown snapshot (day N of M, points remaining, trend) and `velocity` the rolling forecast range. Sorted most-behind first. Empty array when the user has no active sprint work."
+                        "description": "Array of per-project summary cards, one for each project where the caller owns a non-complete task in that project's ACTIVE sprint. Each entry carries `{project_id, project_name, sprint, capacity_ratio, capacity_label, velocity}`, where `sprint` holds the burndown snapshot (day N of M, points remaining, trend) and `velocity` the rolling forecast range. `capacity_ratio` / `capacity_label` measure committed hours against the resource's capacity ON THAT SPRINT'S PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units. Sorted most-behind first. Empty array when the user has no active sprint work."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -10685,7 +10685,7 @@
         "/api/v1/programs/{id}/resource-contention/": {
             "get": {
                 "operationId": "v1_programs_resource_contention_retrieve",
-                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\nWindowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,\nADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect\nfixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map\n(#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an\nin-progress task and narrows toward ``early_finish`` as ``percent_complete``\nrises, which would otherwise misreport cross-project contention as work is\nreported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for\nrows a CPM run has not yet populated it on.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           task span start across all member projects. Returns 409 if no\n           member project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\n``max_units`` here is deliberately the resource's **own** default and NOT a\nper-project ``units_override`` (#3574). This span is cross-project by\nconstruction, so there is no single project whose override applies; and the\noverrides are slices of one person's time rather than additive capacities, so\nsumming them would not produce a total ceiling either. The per-project reads\n(``ProjectViewSet.resource_allocation``, the utilization engine, the heat map,\nthe Overview card) all apply the override; this one states the whole person.\n\nWindowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,\nADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect\nfixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map\n(#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an\nin-progress task and narrows toward ``early_finish`` as ``percent_complete``\nrises, which would otherwise misreport cross-project contention as work is\nreported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for\nrows a CPM run has not yet populated it on.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           task span start across all member projects. Returns 409 if no\n           member project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "summary": "Within-program resource contention (cross-project allocation)",
                 "parameters": [
                     {
@@ -18456,7 +18456,7 @@
                                 }
                             }
                         },
-                        "description": "Prioritised attention list: {items: [{severity, type, task_id, task_name, assignee_name, date, detail, link_target}]}. severity is one of critical/warning/info; type is one of critical_task_late, unassigned_approaching, baseline_drift, overallocation."
+                        "description": "Prioritised attention list: {items: [{severity, type, task_id, task_name, assignee_name, date, detail, link_target}]}. severity is one of critical/warning/info; type is one of critical_task_late, unassigned_approaching, baseline_drift, overallocation. An overallocation item is raised when a resource's committed units on open tasks exceed their capacity ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -21862,7 +21862,7 @@
         "/api/v1/projects/{id}/resource-allocation/": {
             "get": {
                 "operationId": "v1_projects_resource_allocation_retrieve",
-                "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / scheduled_start / units / status) within\nthe requested window. Resources with no assignments in the window are\nexcluded.\n\nWindowed and rendered on the task's SPAN\n(``scheduled_start``..``early_finish``, ADR-0752), not on\n``early_start``..``early_finish`` (#2677). Since ADR-0132, ``early_start``\nis the *remaining-work* window for an in-progress task — it shrinks\ntoward ``early_finish`` as ``percent_complete`` rises. Windowing/rendering\non it made reporting progress look like the allocation bar shrinking or\ndropping off the timeline entirely, mirroring the utilization heat map\ndefect fixed in #2623. ``scheduled_start`` falls back to ``early_start``\nvia ``Coalesce`` for rows a CPM run has not yet populated it on — where\nthe two windows coincide anyway for not-started and complete tasks.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           task span start across all tasks. Returns 409 if no CPM dates\n           exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / scheduled_start / units / status) within\nthe requested window. Resources with no assignments in the window are\nexcluded.\n\nWindowed and rendered on the task's SPAN\n(``scheduled_start``..``early_finish``, ADR-0752), not on\n``early_start``..``early_finish`` (#2677). Since ADR-0132, ``early_start``\nis the *remaining-work* window for an in-progress task — it shrinks\ntoward ``early_finish`` as ``percent_complete`` rises. Windowing/rendering\non it made reporting progress look like the allocation bar shrinking or\ndropping off the timeline entirely, mirroring the utilization heat map\ndefect fixed in #2623. ``scheduled_start`` falls back to ``early_start``\nvia ``Coalesce`` for rows a CPM run has not yet populated it on — where\nthe two windows coincide anyway for not-started and complete tasks.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n``max_units`` is the resource's capacity **on this project** — the roster's\n``units_override`` when one is set, else ``Resource.max_units`` (#3574) — so\nthe client's verdict matches the heat map's and the Overview card's.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           task span start across all tasks. Returns 409 if no CPM dates\n           exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "parameters": [
                     {
                         "in": "query",
@@ -21943,7 +21943,7 @@
                                 }
                             }
                         },
-                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units, tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
+                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units (project-effective: roster units_override if set, else Resource.max_units), tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
                     },
                     "409": {
                         "content": {
@@ -22049,7 +22049,7 @@
                                 }
                             }
                         },
-                        "description": "Week x person utilization heatmap."
+                        "description": "Week x person utilization heatmap: integer percent per ISO week, against hours_per_day x max_units x working days. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "409": {
                         "content": {
@@ -22126,7 +22126,7 @@
                                 }
                             }
                         },
-                        "description": "Resource KPIs over an 8-week window: avg utilization, over/under-allocation counts, headcount, and contractor count."
+                        "description": "Resource KPIs over an 8-week window: avg utilization, over/under-allocation counts, headcount, and contractor count. Utilization and the over-allocation verdict share the heatmap's denominator. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "409": {
                         "description": "Schedule has not been computed; run the scheduler."
@@ -24130,7 +24130,7 @@
                                 }
                             }
                         },
-                        "description": "Sparse map of resource -> working day -> {hours, task_ids, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%)."
+                        "description": "Sparse map of resource -> working day -> {hours, task_ids, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%). Each resource row also carries {max_units, hours_per_day, job_role, calendar_id, calendar_differs_from_project}; per-day capacity is hours_per_day x max_units, the same denominator load_pct uses. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "409": {
                         "content": {
@@ -40844,7 +40844,7 @@
                                 }
                             }
                         },
-                        "description": "Per-person and aggregate capacity for the sprint."
+                        "description": "Per-person and aggregate capacity for the sprint. Available hours are capacity x sprint working days x hours/day. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -64673,6 +64673,7 @@
                     },
                     "effective_max_units": {
                         "type": "string",
+                        "description": "This resource's capacity on this project.\n\nThe roster's ``units_override`` when one is set — including ``0``, which\nmeans rostered here and holding no capacity here — otherwise the resource's\ncatalog-wide ``max_units``. Rendered to two decimal places. This is the\nfigure every per-project capacity read measures against (#3574).",
                         "readOnly": true
                     },
                     "notes": {
@@ -69101,7 +69102,8 @@
                     "assignee_is_overallocated": {
                         "type": "boolean",
                         "readOnly": true,
-                        "default": false
+                        "default": false,
+                        "description": "True when the assignee's TaskResource.units across active tasks in this project exceed their capacity ON THIS PROJECT. Capacity is resolved in three steps: the roster units_override for the Resource that Resource.user links to this assignee (0 included), else that Resource's max_units, else 1.0 for an assignee with no Resource row at all."
                     },
                     "sprint": {
                         "type": "string",
@@ -72264,7 +72266,8 @@
                     "assignee_is_overallocated": {
                         "type": "boolean",
                         "readOnly": true,
-                        "default": false
+                        "default": false,
+                        "description": "True when the assignee's TaskResource.units across active tasks in this project exceed their capacity ON THIS PROJECT. Capacity is resolved in three steps: the roster units_override for the Resource that Resource.user links to this assignee (0 included), else that Resource's max_units, else 1.0 for an assignee with no Resource row at all."
                     },
                     "sprint": {
                         "type": "string",

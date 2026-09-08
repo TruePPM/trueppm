@@ -368,6 +368,13 @@ _SUGGESTION_NOT_FOUND_DETAIL = "Suggestion not found."
 _MEMBER_REQUIRED_DETAIL = "You must be a member of this project."
 _TASK_NO_WBS_PATH_DETAIL = "Task has no WBS path."
 _SCHEDULE_NOT_COMPUTED = "Schedule has not been computed. Run the scheduler first."
+
+# Published on every schema description whose numbers are divided by a per-project
+# capacity (#3574). Stated once so the endpoints cannot describe it differently.
+BASIS = (
+    "Capacity is the resource's figure ON THIS PROJECT: the roster's "
+    "units_override when one is set (0 included), else Resource.max_units."
+)
 _MILESTONE_NO_CHILDREN = "A milestone is a single point and cannot have children."
 _NON_EMPTY_LIST_REQUIRED = "This field is required and must be a non-empty list."
 _REORDER_TOO_MANY = "Too many entries to reorder in one request (max 2000)."
@@ -2771,7 +2778,11 @@ class ProjectViewSet(
                     "{hours, task_ids, load_pct, load_band, overallocated} for the "
                     "requested window. load_band is on-track | at-risk | critical "
                     "(>100% load); each resource also carries a top-level "
-                    "overallocated flag (true if any day exceeds 100%)."
+                    "overallocated flag (true if any day exceeds 100%). Each "
+                    "resource row also carries {max_units, hours_per_day, job_role, "
+                    "calendar_id, calendar_differs_from_project}; per-day capacity "
+                    "is hours_per_day x max_units, the same denominator load_pct "
+                    "uses. " + BASIS
                 ),
             ),
             409: OpenApiResponse(
@@ -2919,7 +2930,8 @@ class ProjectViewSet(
                 description=(
                     "Per-resource task spans within the window: "
                     "{project_id, window_start, window_end, resources: "
-                    "[{id, name, email, max_units, tasks: [{assignment_id, id, "
+                    "[{id, name, email, max_units (project-effective: roster "
+                    "units_override if set, else Resource.max_units), tasks: [{assignment_id, id, "
                     "name, early_start, early_finish, scheduled_start, units, "
                     "status}]}]}. scheduled_start (ADR-0752) is the task's SPAN "
                     "start — early_start narrows toward early_finish as an "
@@ -2957,6 +2969,9 @@ class ProjectViewSet(
 
         Overallocation detection is intentionally client-side: the caller receives
         all spans and computes daily unit sums against max_units. See ADR-0031.
+        ``max_units`` is the resource's capacity **on this project** — the roster's
+        ``units_override`` when one is set, else ``Resource.max_units`` (#3574) — so
+        the client's verdict matches the heat map's and the Overview card's.
 
         Query parameters:
           start    (YYYY-MM-DD, optional) — window start; defaults to earliest
@@ -2970,9 +2985,15 @@ class ProjectViewSet(
         from django.db.models import DateField
         from django.db.models.functions import Coalesce
 
+        from trueppm_api.apps.resources.capacity import project_effective_units
         from trueppm_api.apps.resources.models import TaskResource
 
         project = self.get_object()
+
+        # This endpoint is scoped to ONE project, so the capacity it publishes is the
+        # per-project one: the roster's ``units_override`` when set, else
+        # ``Resource.max_units`` (#3574). One query for the whole roster.
+        roster_units = project_effective_units(project.pk)
 
         # --- Resolve window bounds ---
         try:
@@ -3045,7 +3066,7 @@ class ProjectViewSet(
                     "id": rid,
                     "name": resource.name,
                     "email": resource.email,
-                    "max_units": str(resource.max_units),
+                    "max_units": str(roster_units.get(rid, resource.max_units)),
                     "tasks": [],
                 }
             task = assignment.task
@@ -3118,7 +3139,10 @@ class ProjectViewSet(
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description="Week x person utilization heatmap.",
+                description=(
+                    "Week x person utilization heatmap: integer percent per ISO "
+                    "week, against hours_per_day x max_units x working days. " + BASIS
+                ),
             ),
             409: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
@@ -3206,7 +3230,9 @@ class ProjectViewSet(
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Resource KPIs over an 8-week window: avg utilization, "
-                    "over/under-allocation counts, headcount, and contractor count."
+                    "over/under-allocation counts, headcount, and contractor count. "
+                    "Utilization and the over-allocation verdict share the heatmap's "
+                    "denominator. " + BASIS
                 ),
             ),
             409: OpenApiResponse(description="Schedule has not been computed; run the scheduler."),
@@ -4405,7 +4431,73 @@ def annotate_tasks_queryset(
     # Resource has no direct user FK, so we join through Task.assignee instead of
     # Resource.user — units allocated to any resource on a task assigned to the
     # same user contribute to that user's overallocation total.
+    #
+    # Capacity was a hardcoded 1.0, so this badge called a half-time person
+    # overallocated at 0.6 while the heat map beside it read 120% of 0.5 and the
+    # Overview card agreed with the heat map (#3574). It is now the assignee's
+    # effective capacity ON THIS PROJECT, resolved in three steps: the roster's
+    # units_override for the Resource that Resource.user links to this assignee;
+    # else that Resource's own max_units; else 1.0 for an assignee with no Resource
+    # row at all, which is the pre-#3574 behavior for exactly the population it was
+    # right for.
+    from django.db.models.functions import Coalesce
+
+    from trueppm_api.apps.resources.capacity import DEFAULT_MAX_UNITS
+    from trueppm_api.apps.resources.models import ProjectResource as _PR
+    from trueppm_api.apps.resources.models import Resource as _Res
     from trueppm_api.apps.resources.models import TaskResource as _TR
+
+    _units_field = db_models.DecimalField(max_digits=4, decimal_places=2)
+
+    # Both capacity candidates correlate against the TaskResource subquery's OWN
+    # columns (``task__project_id`` / ``task__assignee_id``), not the outer Task
+    # row, so the comparison can live in the aggregate's HAVING.
+    #
+    # Keeping it there rather than in an outer Case/When is what matters:
+    # ``Query.resolve_ref`` inlines an annotation's whole expression into a ``When``
+    # condition instead of emitting a reference to its alias, so the Case form
+    # compiled both capacity subqueries into the OUTER task queryset's SELECT list
+    # and GROUP BY key — the one this file already measures at 115 ms -> 5,753 ms
+    # under ?ordering=wbs_path, at page_size up to 500. Here they stay inside the
+    # subquery. Django still repeats the Coalesce in that subquery's own GROUP BY
+    # alongside the HAVING (it is functionally determined by the two grouped
+    # columns, so the partition is unchanged) — the win is the outer query, not a
+    # single evaluation.
+    #
+    # units_override is nullable and 0 is a legitimate value, so the roster row's
+    # own Coalesce (override -> the resource default) resolves inside its subquery
+    # and only a MISSING roster row falls through to the next candidate.
+    roster_capacity_subq = (
+        _PR.objects.filter(
+            project_id=OuterRef("task__project_id"),
+            resource__user_id=OuterRef("task__assignee_id"),
+            is_deleted=False,
+        )
+        .annotate(_cap=Coalesce("units_override", "resource__max_units"))
+        .order_by("resource__name")
+        .values("_cap")[:1]
+    )
+    # No project correlation, deliberately: ``Resource`` is an org-wide catalog
+    # (ADR-0034) and this branch answers "what is this person's own capacity" for an
+    # assignee with no roster row here. It relies on that catalog being single-tenant
+    # — if Resource ever becomes tenant-scoped this filter has no scope to inherit
+    # and must gain one.
+    #
+    # ``is_deleted=False`` here and NOT on the roster subquery above is intentional:
+    # a live roster row is an explicit per-project statement and stands on its own,
+    # while this fallback matches by user link alone and must not resurrect a retired
+    # catalog row that nobody put on this project.
+    #
+    # ``Resource.user`` is a plain FK, not a OneToOne, so one user can own several
+    # resource rows ("Ada" and "Ada (contract)"). Both subqueries tie-break by name
+    # so the answer is at least deterministic; which row *should* win is genuinely
+    # unspecified, and the roster row above is the one that resolves it when the
+    # project cares.
+    resource_capacity_subq = (
+        _Res.objects.filter(user_id=OuterRef("task__assignee_id"), is_deleted=False)
+        .order_by("name")
+        .values("max_units")[:1]
+    )
 
     overallocated_subq = (
         _TR.objects.filter(
@@ -4418,9 +4510,18 @@ def annotate_tasks_queryset(
             ],
             task__is_deleted=False,
         )
-        .values("task__assignee_id")
+        # task__project_id is grouped as well as filtered so the HAVING below may
+        # correlate against it; the filter already pins it to one value, so the
+        # partition is unchanged.
+        .values("task__assignee_id", "task__project_id")
         .annotate(total=Sum("units"))
-        .filter(total__gt=1.0)
+        .filter(
+            total__gt=Coalesce(
+                Subquery(roster_capacity_subq, output_field=_units_field),
+                Subquery(resource_capacity_subq, output_field=_units_field),
+                db_models.Value(DEFAULT_MAX_UNITS, output_field=_units_field),
+            )
+        )
         .values("total")[:1]
     )
     qs = qs.annotate(assignee_is_overallocated=Exists(overallocated_subq))
@@ -11656,6 +11757,11 @@ class ProjectAttentionView(APIView):
     # Maximum items returned per severity bucket — keeps the panel scannable.
     _MAX_PER_BUCKET = 3
 
+    # Ceiling on the rows _overallocation_items pulls back to compare in Python.
+    # Distinct assignees on one project, so roster-scale in practice; the cap makes
+    # the worst case explicit now that the comparison is no longer a HAVING clause.
+    _MAX_ASSIGNEE_SCAN = 500
+
     @extend_schema(
         responses={
             200: OpenApiResponse(
@@ -11665,7 +11771,10 @@ class ProjectAttentionView(APIView):
                     "task_name, assignee_name, date, detail, link_target}]}. severity "
                     "is one of critical/warning/info; type is one of "
                     "critical_task_late, unassigned_approaching, baseline_drift, "
-                    "overallocation."
+                    "overallocation. An overallocation item is raised when a "
+                    "resource's committed units on open tasks exceed their capacity "
+                    "ON THIS PROJECT: the roster's units_override when one is set "
+                    "(0 included), else Resource.max_units."
                 ),
                 examples=[
                     OpenApiExample(
@@ -11827,22 +11936,45 @@ class ProjectAttentionView(APIView):
         return out
 
     def _overallocation_items(self, project: Project) -> list[dict[str, Any]]:
-        """Resources whose committed units exceed their capacity on open tasks."""
+        """Resources whose committed units exceed their capacity on open tasks.
+
+        Capacity is the resource's **per-project** figure — the roster's
+        ``units_override`` when one is set, else ``Resource.max_units`` (#3574).
+        Comparing against the raw default made this feed disagree with the heat map
+        and the Overview card about the same person on the same day.
+
+        The comparison is done in Python rather than as a ``HAVING`` clause because
+        the effective capacity is a per-(project, resource) lookup, not a column on
+        the aggregated row. That loses the DB-side ``LIMIT`` the old ``HAVING`` form
+        allowed, so the pre-filter carries its own cap: the set is one row per
+        resource holding an open assignment on this project — which is roster-scale
+        but NOT roster-bounded, since ``TaskResource`` does not require a roster row.
+        ``_MAX_ASSIGNEE_SCAN`` states the worst case in code rather than in prose.
+        """
+        from trueppm_api.apps.resources.capacity import project_effective_units
         from trueppm_api.apps.resources.models import Resource, TaskResource
 
-        overalloc_rows = cast(
+        roster_units = project_effective_units(project.pk)
+        totals = cast(
             "list[dict[str, Any]]",
-            (
+            list(
                 TaskResource.objects.filter(
                     task__project=project,
                     task__is_deleted=False,
                 )
                 .exclude(task__status=TaskStatus.COMPLETE)
-                .values("resource_id")
+                .values("resource_id", "resource__max_units")
                 .annotate(total=Sum("units"))
-                .filter(total__gt=db_models.F("resource__max_units"))
-            )[: self._MAX_PER_BUCKET],
+                # Deterministic order so both truncations below are stable;
+                # resource_id already determines the name, so grouping is unchanged.
+                .order_by("resource__name")[: self._MAX_ASSIGNEE_SCAN]
+            ),
         )
+        overalloc_rows = [
+            row
+            for row in totals
+            if row["total"] > roster_units.get(str(row["resource_id"]), row["resource__max_units"])
+        ][: self._MAX_PER_BUCKET]
         if not overalloc_rows:
             return []
 
@@ -15047,7 +15179,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description="Per-person and aggregate capacity for the sprint.",
+                description=(
+                    "Per-person and aggregate capacity for the sprint. Available "
+                    "hours are capacity x sprint working days x hours/day. " + BASIS
+                ),
             )
         },
     )
@@ -16076,9 +16211,12 @@ class MeSearchView(McpReadableViewMixin, APIView):
                     "sprint. Each entry carries `{project_id, project_name, sprint, "
                     "capacity_ratio, capacity_label, velocity}`, where `sprint` "
                     "holds the burndown snapshot (day N of M, points remaining, "
-                    "trend) and `velocity` the rolling forecast range. Sorted "
-                    "most-behind first. Empty array when the user has no active "
-                    "sprint work."
+                    "trend) and `velocity` the rolling forecast range. "
+                    "`capacity_ratio` / `capacity_label` measure committed hours "
+                    "against the resource's capacity ON THAT SPRINT'S PROJECT: the "
+                    "roster's units_override when one is set (0 included), else "
+                    "Resource.max_units. Sorted most-behind first. Empty array when "
+                    "the user has no active sprint work."
                 ),
             )
         },

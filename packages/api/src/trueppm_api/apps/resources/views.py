@@ -43,6 +43,7 @@ from trueppm_api.apps.projects.utilization import (
     peak_concurrent_units,
     resolve_working_calendar,
 )
+from trueppm_api.apps.resources.capacity import resource_effective_units
 from trueppm_api.apps.resources.models import (
     Proficiency,
     ProjectResource,
@@ -682,8 +683,11 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     """Return a warnings list if the resource is overallocated on active tasks.
 
     Overallocation is the **peak units the resource holds on any single working
-    day** across non-COMPLETE, committed tasks in the project, compared against
-    ``resource.max_units``. If the peak exceeds capacity a single warning entry is
+    day** across non-COMPLETE, committed tasks in the project, compared against the
+    resource's capacity **on this project** — the roster's ``units_override`` when
+    one is set, else ``resource.max_units`` (#3574). Comparing against the raw
+    default told a half-time person they were fine at 80% while the heat map one
+    click away read 160%. If the peak exceeds capacity a single warning entry is
     returned so the caller can include it in the 201 response without blocking the
     save (ADR-0028 — soft warning, not a hard error).
 
@@ -791,7 +795,9 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     mask, exception_ranges = resolve_working_calendar(resource, project)
     peak, peak_day = peak_concurrent_units(allocations, mask, exception_ranges)
 
-    if peak > resource.max_units:
+    capacity = resource_effective_units(project_id, resource)
+
+    if peak > capacity:
         # Name the day when there is one. A peak carried entirely by undated
         # tasks has no day to point at, only a floor that applies to every day.
         when = f"on {peak_day.isoformat()}" if peak_day is not None else "on their busiest day"
@@ -801,8 +807,7 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                 "resource_id": str(resource.pk),
                 "resource_name": resource.name,
                 "detail": (
-                    f"{resource.name} is allocated {peak:.0%} {when} "
-                    f"(capacity: {resource.max_units:.0%})."
+                    f"{resource.name} is allocated {peak:.0%} {when} (capacity: {capacity:.0%})."
                 ),
             }
         )

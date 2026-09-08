@@ -241,8 +241,14 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
         return attrs
 
     def get_effective_max_units(self, obj: ProjectResource) -> str:
-        value = obj.units_override if obj.units_override is not None else obj.resource.max_units
-        return f"{value:.2f}"
+        """This resource's capacity on this project.
+
+        The roster's ``units_override`` when one is set — including ``0``, which
+        means rostered here and holding no capacity here — otherwise the resource's
+        catalog-wide ``max_units``. Rendered to two decimal places. This is the
+        figure every per-project capacity read measures against (#3574).
+        """
+        return f"{obj.effective_max_units:.2f}"
 
 
 class TaskSkillRequirementSerializer(serializers.ModelSerializer[TaskSkillRequirement]):

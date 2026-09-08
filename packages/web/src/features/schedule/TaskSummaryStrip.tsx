@@ -135,7 +135,7 @@ export function TaskSummaryStrip({ task }: { task: Task }) {
                   role="note"
                   className="inline-flex items-center px-1.5 py-px rounded-chip text-xs font-medium shrink-0
                     border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk"
-                  title="Sum of resource units across active tasks exceeds 1.0. Open the resource view to investigate."
+                  title="Sum of resource units across active tasks exceeds this person's capacity on this project. Open the resource view to investigate."
                   aria-label={`${owner.name} is over-allocated across active tasks`}
                 >
                   over-allocated
