@@ -8,7 +8,7 @@
  * over-committed must not conceal. Without this notice the roster reads as
  * complete and the omission is invisible.
  *
- * `remedy` is required rather than defaulted (web rule 408): the sentence telling
+ * `remedy` is required rather than defaulted (web rule 409): the sentence telling
  * the reader what to do is a claim about the *caller's* affordances, not this
  * component's. `ResourceView` has a window nav and a resource filter; the program
  * Contention page has neither, so hardcoding one sentence for both would send

@@ -35,7 +35,7 @@ describe('AllocationTruncationNotice', () => {
   });
 
   it('renders the caller-supplied remedy verbatim', () => {
-    // Web rule 408: the sentence telling the reader what to do is a claim about
+    // Web rule 409: the sentence telling the reader what to do is a claim about
     // the mounting surface's controls, so the component must not invent one.
     render(
       <AllocationTruncationNotice

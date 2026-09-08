@@ -80,7 +80,7 @@ export function ProgramResourcesPage() {
           resourceCount={data.resource_count}
           shownCount={data.resources.length}
           // This page has no window nav and no resource filter, so it cannot
-          // offer the remedy the per-project timeline offers (web rule 408).
+          // offer the remedy the per-project timeline offers (web rule 409).
           // Point at the surface that can, rather than naming a control that is
           // not here.
           remedy="This page has no filters yet — open a member project's Resources view, which can narrow the window and search by name."
