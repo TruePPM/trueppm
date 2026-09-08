@@ -1,13 +1,25 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useProjectId } from '@/hooks/useProjectId';
-import type { ShellStats } from '@/types';
+import type { HealthBandSource, ShellStats } from '@/types';
 import type { HealthBand } from '@/lib/healthBand';
 
 export interface UseShellStatsResult {
   data: ShellStats | undefined;
+  /**
+   * First load of this project only. TanStack's `isLoading` is
+   * `isPending && isFetching`, so it is FALSE on a background refetch of cached
+   * data — the chip must not pulse every time the 30s `staleTime` lapses. Do not
+   * substitute `isFetching` here.
+   */
   isLoading: boolean;
   error: Error | null;
+  /**
+   * Re-run just this request. `undefined` data means "in flight" AND "failed",
+   * so a consumer that distinguishes the two (`HealthCluster`, #3525) needs a way
+   * to recover from the second without reloading the whole app (rule 246).
+   */
+  refetch: () => void;
 }
 
 /**
@@ -27,6 +39,14 @@ interface StatusSummaryResponse {
    * `critical_count`.
    */
   health_band: HealthBand;
+  /**
+   * Which of the server's two branches produced `health_band` (#3525): the PM's
+   * manual report, or the counts below. Also not derivable here — a report that
+   * agrees with the counts is indistinguishable from no report at all, so
+   * comparing the band against the counts misses it exactly where nothing looks
+   * wrong.
+   */
+  health_band_source: HealthBandSource;
   monte_carlo_p80: string | null;
   at_risk_count: number;
   critical_count: number;
@@ -45,6 +65,7 @@ function toShellStats(r: StatusSummaryResponse): ShellStats {
     criticalPathCount: r.critical_count,
     monteCarlop80: r.monte_carlo_p80,
     healthBand: r.health_band,
+    healthBandSource: r.health_band_source,
     atRiskCount: r.at_risk_count,
     criticalCount: r.critical_count,
     atRiskTasks: r.at_risk_tasks,
@@ -62,7 +83,7 @@ function toShellStats(r: StatusSummaryResponse): ShellStats {
 export function useShellStats(): UseShellStatsResult {
   const projectId = useProjectId();
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['shellStats', projectId],
     queryFn: async () => {
       const resp = await apiClient.get<StatusSummaryResponse>(
@@ -75,5 +96,5 @@ export function useShellStats(): UseShellStatsResult {
     refetchOnWindowFocus: false,
   });
 
-  return { data, isLoading, error };
+  return { data, isLoading, error, refetch: () => void refetch() };
 }

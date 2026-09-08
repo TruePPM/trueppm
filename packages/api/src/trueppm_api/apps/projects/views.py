@@ -276,6 +276,20 @@ from trueppm_api.core.request_body import object_body
 
 logger = logging.getLogger(__name__)
 
+#: The three-word health vocabulary (ADR-0126). Declared once and referenced by every
+#: endpoint that publishes a band, so drf-spectacular resolves them to ONE
+#: ``HealthBandEnum`` component instead of postfixing a variant per endpoint.
+HEALTH_BAND_CHOICES: list[str] = ["on_track", "at_risk", "critical"]
+
+#: Which of :func:`compute_health_band`'s two branches decided the band.
+#:
+#: Two values, not three: ``Health.AUTO`` is "no report filed", which *is* the
+#: derived case — a third token would make one field mean two things. ``reported``
+#: is the product's own word for the manual report (the Overview header renders
+#: "Reported: Critical"), so the API token and the UI word stay one vocabulary.
+HEALTH_BAND_SOURCE_CHOICES: list[str] = ["reported", "derived"]
+
+
 # Mandated by ADR-0627 §D1.1 and asserted by `test_pin_description_is_published`.
 # `pinned` carries the OPPOSITE privacy semantics elsewhere in this same API
 # (`TaskNote.pinned` and `TaskAttachment.is_pinned` are shared curation any
@@ -3444,7 +3458,7 @@ class ProjectViewSet(
                 fields={
                     "task_count": serializers.IntegerField(),
                     "health_band": serializers.ChoiceField(
-                        choices=["on_track", "at_risk", "critical"],
+                        choices=HEALTH_BAND_CHOICES,
                         help_text=(
                             "The project's health band. The manual Project.health "
                             "override when the PM has reported one (not AUTO), "
@@ -3453,6 +3467,25 @@ class ProjectViewSet(
                             "on_track. A client MUST print this value rather than "
                             "re-deriving a band from the counts — the counts alone "
                             "cannot see the override."
+                        ),
+                    ),
+                    "health_band_source": serializers.ChoiceField(
+                        choices=HEALTH_BAND_SOURCE_CHOICES,
+                        help_text=(
+                            "Which of the two branches above produced health_band. "
+                            "'reported' — a project manager set Project.health by "
+                            "hand and that report decided it; 'derived' — no report "
+                            "is filed (health is AUTO) and the counts on this "
+                            "payload decided it. A client cannot work this out for "
+                            "itself: a report that agrees with the counts is "
+                            "indistinguishable from no report at all. Use it to say "
+                            "WHERE a band came from — a surface that lists the "
+                            "at-risk and critical tasks alongside the band needs it, "
+                            "because a reported band is not explained by those rows. "
+                            "For WHO filed a 'reported' band and when, read the "
+                            "project's field history at GET /projects/{id}/history/ "
+                            "— Project.health is tracked there. This field says "
+                            "which branch ran, not who ran it."
                         ),
                     ),
                     "at_risk_count": serializers.IntegerField(),
@@ -3519,6 +3552,14 @@ class ProjectViewSet(
         counts. It is on the payload because the shell chip fetches this endpoint
         and nothing else: without it the chip could only ever see the counts
         branch, and contradicted the PM's own report (#3501).
+
+        health_band_source names which of those two branches decided it, from the
+        same call. The shell chip's popover explains the band by listing the
+        at-risk and critical tasks, so a reported band needs to say so — otherwise
+        a red "Critical" header sits above two "0 tasks" rows and reads as a
+        broken tool rather than as the PM's report (#3525). It is a server fact
+        because a client cannot infer it: a report that happens to agree with the
+        counts is indistinguishable from no report at all.
 
         P80 is the most recent persisted MonteCarloRun's p80 for this project, or
         null when no run has been recorded. Null means "no forecast exists", not
@@ -3601,17 +3642,28 @@ class ProjectViewSet(
             .first()
         )
 
+        # The band is a SERVER fact, not something the shell can work out from the
+        # two counts below it (#3501). Only the server sees the manual
+        # `Project.health` override, so a chip that re-derived a band from the
+        # counts printed "On track" over a project its own PM had reported
+        # Critical, and disagreed with the my-projects triage list about the same
+        # project. Same callable as `health_summary` — one rule, called twice
+        # (ADR-0133).
+        #
+        # `health_band_source` travels with it because a client that only has the
+        # band cannot explain it: the shell chip's popover lists the at-risk and
+        # critical tasks, so a reported Critical over a clean plan renders a red
+        # header above two "0 tasks" rows and reads as a broken tool rather than
+        # as the PM's own report (#3525).
+        health_band, health_band_source = compute_health_band(
+            project.health, at_risk_count, critical_count
+        )
+
         return Response(
             {
                 "task_count": task_count,
-                # The band is a SERVER fact, not something the shell can work out
-                # from the two counts below it (#3501). Only the server sees the
-                # manual `Project.health` override, so a chip that re-derived a
-                # band from the counts printed "On track" over a project its own
-                # PM had reported Critical, and disagreed with the my-projects
-                # triage list about the same project. Same callable as
-                # `health_summary` — one rule, called twice (ADR-0133).
-                "health_band": compute_health_band(project.health, at_risk_count, critical_count),
+                "health_band": health_band,
+                "health_band_source": health_band_source,
                 # `critical_path_count` was an exact alias of `critical_count`
                 # (same aggregate). Dropped pre-0.3 so the public status-summary
                 # contract carries the count once (#1325).
@@ -3638,9 +3690,19 @@ class ProjectViewSet(
                     # The same three values status-summary declares, and now
                     # provably so: both actions call `compute_health_band`. A bare
                     # CharField here handed a generated SDK a free-form `str` for
-                    # one endpoint and a typed enum for its twin (#3501).
-                    "health_band": serializers.ChoiceField(
-                        choices=["on_track", "at_risk", "critical"]
+                    # one endpoint and a typed enum for its twin (#3501). The
+                    # shared constants make the two declarations identical by
+                    # construction, so drf-spectacular resolves one component per
+                    # vocabulary rather than postfixing a variant per endpoint.
+                    "health_band": serializers.ChoiceField(choices=HEALTH_BAND_CHOICES),
+                    "health_band_source": serializers.ChoiceField(
+                        choices=HEALTH_BAND_SOURCE_CHOICES,
+                        help_text=(
+                            "Whether this row's health_band came from a project "
+                            "manager's manual report ('reported') or from the two "
+                            "counts beside it ('derived'). Same rule and same "
+                            "vocabulary as the single-project status summary."
+                        ),
                     ),
                     "at_risk_count": serializers.IntegerField(),
                     "critical_count": serializers.IntegerField(),
@@ -3672,7 +3734,9 @@ class ProjectViewSet(
 
         health_band comes from :func:`compute_health_band` — the same rule the
         single-project status-summary calls, so the two cannot disagree about one
-        project (#3501).
+        project (#3501). health_band_source rides along for the same reason: the
+        provenance is published on both endpoints or on neither, or the two
+        disagree one level up about whether a band is a person's call (#3525).
         """
         from django.db.models import Count, Q
 
@@ -3706,18 +3770,27 @@ class ProjectViewSet(
             .order_by("name")
         )
 
+        # `health_band_source` ships on this row too, not only on the
+        # single-project status summary: both actions call the one
+        # `compute_health_band`, and publishing provenance on one endpoint but not
+        # its twin reintroduces one level up the disagreement ADR-0133's "one rule,
+        # called twice" exists to prevent (#3525).
+        bands = [
+            (row, compute_health_band(row["health"], row["at_risk_count"], row["critical_count"]))
+            for row in rows
+        ]
+
         return Response(
             [
                 {
                     "id": str(row["id"]),
                     "name": row["name"],
-                    "health_band": compute_health_band(
-                        row["health"], row["at_risk_count"], row["critical_count"]
-                    ),
+                    "health_band": band,
+                    "health_band_source": source,
                     "at_risk_count": row["at_risk_count"],
                     "critical_count": row["critical_count"],
                 }
-                for row in rows
+                for row, (band, source) in bands
             ],
             status=status.HTTP_200_OK,
         )
@@ -11359,8 +11432,8 @@ _HEALTH_OVERRIDE_BAND: dict[str, str] = {
 }
 
 
-def compute_health_band(health: str, at_risk_count: int, critical_count: int) -> str:
-    """The project health band: manual override first, then the task counts.
+def compute_health_band(health: str, at_risk_count: int, critical_count: int) -> tuple[str, str]:
+    """The project health band and which branch decided it.
 
     One rule, called from every surface that prints a band (ADR-0133), so the
     shell chip, the my-projects triage list and any future consumer cannot
@@ -11369,22 +11442,34 @@ def compute_health_band(health: str, at_risk_count: int, critical_count: int) ->
     float numbers do not, and a surface that silently recomputes "On track" over
     that report contradicts the person who filed it (#3501).
 
+    The *source* is returned from this same call rather than from a second helper
+    beside it, because a parallel ``compute_health_band_source()`` would be a
+    second copy of the branch this function already takes — the drift ADR-0133
+    exists to make structurally impossible. It is a server fact for the same
+    reason the band is: a client cannot infer it. A PM reporting ``at_risk`` over
+    a plan whose counts also say at-risk produces exactly the band the counts
+    would, so a client comparing the two would miss the report entirely; and a PM
+    reporting ``on_track`` over a critical plan is a disagreement the client would
+    attribute to the counts rather than to the person (#3525).
+
     Args:
         health: The raw ``Project.health`` value. ``AUTO`` means "no report".
         at_risk_count: Incomplete tasks with <= 5 working days of total float.
         critical_count: Incomplete tasks on the critical path.
 
     Returns:
-        One of ``"on_track"``, ``"at_risk"``, ``"critical"``.
+        ``(band, source)`` — band is one of ``"on_track"`` / ``"at_risk"`` /
+        ``"critical"``; source is ``"reported"`` when the manual override decided
+        it, ``"derived"`` when it fell through to the counts.
     """
     manual = _HEALTH_OVERRIDE_BAND.get(health)  # None when AUTO
     if manual is not None:
-        return manual
+        return manual, "reported"
     if critical_count > 0:
-        return "critical"
+        return "critical", "derived"
     if at_risk_count > 0:
-        return "at_risk"
-    return "on_track"
+        return "at_risk", "derived"
+    return "on_track", "derived"
 
 
 def _spi_health_band(spi: float) -> str:
