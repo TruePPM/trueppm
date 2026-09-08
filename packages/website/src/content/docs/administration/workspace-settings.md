@@ -278,8 +278,10 @@ the outbound-mail stop described below. In `v0.3.0-alpha.3` (the latest release)
 deactivation disables the account but leaves the member's personal access tokens
 live — revoke them by hand from their token list before treating an off-boarding
 as complete — and a deactivated member who had opted into a
-[weekly digest](/features/notifications/) keeps receiving it. Turn their digest
-preferences off before deactivating them on that release.
+[weekly digest](/features/notifications/) keeps receiving it, as does one whose
+[workspace export](/administration/data-export/) finishes after they are
+deactivated. Turn their digest preferences off before deactivating them on that
+release, and check for an export of theirs still in flight.
 :::
 
 Deactivating a member — and removing one, which is a deactivation here — also, in
@@ -321,6 +323,13 @@ continue on a schedule of their own:
   deactivated is retired without being sent. This is not recorded as a mail
   failure and does not show up on the
   [System Health](/administration/system-health/) email card.
+- **The "your workspace export is ready" notice is not sent to a deactivated
+  member.** A [full-workspace export](/administration/data-export/) they
+  requested before off-boarding still finishes and is still downloadable by an
+  Owner, but the completion email is suppressed — that notice announces the
+  availability of a complete copy of the workspace's data, so it must not land in
+  a former member's inbox. As above, the suppression is not counted as a mail
+  failure, and the export job itself still completes normally.
 
 The in-app inbox rows themselves are kept. Deactivation already makes them
 unreachable — there is no credential left that can open the inbox — and keeping
