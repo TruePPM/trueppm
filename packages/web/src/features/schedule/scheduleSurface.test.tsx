@@ -8,7 +8,11 @@ import {
   surfaceOutlineWidth,
   surfaceToggleableColumns,
 } from './scheduleSurface';
-import { resolveOutlineGripReserve, resolveOutlineLeftReserve } from './scheduleConstants';
+import {
+  resolveGripWidth,
+  resolveOutlineGripReserve,
+  resolveOutlineLeftReserve,
+} from './scheduleConstants';
 import {
   maxTaskWidthFor,
   clampTaskWidth,
@@ -125,9 +129,19 @@ describe('scheduleSurface — column profile (#2960)', () => {
 // ---------------------------------------------------------------------------
 
 describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', () => {
-  it('gives an authorable outline a grip lane on a coarse pointer and none on a fine one', () => {
-    expect(resolveOutlineGripReserve(false, true)).toBe(0);
-    expect(resolveOutlineGripReserve(true, true)).toBe(44);
+  it('gives an authorable outline a grip lane at BOTH pointer classes (#3078)', () => {
+    // The fine branch was 0 until #3078, on the reasoning that a 14px grip
+    // overlaying the row's left edge costs no column anything. It stopped being
+    // free when #3026 moved the ⇤/⇥/◆ lane to that same edge: the grip is
+    // `z-10 absolute left-0`, so it covered 14 of the ⇤'s 16px and took its
+    // clicks. The lane is now the grip's width at either class.
+    // The identity, not the literals — this branch's own rule 406(b). A `toBe(14)`
+    // would still pass if the grip grew and its lane did not, which is the drift
+    // that put the grip on top of the ⇤ in the first place.
+    for (const coarse of [false, true]) {
+      expect(resolveOutlineGripReserve(coarse, true)).toBe(resolveGripWidth(coarse));
+    }
+    expect(resolveOutlineGripReserve(false, true)).toBeGreaterThan(0);
   });
 
   it('gives a VIEWER no lane at either pointer class — absence, not a 44px hole', () => {
@@ -146,12 +160,14 @@ describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', (
     // nothing renders.
     const columns = surfaceOutlineWidth('timeline', WIDTHS, ALL_VISIBLE);
     expect(columns).toBe(268);
-    expect(columns + resolveOutlineLeftReserve(false, true)).toBe(
-      268 + resolveOutlineLeftReserve(false, true),
-    );
-    // The fine pointer now reserves something for the first time: the grip
-    // overlays at 14px and costs nothing, but the nudges are in flow.
-    expect(resolveOutlineGripReserve(false, true)).toBe(0);
+    // The reserve used to appear on both sides of this comparison, where it
+    // cancels — the assertion said only `columns === 268`, which the line above
+    // already says. What is worth pinning is that the box is STRICTLY wider than
+    // the columns, i.e. the lanes are added rather than taken out of a column.
+    expect(columns + resolveOutlineLeftReserve(false, true)).toBeGreaterThan(columns);
+    // The fine pointer reserves both lanes: the nudges are in flow, and since
+    // #3078 the grip has a lane of its own here too rather than lying on them.
+    expect(resolveOutlineGripReserve(false, true)).toBeGreaterThan(0);
     expect(resolveOutlineLeftReserve(false, true)).toBeGreaterThan(0);
     expect(resolveOutlineLeftReserve(true, true)).toBeGreaterThan(
       resolveOutlineLeftReserve(false, true),

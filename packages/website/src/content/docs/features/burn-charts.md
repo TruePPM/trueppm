@@ -1,6 +1,7 @@
 ---
 title: Burn charts
 description: Project-level burn down, burn up, and combined progress charts in the Reports tab.
+documentedFor: "0.4"
 ---
 
 Three standard agile/iterative progress charts scoped to a single project: burn down (remaining work over time), burn up (completed work against a scope line), and a combined overlay of both. All three share a Y-axis unit selector — story points or task count — so you can read them in the unit that matches your planning cadence.
@@ -18,10 +19,10 @@ Step 7 ([Forecast and confidence](/the-story/#7-forecast--monte-carlo-across-bot
 
 ### Burn Down
 
-Plots remaining work from the project start date to today. The ideal burn line runs from total scope at start to zero at the planned finish date.
+Plots remaining work from the project start date to today. The ideal burn line runs from total scope at start to zero at the planned finish date. From 0.4, a project that started more than 366 days ago is charted over its most recent 366 days rather than its whole history — see the window limits under [API endpoints](#api-endpoints).
 
 - **Y-axis:** remaining story points / task count (user-selectable)
-- **X-axis:** calendar dates from project start to planned finish
+- **X-axis:** calendar dates across the charted window — project start to planned finish
 - **Ideal line (dashed):** straight diagonal from total scope to zero
 - **Actual line (solid):** cumulative remaining work per day
 - A line above the ideal means you're behind; below means ahead.
@@ -44,6 +45,7 @@ Overlays burn down and burn up on the same axes. The area between the two lines 
 - Tab: **Reports** — visible for HYBRID, AGILE, and WATERFALL projects
 - Mode selector in the chart toolbar: **Burn Down · Burn Up · Combined**
 - Unit selector: **Points · Tasks**
+- Date range: the **From** / **To** pickers in the chart toolbar (project charts only — in a sprint the range is the sprint). From 0.4 the range they can ask for is bounded; the limits are under [API endpoints](#api-endpoints)
 
 ## API endpoints
 
@@ -60,7 +62,21 @@ Query parameters:
 | `since` | ISO date (window start) | project start date |
 | `until` | ISO date (window end) | today |
 
-The response echoes `chart_type`, `metric`, `since`, and `until`, plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. When the project has an active baseline the response also includes a `baseline_series` planned-remaining overlay (`{date, planned}` rows).
+:::note[Ships in 0.4]
+The window bounds described in the next paragraph ship in **TruePPM 0.4**, the
+first beta. In `v0.3.0-alpha.3`, the latest release, the window has no upper
+bound: any span and any future `until` are accepted (only `until` before `since`
+is refused), and a far-future `until` such as `9999-12-31` returns a 500.
+:::
+
+From 0.4 the window will be bounded on both axes. `until` may be at most 31 days
+past today, and the span between `since` and `until` at most 366 days: an `until`
+past that horizon, or an explicit `since` more than 366 days before `until`, is a
+400 naming the limit. A request that supplies no `since` — or an empty one — is
+never refused for span; the window is clamped to the 366 days ending at `until`
+instead, and the response echoes the `since` it actually used.
+
+The response echoes `chart_type`, `metric`, `since`, and `until`, plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. For `burndown` / `burnup` only, a project with an active baseline also gets a `baseline_series` planned-remaining overlay (`{date, planned}` rows); `combined` does not carry one.
 
 `IsAuthenticated` + project read permission required. Project must be a member of the requesting user's accessible projects.
 
