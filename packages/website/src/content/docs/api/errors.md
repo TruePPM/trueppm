@@ -58,6 +58,17 @@ whole:
 - **List of objects** — an array with one entry per item you submitted, in order,
   and `{}` in the slots that validated.
 
+One exception to the index keying: a constraint on the **list as a whole** — a
+length bound, or the fact that what you sent was not a list at all — has no failing
+item to point at, so it reports as a nested object under `non_field_errors` instead:
+
+```json
+{"hidden_views": {"non_field_errors": ["Expected a list of items but got type \"str\"."]}}
+```
+
+A client that assumes every list field's errors are index-keyed will look for
+`"0"` and find nothing. Check for `non_field_errors` at each level as you descend.
+
 Nesting is as deep as the payload is, and the **leaves are always lists of
 message strings**. A client that assumes `string[]` at the first level will fail
 to parse the majority of settings-shaped payloads — walk the value instead, and

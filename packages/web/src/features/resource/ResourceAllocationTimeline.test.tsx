@@ -51,7 +51,6 @@ function resource(overrides: Partial<AllocationResource> = {}): AllocationResour
   return {
     id: 'res-1',
     name: 'Ada Lovelace',
-    email: 'ada@example.com',
     max_units: '1.00',
     tasks: [task()],
     ...overrides,
@@ -64,6 +63,8 @@ function response(resources: AllocationResource[]): AllocationResponse {
     window_start: '2026-04-01',
     window_end: '2026-04-30',
     resources,
+    resource_count: resources.length,
+    truncated: false,
   };
 }
 

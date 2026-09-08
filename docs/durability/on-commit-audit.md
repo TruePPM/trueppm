@@ -171,14 +171,30 @@ below.
 > synchronously inside the transaction body, not in the `on_commit` callback, so
 > they are durable; the callback itself only broadcasts.
 
-### `apps/resources/views.py` — 4 protected · 0 best-effort
+### `apps/resources/views.py` — 8 protected · 0 best-effort
+
+Line numbers in this section were re-derived on 2026-09-08 (#3572); other
+sections of this file may still carry pre-drift numbers.
 
 | line | function | side effect | class |
 |---|---|---|---|
-| 231 | `ProjectResourceViewSet.destroy` | `enqueue_recalculate` + broadcast `roster_changed` | outbox-protected |
-| 662 | `TaskResourceViewSet.perform_create` | `enqueue_recalculate` + broadcast `assignment_created` | outbox-protected |
-| 685 | `TaskResourceViewSet.perform_update` | `enqueue_recalculate` + broadcast `assignment_updated` | outbox-protected |
-| 704 | `TaskResourceViewSet.perform_destroy` | `enqueue_recalculate` + broadcast `assignment_deleted` | outbox-protected |
+| 384 | `ProjectResourceViewSet.perform_create` | broadcast `roster_changed` | outbox-protected |
+| 408 | `ProjectResourceViewSet.perform_update` | broadcast `roster_changed` | outbox-protected |
+| 476 | `ProjectResourceViewSet.destroy` | `enqueue_recalculate` + broadcast `roster_changed` | outbox-protected |
+| 1047 | `ResourceViewSet.perform_destroy` | broadcast `roster_changed` to every project the deactivation touched | outbox-protected |
+| 1150 | `ResourceViewSet.restore` | broadcast `roster_changed` to every project the restore touched | outbox-protected |
+| 1434 | `TaskResourceViewSet.perform_create` | `enqueue_recalculate` + broadcast `assignment_created` | outbox-protected |
+| 1490 | `TaskResourceViewSet.perform_update` | `enqueue_recalculate` + broadcast `assignment_updated` | outbox-protected |
+| 1520 | `TaskResourceViewSet.perform_destroy` | `enqueue_recalculate` + broadcast `assignment_deleted` | outbox-protected |
+
+> `ResourceViewSet.perform_destroy` (1047) and `restore` (1150) were missing from
+> this ledger before #3572 — the omission predates that branch, which only
+> widened the fan-out set of the first. Both fan out to the **union** of the
+> projects carrying assignments for the resource and the projects whose roster
+> row the deactivation cascade soft-deleted (or the restore put back), because a
+> resource can sit on a roster with no tasks at all. Both snapshot their project
+> ids to plain strings before the callback, so no lazy queryset is evaluated
+> after commit.
 
 ### `apps/access/views.py` — 0 protected · 3 best-effort
 

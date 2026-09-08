@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import ipaddress
 import logging
 from datetime import timedelta
 from typing import Any, TypeGuard, cast
@@ -74,11 +75,33 @@ def _client_ip(request: Request) -> str:
     behind an ingress), falling back to ``REMOTE_ADDR``. This value is only used
     for an operator-facing log line, never for a security decision, so a spoofable
     header is acceptable here — the per-account throttle does the enforcement.
+
+    **The result is parsed as an IP address and replaced with ``"invalid"`` if it is
+    not one** (#3552). Spoofing the *value* is accepted; forging the *shape* is not.
+    Both auth lines are space-delimited ``key=value``, and this field is caller-supplied
+    and sits before another field, so an unvalidated value containing spaces and ``=``
+    lets a caller inject extra pairs into the record:
+
+        X-Forwarded-For: 1.2.3.4 user_id=1 method=password
+
+    A last-wins logfmt/Splunk-kv extractor then attributes the session to a different
+    account. Raw CR/LF cannot reach here (the HTTP parser rejects them) so a wholly
+    forged line was never possible, but intra-line field forgery was. Validating here
+    fixes ``auth.login_failed`` — reachable *without* credentials, and so the worse of
+    the two — at the same time.
     """
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return str(forwarded).split(",")[0].strip()
-    return str(request.META.get("REMOTE_ADDR", "unknown"))
+    candidate = (
+        str(forwarded).split(",")[0].strip()
+        if forwarded
+        else str(request.META.get("REMOTE_ADDR", "") or "").strip()
+    )
+    if not candidate:
+        return "unknown"
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return "invalid"
 
 
 def _login_body(request_data: Any) -> dict[str, Any]:
@@ -199,6 +222,52 @@ def _emit_login_failure_event(request: Request, canonical_identifier: str | None
         "auth.login_failed username_hash=%s client_ip=%s",
         username_hash,
         _client_ip(request),
+    )
+
+
+def emit_login_success(request: Request, *, user: Any, method: str, remember: bool) -> None:
+    """Emit the structured login-success line for a session that was actually minted.
+
+    The counterpart to :func:`_emit_login_failure_event` (#3552, ADR-1120). Both land on
+    ``trueppm.auth`` — including the SSO callback's success, which imports this rather
+    than logging to ``trueppm.sso`` beside the SSO *refusals*. Correlating "who got in"
+    must not require knowing which door they used.
+
+    **Call this last, once the session exists — not when credentials validate.** The two
+    are different moments: :class:`CookieTokenObtainPairView` runs the enterprise
+    ``local_login_allowed`` seam *after* validation, and that seam can still return a 403
+    with no cookie. A line emitted at the validation point therefore reports a success
+    for a request that was refused, which inverts exactly the signal an operator alarms
+    on. The same applies to the SSO callback: after the refresh cookie is set, not after
+    ``resolve_user`` returns.
+
+    ``INFO``, not ``WARNING`` — a successful login is not an anomaly, and putting it at
+    ``WARNING`` beside ``auth.login_failed`` would poison the alerting rule that line
+    exists to feed. ``DJANGO_LOG_LEVEL`` defaults to ``INFO``, so the line is visible in a
+    default production deploy; ``settings/dev.py`` replaces ``LOGGING`` with a root
+    handler at ``WARNING``, so it is not visible under dev settings (which is why tests
+    raise the level explicitly).
+
+    Fields go in the message rather than in ``extra=`` because the dev console formatter
+    renders only ``%(message)s``: an ``extra``-only field would exist in the production
+    JSON handler and nowhere else, and a record whose content depends on the deployment is
+    worse than one that is uniformly greppable.
+
+    Args:
+        request: The request that established the session (read only for the client IP).
+        user: The authenticated user. Only ``pk`` is logged — never the email or
+            username, matching ``_emit_login_failure_event``, which hashes the submitted
+            identifier rather than writing it in the clear.
+        method: ``"password"`` or ``"sso:<provider-slug>"``.
+        remember: Whether the session opted into browser-persistent "remember me". SSO
+            logins are always ``False`` (an IdP redirect carries no such choice).
+    """
+    logger.info(
+        "auth.login_succeeded user_id=%s method=%s client_ip=%s remember=%s",
+        getattr(user, "pk", None),
+        method,
+        _client_ip(request),
+        remember,
     )
 
 
@@ -540,6 +609,10 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             _set_refresh_cookie(
                 response, str(refresh), persistent_seconds=_cookie_seconds(remember)
             )
+        # LAST, deliberately (#3552, ADR-1120): the session now exists. Emitting this
+        # where the credentials validated would report a success for a login the
+        # ``local_login_allowed`` seam above still refuses with a 403 and no cookie.
+        emit_login_success(request, user=serializer.user, method="password", remember=remember)
         return response
 
 

@@ -276,6 +276,20 @@ from trueppm_api.core.request_body import object_body
 
 logger = logging.getLogger(__name__)
 
+#: The three-word health vocabulary (ADR-0126). Declared once and referenced by every
+#: endpoint that publishes a band, so drf-spectacular resolves them to ONE
+#: ``HealthBandEnum`` component instead of postfixing a variant per endpoint.
+HEALTH_BAND_CHOICES: list[str] = ["on_track", "at_risk", "critical"]
+
+#: Which of :func:`compute_health_band`'s two branches decided the band.
+#:
+#: Two values, not three: ``Health.AUTO`` is "no report filed", which *is* the
+#: derived case — a third token would make one field mean two things. ``reported``
+#: is the product's own word for the manual report (the Overview header renders
+#: "Reported: Critical"), so the API token and the UI word stay one vocabulary.
+HEALTH_BAND_SOURCE_CHOICES: list[str] = ["reported", "derived"]
+
+
 # Mandated by ADR-0627 §D1.1 and asserted by `test_pin_description_is_published`.
 # `pinned` carries the OPPOSITE privacy semantics elsewhere in this same API
 # (`TaskNote.pinned` and `TaskAttachment.is_pinned` are shared curation any
@@ -450,6 +464,73 @@ def _parse_window_date(value: str, param: str) -> datetime.date:
         return datetime.date.fromisoformat(value)
     except ValueError:
         raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
+
+
+# Cap on the number of assignment rows an allocation / contention read will
+# materialize (ADR-1118, #3576). These endpoints cannot be bounded by their
+# window — tasks with null CPM dates are deliberately retained for the client's
+# "Unscheduled" section, so narrowing start/end does not shrink the row count.
+#
+# The cap falls on a *resource boundary*, and that is the load-bearing part.
+# ADR-0031 puts overallocation detection client-side: the caller sums daily units
+# across every span a resource holds. A cut landing mid-resource would therefore
+# not merely shorten the response, it would make that resource's load verdict
+# wrong — and wrong in the direction that looks safe (under-reported load). Every
+# resource in the response is whole or absent; `truncated` / `resource_count` say
+# which happened.
+#
+# Set clear of the supported ceiling, deliberately. MC_TASK_CAP is 5,000 tasks;
+# at the ~1.5 assignments/task the issue measures that is ~7,500 rows, and a
+# heavily-staffed project at 3/task is ~15,000. 20,000 is above all of those, so
+# a project inside the documented envelope is never truncated — this is a
+# backstop against a pathological project, NOT a payload-size optimization. A
+# supported 5,000-task project still returns a multi-MB body; bounding *that*
+# needs windowing or pagination, which ADR-1118 rejected for this change and
+# #3594 tracks separately. Tests monkeypatch this rather than build 20,000 rows,
+# following `_TASK_TRASH_LIMIT`.
+#
+# That arithmetic is PER PROJECT, and `program_views.resource_contention` reuses
+# this same constant across every member project of a program. A program of six
+# well-staffed projects can therefore reach the cap without any single member
+# being pathological. That is a deliberate simplification — one number, one
+# meaning, no second constant to keep in sync — and the disclosure is identical
+# either way: whole resources are dropped and `truncated` says so. If it starts
+# firing on real programs, split the constant rather than raising it blindly.
+_ALLOCATION_ASSIGNMENT_LIMIT = 20000
+
+
+def _cap_assignments_at_resource_boundary(
+    qs: Any, limit: int
+) -> tuple[list[Any], bool, Callable[[int], int]]:
+    """Materialize at most ``limit`` assignment rows, cut on a resource boundary.
+
+    ``qs`` must already be ordered so that a resource's rows are contiguous (the
+    callers order by ``resource_id`` first). One row past the cap is fetched so
+    ``truncated`` is exact rather than a ``>=`` guess — the same idiom as the task
+    Trash list — and the trailing, possibly-partial resource group is then dropped
+    whole. See :data:`_ALLOCATION_ASSIGNMENT_LIMIT` for why a partial group must
+    never be returned.
+
+    Returns ``(rows, truncated, resource_count)`` where ``resource_count`` is a
+    callable taking the number of resources actually grouped. It costs an extra
+    ``COUNT(DISTINCT resource_id)`` only on the truncated path; when nothing was
+    cut the count the caller already has is exact, so the common request pays
+    nothing for the field.
+    """
+    rows = list(qs[: limit + 1])
+    truncated = len(rows) > limit
+    if not truncated:
+        return rows, False, lambda grouped: grouped
+
+    # Rows of one resource are contiguous, so the resource owning the overflow row
+    # is exactly the one that may be half-fetched. Drop all of its rows.
+    partial_resource_id = rows[-1].resource_id
+    rows = [row for row in rows[:limit] if row.resource_id != partial_resource_id]
+    return (
+        rows,
+        True,
+        lambda _grouped: qs.order_by().values("resource_id").distinct().count(),
+    )
 
 
 def _resolve_allocation_window(request: Request, tasks: Any) -> tuple[datetime.date, datetime.date]:
@@ -2950,11 +3031,18 @@ class ProjectViewSet(
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Per-resource task spans within the window: "
-                    "{project_id, window_start, window_end, resources: "
-                    "[{id, name, email, max_units (project-effective: roster "
+                    "{project_id, window_start, window_end, resource_count, "
+                    "truncated, resources: "
+                    "[{id, name, max_units (project-effective: roster "
                     "units_override if set, else Resource.max_units), tasks: [{assignment_id, id, "
                     "name, early_start, early_finish, scheduled_start, units, "
-                    "status}]}]}. scheduled_start (ADR-0752) is the task's SPAN "
+                    "status}]}]}. resource_count is the number of resources in "
+                    "scope and truncated is true when the assignment cap "
+                    "(ADR-1118) dropped whole resources from the list — the cut "
+                    "always falls on a resource boundary, so every resource "
+                    "returned carries all of its in-window spans and the "
+                    "client-side overallocation verdict (ADR-0031) stays exact "
+                    "for it. scheduled_start (ADR-0752) is the task's SPAN "
                     "start — early_start narrows toward early_finish as an "
                     "in-progress task's percent_complete rises, so the client "
                     "renders the span (scheduled_start..early_finish), falling "
@@ -2993,6 +3081,12 @@ class ProjectViewSet(
         ``max_units`` is the resource's capacity **on this project** — the roster's
         ``units_override`` when one is set, else ``Resource.max_units`` (#3574) — so
         the client's verdict matches the heat map's and the Overview card's.
+
+        Bounded by ``_ALLOCATION_ASSIGNMENT_LIMIT`` assignment rows, cut on a
+        resource boundary and disclosed as ``truncated`` / ``resource_count``
+        (ADR-1118). Because ADR-0031's verdict is computed over the whole of a
+        resource's spans, a partial resource would report a *wrong* load rather
+        than an incomplete one, so a resource is either returned whole or omitted.
 
         Query parameters:
           start    (YYYY-MM-DD, optional) — window start; defaults to earliest
@@ -3044,8 +3138,12 @@ class ProjectViewSet(
         # remaining-work window early_start narrows to as percent_complete
         # rises. See utilization.py's identical annotation (#2623) for the
         # full rationale.
+        # ``.active()`` (#3572): the assignment rows of a deactivated resource are
+        # retained for audit, but the allocation timeline is a capacity read — it must
+        # not draw a lane for somebody who is no longer on the team.
         qs = (
-            TaskResource.objects.filter(
+            TaskResource.objects.active()
+            .filter(
                 task__project=project,
                 task__is_deleted=False,
             )
@@ -3055,7 +3153,17 @@ class ProjectViewSet(
                     "task__scheduled_start", "task__early_start", output_field=DateField()
                 )
             )
-            .order_by("resource__name", "task__early_start")
+            # Ordered by resource_id, a local column of resources_task_resource,
+            # NOT by resource__name (ADR-1118 / #3576). resources_resource.name is
+            # two joins away, so sorting on it forces Postgres to materialize and
+            # sort the whole joined set with the far table in the sort input, and
+            # no index can serve a key that lives in a different table from the
+            # rows. Ordering by resource_id keeps a resource's rows contiguous —
+            # which is what lets the cap below fall on a resource boundary — and
+            # the by-name ordering the response promises is restored in Python
+            # after grouping, where it costs one sort of ~dozens of resources
+            # instead of thousands of assignment rows.
+            .order_by("resource_id", "task__early_start")
         )
 
         if resource_ids:
@@ -3078,15 +3186,21 @@ class ProjectViewSet(
         )
 
         # --- Build response grouped by resource ---
+        rows, truncated, resource_count_for = _cap_assignments_at_resource_boundary(
+            qs, _ALLOCATION_ASSIGNMENT_LIMIT
+        )
         resources_map: dict[str, dict[str, Any]] = {}
-        for assignment in qs:
+        for assignment in rows:
             resource = assignment.resource
             rid = str(resource.id)
             if rid not in resources_map:
+                # ``email`` is deliberately absent (#3599). This dict bypasses
+                # ``ResourceSerializer.to_representation``, which is where the #891
+                # harvest control lives, so echoing it here re-opened that control
+                # to anyone who can reach a project they created themselves.
                 resources_map[rid] = {
                     "id": rid,
                     "name": resource.name,
-                    "email": resource.email,
                     "max_units": str(roster_units.get(rid, resource.max_units)),
                     "tasks": [],
                 }
@@ -3110,12 +3224,18 @@ class ProjectViewSet(
                 }
             )
 
+        # Restore the by-name resource ordering the query no longer does in SQL
+        # (ADR-1118). `sorted` is stable, so same-named resources keep the
+        # resource_id order the query produced rather than an arbitrary one.
+        resources_out = sorted(resources_map.values(), key=lambda r: r["name"])
         return Response(
             {
                 "project_id": str(project.id),
                 "window_start": window_start.isoformat(),
                 "window_end": window_end.isoformat(),
-                "resources": list(resources_map.values()),
+                "resources": resources_out,
+                "resource_count": resource_count_for(len(resources_out)),
+                "truncated": truncated,
             }
         )
 
@@ -3285,11 +3405,11 @@ class ProjectViewSet(
         start_date = today - datetime.timedelta(days=today.weekday())
         heatmap = aggregate_utilization_weekly(project, start_date, 8, "none")
 
-        # Headcount from project roster (not just assigned resources).
+        # Headcount from project roster (not just assigned resources). ``.active()``
+        # (#3572) excludes deactivated people: headcount is the KPI a PM reads right
+        # after an off-boarding, and it was the last place still counting them.
         project_resources = list(
-            ProjectResource.objects.select_related("resource").filter(
-                project=project, is_deleted=False
-            )
+            ProjectResource.objects.active().select_related("resource").filter(project=project)
         )
         headcount = len(project_resources)
         contractor_count = sum(
@@ -3345,7 +3465,7 @@ class ProjectViewSet(
                 fields={
                     "task_count": serializers.IntegerField(),
                     "health_band": serializers.ChoiceField(
-                        choices=["on_track", "at_risk", "critical"],
+                        choices=HEALTH_BAND_CHOICES,
                         help_text=(
                             "The project's health band. The manual Project.health "
                             "override when the PM has reported one (not AUTO), "
@@ -3354,6 +3474,25 @@ class ProjectViewSet(
                             "on_track. A client MUST print this value rather than "
                             "re-deriving a band from the counts — the counts alone "
                             "cannot see the override."
+                        ),
+                    ),
+                    "health_band_source": serializers.ChoiceField(
+                        choices=HEALTH_BAND_SOURCE_CHOICES,
+                        help_text=(
+                            "Which of the two branches above produced health_band. "
+                            "'reported' — a project manager set Project.health by "
+                            "hand and that report decided it; 'derived' — no report "
+                            "is filed (health is AUTO) and the counts on this "
+                            "payload decided it. A client cannot work this out for "
+                            "itself: a report that agrees with the counts is "
+                            "indistinguishable from no report at all. Use it to say "
+                            "WHERE a band came from — a surface that lists the "
+                            "at-risk and critical tasks alongside the band needs it, "
+                            "because a reported band is not explained by those rows. "
+                            "For WHO filed a 'reported' band and when, read the "
+                            "project's field history at GET /projects/{id}/history/ "
+                            "— Project.health is tracked there. This field says "
+                            "which branch ran, not who ran it."
                         ),
                     ),
                     "at_risk_count": serializers.IntegerField(),
@@ -3420,6 +3559,14 @@ class ProjectViewSet(
         counts. It is on the payload because the shell chip fetches this endpoint
         and nothing else: without it the chip could only ever see the counts
         branch, and contradicted the PM's own report (#3501).
+
+        health_band_source names which of those two branches decided it, from the
+        same call. The shell chip's popover explains the band by listing the
+        at-risk and critical tasks, so a reported band needs to say so — otherwise
+        a red "Critical" header sits above two "0 tasks" rows and reads as a
+        broken tool rather than as the PM's report (#3525). It is a server fact
+        because a client cannot infer it: a report that happens to agree with the
+        counts is indistinguishable from no report at all.
 
         P80 is the most recent persisted MonteCarloRun's p80 for this project, or
         null when no run has been recorded. Null means "no forecast exists", not
@@ -3502,17 +3649,28 @@ class ProjectViewSet(
             .first()
         )
 
+        # The band is a SERVER fact, not something the shell can work out from the
+        # two counts below it (#3501). Only the server sees the manual
+        # `Project.health` override, so a chip that re-derived a band from the
+        # counts printed "On track" over a project its own PM had reported
+        # Critical, and disagreed with the my-projects triage list about the same
+        # project. Same callable as `health_summary` — one rule, called twice
+        # (ADR-0133).
+        #
+        # `health_band_source` travels with it because a client that only has the
+        # band cannot explain it: the shell chip's popover lists the at-risk and
+        # critical tasks, so a reported Critical over a clean plan renders a red
+        # header above two "0 tasks" rows and reads as a broken tool rather than
+        # as the PM's own report (#3525).
+        health_band, health_band_source = compute_health_band(
+            project.health, at_risk_count, critical_count
+        )
+
         return Response(
             {
                 "task_count": task_count,
-                # The band is a SERVER fact, not something the shell can work out
-                # from the two counts below it (#3501). Only the server sees the
-                # manual `Project.health` override, so a chip that re-derived a
-                # band from the counts printed "On track" over a project its own
-                # PM had reported Critical, and disagreed with the my-projects
-                # triage list about the same project. Same callable as
-                # `health_summary` — one rule, called twice (ADR-0133).
-                "health_band": compute_health_band(project.health, at_risk_count, critical_count),
+                "health_band": health_band,
+                "health_band_source": health_band_source,
                 # `critical_path_count` was an exact alias of `critical_count`
                 # (same aggregate). Dropped pre-0.3 so the public status-summary
                 # contract carries the count once (#1325).
@@ -3539,9 +3697,19 @@ class ProjectViewSet(
                     # The same three values status-summary declares, and now
                     # provably so: both actions call `compute_health_band`. A bare
                     # CharField here handed a generated SDK a free-form `str` for
-                    # one endpoint and a typed enum for its twin (#3501).
-                    "health_band": serializers.ChoiceField(
-                        choices=["on_track", "at_risk", "critical"]
+                    # one endpoint and a typed enum for its twin (#3501). The
+                    # shared constants make the two declarations identical by
+                    # construction, so drf-spectacular resolves one component per
+                    # vocabulary rather than postfixing a variant per endpoint.
+                    "health_band": serializers.ChoiceField(choices=HEALTH_BAND_CHOICES),
+                    "health_band_source": serializers.ChoiceField(
+                        choices=HEALTH_BAND_SOURCE_CHOICES,
+                        help_text=(
+                            "Whether this row's health_band came from a project "
+                            "manager's manual report ('reported') or from the two "
+                            "counts beside it ('derived'). Same rule and same "
+                            "vocabulary as the single-project status summary."
+                        ),
                     ),
                     "at_risk_count": serializers.IntegerField(),
                     "critical_count": serializers.IntegerField(),
@@ -3573,7 +3741,9 @@ class ProjectViewSet(
 
         health_band comes from :func:`compute_health_band` — the same rule the
         single-project status-summary calls, so the two cannot disagree about one
-        project (#3501).
+        project (#3501). health_band_source rides along for the same reason: the
+        provenance is published on both endpoints or on neither, or the two
+        disagree one level up about whether a band is a person's call (#3525).
         """
         from django.db.models import Count, Q
 
@@ -3607,18 +3777,27 @@ class ProjectViewSet(
             .order_by("name")
         )
 
+        # `health_band_source` ships on this row too, not only on the
+        # single-project status summary: both actions call the one
+        # `compute_health_band`, and publishing provenance on one endpoint but not
+        # its twin reintroduces one level up the disagreement ADR-0133's "one rule,
+        # called twice" exists to prevent (#3525).
+        bands = [
+            (row, compute_health_band(row["health"], row["at_risk_count"], row["critical_count"]))
+            for row in rows
+        ]
+
         return Response(
             [
                 {
                     "id": str(row["id"]),
                     "name": row["name"],
-                    "health_band": compute_health_band(
-                        row["health"], row["at_risk_count"], row["critical_count"]
-                    ),
+                    "health_band": band,
+                    "health_band_source": source,
                     "at_risk_count": row["at_risk_count"],
                     "critical_count": row["critical_count"],
                 }
-                for row in rows
+                for row, (band, source) in bands
             ],
             status=status.HTTP_200_OK,
         )
@@ -4520,8 +4699,13 @@ def annotate_tasks_queryset(
         .values("max_units")[:1]
     )
 
+    # ``.active()`` (#3572): a deactivated resource's assignment rows are retained
+    # for audit, so without this the drawer keeps flagging a user as over-allocated
+    # on load nobody is carrying. Same class as ProjectAttentionView's
+    # over-allocation bucket below.
     overallocated_subq = (
-        _TR.objects.filter(
+        _TR.objects.active()
+        .filter(
             task__assignee_id=OuterRef("assignee_id"),
             task__project_id=OuterRef("project_id"),
             task__status__in=[
@@ -11260,8 +11444,8 @@ _HEALTH_OVERRIDE_BAND: dict[str, str] = {
 }
 
 
-def compute_health_band(health: str, at_risk_count: int, critical_count: int) -> str:
-    """The project health band: manual override first, then the task counts.
+def compute_health_band(health: str, at_risk_count: int, critical_count: int) -> tuple[str, str]:
+    """The project health band and which branch decided it.
 
     One rule, called from every surface that prints a band (ADR-0133), so the
     shell chip, the my-projects triage list and any future consumer cannot
@@ -11270,22 +11454,34 @@ def compute_health_band(health: str, at_risk_count: int, critical_count: int) ->
     float numbers do not, and a surface that silently recomputes "On track" over
     that report contradicts the person who filed it (#3501).
 
+    The *source* is returned from this same call rather than from a second helper
+    beside it, because a parallel ``compute_health_band_source()`` would be a
+    second copy of the branch this function already takes — the drift ADR-0133
+    exists to make structurally impossible. It is a server fact for the same
+    reason the band is: a client cannot infer it. A PM reporting ``at_risk`` over
+    a plan whose counts also say at-risk produces exactly the band the counts
+    would, so a client comparing the two would miss the report entirely; and a PM
+    reporting ``on_track`` over a critical plan is a disagreement the client would
+    attribute to the counts rather than to the person (#3525).
+
     Args:
         health: The raw ``Project.health`` value. ``AUTO`` means "no report".
         at_risk_count: Incomplete tasks with <= 5 working days of total float.
         critical_count: Incomplete tasks on the critical path.
 
     Returns:
-        One of ``"on_track"``, ``"at_risk"``, ``"critical"``.
+        ``(band, source)`` — band is one of ``"on_track"`` / ``"at_risk"`` /
+        ``"critical"``; source is ``"reported"`` when the manual override decided
+        it, ``"derived"`` when it fell through to the counts.
     """
     manual = _HEALTH_OVERRIDE_BAND.get(health)  # None when AUTO
     if manual is not None:
-        return manual
+        return manual, "reported"
     if critical_count > 0:
-        return "critical"
+        return "critical", "derived"
     if at_risk_count > 0:
-        return "at_risk"
-    return "on_track"
+        return "at_risk", "derived"
+    return "on_track", "derived"
 
 
 def _spi_health_band(spi: float) -> str:
@@ -11979,7 +12175,10 @@ class ProjectAttentionView(APIView):
         totals = cast(
             "list[dict[str, Any]]",
             list(
-                TaskResource.objects.filter(
+                # ``.active()`` (#3572): a deactivated person cannot be acted on, so
+                # naming them in the attention bucket is an item nobody can clear.
+                TaskResource.objects.active()
+                .filter(
                     task__project=project,
                     task__is_deleted=False,
                 )

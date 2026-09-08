@@ -89,14 +89,24 @@ def test_every_bundled_sample_imports(owner: Any, key: str) -> None:
 
 @pytest.mark.parametrize("key", sorted(SAMPLES))
 def test_bundled_sample_in_flight_tasks_keep_authored_progress(owner: Any, key: str) -> None:
-    """#3486: every IN_PROGRESS task in every fixture loads at its authored percent.
+    """#3486/#3518: every IN_PROGRESS or REVIEW task in every fixture keeps its
+    authored progress numbers.
 
     Read from the fixture rather than a hard-coded table so the assertion cannot
     rot when a sample's content changes: whatever the document declares is what
     the loaded row must report. Before the replay finalize pass every one of
-    these landed at 0% with ``remaining_points == story_points``, because a task
-    that ends in flight is born at the base of the progression and nothing walked
-    the numbers back.
+    these landed at 0%/100% with ``remaining_points == story_points``, because a
+    task that ends in flight or in review is born at the base of the
+    progression and nothing walked the numbers back.
+
+    REVIEW is a mixed case (#3518), not a straight widening of the IN_PROGRESS
+    check: ``Task._coerce_signoff_percent`` deliberately fixes
+    ``percent_complete`` to 100 regardless of what the document authored
+    ("work done, awaiting sign-off"), so that field is asserted against 100,
+    not the document — asserting it against the document would fail on every
+    bundled REVIEW row (aurora authors 80.0, helios 85.0) and would be asserting
+    for the wrong behavior. ``remaining_points`` has no such contract and is
+    checked against the document exactly like IN_PROGRESS.
     """
     document = json.loads(SAMPLES[key].path.read_text())
     program = load_sample(key, owner=owner, create_users=True)
@@ -105,23 +115,27 @@ def test_bundled_sample_in_flight_tasks_keep_authored_progress(owner: Any, key: 
     for project_data in document["projects"]:
         project = Project.objects.get(program=program, name=project_data["name"])
         for task_data in project_data["tasks"]:
-            if task_data.get("status") != "IN_PROGRESS":
+            status = task_data.get("status")
+            if status not in ("IN_PROGRESS", "REVIEW"):
                 continue
             task = Task.objects.get(project=project, wbs_path=task_data["wbs_path"])
-            # A task the timeline walked past IN_PROGRESS is a different fixture
-            # bug, not this one; assert only on rows that did land in flight.
-            if str(task.status) != "IN_PROGRESS":
+            # A task the timeline walked past its authored end column is a
+            # different fixture bug, not this one; assert only on rows that did
+            # land where the document said they would.
+            if str(task.status) != status:
                 continue
             checked += 1
-            if "percent_complete" in task_data:
-                assert task.percent_complete == task_data["percent_complete"], (
-                    f"{key}/{project_data['slug']}/{task_data['wbs_path']}"
-                )
+            label = f"{key}/{project_data['slug']}/{task_data['wbs_path']}"
+            if status == "IN_PROGRESS":
+                if "percent_complete" in task_data:
+                    assert task.percent_complete == task_data["percent_complete"], label
+            else:
+                # REVIEW: the sign-off contract always wins here, never the
+                # document's authored percent_complete.
+                assert task.percent_complete == 100, label
             if "remaining_points" in task_data:
-                assert task.remaining_points == task_data["remaining_points"], (
-                    f"{key}/{project_data['slug']}/{task_data['wbs_path']}"
-                )
-    # Guard against a vacuous pass: every bundled sample authors in-flight work.
+                assert task.remaining_points == task_data["remaining_points"], label
+    # Guard against a vacuous pass: every bundled sample authors in-flight/review work.
     assert checked > 0
 
 

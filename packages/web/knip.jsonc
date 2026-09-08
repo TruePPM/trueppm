@@ -6,15 +6,14 @@
   "entry": [
     "src/main.tsx",
 
-    // MUST stay explicit. createCpmWorker.ts builds the worker URL in two
-    // steps *on purpose* — the comment there says why: the single-expression
-    // `new Worker(new URL('./cpmWorker.ts', import.meta.url))` form triggers
-    // Vite's worker-bundling transform, which hangs under Vitest's jsdom
-    // collection. knip resolves worker URLs by the same static-analysis
-    // pattern Vite does, so it inherits exactly that blindness and would
-    // report cpmWorker.ts (and everything only it imports) as unused.
-    "src/workers/cpmWorker.ts",
-
+    // `src/workers/cpmWorker.ts` needs no entry of its own. It used to have
+    // one, because `createCpmWorker.ts` built the worker URL in two statements
+    // and knip resolves worker URLs by the same static-analysis pattern Vite
+    // does — so it inherited exactly that blindness. The split form also meant
+    // Vite never compiled the worker at all, which is #3593; with the call
+    // collapsed back to one expression both tools resolve it, and knip's output
+    // is byte-identical with and without the carve-out. Do not re-add it
+    // without re-measuring (rule 382a: an unjustified root is still a hole).
     "e2e/**/*.spec.ts",
     "e2e/fixtures/**/*.ts",
     "vite.config.ts",

@@ -21,8 +21,38 @@ Enterprise edition.
 A **resource** has a name, email, job role, an optional calendar (to model individual
 availability), and a **max units** value expressing capacity — `1.0` is a full-time
 equivalent, `0.5` is half-time. Resources are Workspace-level: create them once and use
-them across projects. Removing a resource soft-deletes it, so historical assignments stay
-intact, and it can be restored later.
+them across projects.
+
+### Deactivating a resource
+
+Removing a resource **deactivates** it rather than deleting it. Its task assignments are
+kept, so the record of who did what survives an off-boarding — which is the moment that
+record matters most. Everything that describes the *current* team drops the person
+immediately:
+
+- they leave every project roster;
+- their load disappears from the resource heatmap, the daily utilization view, and the
+  allocation timeline;
+- they stop counting toward the project's headcount;
+- they stop contributing capacity to the **Team utilization** denominator, so the card
+  reports the remaining team getting busier rather than the team getting calmer;
+- they drop out of program resource contention and sprint capacity;
+- their skill tags stop appearing in the Workspace skill list.
+
+While a resource is deactivated it cannot be added to a roster, assigned to a task, or
+tagged with a skill — those writes are refused rather than silently creating a row no
+view would show.
+
+**Restoring** the resource reverses all of it, including the roster memberships the
+deactivation removed. A membership somebody had already ended by hand stays ended — a
+restore puts back what the deactivation took away and nothing else.
+
+:::note[Ships in 0.4]
+The downstream effects of deactivation ship in 0.4. Through 0.3 deactivation hides the
+resource from the catalog only: the person keeps a full row on every project roster, keeps
+drawing load on the heatmap and the allocation timeline, keeps being counted in headcount,
+and keeps contributing capacity to the Team utilization denominator.
+:::
 
 ## Skills and proficiency
 
@@ -112,6 +142,17 @@ share a working day are 80% allocated, not 240%. Two consequences are worth know
   window that could rule out an overlap, so it is treated as concurrent with everything
   else. This keeps the warning meaningful on a project whose schedule has not been
   calculated yet — which is often when the first assignments are made.
+- **A very large project may show a partial roster, and says when it does.** The
+  allocation timeline and the program contention view cap how many assignments one
+  response carries. The cut always lands on a whole person: someone is either shown with
+  every one of their in-window tasks, or left out and counted in a notice above the list
+  ("Showing 40 of 62 resources"). Nobody is ever shown with only part of their work,
+  because a partial view of a person would under-report exactly the overcommitment these
+  views exist to surface. The cap is set clear of the supported project size, so you
+  should not meet it. If you do, the notice names the remedy that surface actually
+  offers: the project allocation timeline can narrow the window or search by name, and
+  the program contention view — which has no filters yet — points you at a member
+  project's Resources view instead.
 
 :::note[Ships in 0.4]
 Date windowing on the overallocation warning ships in 0.4. Through 0.3 the warning sums a
@@ -229,7 +270,10 @@ starts being flagged at 90%. An assignee with no linked resource still uses 100%
    this-week percentage on the project Overview.
 8. See, from a resource's card, every task they are assigned to across all
    projects — grouped by project, read-only (ships in 0.4).
-9. Remove resources from a project roster (cascading task assignments when forced).
+9. Deactivate and restore resources — deactivation takes the person off every
+   roster and out of every capacity figure while keeping their assignment history,
+   and restore reverses both (ships in 0.4). Remove them from a roster (cascading
+   task assignments when forced).
 
 **Deactivating or restoring a resource in the Workspace catalog will require the
 workspace Admin role from 0.4** — it soft-deletes a shared record and recalculates
