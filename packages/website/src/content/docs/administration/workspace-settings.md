@@ -279,7 +279,7 @@ deactivation disables the account but leaves the member's personal access tokens
 live — revoke them by hand from their token list before treating an off-boarding
 as complete — and a deactivated member who had opted into a
 [weekly digest](/features/notifications/) keeps receiving it, as does one whose
-[workspace export](/administration/data-export/) finishes after they are
+[workspace export](#export-all-data) finishes after they are
 deactivated. Turn their digest preferences off before deactivating them on that
 release, and check for an export of theirs still in flight.
 :::
@@ -324,7 +324,7 @@ continue on a schedule of their own:
   failure and does not show up on the
   [System Health](/administration/system-health/) email card.
 - **The "your workspace export is ready" notice is not sent to a deactivated
-  member.** A [full-workspace export](/administration/data-export/) they
+  member.** A [full-workspace export](#export-all-data) they
   requested before off-boarding still finishes and is still downloadable by an
   Owner, but the completion email is suppressed — that notice announces the
   availability of a complete copy of the workspace's data, so it must not land in
