@@ -401,13 +401,38 @@ describe('the grip reserve', () => {
     expect(GRIP_WIDTH_FINE).toBeLessThan(GRIP_WIDTH_COARSE);
   });
 
-  it('reserves a lane only on a coarse pointer, and it is the grip\'s full width', () => {
-    // Zero on a mouse: the 14px grip overlays the row's left edge and no column
-    // gives up a pixel. On touch the reserve must equal the grip exactly — a
-    // reserve narrower than the grip puts a 44px target back on top of the WBS
-    // column's nudges, which is the failure the lane exists to prevent.
-    expect(resolveGripReserve(false)).toBe(0);
-    expect(resolveGripReserve(true)).toBe(resolveGripWidth(true));
+  it('reserves a lane at EVERY pointer class, and it is the grip\'s full width', () => {
+    // The reserve must equal the grip exactly, on both branches. A reserve
+    // narrower than the grip puts the grip back on top of its neighbour, which
+    // is the failure the lane exists to prevent — at 44px it lands on the WBS
+    // column's nudges, and at 14px (where this returned 0 until #3078) it lands
+    // on the ⇤ outdent, covering all but 2px of a 16px button.
+    //
+    // Asserted as an identity with `resolveGripWidth`, not against the literals:
+    // a test reading `toBe(14)` would still pass if the grip grew and the lane
+    // did not, which is the drift the whole lane model exists to make
+    // impossible.
+    for (const coarse of [false, true]) {
+      expect(resolveGripReserve(coarse)).toBe(resolveGripWidth(coarse));
+    }
+  });
+
+  it('leaves the nudge lane a clear box — no control may sit in a neighbour\'s (#3078)', () => {
+    // The property the two lanes exist to guarantee, stated once as arithmetic
+    // rather than left implicit in two independent constants.
+    //
+    // The grip is `absolute left-0` inside the row, so the first pixel any
+    // in-flow child can occupy is `resolveGripReserve()`. The nudge lane is the
+    // first in-flow child. So the grip's right edge must not pass the nudge
+    // lane's left edge, at either pointer class.
+    //
+    // This is the ONLY layer that can state it as a property. The browser can
+    // hit-test the actual overlap (`e2e/schedule-row-chrome.spec.ts`), and it
+    // does, but a hit test can only find the instance it is pointed at — this
+    // finds the class, including on a pointer profile no spec runs under.
+    for (const coarse of [false, true]) {
+      expect(resolveGripWidth(coarse)).toBeLessThanOrEqual(resolveGripReserve(coarse));
+    }
   });
 });
 
@@ -450,13 +475,19 @@ describe('the structural-nudge lane (#3026)', () => {
     expect(resolveOutlineNudgeReserve(true, true)).toBe(resolveNudgeLaneWidth(true));
   });
 
-  it('unlike the grip, reserves its lane on a FINE pointer too', () => {
-    // The grip is `absolute left-0` and overlays the row's edge at 14px, so a
-    // mouse gives up nothing. The nudges are in flow and always drawn, so their
-    // lane is real at both pointer classes — the pair used to take this width
-    // out of the WBS column, which is exactly the coupling being removed.
-    expect(resolveGripReserve(false)).toBe(0);
+  it('reserves its lane on a FINE pointer — as, since #3078, the grip does too', () => {
+    // The nudges are in flow and always drawn, so their lane is real at both
+    // pointer classes — the pair used to take this width out of the WBS column,
+    // which is exactly the coupling #3026 removed.
+    //
+    // This case used to open by asserting `resolveGripReserve(false)` was 0 and
+    // calling the difference the point ("unlike the grip"). That contrast was
+    // the bug: the grip still drew its 14px at the row's left edge, and once
+    // #3026 put this lane there, "reserves nothing" meant "sits on the ⇤".
+    // Both lanes are now real at both pointer classes and the assertion is
+    // about this one only.
     expect(resolveOutlineNudgeReserve(false, true)).toBeGreaterThan(0);
+    expect(resolveGripReserve(false)).toBeGreaterThan(0);
   });
 
   it('follows the same pointer-class rule as the grip, so the two cannot drift', () => {
