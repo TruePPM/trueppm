@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { HealthBand } from '@/lib/healthBand';
+import type { HealthBandSource } from '@/types';
 
 /**
  * Derived health band for a project in the "my projects" summary (ADR-0401).
@@ -15,6 +16,13 @@ export interface ProjectHealthRow {
   id: string;
   name: string;
   healthBand: HealthBand;
+  /**
+   * Which of the server's two branches produced `healthBand` (#3525). Needed
+   * wherever the band is shown BESIDE the counts: a reported band is not
+   * explained by them, so a drill-through built from the counts alone reads
+   * "0 critical tasks" under a red dot.
+   */
+  healthBandSource: HealthBandSource;
   atRiskCount: number;
   criticalCount: number;
 }
@@ -30,6 +38,7 @@ interface ApiRow {
   id: string;
   name: string;
   health_band: HealthBand;
+  health_band_source: HealthBandSource;
   at_risk_count: number;
   critical_count: number;
 }
@@ -57,6 +66,7 @@ export function useProjectsHealthSummary(): UseProjectsHealthSummaryResult {
           id: r.id,
           name: r.name,
           healthBand: r.health_band,
+          healthBandSource: r.health_band_source,
           atRiskCount: r.at_risk_count,
           criticalCount: r.critical_count,
         }),

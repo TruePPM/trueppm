@@ -37,6 +37,10 @@ const SUMMARY = {
   // `critical`). The band is the server's, folding in the manual `Project.health`
   // report, and this hook must copy it rather than reconcile it (#3501).
   health_band: 'at_risk' as const,
+  // The provenance the band alone cannot carry (#3525). 'reported' here even
+  // though the band DISAGREES with the counts, because the two facts are
+  // independent: the source is which branch ran, not whether the outcome differs.
+  health_band_source: 'reported' as const,
   monte_carlo_p80: '2026-11-03',
   at_risk_count: 3,
   critical_count: 5,
@@ -61,6 +65,7 @@ describe('useShellStats', () => {
     const s = result.current.data;
     expect(s?.taskCount).toBe(12);
     expect(s?.healthBand).toBe('at_risk');
+    expect(s?.healthBandSource).toBe('reported');
     expect(s?.monteCarlop80).toBe('2026-11-03');
     expect(s?.atRiskCount).toBe(3);
     expect(s?.criticalCount).toBe(5);
@@ -111,5 +116,50 @@ describe('useShellStats', () => {
     projectId.current = undefined;
     renderHook(() => useShellStats(), { wrapper: makeWrapper(newClient()) });
     expect(getMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useShellStats — health band provenance and recovery (#3525)', () => {
+  beforeEach(() => {
+    projectId.current = 'proj-1';
+    vi.clearAllMocks();
+  });
+
+  it.each([['reported'], ['derived']] as const)(
+    'copies health_band_source through verbatim (%s)',
+    async (source) => {
+      // Copied, never reconciled against the counts. A band that agrees with the
+      // counts can still be `reported`, so any client-side "does the band match
+      // the counts?" reconstruction is wrong exactly where nothing looks wrong.
+      getMock.mockResolvedValue({ data: { ...SUMMARY, health_band_source: source } });
+      const { result } = renderHook(() => useShellStats(), { wrapper: makeWrapper(newClient()) });
+      await waitFor(() => expect(result.current.data).toBeDefined());
+      expect(result.current.data?.healthBandSource).toBe(source);
+    },
+  );
+
+  it('reports a failed fetch as an error, not as absent data', async () => {
+    // The distinction the whole of #3525's second half turns on: `data` is
+    // `undefined` for an in-flight query AND for a failed one, so a consumer that
+    // reads only `data` cannot tell "not yet" from "never" and renders its
+    // fallback for both. The hook has always exposed `error`; nothing read it.
+    getMock.mockRejectedValue(new Error('boom'));
+    const { result } = renderHook(() => useShellStats(), { wrapper: makeWrapper(newClient()) });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('exposes a refetch so a consumer can recover without reloading the app', async () => {
+    // Rule 246: retry should re-run the failed request, not `window.location.reload()`.
+    getMock.mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ data: SUMMARY });
+    const { result } = renderHook(() => useShellStats(), { wrapper: makeWrapper(newClient()) });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    result.current.refetch();
+
+    await waitFor(() => expect(result.current.data?.healthBand).toBe('at_risk'));
+    expect(result.current.error).toBeNull();
   });
 });

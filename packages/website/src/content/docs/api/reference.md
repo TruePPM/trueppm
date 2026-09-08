@@ -340,14 +340,15 @@ governance, not part of this surface.
 | PUT / PATCH | `/api/v1/projects/{id}/` | Update |
 | DELETE | `/api/v1/projects/{id}/` | Soft-delete |
 | GET | `/api/v1/projects/{id}/status-summary/` | Health and recency summary for the shell — see [Status summary](#status-summary) |
-| GET | `/api/v1/projects/health-summary/` | One health row per project the caller is a member of: `id`, `name`, `health_band`, `at_risk_count`, `critical_count`. Same `health_band` rule as the status summary below |
+| GET | `/api/v1/projects/health-summary/` | One health row per project the caller is a member of: `id`, `name`, `health_band`, `health_band_source`, `at_risk_count`, `critical_count`. Same `health_band` and `health_band_source` rules as the status summary below |
 
 #### Status summary
 
 :::note[Ships in 0.4]
-`health_band` is added in **TruePPM 0.4** — `v0.3.0-alpha.3` (the latest release)
-does not return the field at all, and a client on that release has no way to see a
-project's manual health report from this endpoint.
+`health_band` and `health_band_source` are added in **TruePPM 0.4** —
+`v0.3.0-alpha.3` (the latest release) returns neither field, and a client on that
+release has no way to see a project's manual health report from this endpoint, nor
+to tell a reported band from a derived one.
 
 `monte_carlo_p80`, `last_saved` and `recalculated_at` also carry real values from
 **TruePPM 0.4**. In `v0.3.0-alpha.3` all three are returned as unconditional `null`
@@ -362,6 +363,7 @@ to fan out.
 |---|---|---|
 | `task_count` | `integer` | Live (non-deleted) tasks in the project |
 | `health_band` | `on_track \| at_risk \| critical` | The project's health band — see [Read `health_band`, do not re-derive it](#read-health_band-do-not-re-derive-it) |
+| `health_band_source` | `reported \| derived` | Which of the two branches below decided `health_band` — see [Which of the two produced the band](#which-of-the-two-produced-the-band) |
 | `at_risk_count` | `integer` | Incomplete tasks with `total_float` ≤ 5 working days, including negative float |
 | `critical_count` | `integer` | Incomplete tasks on the critical path |
 | `at_risk_tasks` | `array` | Up to 5 at-risk tasks as `{id, name, wbs}`, lowest float first |
@@ -388,10 +390,35 @@ same rule, so the two endpoints never disagree about one project.
 
 `AUTO` is the "no report filed" value of `health`; it is never returned as a band.
 
-Do not confuse it with `schedule_health` on `GET /api/v1/projects/{id}/overview/`.
-That is a different signal — a schedule-performance-index proxy, with a fourth
-value `unknown` for a project that has no planned work to measure against — and it
-does not read the manual report at all.
+Do not confuse `health_band` with `schedule_health` on
+`GET /api/v1/projects/{id}/overview/`. That is a different signal — a
+schedule-performance-index proxy, with a fourth value `unknown` for a project that
+has no planned work to measure against — and it does not read the manual report at
+all.
+
+##### Which of the two produced the band
+
+`health_band_source` says which of the two steps above ran: `reported` when a project
+manager's manual report decided the band, `derived` when no report is filed and the
+counts on this payload decided it. There is no third value — `AUTO` *is* the derived
+case.
+
+**A client cannot work this out for itself, which is why the server sends it.** A
+report that happens to agree with the counts is indistinguishable from no report at
+all: a PM who reports At risk on a plan whose float numbers also say at-risk produces
+exactly the band the counts would. Comparing `health_band` against the counts
+therefore misses that report silently — and on a reported `on_track` over a critical
+plan it blames the counts for a disagreement a person created.
+
+Read it whenever you show the band **next to the evidence the counts represent**. A
+surface that prints `Critical` above a list of at-risk and critical tasks is claiming
+those rows explain the word; when the source is `reported` they do not, and the
+surface has to say so and point at the report instead. TruePPM's own shell health chip
+does exactly this.
+
+For **who** filed a reported band and **when**, read `GET
+/api/v1/projects/{id}/history/` — `Project.health` is a tracked field. This field says
+which branch ran, not who ran it.
 
 **Read the nulls as facts.** Each of the last three is `null` for exactly one reason,
 and that reason is the answer rather than "not available yet":
