@@ -7,9 +7,24 @@
 > `POST /api/v1/projects/` and `perform_create` makes the caller `Role.OWNER`, so
 > every account can reach `IsOrgAdmin` in two requests. `DELETE /resources/{id}/`,
 > `POST /resources/{id}/restore/`, `?include_deleted=true`, and `email` exposure and
-> email search now require `IsWorkspaceOperator` (ADR-0213 C1). The derivation
-> itself additionally stopped counting memberships on archived and soft-deleted
-> projects. Creating and editing catalog rows is unchanged.
+> email search now require **`IsWorkspaceAdminStrict`** — the stored
+> `WorkspaceRole.ADMIN` of ADR-0087 §6. The derivation itself additionally stopped
+> counting memberships on archived and soft-deleted projects. Creating and editing
+> catalog rows is unchanged.
+>
+> **On the choice of principal.** This ADR's §1 states "OSS has no first-class 'org
+> admin' concept" and derives one from project membership. That was true when written
+> and stopped being true when ADR-0087 landed `WorkspaceMembership`. The defect #3569
+> fixes is not "the principal is too weak" but "the principal is *self-grantable*":
+> creating a project makes you its Owner, by design. A workspace role is stored and
+> granted only by an existing workspace admin or by SSO provisioning, so it is not
+> reachable that way — while remaining an in-app role a workspace owner can hand out,
+> unlike a Django superuser. An earlier revision of this amendment named
+> `IsWorkspaceOperator` (superuser, ADR-0213 C1); that was corrected because the
+> install operator is the right floor for set-once infrastructure such as mail
+> transport, not for routine catalog lifecycle work. Superusers are unaffected:
+> `workspace_role_for_user` resolves a superuser with no membership row to implicit
+> OWNER.
 >
 > **Two surfaces were deliberately left on `IsOrgAdmin`, and that is a decision, not
 > an oversight.** (1) The shared **calendar library** (`CalendarViewSet`,

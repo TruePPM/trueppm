@@ -1511,24 +1511,24 @@ exceed the OSS simulation cap or the request returns `402`. See
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
-| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — **workspace operator only from 0.4** |
-| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated; **workspace operator only from 0.4** |
-| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource — **workspace operator only from 0.4** |
+| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — **workspace Admin only from 0.4** |
+| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated; **workspace Admin only from 0.4** |
+| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource — **workspace Admin only from 0.4** |
 
 Creating and updating catalog rows requires the Project Manager or Project Admin
 role on at least one **active** project. From 0.4, deactivating and restoring a
 row, listing the deactivated pool with `?include_deleted=true`, and reading
-`assignments/` require the **workspace operator** — the installation's superuser.
+`assignments/` require the **workspace Admin** role.
 Those surfaces reach every project in the installation, and a project role cannot
 bound them: project creation is deliberately open, so any account can hold Owner
 on a project of its own.
 
 The resource catalog is readable by any authenticated user, so the `email` field
-is **gated** to prevent org-wide address harvesting. From 0.4 only the workspace
-operator receives `email` on catalog rows (previously any org admin), and a caller
+is **gated** to prevent org-wide address harvesting. From 0.4 only a workspace
+Admin receives `email` on catalog rows (previously any org admin), and a caller
 always sees their own email (`is_me: true`). For all other callers the `email`
 field is **omitted** from the payload entirely — absent means *withheld*, not
-"this person has no address". `?search=` matches `email` only for the operator;
+"this person has no address". `?search=` matches `email` only for a workspace Admin;
 everyone else searches by name alone. A per-user throttle of **60 req/min**
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
@@ -1544,7 +1544,7 @@ projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
 Because it carries task and project **names** — project-scoped confidential data
 that the base catalog read deliberately withholds — from 0.4 it requires the
-**workspace operator** (the installation superuser); every other caller, project
+**workspace Admin** role; every other caller, project
 admins included, receives `403 Forbidden`. For the membership-scoped view of one
 person's assignments, use `GET /api/v1/task-resources/?resource=<id>`, which needs
 no elevated role. It is a read-only projection: no utilization score, no

@@ -72,8 +72,8 @@ programs — cross-program resource leveling and portfolio heat maps remain part
 the Enterprise edition.
 
 Because task and project names are project-scoped, the Assignments section will be
-visible only to a **workspace operator** — the installation's superuser account.
-Everyone else, project admins included, still sees the rest of the resource card
+visible only to a **workspace Admin**. Everyone else, project admins included,
+still sees the rest of the resource card
 (role, capacity, skills) but not the assignments list. The view reaches into every
 project in the installation, and a project-level role does not carry that far: any
 account can create a project and become its Owner, so a project role cannot stand in
@@ -173,7 +173,7 @@ a permission error.
 
 1. Maintain the Workspace resource catalog (name, role, capacity, calendar). Email
    addresses can be **set**, but from 0.4 the **catalog** endpoints will not return
-   them to anyone except the workspace operator and the person the resource
+   them to anyone except a workspace Admin and the person the resource
    represents — the catalog is readable by every signed-in user, so echoing every
    address would make it an org-wide address book. Note this covers the catalog
    endpoints only: the project and program **resource-allocation** endpoints still
@@ -190,7 +190,7 @@ a permission error.
 9. Remove resources from a project roster (cascading task assignments when forced).
 
 **Deactivating or restoring a resource in the Workspace catalog will require the
-workspace operator from 0.4** — it soft-deletes a shared record and recalculates
+workspace Admin role from 0.4** — it soft-deletes a shared record and recalculates
 the schedule of every project that person is assigned to, including projects the
 actor cannot see. Taking someone off *your* project's roster is unchanged and stays
 with the Resource Manager role.
@@ -208,8 +208,8 @@ and task assignments requires the **Resource Manager** role or above on at least
 in 0.4 — an archived project is declared read-only, so it no longer confers authority
 anywhere else either.
 
-From 0.4 the following four surfaces will require the **workspace operator** (the
-installation superuser) rather than a project role:
+From 0.4 the following four surfaces will require the **workspace Admin** role
+rather than a project role:
 
 | Surface | Why |
 | --- | --- |
@@ -220,5 +220,9 @@ installation superuser) rather than a project role:
 
 Each of these reaches the whole installation, and a project role cannot bound it:
 project creation is deliberately open, so any account can hold Owner on a project of
-its own. Use `GET /api/v1/task-resources/?resource=<id>` for the membership-scoped
+its own. A workspace role is different — it is granted from **Settings → Members** by
+someone who already holds it (or by your identity provider, if you use SSO), so it
+cannot be self-assigned. If you are the only administrator of a fresh install, you
+already have it: an account with Django superuser rights and no workspace membership
+row resolves to workspace Owner. Use `GET /api/v1/task-resources/?resource=<id>` for the membership-scoped
 view of one person's assignments.
