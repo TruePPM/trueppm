@@ -60447,7 +60447,8 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskOwnerWriteRequest"
                         },
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "At most 100 entries. Owners are upserted, so a longer assignment can be split across several writes without any of them removing an owner named by an earlier one."
                     },
                     "blocked_reason": {
                         "type": "string",
@@ -70398,7 +70399,8 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskOwnerWriteRequest"
                         },
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "At most 100 entries. Owners are upserted, so a longer assignment can be split across several writes without any of them removing an owner named by an earlier one."
                     },
                     "blocked_reason": {
                         "type": "string",
@@ -71545,7 +71547,8 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskOwnerWriteRequest"
                         },
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "At most 100 entries. Owners are upserted, so a longer assignment can be split across several writes without any of them removing an owner named by an earlier one."
                     },
                     "blocked_reason": {
                         "type": "string",

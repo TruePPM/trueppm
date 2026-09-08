@@ -534,8 +534,7 @@ def test_bulk_cannot_bypass_the_owners_cap(
                     "data": {
                         "name": "Row from a batch",
                         "duration": 3,
-                        "owners": [{"resource": str(ana.pk)}]
-                        * (MAX_TASK_OWNERS_PER_WRITE + 1),
+                        "owners": [{"resource": str(ana.pk)}] * (MAX_TASK_OWNERS_PER_WRITE + 1),
                     },
                 }
             ]

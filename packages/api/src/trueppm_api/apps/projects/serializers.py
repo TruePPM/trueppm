@@ -3511,12 +3511,25 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # de-duplicating would silently change audit semantics ``apply_task_owners`` defends.
     # ``ListSerializer.to_internal_value`` checks it before ``validate`` runs, so an
     # oversized payload is refused without touching the roster query in ``_resolve_owners``.
-    owners = TaskOwnerWriteSerializer(
+    #
+    # ``max_length`` is a ``ListSerializer`` argument (the stubs declare it there), and
+    # ``many=True`` routes this construction through ``BaseSerializer.many_init`` — which
+    # mypy cannot follow, so it checks the call against ``Serializer.__init__``.
+    owners = TaskOwnerWriteSerializer(  # type: ignore[call-arg]
         many=True,
         write_only=True,
         required=False,
         max_length=MAX_TASK_OWNERS_PER_WRITE,
         error_messages={"max_length": MSG_TOO_MANY_OWNERS},
+        # DRF checks ``max_length`` inline in ``ListSerializer.to_internal_value`` rather
+        # than through a ``MaxLengthValidator``, and drf-spectacular derives ``maxItems``
+        # only from validators — so the cap is invisible in the schema unless it is said
+        # here. A client discovers a 400 it cannot see coming otherwise.
+        help_text=(
+            f"At most {MAX_TASK_OWNERS_PER_WRITE} entries. Owners are upserted, so a "
+            "longer assignment can be split across several writes without any of them "
+            "removing an owner named by an earlier one."
+        ),
     )
 
     # Nested labels (ADR-0400) — read-only pills for board cards + schedule drawer.

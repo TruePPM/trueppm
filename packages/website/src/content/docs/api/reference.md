@@ -1585,6 +1585,13 @@ task write's `owners` field below, which takes the authority of the task write i
 
 #### Assigning owners inline on a task write
 
+:::note[Ships in 0.4]
+The write-only `owners` field lands in **TruePPM 0.4**. On the latest release, an
+assignment is made with a separate `POST /api/v1/task-resources/`, which requires
+**Resource Manager (Scheduler)** or above rather than inheriting the task write's
+authority.
+:::
+
 `POST /api/v1/tasks/` and `PATCH /api/v1/tasks/{id}/` accept a **write-only** `owners`
 array that creates `TaskResource` rows in the same request:
 
@@ -1599,6 +1606,26 @@ array that creates `TaskResource` rows in the same request:
 |-------|------|-------|
 | `resource` | uuid | Must be on the **destination project's** roster (`/project-resources/`). An id outside it is a `400` on the `owners` field — never a silent drop, and never a match-or-create against the workspace-wide resource library. |
 | `units` | decimal | Fraction of full capacity, `0.01`–`2.0` (`0.5` = 50%). Defaults to `1.0`. |
+
+The array is capped at **100 entries** per task write. The cap counts *entries*, not
+distinct resources: repeating a resource id is legal and meaningful (see the audit note
+below), and each repeat spends one of the 100. A longer list is refused with `400` before
+any roster lookup runs, under `owners` → `non_field_errors`:
+
+```json
+{
+  "owners": {
+    "non_field_errors": [
+      "A task write may name at most 100 owners. Remove duplicate resource ids (naming the same resource twice only records an extra units change), or split the assignment across several task writes — owners are upserted, so a later write never removes an owner named by an earlier one."
+    ]
+  }
+}
+```
+
+Splitting is always safe because the field upserts: no later write removes an owner named
+by an earlier one. The cap applies to `POST /api/v1/projects/{id}/tasks/bulk/` as well —
+that endpoint validates each `create` and `update` operation through the same serializer,
+so a batch is bounded at 100 owners **per operation** on top of its own 500-operation cap.
 
 Semantics worth pinning down:
 
