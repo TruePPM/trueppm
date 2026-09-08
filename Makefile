@@ -290,6 +290,14 @@ dropdown-scroll-check: ## Fail if a role="menu"/role="listbox" panel has no scro
 	@# that are genuinely safe by construction — see the script header.
 	@bash scripts/check-dropdown-scroll.sh
 
+summary-duration-units-check: ## Fail if a CPM write-back assigns a summary duration from a day count (#3530)
+	@# A calendar-day span written into a field every consumer reads as working
+	@# days — a ~1.4x inflation on every recompute, 49 of 50 summary rows in dev.
+	@# Assignment-shaped, not `.days`-shaped: `.days` is correct for the float and
+	@# drift columns in the same modules. Grep, ~1s.
+	@bash scripts/check-summary-duration-units.sh --self-test
+	@bash scripts/check-summary-duration-units.sh
+
 request-body-guards-check: ## Fail if a `request.data` read is not narrowed first (#3280)
 	@# A top-level JSON array is a legal body, so an unguarded `.get`/`[...]`/`in`
 	@# on it is a 500 where the caller is owed a 400. Repaired four times
@@ -302,6 +310,12 @@ extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses pl
 	@# code breaks the OSS write path that fired the signal. Grep + sed, ~1s.
 	@bash scripts/check-extension-signals.sh --self-test
 	@bash scripts/check-extension-signals.sh
+
+dependency-soft-delete-check: ## Fail if a scheduler input reads Dependency.objects (#3532)
+	@# A soft-deleted edge read through the unfiltered manager keeps constraining
+	@# CPM, Monte Carlo, what-if and the derivation endpoint. Grep, ~1s.
+	@bash scripts/check-dependency-soft-delete.sh --self-test
+	@bash scripts/check-dependency-soft-delete.sh
 
 demo-readonly-check: ## Fail if a demo manifest enables persona logins (#2773)
 	@# The hosted demo's read-only posture is what makes publishing it safe, and
@@ -477,7 +491,7 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check dependency-soft-delete-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

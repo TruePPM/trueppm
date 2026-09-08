@@ -4040,6 +4040,31 @@ class TaskRecurrenceRule(VersionedModel):
 # ---------------------------------------------------------------------------
 
 
+class LiveDependencyManager(models.Manager["Dependency"]):
+    """Dependency edges that still constrain the schedule: not soft-deleted.
+
+    Use this for every read that builds a scheduling network — CPM input, Monte
+    Carlo input, what-if input, the derivation ("why") network, and the merged
+    program pass. Default ``Dependency.objects`` is intentionally unfiltered: the
+    sync delta pull must SEE soft-deleted edges to emit their tombstones
+    (``apps/sync/views.py``), the nightly tombstone reap selects on them, the
+    unique-edge probes distinguish a live duplicate from a tombstoned one, and
+    restore paths resurrect them. A filtered *default* manager would break all
+    four, which is why the split mirrors ``Task.objects`` / ``Task.committed``
+    rather than filtering in place.
+
+    The bug this exists to make unrepeatable (#3532): three of the four scheduler
+    input builders queried ``Dependency.objects`` with no ``is_deleted`` filter,
+    so an edge the user had deleted in the UI kept constraining CPM, the
+    persisted Monte Carlo forecast, the what-if forecast, and the derivation
+    endpoint — which then explained a constraint that no longer existed.
+    ``scripts/check-dependency-soft-delete.sh`` keeps the split mechanical.
+    """
+
+    def get_queryset(self) -> models.QuerySet[Dependency]:
+        return super().get_queryset().filter(is_deleted=False)
+
+
 class Dependency(VersionedModel):
     """A scheduling dependency between two tasks.
 
@@ -4092,6 +4117,14 @@ class Dependency(VersionedModel):
     deleted_at = models.DateTimeField(null=True, blank=True)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_DEPENDENCY)
+
+    # Default manager — unfiltered. Listed first so it remains _default_manager
+    # (the sync delta pull, the tombstone reap and the restore paths all need to
+    # see soft-deleted edges).
+    objects: models.Manager[Dependency] = models.Manager()
+    # Scheduling-input manager — excludes soft-deleted edges. See the
+    # LiveDependencyManager docstring (#3532).
+    live: LiveDependencyManager = LiveDependencyManager()
 
     class Meta:
         db_table = "projects_dependency"

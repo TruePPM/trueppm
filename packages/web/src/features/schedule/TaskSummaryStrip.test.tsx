@@ -68,6 +68,17 @@ describe('TaskSummaryStrip', () => {
     expect(screen.getByRole('note', { name: /Jane Smith is over-allocated/ })).toBeInTheDocument();
   });
 
+  it('does not name a fixed 1.0 threshold in the over-allocation tooltip', () => {
+    // The server compares against the assignee's capacity ON THIS PROJECT (roster
+    // units_override, else the resource's max_units, else 1.0) — it stopped being a
+    // flat 1.0. A tooltip that still says "exceeds 1.0" is wrong for anyone with an
+    // override or a non-1.0 resource, and nothing else in the suite reads the title.
+    render(<TaskSummaryStrip task={makeTask({ assigneeIsOverallocated: true })} />);
+    const note = screen.getByRole('note', { name: /Jane Smith is over-allocated/ });
+    expect(note).toHaveAttribute('title', expect.stringContaining('capacity on this project'));
+    expect(note.getAttribute('title')).not.toMatch(/1\.0/);
+  });
+
   describe('baseline chip', () => {
     it('pairs its tint with a signed day count, never color alone', () => {
       render(

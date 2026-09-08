@@ -75,15 +75,26 @@ const PROJECT = {
  *
  * Since #3501 the chip prints the server's `health_band` instead of deriving one
  * from the counts, so the band has to travel in the payload: `statusSummary`
- * emits `health_band`, and without it every row of this matrix renders the same
- * "On track" word through the `?? 'on_track'` fallback — the sweep would test one
- * band three times while its comment claimed three. The counts stay because the
- * popover rows still render them.
+ * emits `health_band`, and without it every row of this matrix rendered the same
+ * "On track" word through the old `?? 'on_track'` fallback — the sweep would test
+ * one band three times while its comment claimed three. The counts stay because
+ * the popover rows still render them. (That fallback is gone as of #3525; a
+ * payload with no band now takes the `unavailable` row below instead of quietly
+ * reading "On track", so the same omission fails loudly rather than silently.)
+ *
+ * The fourth row is the `unavailable` state (#3525), and it is here because it is
+ * the WIDEST read the chip has: "Health —" measures 53.44px against "On track"'s
+ * 48.73px. Adding a state wider than every band while the sweep covered only
+ * bands would move the blind spot rather than close it, which is the exact
+ * failure the #3505 amendment to rule 397(c) rewrote this matrix to prevent.
  */
 const BANDS = [
   { band: 'on_track', at_risk_count: 0, critical_count: 0 },
   { band: 'at_risk', at_risk_count: 3, critical_count: 0 },
   { band: 'critical', at_risk_count: 3, critical_count: 2 },
+  // `band: null` = serve a 500 rather than a payload, so the chip renders its
+  // no-value read. Not a fourth band — the vocabulary is three words.
+  { band: null, at_risk_count: 0, critical_count: 0 },
 ] as const;
 
 function statusSummary({ band, at_risk_count, critical_count }: (typeof BANDS)[number]) {
@@ -93,7 +104,15 @@ function statusSummary({ band, at_risk_count, critical_count }: (typeof BANDS)[n
     // A P80 forecast date also wants to render in the chip, immediately left of
     // the sync badge — the widest the cluster ever gets on a phone.
     monte_carlo_p80: '2026-09-07',
-    health_band: band,
+    // `band ?? 'on_track'` only for the `unavailable` row, whose route is replaced
+    // by a 500 in `setup` — this payload is never served for it, so the value is a
+    // type placeholder rather than a fixture the assertions depend on.
+    health_band: band ?? 'on_track',
+    // Provenance travels too (#3525). 'derived' so the chip carries no extra
+    // clause: this fixture measures GEOMETRY, and the provenance row lives in the
+    // popover rather than on the chip, so 'reported' would change nothing here but
+    // would leave a required field diverging from the type for no reason.
+    health_band_source: 'derived' as const,
     at_risk_count,
     critical_count,
     at_risk_tasks: [],
@@ -114,12 +133,19 @@ async function setup(page: Page, band: (typeof BANDS)[number]) {
     // Admin so every surface renders (no role-gated hiding narrows the cluster).
     members: [{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }],
   });
+  if (band.band === null) {
+    // Registered AFTER setupApiMocks so it wins (Playwright routes are LIFO):
+    // the chip then renders its widest read, "Health —".
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/status-summary/`, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+    );
+  }
   await page.goto(`/projects/${PROJECT_ID}/overview`);
 }
 
 test.describe('Mobile TopBar does not clip at the right edge (#1788)', () => {
   for (const band of BANDS) {
-    test(`TopBar right cluster stays within the phone viewport — ${band.band} band`, async ({
+    test(`TopBar right cluster stays within the phone viewport — ${band.band ?? 'unavailable'} band`, async ({
       page,
     }) => {
       await setup(page, band);

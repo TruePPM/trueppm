@@ -346,13 +346,39 @@ def _do_purge_expired_exports() -> None:
 
 
 def _send_export_ready_email(job_id: str) -> bool:
-    """Notify the owner their export is ready. Best-effort (returns success)."""
+    """Notify the owner their export is ready. Best-effort (returns success).
+
+    Deactivated accounts are excluded (#3585). Off-boarding is a **second,
+    independent revocation axis** from membership (``access/signals.py``): it writes
+    ``WorkspaceMembership.status = DEACTIVATED`` and ``User.is_active = False`` and
+    touches neither the export job nor the project/program membership rows, so a job
+    queued while the requester was still active and completed after off-boarding kept
+    mailing them — announcing that a **full workspace data export** is ready to
+    download, at an address the account no longer controls. Every *credential* path
+    already closes on ``is_active`` (JWT, session, PAT, live sockets); this notice is
+    *pushed*, so nothing was closing it.
+
+    The floor deliberately sits **above** the transport and the budget, which is how
+    the terminal-state discipline of !2399 (#3523) maps onto this path. There is no
+    outbox row to retire here: the export notice is a single-shot send off the back of
+    ``run_workspace_export``, and its terminal state is the job's own ``SUCCESS``,
+    already written before this function is called. What carries over is the rule that
+    a *suppression must not be recorded as a delivery failure* — returning before
+    ``resolve_email_connection`` and ``note_unbudgeted_send`` means an off-boarding
+    logs no "mail transport unusable" warning, charges nothing against the shared
+    per-minute budget every mail rail draws on, and leaves the job ``SUCCESS`` with an
+    empty ``error_detail``. No operator-facing signal reports a personnel change as a
+    broken mail relay, and nothing re-queues, so the notice cannot retry forever.
+    """
     from django.core.mail import EmailMessage
 
     from .models import WorkspaceExportJob
 
     job = WorkspaceExportJob.objects.select_related("requested_by").filter(pk=job_id).first()
     if job is None or job.requested_by is None or not job.requested_by.email:
+        return False
+    if not job.requested_by.is_active:
+        logger.info("export ready email: recipient for job %s is deactivated, not sending", job_id)
         return False
 
     subject, body = _render_export_email(job)
@@ -455,6 +481,16 @@ def _send_invite_email(
     in; when omitted they are resolved here so a direct/one-off caller still works. A
     caller that resolves them itself is also the one that can distinguish an unusable
     transport (a configuration fault, no retries burned) from a failed send.
+
+    Deliberately **not** floored on ``User.is_active``, unlike
+    :func:`_send_export_ready_email` (#3585). An invite addresses
+    ``WorkspaceInvite.email``, a raw address for someone who by definition has no
+    account yet — there is no ``User`` row to read ``is_active`` from, so the account
+    axis is not the right one here. The invite's own revocation axis is its
+    ``status``/``expires_at``, enforced by the drain's candidate query and by
+    ``purge_stale_invites``. Adding an ``is_active`` check would either be dead code
+    or, worse, would silently drop invites to addresses that happen to collide with a
+    deactivated account's — re-inviting an off-boarded person is a legitimate act.
     """
     from django.core.mail import EmailMessage
 

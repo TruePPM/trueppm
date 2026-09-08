@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -145,6 +145,11 @@ class ProgramScheduleGraph:
     result: Any | None
     result_map: dict[str, Any]
     leaf_ids: set[str]
+    # Composed engine calendar per member project, keyed by ``str(project.id)`` —
+    # the same map the merged ``SchedProject`` runs on (ADR-0120 D3). The persisted
+    # write-back needs it to express each summary's rolled-up span in that
+    # project's own working days (#3530); the on-read endpoint ignores it.
+    calendars: dict[str, Any] = field(default_factory=dict)
 
     @property
     def summary_ids(self) -> set[str]:
@@ -390,8 +395,7 @@ def gather_program_schedule(
     # empty path so the (cheap) query result is uniform; the empty graph carries it.
     member_ids = list(project_by_id.keys())
     db_deps = list(
-        Dependency.objects.filter(
-            is_deleted=False,
+        Dependency.live.filter(
             predecessor__project_id__in=member_ids,
             successor__project_id__in=member_ids,
         )
@@ -411,6 +415,7 @@ def gather_program_schedule(
             result=None,
             result_map={},
             leaf_ids=set(),
+            calendars=calendars,
         )
 
     included_ids = set(db_task_by_id.keys())
@@ -478,6 +483,7 @@ def gather_program_schedule(
         result=result,
         result_map=result_map,
         leaf_ids=leaf_ids,
+        calendars=calendars,
     )
 
 
@@ -496,8 +502,7 @@ def program_has_accepted_cross_edges(program_id: Any) -> bool:
     from trueppm_api.apps.projects.models import Dependency
 
     return (
-        Dependency.objects.filter(
-            is_deleted=False,
+        Dependency.live.filter(
             pending_acceptance=False,
             predecessor__project__program_id=program_id,
             successor__project__program_id=program_id,

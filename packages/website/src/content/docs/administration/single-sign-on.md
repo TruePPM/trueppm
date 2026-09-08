@@ -38,7 +38,9 @@ deprovision, and govern accounts from a directory → Enterprise.**
 | Auto-create a member on first sign-in (single default role, domain-gated) | ✅ Open-source core |
 | Group → role mapping (`groups` scope / custom claims) | Enterprise |
 | Enforced SSO (disable password sign-in / disable local accounts) | Enterprise |
-| SCIM provisioning, LDAP/AD directory sync, SAML federation, auth-event audit trail | Enterprise |
+| SCIM provisioning, LDAP/AD directory sync, SAML federation | Enterprise |
+| Immutable, retained auth-event trail with evidence export | Enterprise |
+| Audit rows for provider config changes, secret rotation, and account linking | ✅ Open-source core |
 
 For OIDC, the open-source core requests only the `openid email profile` scopes —
 never a `groups` scope. For GitHub it requests only `read:user user:email`. On
@@ -81,6 +83,15 @@ same product, either federate them behind one issuer at the provider, or use
 Open **Workspace → Settings → Single sign-on** as a workspace admin, then choose
 **Add provider**. (When no provider is configured yet, the same button appears in
 the empty state.)
+
+:::caution[Provider configuration is session-only]
+These endpoints accept a signed-in session or a JWT and **refuse personal access
+tokens** — including one owned by a workspace admin, and including reads. A script
+holding a token cannot list, add, edit, delete, or test a provider; it receives
+`403` whose `refusal` envelope carries `reason: policy` and
+`constraint: capability_scope`. See [Security notes](#security-notes) for why, and
+[Personal access tokens](/features/personal-access-tokens/) for what a token can do.
+:::
 
 1. **Provider type** — pick the provider from the list. For an OIDC provider,
    fill in the type-specific field(s) and TruePPM composes the **issuer** for you,
@@ -176,7 +187,35 @@ every existing sign-in would silently stop working).
 
 ## Security notes
 
+- **Provider configuration is session-only.** Every SSO admin endpoint — list, add,
+  edit, delete, and **Test connection** — requires a signed-in session or a JWT, and
+  refuses any personal access token regardless of its scope or its owner's role.
+  Reads are refused along with writes. The reason is containment: provider
+  configuration decides *who may become a member and at what role*, so a token that
+  could widen **Allowed email domains** and switch on **Auto-create members** at the
+  Admin default role would turn one leaked token into a permanent admin account that
+  survives revoking the token. Keeping this surface behind a session means a leaked
+  token cannot rewrite who may sign in. Read that as a statement about *this* surface
+  only — it is not a claim that revoking a token contains everything; see
+  [Revoking a token](/features/personal-access-tokens/#revoking-a-token) for what
+  a token can still reach.
 - Client secrets are encrypted at rest and are never returned to any client.
+- Every change to a provider is recorded in the
+  [audit log](/administration/audit-log/): adding one, deleting one, and rotating its
+  client secret each write a row naming the admin, and an edit records a **before and
+  after for each field that actually changed** — the allowed email domains, auto-create
+  setting, default role, enabled state, issuer URL, GitHub org, OAuth client id, and
+  display name. The client secret never appears in any of them, in any form: a rotation
+  records only that it happened. A save that changes nothing writes nothing.
+- Rows also record whether the change came from a browser session or from a Personal
+  Access Token (`actor_kind`), so a scripted change is not indistinguishable from an
+  admin sitting at the page.
+- When a single sign-on identity binds to an **existing** local account, that link is
+  recorded as `sso_account_linked` — with the provider, issuer, subject, and the role the
+  account holds. This is the moment an account that already had a password gains a second
+  way in, and it is now visible.
+- The provider create, update, and delete endpoints are rate-limited to 20 requests per
+  minute. Reading the provider list is not.
 - The OIDC login flow is protected against login-CSRF / session fixation with a
   single-use, browser-bound `state` value; the ID token's signature (an
   asymmetric-algorithm allow-list), issuer, audience, and nonce are all validated

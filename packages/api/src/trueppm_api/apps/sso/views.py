@@ -10,10 +10,12 @@ Two groups:
   new URL segment) disambiguates which ``SocialApp`` is completing, so the OTel
   ``code``/``state`` redaction rule and operator IdP allow-lists keep matching
   (ADR-0517 §3.5).
-- **Admin config** (``IsWorkspaceAdminStrict``): the ``/workspace/sso/providers/``
-  collection (list/create), item (get/update/delete by slug), and
-  ``test-connection``. Strict (ADMIN on *all* methods, reads included) because
-  even a GET exposes the org's IdP topology.
+- **Admin config** (``IsNotTokenAuthenticated`` + ``IsWorkspaceAdminStrict``): the
+  ``/workspace/sso/providers/`` collection (list/create), item (get/update/delete
+  by slug), and ``test-connection``. Strict (ADMIN on *all* methods, reads
+  included) because even a GET exposes the org's IdP topology, and session/JWT-only
+  on top of that (#3551) because provider config decides who may become a member
+  and at what role — see the section comment above the collection view.
 
 The callback never puts a token in the URL: it sets the hardened httpOnly refresh
 cookie via the existing ``_set_refresh_cookie`` and 302s the browser to the SPA
@@ -30,13 +32,14 @@ from django.db import IntegrityError
 from django.http import HttpResponse, HttpResponseRedirect
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import SAFE_METHODS, AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.sso import services
 from trueppm_api.apps.sso.models import SsoProviderPolicy
@@ -46,10 +49,16 @@ from trueppm_api.apps.sso.serializers import (
     SsoProviderWriteSerializer,
     SsoTestConnectionResponseSerializer,
 )
-from trueppm_api.apps.workspace.models import Workspace
+from trueppm_api.apps.workspace.models import AuditEventType, Workspace
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
-from trueppm_api.core.auth_views import _apply_remember, _cookie_seconds, _set_refresh_cookie
+from trueppm_api.core.auth_views import (
+    _apply_remember,
+    _cookie_seconds,
+    _set_refresh_cookie,
+    emit_login_success,
+)
 from trueppm_api.core.constant_time import constant_time_equal
+from trueppm_api.core.throttling import ProbeExemptUserRateThrottle
 
 logger = logging.getLogger("trueppm.sso")
 
@@ -272,6 +281,14 @@ class OIDCCallbackView(APIView):
             str(refresh),
             persistent_seconds=_cookie_seconds(remember=False),  # None → session cookie
         )
+        # AFTER the cookie is set, not after resolve_user (#3552, ADR-1120): the session
+        # is what succeeded. Emitted on ``trueppm.auth`` — not this module's
+        # ``trueppm.sso`` logger — so an operator correlating "who got in" against
+        # ``auth.login_failed`` reads one channel and does not have to know which door
+        # the user came through. ``remember`` is always False here: an IdP redirect
+        # carries no such choice, which is the same reason ``_apply_remember`` is called
+        # with False above.
+        emit_login_success(request, user=user, method=f"sso:{ctx.slug}", remember=False)
         return response
 
     def _complete(
@@ -295,6 +312,31 @@ class OIDCCallbackView(APIView):
 # Admin config — collection under /workspace/sso/providers/ (ADR-0517 §3.4)
 # ---------------------------------------------------------------------------
 
+# Session/JWT only, on all three admin views (#3551).
+#
+# ``IsNotTokenAuthenticated`` (#2878) refuses any caller whose credential is an
+# ``ApiToken``. It was written for the credential-management surface, but this
+# surface is the same class of hazard one step removed: an admin's leaked
+# ``legacy:full`` personal access token could rewrite the *join policy* — set
+# ``auto_create_members`` with ``default_role`` ADMIN, add an attacker-controlled
+# domain to ``allowed_email_domains``, rotate the IdP client secret, or delete a
+# provider with ``?confirm_lockout=true``. One SSO login at the widened domain then
+# mints a real, persistent ADMIN session, so revoking the token afterwards contains
+# nothing: the durable grant it created outlives it. That makes the containment
+# promise in ``features/personal-access-tokens.md#revoking-a-token`` false for an
+# admin's token unless this surface is closed too.
+#
+# Declared **before** ``IsWorkspaceAdminStrict`` so the refusal is deterministic:
+# DRF stops at the first class that returns False, and a token caller must always
+# get the token refusal (with its ``capability_scope`` envelope) rather than an
+# answer that depends on whether the token's owner happens to hold ADMIN.
+#
+# It is listed statically on every view rather than contributed by
+# ``get_permissions``, because the schema generator
+# (``core/openapi.py::_token_callers_refused``) and the route-table tripwire
+# (``tests/apps/access/test_route_table_invariants.py``) both read
+# ``permission_classes`` — a runtime-only guard is invisible to both.
+
 
 def _policy_or_none(slug: str) -> SsoProviderPolicy | None:
     return (
@@ -311,6 +353,172 @@ _CONFIRM_LOCKOUT_PARAM = "confirm_lockout"
 
 # The one constraint POST is allowed to translate into a 409 (see ``post``).
 _SLUG_UNIQUE_CONSTRAINT = "uniq_sso_policy_workspace_slug"
+
+
+class _SsoProviderWriteThrottle(ScopedRateThrottle):
+    """The ``sso_provider_write`` scope, applied to mutating methods only (#3552).
+
+    ``ScopedRateThrottle`` normally caps every method on the view. That is wrong here:
+    the collection GET backs the admin page — which the SPA re-reads on navigation and
+    after each save — while it is the *writes* that need bounding, because each accepted
+    write appends a row to an audit table with no OSS retention (ADR-1120). Capping reads
+    at a write rate would break the page to fix the disk.
+
+    **The scope must be declared on the VIEW, not here.** ``ScopedRateThrottle`` reassigns
+    ``self.scope = getattr(view, self.scope_attr, None)`` on every ``allow_request`` and
+    returns ``True`` when that is falsy — so a ``scope`` class attribute on the throttle is
+    silently overwritten and the throttle becomes a no-op. Both views therefore set
+    ``throttle_scope``, exactly as every other scoped view in this module does.
+
+    Both views also keep ``ProbeExemptUserRateThrottle`` in their ``throttle_classes``.
+    Declaring ``throttle_classes`` *replaces* ``DEFAULT_THROTTLE_CLASSES`` rather than
+    adding to it, so listing this class alone would strip the global 1000/min ``user``
+    ceiling from the reads this class deliberately exempts — leaving them with no bound at
+    all, which is worse than before the throttle was added.
+    """
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        # Django uppercases REQUEST_METHOD, so a lowercase verb still arrives as e.g.
+        # "POST"; anything not in SAFE_METHODS falls through to the throttled branch, so
+        # an unrecognized method fails in the safe direction.
+        if request.method in SAFE_METHODS:
+            return True
+        return bool(super().allow_request(request, view))
+
+
+# Provider fields whose change is recorded in an ``sso_provider_updated`` diff (#3552,
+# ADR-1120). This is the **writable surface of the serializer**, minus the secret — not
+# ``SsoProviderPolicy._meta.fields``: ``server_url``, ``client_id`` and ``display_name``
+# live on the linked ``SocialApp``, so a model-derived list would silently exempt the
+# three fields that most change who can sign in.
+#
+# ``client_id`` is here because it determines which OAuth client the install presents
+# itself as; paired with a secret rotation it is a complete credential swap, and without
+# it the log would show "a secret was rotated" and never that the client identity moved
+# underneath it. It is not secret material — the read serializer already exposes it.
+#
+# ``allow_password_signin`` is deliberately absent: the OSS write serializer rejects the
+# field outright, so in this edition it cannot change. Whoever makes it writable in
+# Enterprise must add it here by hand — the test below enumerates the *serializer's*
+# writable fields, and that field is already declared, so nothing will fail on its own.
+_AUDITED_PROVIDER_FIELDS = (
+    "allowed_email_domains",
+    "auto_create_members",
+    "client_id",
+    "default_role",
+    "display_name",
+    "enabled",
+    "github_org",
+    "server_url",
+)
+
+# Maximum entries kept per list value in an audit diff. ``allowed_email_domains`` has no
+# length cap on either the serializer or the ArrayField, and a diff stores it twice, so an
+# uncapped row is arbitrarily large in a table nothing prunes.
+_MAX_AUDITED_LIST = 25
+
+# Maximum characters kept per string value in an audit diff. Comfortably above any real
+# issuer URL, display name, or client id, and far below what would make one row a
+# storage problem.
+_MAX_AUDITED_STRING = 1024
+
+
+def _cap(value: Any) -> Any:
+    """Bound one audit-diff value, marking it when something was cut.
+
+    Both a list's *length* and a string's *length* are bounded, because
+    ``record_audit_event`` truncates ``target_label`` to 512 characters but writes
+    ``metadata`` verbatim — so nothing downstream limits what lands here.
+
+    The string cap is not theoretical. ``server_url`` is a ``CharField`` with no
+    ``max_length``, and its validator requires only an http(s) scheme, a netloc, and no
+    query or fragment — the *path* is unbounded. It is stored in ``SocialApp.settings``,
+    a JSONField with no ceiling, and an update row would hold it twice (``from`` and
+    ``to``). Without this an Admin could inflate the unpruned audit table at will.
+    """
+    if isinstance(value, list):
+        capped = [_cap(item) for item in value[:_MAX_AUDITED_LIST]]
+        if len(value) > _MAX_AUDITED_LIST:
+            return {"items": capped, "total": len(value), "truncated": True}
+        return capped
+    if isinstance(value, str) and len(value) > _MAX_AUDITED_STRING:
+        return {
+            "value": value[:_MAX_AUDITED_STRING],
+            "total": len(value),
+            "truncated": True,
+        }
+    return value
+
+
+def _actor_kind(request: Request) -> str:
+    """Whether this write came from an interactive session or a Personal Access Token.
+
+    These views set ``permission_classes`` but not ``authentication_classes``, so they
+    inherit ``OwnerScopedApiTokenAuthentication``: an Admin's ``legacy:full`` token
+    authenticates here and passes ``IsWorkspaceAdminStrict`` (all three routes are listed
+    in ``tests/apps/access/token_write_surface.txt``, and none of them writes an
+    ``AgentAction`` row). Without this the audit row attributes a machine-driven
+    credential-path change to the token's human owner, indistinguishable from that human
+    sitting at a browser — on the one row that exists to answer *who did this*.
+
+    ``request.auth`` holds an ``ApiToken`` for token auth and a simplejwt ``Token`` for an
+    interactive session, so the isinstance check is the discriminator rather than a
+    None-test.
+    """
+    from trueppm_api.apps.projects.models import ApiToken
+
+    return "token" if isinstance(request.auth, ApiToken) else "session"
+
+
+def _provider_snapshot(policy: SsoProviderPolicy) -> dict[str, Any]:
+    """Current values of the audited fields, reading through to the linked SocialApp."""
+    app = policy.social_app
+    return {
+        "allowed_email_domains": list(policy.allowed_email_domains),
+        "auto_create_members": policy.auto_create_members,
+        "client_id": app.client_id,
+        "default_role": int(policy.default_role),
+        "display_name": app.name,
+        "enabled": policy.enabled,
+        "github_org": policy.github_org,
+        "server_url": str(app.settings.get("server_url", "")),
+    }
+
+
+def _record_provider_audit(
+    request: Request,
+    *,
+    event_type: str,
+    policy: SsoProviderPolicy,
+    slug: str,
+    metadata: dict[str, Any],
+) -> None:
+    """Write one SSO provider audit row (#3552, ADR-1120).
+
+    Called only on paths that have already succeeded. That is the whole reason this
+    feature never meets the ``set_rollback`` trap of ADR-0902: under ``ATOMIC_REQUESTS``
+    DRF's exception handler rolls back for *every* ``APIException``, so a row written on a
+    400/403/409 path is issued and silently discarded. Here a refusal simply writes
+    nothing, which is also the correct record — nothing changed.
+
+    ``metadata`` is enumerated by each caller; the secret never appears in it in any form,
+    including a length, hash, or prefix.
+    """
+    # ``record_audit_event`` is imported at call time, matching ``sso/services.py`` and
+    # ``projects/views.py::_record_project_audit_event``: the sso→workspace dependency is
+    # one-way and stays that way at module level. (``AuditEventType`` is a plain enum on
+    # ``workspace.models``, which this module already imports for ``Workspace``, so it
+    # needs no deferral.)
+    from trueppm_api.apps.workspace.services import record_audit_event
+
+    record_audit_event(
+        event_type=event_type,
+        actor=request.user,
+        target_type="sso_provider",
+        target_id=policy.pk,
+        target_label=slug,
+        metadata={**metadata, "actor_kind": _actor_kind(request)},
+    )
 
 
 def _is_duplicate_slug(exc: IntegrityError) -> bool:
@@ -332,10 +540,18 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
 
     ``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology
     (issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like
-    writes.
+    writes. Session/JWT only on top of that (``IsNotTokenAuthenticated``): an API token
+    cannot read or change SSO provider configuration at all.
     """
 
-    permission_classes = [IsWorkspaceAdminStrict]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceAdminStrict]
+    # Writes bounded at 20/min (#3552). ``throttle_scope`` MUST be on the view:
+    # ScopedRateThrottle reads it off the view and no-ops without it. And
+    # ``ProbeExemptUserRateThrottle`` is kept because declaring ``throttle_classes``
+    # REPLACES DEFAULT_THROTTLE_CLASSES — listing the write throttle alone would strip
+    # the global 1000/min ceiling from the reads it deliberately exempts.
+    throttle_classes = [ProbeExemptUserRateThrottle, _SsoProviderWriteThrottle]
+    throttle_scope = "sso_provider_write"
     # Exempt from the generic Idempotency-Key path (ADR-0170): create keys on the
     # unique (workspace, slug) constraint, so a replayed POST 409s. That was true of
     # the constraint but not of the response until #2875 — nothing mapped the
@@ -415,13 +631,39 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        # NOTE: no audit row is written on the 409 branch above, and none may ever be.
+        # That branch runs with the connection in an aborted-transaction state after the
+        # IntegrityError, so *any* statement issued there raises TransactionManagementError
+        # and turns a correct 409 into a 500. It is also the right record: a refused create
+        # changed nothing (#3552, ADR-1120).
+        _record_provider_audit(
+            request,
+            event_type=AuditEventType.SSO_PROVIDER_CREATED,
+            policy=policy,
+            slug=policy.slug,
+            metadata={
+                "config": {k: _cap(v) for k, v in _provider_snapshot(policy).items()},
+                # Whether a client secret was supplied at creation — never the value, its
+                # length, or any hash of it.
+                "secret_set": policy.secret_set,
+            },
+        )
         return Response(self._read(policy, request), status=status.HTTP_201_CREATED)
 
 
 class SsoProviderDetailView(IdempotencyMixin, APIView):
-    """``/workspace/sso/providers/{slug}/`` — get/update/delete one provider."""
+    """``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.
 
-    permission_classes = [IsWorkspaceAdminStrict]
+    Session/JWT only, like the collection: an API token cannot read or change SSO
+    provider configuration (#3551 — see the section comment above for why).
+    """
+
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceAdminStrict]
+    # PUT/DELETE bounded at 20/min (#3552); the detail GET keeps only the global
+    # 1000/min ceiling. Both lines are load-bearing — see the collection view above and
+    # ``_SsoProviderWriteThrottle``.
+    throttle_classes = [ProbeExemptUserRateThrottle, _SsoProviderWriteThrottle]
+    throttle_scope = "sso_provider_write"
     idempotency_exempt = True
 
     def _read(self, policy: SsoProviderPolicy, request: Request) -> dict[str, Any]:
@@ -454,9 +696,47 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
         policy = _policy_or_none(slug)
         if policy is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        before = _provider_snapshot(policy)
         serializer = SsoProviderWriteSerializer(policy, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        # Read the rotation flag from ``validated_data`` rather than from the raw body:
+        # a blank/absent value never validates (the field is allow_blank=False), so this
+        # is true exactly when a real secret was supplied. DRF's ``save()`` passes a
+        # *copy* to ``update()``, so the pop inside it leaves ``validated_data`` intact —
+        # but reading it before ``save()`` keeps that from being load-bearing.
+        rotated = "client_secret" in serializer.validated_data
         policy = serializer.save()
+        after = _provider_snapshot(policy)
+
+        # A change row only when something actually changed. The admin form re-submits
+        # every field on every save, and this table has no OSS retention, so a row per
+        # form save would accumulate rows that answer no question (#3552, ADR-1120).
+        changed = {
+            field: {"from": _cap(before[field]), "to": _cap(after[field])}
+            for field in _AUDITED_PROVIDER_FIELDS
+            if before[field] != after[field]
+        }
+        if changed:
+            _record_provider_audit(
+                request,
+                event_type=AuditEventType.SSO_PROVIDER_UPDATED,
+                policy=policy,
+                slug=slug,
+                metadata={"changed": changed},
+            )
+        if rotated:
+            # A distinct verb rather than a ``client_secret`` entry in the diff above: the
+            # value can never appear, and a diff whose values must always be redacted is a
+            # diff-shaped lie the next person extending the field list would have to
+            # rediscover. This row says a rotation happened and nothing whatsoever about
+            # what it rotated to.
+            _record_provider_audit(
+                request,
+                event_type=AuditEventType.SSO_SECRET_ROTATED,
+                policy=policy,
+                slug=slug,
+                metadata={},
+            )
         return Response(self._read(policy, request))
 
     @extend_schema(
@@ -526,15 +806,41 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
         # its old ``extra_data["iss"]``, and ``resolve_user`` fails an issuer mismatch
         # closed, so keeping the rows would lock every user out of the *new* issuer
         # permanently instead of letting them re-link by verified email.
+        # Capture the audit payload BEFORE the cascade. Deleting the SocialApp cascades
+        # to the policy, and Django's collector nulls the pk on the instances it was
+        # handed, so a row assembled after this point reads a half-torn-down object
+        # (#3552, ADR-1120). Both impact counts are recorded: the delete destroys
+        # ``linked_accounts`` federated credentials, of which the locked-out set is a
+        # strict subset, and recording only the smaller number understates the blast
+        # radius on the sole record of an unrecoverable action. Both stay counts —
+        # naming the affected members in an audit row is a privacy call not taken here.
+        _record_provider_audit(
+            request,
+            event_type=AuditEventType.SSO_PROVIDER_DELETED,
+            policy=policy,
+            slug=slug,
+            metadata={
+                "linked_accounts": impact.linked_accounts,
+                "locked_out_accounts": impact.locked_out_accounts,
+                "confirmed_lockout": confirmed,
+                "config": {k: _cap(v) for k, v in _provider_snapshot(policy).items()},
+            },
+        )
         SocialAccount.objects.filter(provider=slug).delete()
         policy.social_app.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SsoTestConnectionView(IdempotencyMixin, APIView):
-    """``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability."""
+    """``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.
 
-    permission_classes = [IsWorkspaceAdminStrict]
+    Session/JWT only, like the rest of the admin surface (#3551 — see the section
+    comment above). Included even though the probe mutates nothing: it is server-side
+    egress an admin's leaked token could aim at an arbitrary configured issuer, and
+    leaving one method of the surface token-reachable is how a guard erodes.
+    """
+
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceAdminStrict]
     # Throttled: the probe triggers server-side egress (OIDC discovery + JWKS, or
     # the GitHub API), so an admin must not be able to drive unbounded outbound
     # requests. Scoped like the flow endpoints (settings ``sso_test_connection``).

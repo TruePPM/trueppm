@@ -309,10 +309,17 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
     capacity preflight panel (#228) renders both shapes from the same
     payload, so we shape it once here.
 
+    Available hours use the resource's capacity **on the sprint's project** — the
+    roster's ``units_override`` when one is set, else ``Resource.max_units`` (#3574).
+    A sprint belongs to exactly one project, so the per-project override is the right
+    capacity here; reading the raw default told a half-time person they had twice the
+    hours the heat map credited them with.
+
     Hours-per-day comes from the project calendar (8.0 default). Working
     days honour the calendar's ``working_days`` bitmask. ``pto_days`` is a
     placeholder zero until a dedicated time-off model lands.
     """
+    from trueppm_api.apps.resources.capacity import project_effective_units
     from trueppm_api.apps.resources.models import TaskResource
 
     assignment_rows = list(
@@ -327,7 +334,9 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
             "task__early_finish",
         )
     )
-    return _capacity_summary_from_rows(sprint, assignment_rows)
+    return _capacity_summary_from_rows(
+        sprint, assignment_rows, project_effective_units(sprint.project_id)
+    )
 
 
 def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
@@ -348,6 +357,7 @@ def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
     Returns a ``{sprint_pk: summary_dict}`` map; a sprint with no assignments
     maps to the same empty-totals shape :func:`capacity_summary` returns.
     """
+    from trueppm_api.apps.resources.capacity import projects_effective_units
     from trueppm_api.apps.resources.models import TaskResource
 
     sprint_list = list(sprints)
@@ -369,19 +379,32 @@ def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
         ):
             *core, sprint_id = row
             rows_by_sprint.setdefault(sprint_id, []).append(tuple(core))
+    # One roster query covering every project these sprints belong to, so applying
+    # the per-project units_override (#3574) does not reintroduce the #1012 N+1.
+    roster_by_project = projects_effective_units({s.project_id for s in sprint_list})
     return {
-        sprint.pk: _capacity_summary_from_rows(sprint, rows_by_sprint.get(sprint.pk, []))
+        sprint.pk: _capacity_summary_from_rows(
+            sprint,
+            rows_by_sprint.get(sprint.pk, []),
+            roster_by_project.get(str(sprint.project_id), {}),
+        )
         for sprint in sprint_list
     }
 
 
-def _capacity_summary_from_rows(sprint: Any, assignment_rows: Any) -> dict[str, Any]:
+def _capacity_summary_from_rows(
+    sprint: Any, assignment_rows: Any, roster_units: dict[str, Decimal] | None = None
+) -> dict[str, Any]:
     """Shared capacity math for :func:`capacity_summary` and its batched twin.
 
     ``assignment_rows`` is an iterable of ``(resource_id, resource_name,
     max_units, units, task_early_start, task_early_finish)`` tuples for the
     sprint. Extracting it keeps the single-sprint and batched paths computing
     identical totals from one source of truth (#1012).
+
+    ``roster_units`` maps ``str(resource_id)`` to that resource's effective capacity
+    on the sprint's project (#3574); a resource absent from it carries no roster row
+    and falls back to the ``max_units`` on its own assignment row.
     """
     project = sprint.project
     cal = project.calendar
@@ -416,11 +439,17 @@ def _capacity_summary_from_rows(sprint: Any, assignment_rows: Any) -> dict[str, 
             if overlap_start <= overlap_end
             else 0
         )
+        # Membership test, not truthiness: a roster override of 0 ("rostered here,
+        # holding no capacity") is a legitimate stored value that ``or`` would
+        # silently promote back to full time.
+        effective = (roster_units or {}).get(str(resource_id))
+        if effective is None:
+            effective = max_units if max_units is not None else Decimal("1.0")
         entry = by_resource.setdefault(
             resource_id,
             {
                 "name": resource_name,
-                "max_units": max_units or Decimal("1.0"),
+                "max_units": effective,
                 "committed": Decimal("0"),
             },
         )
@@ -6076,9 +6105,12 @@ def _spawn_occurrence(
 
     occurrence = Task.objects.create(
         # ``project=`` rather than ``project_id=`` so the occurrence carries the
-        # template's already-loaded Project instance in its FK cache. apply_task_owners
-        # auto-rosters through ``task.project``, which on a ``project_id``-only create
-        # is a fresh SELECT per occurrence inside the sweep loop.
+        # template's already-loaded Project instance in its FK cache. This used to be
+        # load-bearing: apply_task_owners auto-rostered through ``task.project``, which
+        # on a ``project_id``-only create was a fresh SELECT per occurrence inside the
+        # sweep loop. Since #3575 it rosters through ``task.project_id`` and needs no
+        # cached instance, so this is now belt-and-braces for any future reader of
+        # ``occurrence.project`` rather than a live optimization.
         project=template.project,
         name=template.name,
         duration=template.duration,
@@ -6162,8 +6194,11 @@ def _generate_due_occurrences(
         else []
     )
     # Same for the template's assignments, in the shape apply_task_owners expects.
-    # ``select_related`` because that helper reads ``resource.project_id`` when it
-    # auto-rosters, which would otherwise be one extra query per owner per occurrence.
+    # ``select_related`` because the comprehension below dereferences ``tr.resource`` to
+    # build each dict, which would otherwise be one extra query per owner. (It used to
+    # be justified by apply_task_owners reading ``resource.project_id`` while
+    # auto-rostering, which it never did and, since #3575, could not: it rosters from
+    # ``task.project_id`` and the row's ``resource_id``.)
     template_owners: list[dict[str, object]] = (
         [
             {"resource": tr.resource, "units": tr.units}

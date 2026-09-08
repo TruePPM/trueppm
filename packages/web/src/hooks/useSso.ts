@@ -3,7 +3,10 @@
  *
  * The authed half of the SSO surface against the `/workspace/sso/providers/`
  * collection (list/create + `{slug}/` item + `{slug}/test-connection/`), all
- * `IsWorkspaceAdminStrict`. Each provider is an allauth `SocialApp` + an
+ * `IsWorkspaceAdminStrict` and, since #3551, session/JWT-only
+ * (`IsNotTokenAuthenticated`) — which `apiClient` already satisfies, since it
+ * carries the session's JWT and never a personal access token. Each provider is an
+ * allauth `SocialApp` + an
  * `SsoProviderPolicy` side row, presented as one flat object. The client secret
  * is write-only — the read shape reports only `secret_set`, and sending
  * `client_secret` on create/update stores/rotates it (blank/omitted keeps the

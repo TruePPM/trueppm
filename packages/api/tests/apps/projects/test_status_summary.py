@@ -428,3 +428,156 @@ class TestStatusSummaryHealthBand:
             "at_risk",
             "critical",
         }
+
+
+class TestStatusSummaryHealthBandSource:
+    """``health_band_source`` on the status summary (#3525).
+
+    ``health_band`` alone cannot be explained by the payload that carries it: the
+    shell chip's popover lists the at-risk and critical tasks, so a band the PM
+    reported by hand renders a red header above two "0 tasks" rows. This field is
+    the discriminator that lets a client say *where* the band came from.
+
+    It must be a SERVER fact rather than something the client compares its way to,
+    and the two cases that prove it are ``test_a_report_agreeing_with_the_counts_
+    is_still_reported`` and ``test_a_report_disagreeing_...``: a comparison of band
+    against counts returns the same answer for a reported band that happens to
+    match, so a client-side inference is silently wrong on exactly the projects
+    where nothing looks wrong.
+    """
+
+    URL = "/api/v1/projects/{pk}/status-summary/"
+
+    def test_auto_with_no_report_is_derived(self, client: APIClient, project: Project) -> None:
+        assert project.health == Health.AUTO
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        assert data["health_band_source"] == "derived"
+
+    def test_auto_with_signals_is_still_derived(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """AUTO is "no report filed", which is the derived case — never a third value."""
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        assert data["critical_count"] > 0
+        assert (data["health_band"], data["health_band_source"]) == ("critical", "derived")
+
+    @pytest.mark.parametrize(
+        ("health", "band"),
+        [
+            (Health.ON_TRACK, "on_track"),
+            (Health.AT_RISK, "at_risk"),
+            (Health.CRITICAL, "critical"),
+        ],
+    )
+    def test_every_manual_report_is_reported(
+        self, client: APIClient, project: Project, health: Health, band: str
+    ) -> None:
+        project.health = health
+        project.save(update_fields=["health"])
+
+        data = client.get(self.URL.format(pk=project.pk)).json()
+
+        assert (data["health_band"], data["health_band_source"]) == (band, "reported")
+
+    def test_a_report_disagreeing_with_the_counts_is_reported(
+        self, client: APIClient, project: Project
+    ) -> None:
+        """The headline case: reported Critical over a plan with nothing wrong in it."""
+        project.health = Health.CRITICAL
+        project.save(update_fields=["health"])
+
+        data = client.get(self.URL.format(pk=project.pk)).json()
+
+        assert (data["at_risk_count"], data["critical_count"]) == (0, 0)
+        assert (data["health_band"], data["health_band_source"]) == ("critical", "reported")
+
+    def test_a_report_agreeing_with_the_counts_is_still_reported(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """The case a client-side comparison cannot see, and the reason this field exists.
+
+        The PM reported Critical on a plan the counts *also* call critical. Band
+        and counts agree, so a client comparing the two concludes "derived" and
+        never names the report. Only the server knows, because only the server
+        saw which branch ran.
+        """
+        project.health = Health.CRITICAL
+        project.save(update_fields=["health"])
+
+        data = client.get(self.URL.format(pk=project.pk)).json()
+
+        assert data["critical_count"] > 0
+        assert data["health_band"] == "critical"  # what the counts would say too
+        assert data["health_band_source"] == "reported"
+
+    def test_source_is_one_of_exactly_two_values(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        assert client.get(self.URL.format(pk=project.pk)).json()["health_band_source"] in {
+            "reported",
+            "derived",
+        }
+
+    def test_health_summary_carries_the_same_source_for_the_same_project(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """Published on both endpoints or on neither (ADR-0133 — one rule, called twice).
+
+        Shipping provenance on the single-project summary alone would reintroduce
+        one level up exactly the disagreement #3501 fixed: the top bar would know
+        a band was a person's call and the my-projects triage list would not.
+        """
+        project.health = Health.ON_TRACK
+        project.save(update_fields=["health"])
+
+        summary = client.get(self.URL.format(pk=project.pk)).json()
+        rows = client.get("/api/v1/projects/health-summary/").json()
+        row = next(r for r in rows if r["id"] == str(project.pk))
+
+        assert summary["health_band"] == row["health_band"] == "on_track"
+        assert summary["health_band_source"] == row["health_band_source"] == "reported"
+
+    def test_the_source_costs_no_extra_query(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """It comes off the same call and the same already-loaded column as the band.
+
+        The absolute count is deliberately not pinned (any unrelated auth change
+        would red it); the invariant is that adding provenance did not add a read.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        url = self.URL.format(pk=project.pk)
+        client.get(url)  # warm any per-connection setup out of the measurement
+
+        with CaptureQueriesContext(connection) as auto:
+            assert client.get(url).json()["health_band_source"] == "derived"
+
+        project.health = Health.ON_TRACK
+        project.save(update_fields=["health"])
+
+        with CaptureQueriesContext(connection) as reported:
+            assert client.get(url).json()["health_band_source"] == "reported"
+
+        assert len(reported.captured_queries) == len(auto.captured_queries)
+
+    def test_a_viewer_reads_the_same_source_as_the_owner(
+        self, client: APIClient, other_user: object, project: Project
+    ) -> None:
+        """Provenance is not a privileged read — it reveals nothing the band does not.
+
+        A Viewer already reads ``health_band``; being told that band came from a
+        person rather than from float arithmetic adds no fact about the project
+        that the band itself did not already carry.
+        """
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.VIEWER)
+        project.health = Health.CRITICAL
+        project.save(update_fields=["health"])
+
+        viewer = APIClient()
+        viewer.force_authenticate(user=other_user)
+        resp = viewer.get(self.URL.format(pk=project.pk))
+
+        assert resp.status_code == 200
+        assert resp.json()["health_band_source"] == "reported"
