@@ -63,10 +63,16 @@ def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
       ``/workspace/groups/{id}/members/``. It is not self-grantable: an implicit role
       is MEMBER (superuser bootstrap aside) and an explicit row is written only by an
       existing admin (``workspace_role_for_user``).
-    * **Everyone else** reaches themselves plus the people they already share a live
-      project or program roster with — the same "must already be a member" constraint
-      ``validate_lead`` and the mention-group ``_member_user_or_400`` helper apply,
-      with the caller exempt exactly as in ``seed.importer._resolve_accounts`` (#1057).
+    * **Everyone else** reaches themselves plus the people already introduced to a
+      project or program roster they belong to — the same "must already be a member"
+      constraint ``validate_lead`` and the mention-group ``_member_user_or_400``
+      helper apply, with the caller exempt exactly as in
+      ``seed.importer._resolve_accounts`` (#1057).
+
+    The caller's *own* membership must be live, but the target's need not be: a revoked
+    row is still evidence that somebody with reach introduced that account to this
+    roster, and requiring a live one would make re-adding a member you just removed
+    impossible — the revive path ``_revive_revoked_membership`` exists for (#3410).
 
     ``is_active=False`` accounts are excluded at every tier, matching ``UserSearchView``:
     the deactivated pool is admin-only state (#1724) and must not be reachable through
@@ -103,14 +109,14 @@ def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
     return active.filter(
         Q(pk=actor.pk)
         | Q(
-            pk__in=ProjectMembership.objects.filter(
-                project_id__in=actor_project_ids, is_deleted=False
-            ).values("user_id")
+            pk__in=ProjectMembership.objects.filter(project_id__in=actor_project_ids).values(
+                "user_id"
+            )
         )
         | Q(
-            pk__in=ProgramMembership.objects.filter(
-                program_id__in=actor_program_ids, is_deleted=False
-            ).values("user_id")
+            pk__in=ProgramMembership.objects.filter(program_id__in=actor_program_ids).values(
+                "user_id"
+            )
         )
     )
 
@@ -132,7 +138,7 @@ class _ReachableMembershipTargetMixin:
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[misc]
+        super().__init__(*args, **kwargs)
         field = self.fields.get("user")  # type: ignore[attr-defined]
         if not isinstance(field, serializers.PrimaryKeyRelatedField):
             return
@@ -297,6 +303,20 @@ class ProjectMembershipWriteSerializer(
         return value
 
 
+class ProjectMembershipUpdateSerializer(ProjectMembershipWriteSerializer):
+    """PATCH body — ``role`` only.
+
+    A separate class rather than ``read_only_fields`` on the add serializer so the
+    published schema tells the truth: ``user`` is genuinely not part of an update
+    body, and an integrator reading ``PatchedProjectMembershipWriteRequest`` would
+    otherwise still see it advertised as writable. Sending it anyway is refused by
+    the inherited ``validate`` rather than silently dropped (#3641).
+    """
+
+    class Meta(ProjectMembershipWriteSerializer.Meta):
+        fields = ["role"]
+
+
 class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembership]):
     """Response serializer for ProgramMembership — mirrors the project version.
 
@@ -396,6 +416,13 @@ class ProgramMembershipWriteSerializer(
         # Collapse whitespace-only / empty submissions to "" so "unset" is a single
         # canonical state (empty string, never NULL — per the model's DJ001 default).
         return (value or "").strip()
+
+
+class ProgramMembershipUpdateSerializer(ProgramMembershipWriteSerializer):
+    """PATCH body — ``role`` and ``role_title`` only; see the project twin for why."""
+
+    class Meta(ProgramMembershipWriteSerializer.Meta):
+        fields = ["role", "role_title"]
 
 
 class UserDefinedMentionGroupReadSerializer(serializers.ModelSerializer[UserDefinedMentionGroup]):

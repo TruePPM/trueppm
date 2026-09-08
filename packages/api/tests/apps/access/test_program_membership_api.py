@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import PROGRAM_ROLE_LABELS, ProgramMembership, Role
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import Methodology, Program
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -50,6 +51,20 @@ def program(owner: object) -> Program:
         description="",
         methodology=Methodology.HYBRID,
         created_by=owner,
+    )
+
+
+@pytest.fixture
+def owner_is_workspace_admin(owner: object) -> WorkspaceMembership:
+    """Promote ``owner`` to workspace ADMIN — the principal that may add any account.
+
+    A program Owner reaches only the accounts already on a roster they belong to
+    (#3641). A test whose subject is role ceilings, role_title handling or error
+    mapping has to take the actor out of that variable; workspace ADMIN is the tier
+    the install already hands the directory to, and it is not self-grantable.
+    """
+    return WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=owner, role=WorkspaceRole.ADMIN
     )
 
 
@@ -149,6 +164,7 @@ def test_create_member_succeeds_under_owner_role(
     program: Program,
     owner: object,
     member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     resp = _client(owner).post(
         f"/api/v1/programs/{program.pk}/members/",
@@ -353,7 +369,12 @@ def test_role_title_defaults_to_empty(program: Program, owner: object, member: o
 
 
 @pytest.mark.django_db
-def test_create_member_with_role_title(program: Program, owner: object, member: object) -> None:
+def test_create_member_with_role_title(
+    program: Program,
+    owner: object,
+    member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
+) -> None:
     resp = _client(owner).post(
         _members_url(program),
         {"user": str(member.pk), "role": Role.MEMBER, "role_title": "Product Owner"},
@@ -413,10 +434,14 @@ def test_admin_cannot_change_role_via_patch(
 def test_admin_cannot_reassign_user_via_patch(
     program: Program, owner: object, admin_user: object
 ) -> None:
-    """The other privileged branch: reassigning the member identity stays Owner-only.
+    """Reassigning the member identity is refused at Admin — and now at every role.
 
-    A payload carrying ``user`` is privileged even alongside a benign role_title, so
-    an Admin is rejected — guards the ``new_user`` arm of ``privileged_change`` (#565).
+    This used to assert a *role* gate: ``user`` made the payload privileged, so an
+    Admin got 403 while an Owner would have succeeded. #3641 removed the capability
+    instead of the caller — a PATCH carrying ``user`` is a 400 whoever sends it (see
+    ``test_owner_cannot_reassign_user_via_patch``), because swapping the account
+    behind a live row was the second door onto the address harvest. The refusal is
+    explicit rather than a silent drop, so a 200 never means "ignored".
     """
     ProgramMembership.objects.create(program=program, user=admin_user, role=Role.ADMIN)
     original = _make_user("orig-user")
@@ -427,7 +452,8 @@ def test_admin_cannot_reassign_user_via_patch(
         {"user": str(other.pk), "role_title": "PO"},
         format="json",
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
     target.refresh_from_db()
     assert target.user_id == original.pk
     assert target.role_title == ""
@@ -665,7 +691,10 @@ def test_insert_race_answers_409_not_500(program: Program, owner: object, member
 
 @pytest.mark.django_db
 def test_an_unexpected_integrity_error_is_not_masked_as_409(
-    program: Program, owner: object, member: object
+    program: Program,
+    owner: object,
+    member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Only the (program, user) uniqueness race becomes a 409."""
     from unittest.mock import patch

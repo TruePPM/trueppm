@@ -48,10 +48,12 @@ from trueppm_api.apps.access.serializers import (
     ExternalStakeholderSerializer,
     MeSerializer,
     ProgramMembershipReadSerializer,
+    ProgramMembershipUpdateSerializer,
     ProgramMembershipWriteSerializer,
     ProgramUserDefinedMentionGroupReadSerializer,
     ProgramUserDefinedMentionGroupWriteSerializer,
     ProjectMembershipReadSerializer,
+    ProjectMembershipUpdateSerializer,
     ProjectMembershipWriteSerializer,
     UserDefinedMentionGroupReadSerializer,
     UserDefinedMentionGroupWriteSerializer,
@@ -238,7 +240,10 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         return names_map
 
     def get_serializer_class(self) -> type[BaseSerializer[ProjectMembership]]:
-        if self.action in ("create", "partial_update", "update"):
+        if self.action in ("partial_update", "update"):
+            # An update body carries role only — ``user`` is immutable (#3641).
+            return ProjectMembershipUpdateSerializer
+        if self.action == "create":
             return ProjectMembershipWriteSerializer
         return ProjectMembershipReadSerializer
 
@@ -411,7 +416,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         project = self._get_project_or_404()
         instance = self.get_object()
 
-        serializer = ProjectMembershipWriteSerializer(
+        serializer = ProjectMembershipUpdateSerializer(
             instance, data=request.data, partial=True, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
@@ -1227,7 +1232,10 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         )
 
     def get_serializer_class(self) -> type[BaseSerializer[ProgramMembership]]:
-        if self.action in ("create", "partial_update", "update"):
+        if self.action in ("partial_update", "update"):
+            # An update body carries role/role_title only — ``user`` is immutable (#3641).
+            return ProgramMembershipUpdateSerializer
+        if self.action == "create":
             return ProgramMembershipWriteSerializer
         return ProgramMembershipReadSerializer
 
@@ -1345,7 +1353,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         program = self._get_program_or_404()
         instance = self.get_object()
 
-        serializer = ProgramMembershipWriteSerializer(
+        serializer = ProgramMembershipUpdateSerializer(
             instance, data=request.data, partial=True, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)

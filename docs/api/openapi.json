@@ -14263,17 +14263,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProgramMembershipUpdateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProgramMembershipUpdateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProgramMembershipUpdateRequest"
                             }
                         }
                     }
@@ -14294,7 +14294,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProgramMembershipWrite"
+                                    "$ref": "#/components/schemas/ProgramMembershipUpdate"
                                 }
                             }
                         },
@@ -28097,17 +28097,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProjectMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProjectMembershipUpdateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProjectMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProjectMembershipUpdateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProjectMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProjectMembershipUpdateRequest"
                             }
                         }
                     }
@@ -28128,7 +28128,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProjectMembershipWrite"
+                                    "$ref": "#/components/schemas/ProjectMembershipUpdate"
                                 }
                             }
                         },
@@ -59259,13 +59259,10 @@
                     }
                 }
             },
-            "PatchedProgramMembershipWriteRequest": {
+            "PatchedProgramMembershipUpdateRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user, role, and the freeform role_title.\n\n``user`` is the stock ``auth.User`` **integer** primary key, bounded to\n:func:`reachable_membership_targets` on add and refused entirely on\n``partial_update`` (#3641) — the project twin carries the same constraint for the\nsame reason.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (a role change stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
+                "description": "PATCH body — ``role`` and ``role_title`` only; see the project twin for why.",
                 "properties": {
-                    "user": {
-                        "type": "integer"
-                    },
                     "role": {
                         "allOf": [
                             {
@@ -59471,13 +59468,10 @@
                     }
                 }
             },
-            "PatchedProjectMembershipWriteRequest": {
+            "PatchedProjectMembershipUpdateRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user and role; project is injected from URL.\n\n``user`` is the stock ``auth.User`` **integer** primary key (TruePPM has no custom\nuser model), and it is bounded to :func:`reachable_membership_targets` — see that\nfunction for who a caller may name and why. It is accepted on add only; a\n``partial_update`` that carries it is refused (#3641).\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
+                "description": "PATCH body — ``role`` only.\n\nA separate class rather than ``read_only_fields`` on the add serializer so the\npublished schema tells the truth: ``user`` is genuinely not part of an update\nbody, and an integrator reading ``PatchedProjectMembershipWriteRequest`` would\notherwise still see it advertised as writable. Sending it anyway is refused by\nthe inherited ``validate`` rather than silently dropped (#3641).",
                 "properties": {
-                    "user": {
-                        "type": "integer"
-                    },
                     "role": {
                         "type": "integer",
                         "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
@@ -62099,6 +62093,28 @@
                     "user_detail"
                 ]
             },
+            "ProgramMembershipUpdate": {
+                "type": "object",
+                "description": "PATCH body — ``role`` and ``role_title`` only; see the project twin for why.",
+                "properties": {
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 50
+                    }
+                },
+                "required": [
+                    "role"
+                ]
+            },
             "ProgramMembershipWrite": {
                 "type": "object",
                 "description": "Write serializer — accepts user, role, and the freeform role_title.\n\n``user`` is the stock ``auth.User`` **integer** primary key, bounded to\n:func:`reachable_membership_targets` on add and refused entirely on\n``partial_update`` (#3641) — the project twin carries the same constraint for the\nsame reason.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (a role change stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
@@ -64296,6 +64312,16 @@
                     "user",
                     "user_detail"
                 ]
+            },
+            "ProjectMembershipUpdate": {
+                "type": "object",
+                "description": "PATCH body — ``role`` only.\n\nA separate class rather than ``read_only_fields`` on the add serializer so the\npublished schema tells the truth: ``user`` is genuinely not part of an update\nbody, and an integrator reading ``PatchedProjectMembershipWriteRequest`` would\notherwise still see it advertised as writable. Sending it anyway is refused by\nthe inherited ``validate`` rather than silently dropped (#3641).",
+                "properties": {
+                    "role": {
+                        "type": "integer",
+                        "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
+                    }
+                }
             },
             "ProjectMembershipWrite": {
                 "type": "object",

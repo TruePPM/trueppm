@@ -12,6 +12,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -56,6 +57,28 @@ def owner_client(owner: object, owner_membership: ProjectMembership) -> APIClien
     c = APIClient()
     c.force_authenticate(user=owner)
     return c
+
+
+@pytest.fixture
+def colleague(db: object) -> object:
+    """A real teammate — reachable only once a roster the caller belongs to names them."""
+    return User.objects.create_user(username="colleague", password="pw")
+
+
+@pytest.fixture
+def owner_is_workspace_admin(owner: object) -> WorkspaceMembership:
+    """Promote ``owner`` to workspace ADMIN — the principal that may add any account.
+
+    A project Owner reaches only the accounts already on a roster they belong to
+    (#3641), so a test whose subject is role defaults, conflict handling or error
+    mapping — not target reachability — has to take the actor out of that variable.
+    Workspace ADMIN is the tier the install already hands the directory to
+    (``WorkspaceMemberListView``, ``/workspace/invites/``), and it is not
+    self-grantable.
+    """
+    return WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=owner, role=WorkspaceRole.ADMIN
+    )
 
 
 @pytest.fixture
@@ -140,12 +163,28 @@ def test_list_excludes_soft_deleted(
 
 @pytest.mark.django_db
 def test_create_member_as_owner(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    colleague: object,
 ) -> None:
-    new_user = User.objects.create_user(username="new_u", password="pw")
-    resp = owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.MEMBER})
-    assert resp.status_code == 201
-    assert ProjectMembership.objects.filter(project=project, user=new_user).exists()
+    """An Owner adds someone already on a roster they share — the golden path.
+
+    This test previously created a brand-new user with no relationship to the
+    project, the owner, or any shared program, and asserted 201 — i.e. it encoded
+    the #3641 harvest as intended behavior. The target is now somebody the owner
+    already shares a *different* project with, which is what the narrowed queryset
+    permits; the unrelated-account case is asserted as a refusal below.
+    """
+    other_project = Project.objects.create(name="Shared", start_date=date(2026, 1, 1))
+    ProjectMembership.objects.create(
+        project=other_project, user=owner_membership.user, role=Role.OWNER
+    )
+    ProjectMembership.objects.create(project=other_project, user=colleague, role=Role.MEMBER)
+
+    resp = owner_client.post(_url(project), {"user": str(colleague.pk), "role": Role.MEMBER})
+    assert resp.status_code == 201, resp.data
+    assert ProjectMembership.objects.filter(project=project, user=colleague).exists()
 
 
 @pytest.mark.django_db
@@ -159,12 +198,18 @@ def test_create_blocked_for_member(
 
 @pytest.mark.django_db
 def test_create_cannot_assign_owner_role(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Owner cannot assign Owner to another user (role >= own role)."""
     new_user = User.objects.create_user(username="new_u3", password="pw")
     resp = owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.OWNER})
     assert resp.status_code == 400
+    # Pin the *reason*: with the target queryset narrowed (#3641) a 400 alone no
+    # longer distinguishes "role too high" from "user unreachable".
+    assert "role" in resp.data
 
 
 @pytest.mark.django_db
@@ -181,7 +226,10 @@ def test_create_duplicate_returns_409(
 
 @pytest.mark.django_db
 def test_create_without_role_uses_project_default(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Omitting role falls back to the project's default_member_role (ADR-0363)."""
     project.default_member_role = Role.SCHEDULER
@@ -196,7 +244,10 @@ def test_create_without_role_uses_project_default(
 
 @pytest.mark.django_db
 def test_create_without_role_defaults_to_member_when_unset(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """A project left at its MEMBER default seeds MEMBER for a role-less add."""
     new_user = User.objects.create_user(username="def_member", password="pw")
@@ -207,7 +258,10 @@ def test_create_without_role_defaults_to_member_when_unset(
 
 @pytest.mark.django_db
 def test_create_explicit_role_overrides_project_default(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """An explicit role in the payload wins over the project default."""
     project.default_member_role = Role.VIEWER
@@ -867,7 +921,10 @@ def test_insert_race_answers_409_not_500(
 
 @pytest.mark.django_db
 def test_an_unexpected_integrity_error_is_not_masked_as_409(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Only the (project, user) uniqueness race becomes a 409.
 
