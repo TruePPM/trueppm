@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import functools
 import logging
-from datetime import timedelta
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,7 +17,6 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import serializers as drf_serializers
-from rest_framework import status
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
@@ -39,7 +36,7 @@ from trueppm_api.apps.history.serializers import (
     ChangelogResponseSerializer,
     HistoryRecordSerializer,
 )
-from trueppm_api.apps.projects.models import Dependency, Project, Task
+from trueppm_api.apps.projects.models import Project, Task
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +45,6 @@ User = get_user_model()
 # Which fields a diff compares, hides, and promotes is decided ONCE, in
 # ``history.diff_policy`` — shared with the task drawer's pipeline in
 # ``apps/projects/views.py`` (#3435). Do not add a local exclusion set here.
-
-VALID_WINDOWS = {"1d": 1, "7d": 7, "30d": 30, "90d": 90}
 
 
 class HistoryPagination(PageNumberPagination):
@@ -187,18 +182,23 @@ def _caller_can_see_user(request: Request, project: Project) -> bool:
 
 
 # Cap the number of history rows materialized in memory for the per-task and
-# per-project history list views.  Without this cap a task with thousands of
+# per-project history list views. Without this cap a task with thousands of
 # edits (a busy automated integration, or a re-import loop) would load the full
-# history table into Python on every page request. Shared with
-# ProjectHistorySummaryView's constant so both surfaces use the same bound.
+# history table into Python on every page request.
 #
 # NOTE(#1889): this cap intentionally differs from the projects app's
 # ``apps.projects.views._MAX_HISTORY_ROWS`` (2000), which backs the wired
 # ``/projects/<pk>/tasks/<pk>/history/`` route serving the task drawer.
 # ``TaskHistoryListView`` below is deliberately unwired (see this app's
-# ``urls.py``); the 5000 bound here covers the project-wide list and summary
-# surfaces. Do not "sync" the two numbers; cross-reference comments live at
-# both constants.
+# ``urls.py``); the 5000 bound here covers the project-wide list view. Do not
+# "sync" the two numbers; cross-reference comments live at both constants.
+#
+# NOTE(#3372): this constant previously was also shared with
+# ``ProjectHistorySummaryView``, an orphaned endpoint (zero client consumers
+# since it shipped in 0.1) removed outright rather than deprecated — see
+# ADR-0011's dated Superseded note and stability.md step 3. That class carried
+# its own identical-value class attribute of the same name, which is gone now
+# too; nothing here refers to it any longer.
 _MAX_HISTORY_ROWS = 5000
 
 
@@ -320,109 +320,6 @@ class ProjectHistoryListView(APIView):
         response = paginator.get_paginated_response(serializer.data)
         response.data["count_truncated"] = count_truncated
         return response
-
-
-class ProjectHistorySummaryView(APIView):
-    """Aggregate mutation counts for a project over a time window.
-
-    GET /api/v1/projects/{project_pk}/history/summary/?window=7d
-
-    Supported windows: 1d, 7d (default), 30d, 90d.
-    Response is cached in Redis for 5 minutes. Pass ``?refresh=1`` to bust
-    the cache — the UI should call this when the user hits the refresh button.
-
-    The ``generated_at`` field is an ISO-8601 timestamp the UI should display
-    as "last updated X ago" so users know the freshness of the data.
-    """
-
-    # IsProjectNotArchived is deliberately omitted: history is a read-only audit
-    # surface that must stay accessible after a project is archived. Do not add it
-    # "for consistency" — archived projects still need their audit trail readable.
-    permission_classes = [IsAuthenticated, IsProjectMember]
-    _CACHE_TTL = 300  # 5 minutes
-    # Cap the rows pulled into memory per object type. A 90-day window on a busy
-    # project could otherwise load tens of thousands of history rows just to
-    # aggregate field counts (#821). When a batch hits the cap the summary is
-    # built from the most recent _MAX_HISTORY_ROWS and `count_truncated` is set so
-    # the client can surface "showing recent activity" rather than implying totals.
-    _MAX_HISTORY_ROWS = 5000
-
-    def get(self, request: Request, project_pk: str) -> Response:
-        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
-        self.check_object_permissions(request, project)
-
-        window_str = request.query_params.get("window", "7d")
-        if window_str not in VALID_WINDOWS:
-            return Response(
-                {
-                    "detail": (
-                        f"Invalid window '{window_str}'. Choose from: {', '.join(VALID_WINDOWS)}."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        force_refresh = request.query_params.get("refresh") == "1"
-        cache_key = f"history_summary:{project_pk}:{window_str}"
-
-        if not force_refresh:
-            cached: dict[str, Any] | None = cache.get(cache_key)
-            if cached is not None:
-                return Response(cached)
-
-        since = timezone.now() - timedelta(days=VALID_WINDOWS[window_str])
-
-        cap = self._MAX_HISTORY_ROWS
-        # Order by -history_date so a truncated batch keeps the most recent rows.
-        task_records: list[Any] = list(
-            Task.history.filter(project_id=project_pk, history_date__gte=since)
-            .select_related("history_user")
-            .order_by("-history_date")[: cap + 1]
-        )
-        project_records: list[Any] = list(
-            project.history.filter(history_date__gte=since)
-            .select_related("history_user")
-            .order_by("-history_date")[: cap + 1]
-        )
-        dep_records: list[Any] = list(
-            Dependency.history.filter(predecessor__project_id=project_pk, history_date__gte=since)
-            .select_related("history_user")
-            .order_by("-history_date")[: cap + 1]
-        )
-
-        # Fetch cap+1 to detect truncation, then trim back to cap for aggregation.
-        count_truncated = any(len(b) > cap for b in (task_records, project_records, dep_records))
-        task_records = task_records[:cap]
-        project_records = project_records[:cap]
-        dep_records = dep_records[:cap]
-
-        field_counts: dict[str, int] = {}
-        for batch in (task_records, project_records, dep_records):
-            for field, count in _count_field_changes(batch).items():
-                field_counts[field] = field_counts.get(field, 0) + count
-
-        by_field: list[dict[str, Any]] = sorted(
-            [{"field": f, "count": c} for f, c in field_counts.items()],
-            key=lambda x: int(x["count"]),
-            reverse=True,
-        )
-
-        payload: dict[str, Any] = {
-            "project_id": str(project_pk),
-            "window": window_str,
-            "total_mutations": len(task_records) + len(project_records) + len(dep_records),
-            "by_object_type": {
-                "task": len(task_records),
-                "project": len(project_records),
-                "dependency": len(dep_records),
-            },
-            "by_field": by_field,
-            "count_truncated": count_truncated,
-            "generated_at": timezone.now().isoformat(),
-        }
-
-        cache.set(cache_key, payload, self._CACHE_TTL)
-        return Response(payload)
 
 
 class ProjectChangelogView(APIView):
