@@ -2,6 +2,7 @@
 // Update when API schema changes, then verify against generated src/api/types.ts.
 
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
+import type { HealthBand } from '@/lib/healthBand';
 
 // Re-export so consumers can pull the union from '@/types' alongside Task.
 export type { ExternalLinkStatus };
@@ -1151,6 +1152,13 @@ export interface ShellStats {
   criticalPathCount: number;
   /** P80 completion date as ISO string */
   monteCarlop80: string | null;
+  /**
+   * The project's health band as the server decided it (`status-summary`'s
+   * `health_band`, #3501). Carries the manual `Project.health` override, which
+   * `atRiskCount` / `criticalCount` cannot express — so a surface that prints a
+   * band reads this and never re-derives one from the counts.
+   */
+  healthBand: HealthBand;
   atRiskCount: number;
   criticalCount: number;
   /** Tasks with health = at-risk (up to 5 shown in badge popover) */

@@ -30,10 +30,12 @@ const FIXTURE_PROJECTS = [
 // would test a chip 8px narrower (#3470 — before it, the at-risk band rendered
 // the retired "On watch" at 54.48px, which is why the counts used to be
 // non-zero here). These specs run at 1024px and up, where "On track" fits; the
-// phone guard in `mobile-chrome-clip.spec.ts` cannot pin it yet (#3505).
+// phone guard in `mobile-chrome-clip.spec.ts` cannot pin it yet (#3505). The
+// word is chosen by `health_band` since #3501, not by the counts.
 const STATUS_SUMMARY = {
   task_count: 12,
   critical_path_count: 0,
+  health_band: 'on_track' as const,
   monte_carlo_p80: '2026-09-07',
   at_risk_count: 0,
   critical_count: 0,
@@ -429,9 +431,15 @@ test.describe('the "+ New task" demotion (#2952, design case 18)', () => {
     await page.getByRole('button', { name: 'New task' }).click();
 
     await expect(page).toHaveURL(/\/schedule/);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
     // The param is consumed and stripped, so a refresh cannot author a second row.
     await expect(page).not.toHaveURL(/author=/);
-    expect(created).not.toBeNull();
+    // Wait for the POST before asserting on it: the strip above is a React render
+    // and this is a network round-trip, so the strip always wins the race. A bare
+    // `expect(created)` samples once and fails on a loaded runner (#3545).
+    await expect.poll(() => created).not.toBeNull();
+    // Only NOW is the absence of a modal meaningful. Asserted after the row has
+    // actually landed, because `toHaveCount(0)` passes on its first sample — before
+    // ScheduleView mounts it would pass no matter what this affordance opened.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });

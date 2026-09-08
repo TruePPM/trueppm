@@ -289,6 +289,7 @@ GIT_REFUSAL_OUTCOMES = (
     "unknown_provider",
     "secret_unreadable",
     "bad_signature",
+    "project_archived",
 )
 
 

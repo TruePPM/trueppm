@@ -518,6 +518,68 @@ describe('DesktopGroomingView data gates', () => {
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
+  // #2619 finding A: the empty state above was the ONLY mismatch signal, so a
+  // GROOMED backlog on a project flipped to WATERFALL said nothing at all —
+  // the worse state, because those stories are real work now reachable by URL
+  // alone.
+  it('warns on a POPULATED backlog under WATERFALL, and still renders the stories', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    setData(makeBacklog());
+    renderPage();
+    expect(
+      screen.getByText(
+        /This project is configured as Waterfall, but 3 stories already are groomed here/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review methodology' })).toBeInTheDocument();
+    // Disjointness: the banner and the empty state never co-occur.
+    expect(
+      screen.queryByText("Backlog isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
+  });
+
+  it('counts a single story with singular agreement under WATERFALL', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    setData(makeBacklog({ epics: [], ungrouped: [s3] }));
+    renderPage();
+    expect(
+      screen.getByText(
+        /This project is configured as Waterfall, but 1 story already is groomed here/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no banner on a populated backlog under HYBRID', () => {
+    h.effectiveMethodology = 'HYBRID';
+    setData(makeBacklog());
+    renderPage();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on an EMPTY backlog under WATERFALL — that is the empty state\'s job', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage();
+    expect(screen.getByText("Backlog isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  // Rule 392 — the page early-returns on both, so this pins that the banner can
+  // never be reached with an unresolved `0`.
+  it('shows no banner while the backlog query is in flight under WATERFALL', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    h.backlog = { isLoading: true, isError: false, data: undefined };
+    renderPage();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner after the backlog query failed under WATERFALL', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    h.backlog = { isLoading: false, isError: true, data: undefined };
+    renderPage();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
   it('keeps the generic empty state on a non-WATERFALL project', () => {
     h.effectiveMethodology = 'HYBRID';
     setData(makeBacklog({ epics: [], ungrouped: [] }));
