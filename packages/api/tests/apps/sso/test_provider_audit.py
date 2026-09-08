@@ -24,6 +24,7 @@ a real defect rather than a cosmetic drift:
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import pytest
@@ -409,7 +410,12 @@ def test_linking_to_an_existing_account_writes_a_row(
     # the request to attribute it to (the ``member_added`` / ``invite_accepted`` idiom).
     assert row.actor_id == user.pk
     assert row.target_type == "user"
-    assert row.target_id == user.pk
+    # ``AuditEvent.target_id`` is a UUIDField and ``User.pk`` is an int, so Django coerces
+    # it on the way in. That is a quirk of the existing model, not of this row: the
+    # ``member_added`` site written by the auto-create branch stores ``user.pk`` the same
+    # way, and ``target_label`` is documented as the source of truth for display. Matching
+    # the established convention beats being the one emission site that diverges.
+    assert row.target_id == uuid.UUID(int=user.pk)
     assert row.metadata["provider"] == "generic"
     assert row.metadata["issuer"] == ISSUER
     assert row.metadata["subject"] == "sub-bob"
