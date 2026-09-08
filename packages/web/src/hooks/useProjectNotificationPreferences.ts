@@ -47,22 +47,47 @@ export const PROJECT_NOTIFICATION_CHANNELS: { channel: ProjectNotificationChanne
 ];
 
 /**
- * Channels TruePPM has no delivery path for (#3249). Nothing in
- * apps/notifications delivers on these, and no setting anywhere turns them on —
- * so without a marker the columns read as working controls.
+ * Fallback-only list of channels TruePPM has no delivery path for (#3249).
  *
- * Unlike the per-event `eventDelivery` flags above, which the server owns
- * precisely because a client-side copy would drift, there is no server signal
- * for this yet, so the list is hardcoded here deliberately rather than by
- * oversight. It should not survive long: #3252 has to decide whether `slack`
- * and `mobile_push` stay registered at all when the ADR-0049
- * NOTIFICATION_CHANNELS registry is wired, and that decision is what replaces
- * this constant.
+ * The server now owns this classification and reports it as `channel_delivery`
+ * (#3378), for the same reason it owns `eventDelivery`: whether a channel
+ * delivers is server state that moves when an ADR-0049 NOTIFICATION_CHANNELS
+ * registration lands, so a client-side copy drifts the moment one does. Read
+ * {@link ProjectNotificationPreferences.channelDelivery} instead.
+ *
+ * This constant survives ONLY as the answer for a server that predates
+ * `channel_delivery` — dropping it there would silently un-mark two columns that
+ * are still dead on that server, which is the #3249 defect returning. Delete it
+ * once the oldest supported server sends the key.
  */
 export const PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS: ProjectNotificationChannel[] = [
   'slack',
   'mobile_push',
 ];
+
+/**
+ * Should the UI mark `channel` as having no delivery path?
+ *
+ * The server's answer wins wherever it gave one, so a channel it reports as
+ * delivering un-marks itself with no web release — the drift this map exists to
+ * end. Where it said nothing about *that channel*, the hardcoded list answers.
+ *
+ * Per key, not per map, and the asymmetry with `eventDelivery`'s "no claim made"
+ * contract is deliberate: there, silence costs a missing badge; here it restores
+ * the #3249 defect outright — a dead control rendered as a working one. A
+ * well-formed response cannot reach the fallback (the schema marks all four
+ * channels `required`), so the only callers are an older server and a partial
+ * body, and both are exactly when the safe default matters.
+ */
+export function isChannelUndeliverable(
+  channelDelivery: ProjectNotificationPreferences['channelDelivery'],
+  channel: ProjectNotificationChannel,
+): boolean {
+  if (channel in channelDelivery) {
+    return channelDelivery[channel] === false;
+  }
+  return PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS.includes(channel);
+}
 
 export type ProjectNotificationMatrix = Record<
   ProjectNotificationEventType,
@@ -82,6 +107,19 @@ export interface ProjectNotificationPreferences {
    * treats as "no claim made" — never as "nothing is delivered".
    */
   eventDelivery: Partial<Record<ProjectNotificationEventType, boolean>>;
+  /**
+   * Per channel: does TruePPM deliver on it at all (#3378). Two of the four
+   * columns do not — nothing in the API dispatches to Slack or mobile push and
+   * no setting anywhere turns them on — so an unmarked column reads as a working
+   * control. Orthogonal to {@link eventDelivery}: a cell is live only when its
+   * event is dispatched AND its channel delivers.
+   *
+   * An older server that does not send it yields an empty record. Unlike
+   * `eventDelivery`, a channel this map is silent about is not "no claim made"
+   * but "ask the fallback" — see {@link isChannelUndeliverable}, which is the
+   * only place that decision is made.
+   */
+  channelDelivery: Partial<Record<ProjectNotificationChannel, boolean>>;
   /** Per-user-per-project kill-switch (#589). When true, no notifications
    * fire for this user on this project regardless of the matrix. */
   paused: boolean;
@@ -107,6 +145,7 @@ export interface ProjectNotificationPreferences {
 interface ApiPreferences {
   matrix: ProjectNotificationMatrix;
   event_delivery?: Partial<Record<ProjectNotificationEventType, boolean>>;
+  channel_delivery?: Partial<Record<ProjectNotificationChannel, boolean>>;
   paused: boolean;
   quiet_hours_enabled: boolean;
   quiet_hours_from: string;
@@ -123,6 +162,7 @@ function fromApi(payload: ApiPreferences): ProjectNotificationPreferences {
   return {
     matrix: payload.matrix,
     eventDelivery: payload.event_delivery ?? {},
+    channelDelivery: payload.channel_delivery ?? {},
     paused: payload.paused ?? false,
     quietHoursEnabled: payload.quiet_hours_enabled,
     quietHoursFrom: payload.quiet_hours_from,

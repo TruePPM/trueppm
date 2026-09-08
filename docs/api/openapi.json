@@ -64318,7 +64318,7 @@
             },
             "ProjectNotificationPreferenceDocument": {
                 "type": "object",
-                "description": "What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).\n\nThe stored row's fields **plus** ``event_delivery``, which the view adds on both\nmethods and which is not a model field. Declaring the plain serializer as the\n``200`` would have been the obvious fix and a worse one: the schema would be\nself-consistent, ``api:schema-drift`` would pass, and a generated SDK would\nsilently drop the one key a client needs to label the rows nothing dispatches.\nA declared lie is more dangerous than a declared absence.\n\nSubclasses rather than restating the field list, so a field added to the parent\nreaches the published response without a second edit. Only ``event_delivery`` is\nnamed here, because only ``event_delivery`` is the difference.",
+                "description": "What ``GET``/``PATCH .../notification-preferences/`` actually returns (#3396, #3399).\n\nThe stored row's fields **plus** ``event_delivery`` and ``channel_delivery``,\nwhich the view adds on both methods and which are not model fields. Declaring\nthe plain serializer as the ``200`` would have been the obvious fix and a worse\none: the schema would be self-consistent, ``api:schema-drift`` would pass, and a\ngenerated SDK would silently drop the two keys a client needs to label the rows\nnothing dispatches and the columns nothing delivers on. A declared lie is more\ndangerous than a declared absence.\n\nSubclasses rather than restating the field list, so a field added to the parent\nreaches the published response without a second edit. Only the two delivery maps\nare named here, because only they are the difference.",
                 "properties": {
                     "matrix": {
                         "type": "object",
@@ -64570,9 +64570,36 @@
                         ],
                         "additionalProperties": false,
                         "readOnly": true
+                    },
+                    "channel_delivery": {
+                        "type": "object",
+                        "description": "Which matrix columns TruePPM has a delivery path for. `true` means an enabled cell in that column can reach you once its event is also dispatched; `false` means the column is rendered and the preference stored, but nothing delivers on it yet and no setting anywhere turns it on, so a client should label it rather than imply a delivery that never happens. Orthogonal to `event_delivery`: a cell is live only when its event is dispatched AND its channel delivers. Server-global — it does not vary by user or project, and rides on this per-user document only so a client can label the whole grid in one render. Reported as a server fact so every client does not hard-code the same list and drift from it.",
+                        "properties": {
+                            "email": {
+                                "type": "boolean"
+                            },
+                            "in_app": {
+                                "type": "boolean"
+                            },
+                            "mobile_push": {
+                                "type": "boolean"
+                            },
+                            "slack": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "email",
+                            "in_app",
+                            "mobile_push",
+                            "slack"
+                        ],
+                        "additionalProperties": false,
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "channel_delivery",
                     "event_delivery",
                     "matrix",
                     "quiet_hours_timezone",
