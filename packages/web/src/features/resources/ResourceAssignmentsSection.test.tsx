@@ -59,7 +59,9 @@ describe('ResourceAssignmentsSection (#2047)', () => {
     expect(mockUseResourceAssignments).not.toHaveBeenCalled();
   });
 
-  it('shows grouped assignments with a cross-project count for an admin', () => {
+  // "for a caller the server allowed through" — since #3569 that is the workspace
+  // operator only, not any org admin. The sibling 403 test below is the admin's case.
+  it('shows grouped assignments with a cross-project count when the read succeeds', () => {
     mockUseCurrentUser.mockReturnValue({ user: { can_access_admin_settings: true } });
     mockUseResourceAssignments.mockReturnValue(
       query({

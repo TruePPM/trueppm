@@ -334,6 +334,24 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
     expect(screen.getByRole('button', { name: '⚠ Deactivate' })).toBeInTheDocument();
   });
 
+  it('surfaces a refusal when deactivate is forbidden', async () => {
+    // #3569 made 403 the expected outcome here for an ordinary catalog admin, since
+    // the buttons render for anyone who reaches the page but the endpoint now requires
+    // a workspace operator. Without an onError the click silently did nothing, which
+    // reads as a broken button rather than a refusal.
+    const user = userEvent.setup();
+    deleteMock.mockRejectedValue(new Error('Only a workspace operator may change this setting.'));
+    const { onDeactivated } = renderPanel();
+
+    await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));
+    await user.click(screen.getByRole('button', { name: 'Deactivate' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Only a workspace operator may change this setting.',
+    );
+    expect(onDeactivated).not.toHaveBeenCalled();
+  });
+
   it('renders the deactivated read-only state instead of the edit footer', () => {
     renderPanel(DEACTIVATED);
 

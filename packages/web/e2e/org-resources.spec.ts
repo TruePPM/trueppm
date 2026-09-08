@@ -87,6 +87,14 @@ async function mockResourceRoutes(
   // whole spec (surfaced while wiring inline skill add, issue 1612).
   await setupCatchAll(page);
 
+  // These routes fulfill DELETE, /restore/ and ?include_deleted=true unconditionally,
+  // which since #3569 models a **workspace operator** (the install superuser) — that
+  // is now the only principal the server lets through on the deactivation lifecycle.
+  // The mocks are deliberately not made gate-aware: these specs cover the catalog UI's
+  // behavior, and the gate itself is covered server-side in
+  // packages/api/tests/apps/resources/test_org_resources.py. Read a passing spec here
+  // as "the operator flow works", never as "any catalog admin can do this".
+  //
   // Stateful lists so mutations are reflected in subsequent GET re-fetches.
   const deletedIds = new Set<string>();
   const created: typeof resources = [];
@@ -319,7 +327,15 @@ const FIXTURE_ASSIGNMENTS = [
   },
 ];
 
-test('admin sees the Assignments section grouped by project', async ({ page }) => {
+// Named for the operator, not "admin": since #3569 the assignments endpoint requires
+// IsWorkspaceOperator, so a project admin gets a 403 and the section renders nothing
+// (covered by ResourceAssignmentsSection.test.tsx). The 200 mocked below is the
+// operator's view. `/auth/me/` still sets only `can_access_admin_settings` because the
+// app has no superuser flag to set — that gap is why the section is reachable by
+// admins who will be refused, and it is tracked in the #3569 follow-ups.
+test('a workspace operator sees the Assignments section grouped by project', async ({
+  page,
+}) => {
   await mockResourceRoutes(page);
   // Registered AFTER mockResourceRoutes so these more-specific handlers win
   // (Playwright runs the most-recently-added matching route first).

@@ -87,13 +87,32 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
     );
   }
 
+  // Both paths need onError. Since #3569 deactivate/restore require a workspace
+  // operator, but the buttons are rendered for anyone who reaches this page — so a
+  // 403 is now the expected outcome for an ordinary catalog admin. Without this the
+  // click clears its pending state and nothing whatsoever happens, which reads as a
+  // broken button rather than a refusal. Reuses the same saveError banner as handleSave.
   function handleDeactivate() {
-    deactivateMutation.mutate(resource.id, { onSuccess: onDeactivated });
+    setSaveError(null);
+    deactivateMutation.mutate(resource.id, {
+      onSuccess: onDeactivated,
+      onError: (err) =>
+        setSaveError(
+          err.message ?? 'Deactivate failed. Only a workspace operator may deactivate a resource.',
+        ),
+    });
     setConfirmDeactivate(false);
   }
 
   function handleRestore() {
-    restoreMutation.mutate(resource.id, { onSuccess: onRestored });
+    setSaveError(null);
+    restoreMutation.mutate(resource.id, {
+      onSuccess: onRestored,
+      onError: (err) =>
+        setSaveError(
+          err.message ?? 'Restore failed. Only a workspace operator may restore a resource.',
+        ),
+    });
   }
 
   const isSaving = updateMutation.isPending;
