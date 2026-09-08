@@ -479,10 +479,16 @@ class ProjectForecastSnapshot(models.Model):
         choices=ForecastSnapshotTrigger.choices,
         default=ForecastSnapshotTrigger.RECOMPUTE,
     )
-    # Deterministic CPM spine at capture time: the project's latest task finish.
-    # Nullable — a project with no scheduled tasks has no finish to anchor on.
+    # Every aggregate below is over ``Task.committed`` — the population CPM is
+    # actually run on — never over all non-deleted tasks (#3539). A BACKLOG/EPIC/
+    # recurring row is never scheduled, so any early_finish/total_float it carries
+    # is scheduling output left over from before it was groomed out, and admitting
+    # it here reports a forecast for a schedule that was never computed.
+    #
+    # Deterministic CPM spine at capture time: the project's latest committed task
+    # finish. Nullable — a project with no scheduled tasks has no finish to anchor on.
     cpm_finish = models.DateField(null=True, blank=True)
-    # The tightest total float (minimum across non-deleted tasks): 0 on an
+    # The tightest total float (minimum across the committed set): 0 on an
     # unconstrained critical path, negative when a deadline/constraint is breached —
     # so drift in schedule *pressure* is visible, not just the finish date.
     total_float_days = models.IntegerField(null=True, blank=True)
@@ -493,7 +499,8 @@ class ProjectForecastSnapshot(models.Model):
     mc_p80_finish = models.DateField(null=True, blank=True)
     mc_p95_finish = models.DateField(null=True, blank=True)
     mc_iterations = models.PositiveIntegerField(null=True, blank=True)
-    # Schedule shape at capture time — context for interpreting the forecast.
+    # Schedule shape at capture time — context for interpreting the forecast, and
+    # therefore counted over the same committed population as cpm_finish above.
     task_count = models.PositiveIntegerField(default=0)
     completed_task_count = models.PositiveIntegerField(default=0)
 

@@ -14,11 +14,14 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.notifications.backfill import _clean_matrix
 from trueppm_api.apps.notifications.models import (
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
+    PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS,
     PROJECT_NOTIFICATION_DISPATCHED_EVENTS,
+    PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS,
     PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS,
     ProjectNotificationChannel,
     ProjectNotificationEventType,
     ProjectNotificationPreference,
+    project_notification_channel_delivery,
     project_notification_event_delivery,
 )
 from trueppm_api.apps.projects.models import Calendar, Project
@@ -381,6 +384,39 @@ def test_non_member_cannot_write(
     assert response.status_code == 403
 
 
+def test_a_viewer_may_read_and_write_their_own_routing(project: Project, memberships: dict) -> None:
+    """The endpoint's real lower bound, pinned.
+
+    ``IsProjectMember`` admits Viewer, deliberately: ADR-0075 gives every member
+    their own notification contract, so someone who can change nothing else on the
+    project must still be able to silence it. Nothing else in this file would fail if
+    a future change tightened this to a write-role gate — both existing fixture users
+    are MEMBER, and the only 403 cases are non-members.
+    """
+    viewer = User.objects.create_user(username="dana", password="pw")
+    ProjectMembership.objects.create(project=project, user=viewer, role=Role.VIEWER)
+    client = APIClient()
+    client.force_authenticate(user=viewer)
+
+    assert client.get(_url(project)).status_code == 200
+
+    response = client.patch(_url(project), {"paused": True}, format="json")
+    assert response.status_code == 200
+    assert response.json()["paused"] is True
+
+    # And a matrix cell: `paused` is a plain BooleanField, while the matrix goes
+    # through the nested field's own validation, so a gate could tighten on one
+    # without the other.
+    matrix_write = client.patch(
+        _url(project),
+        {"matrix": {ProjectNotificationEventType.COMMENT_MENTION: {"email": False}}},
+        format="json",
+    )
+    assert matrix_write.status_code == 200
+    row = matrix_write.json()["matrix"][ProjectNotificationEventType.COMMENT_MENTION]
+    assert row["email"] is False
+
+
 def test_deleted_project_returns_404(
     alice_client: APIClient, project: Project, memberships: dict
 ) -> None:
@@ -440,6 +476,120 @@ def test_a_stored_preference_still_round_trips_for_an_undispatched_event(
     assert response.status_code == 200
     assert response.json()["matrix"][event]["email"] is True
     assert response.json()["event_delivery"][event] is False
+
+
+# ---------------------------------------------------------------------------
+# channel_delivery — which columns TruePPM delivers on at all (#3378)
+# ---------------------------------------------------------------------------
+
+
+def test_get_reports_which_channels_deliver(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """The per-column twin of ``event_delivery``, and for the same reason.
+
+    The web client was hard-coding ``['slack', 'mobile_push']`` with its own comment
+    saying the copy should not survive. Whether a channel delivers is server state,
+    so a client-side copy drifts the moment a delivery path lands.
+    """
+    body = alice_client.get(_url(project)).json()
+
+    delivery = body["channel_delivery"]
+    assert set(delivery) == {member.value for member in ProjectNotificationChannel}
+    for channel in sorted(PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS):
+        assert delivery[channel] is True
+    for channel in sorted(PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS):
+        assert delivery[channel] is False, (
+            f"{channel} is reported as delivering but nothing sends to it"
+        )
+
+
+def test_patch_echoes_channel_delivery(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """The PATCH echo assembles from the bound write serializer, so the map has to be
+    injected there by hand. Omitting it would drop the column labels the moment a
+    member toggled anything — the whole grid would silently re-arm."""
+    response = alice_client.patch(
+        _url(project),
+        {"matrix": {ProjectNotificationEventType.COMMENT_MENTION: {"email": False}}},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["channel_delivery"] == project_notification_channel_delivery()
+
+
+def test_a_stored_preference_still_round_trips_for_an_undeliverable_channel(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """Labeling a column must not make it read-only. The choice is kept so it applies
+    when delivery ships (#3252) — the API just stops claiming it is live today."""
+    event = ProjectNotificationEventType.COMMENT_MENTION
+    response = alice_client.patch(
+        _url(project), {"matrix": {event: {"slack": True}}}, format="json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["matrix"][event]["slack"] is True
+    assert response.json()["channel_delivery"]["slack"] is False
+
+
+def test_channel_delivery_is_not_writable(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """A server capability claim must not be settable by the client that reads it.
+
+    True by construction today — ``channel_delivery`` is a ``SerializerMethodField``
+    on the DOCUMENT serializer, and PATCH binds its PARENT. But the subclassing runs
+    the wrong way for safety: the document serializer inherits from the write
+    serializer precisely so a new field reaches the response without a second edit,
+    which means a field added to the parent becomes writable *and* published. Nothing
+    else would fail if one of the delivery maps were promoted up there.
+    """
+    response = alice_client.patch(
+        _url(project), {"channel_delivery": {"slack": True}}, format="json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["channel_delivery"]["slack"] is False
+    assert alice_client.get(_url(project)).json()["channel_delivery"]["slack"] is False
+
+
+def test_event_delivery_is_not_writable_either(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """Twin of the pin above — same promotion risk, other axis.
+
+    Pinning one delivery map and not the other is how the unpinned one moves.
+    """
+    response = alice_client.patch(
+        _url(project),
+        {"event_delivery": {ProjectNotificationEventType.SPRINT_START: True}},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["event_delivery"] == project_notification_event_delivery()
+    assert (
+        alice_client.get(_url(project)).json()["event_delivery"]
+        == project_notification_event_delivery()
+    )
+
+
+def test_the_one_dispatched_event_does_not_default_an_undeliverable_channel_on(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """End-to-end version of the model-level guard. ``comment_mention`` IS dispatched,
+    so #2904's event-axis guard passed it while it still arrived with Slack and mobile
+    push ON — a claim that a mention would reach a channel that sends nothing."""
+    matrix = alice_client.get(_url(project)).json()["matrix"]
+    row = matrix[ProjectNotificationEventType.COMMENT_MENTION]
+
+    for channel in sorted(PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS):
+        assert row[channel] is False, (
+            f"comment_mention arrives ON for {channel} but nothing delivers on it"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +818,37 @@ def test_declared_event_delivery_keys_are_the_classification_itself(
         set(PROJECT_NOTIFICATION_DISPATCHED_EVENTS) | set(PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS)
     )
     assert declared == set(project_notification_event_delivery())
+
+
+def test_the_declared_document_names_channel_delivery(
+    committed_schema: dict, alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """Same pin as ``event_delivery`` one axis over: key-set equality would also pass
+    if the key were dropped from BOTH the view and the declaration, which is how this
+    endpoint went quiet the first time."""
+    declared = declared_object_properties(committed_schema, PREF_PATH, "get")
+
+    assert "channel_delivery" in declared
+    assert "channel_delivery" in alice_client.get(_url(project)).json()
+
+
+def test_declared_channel_delivery_keys_are_the_matrix_columns_themselves(
+    committed_schema: dict,
+) -> None:
+    """The declaration is derived from the enum, not restated beside it — so adding a
+    channel reaches the published schema in the same edit that adds the column."""
+    declared = set(
+        committed_schema["components"]["schemas"]["ProjectNotificationPreferenceDocument"][
+            "properties"
+        ]["channel_delivery"]["properties"]
+    )
+
+    assert declared == {member.value for member in ProjectNotificationChannel}
+    assert declared == (
+        set(PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS)
+        | set(PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS)
+    )
+    assert declared == set(project_notification_channel_delivery())
 
 
 def test_quiet_hours_timezone_source_is_published_as_a_closed_enum(
