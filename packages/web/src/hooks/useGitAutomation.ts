@@ -37,8 +37,8 @@ export function gitAutomationKey(projectId: string) {
  * - `last_refusal_outcome` — refused before the signature check, so the caller saw
  *   only an opaque 404 and an admin reading this row is the sole way to tell which it
  *   was: `automation_disabled`, `no_secret`, `unknown_provider`, `secret_unreadable`,
- *   `bad_signature`. (`no_automation` is NOT among them: that refusal has no config
- *   row to write to, so it reaches the server log only.)
+ *   `bad_signature`, `project_archived`. (`no_automation` is NOT among them: that
+ *   refusal has no config row to write to, so it reaches the server log only.)
  * - `last_delivery_outcome` — verified, then not acted on: `malformed_payload`,
  *   `ignored`, `draft`, `duplicate`, `no_url`, `no_link`, `noop_forward_only`
  * - `last_delivery_outcome` — a card moved: `opened_review`, `merged_complete`

@@ -768,39 +768,6 @@ def _build_schedule_shift_events(
     return events
 
 
-def _build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
-    """Map each summary task's id to its direct children's ids via the WBS hierarchy.
-
-    A task is a *summary* when another task's ``wbs_path`` is a direct child of its
-    own (e.g. ``1.2`` is a direct child of ``1``). Tasks are indexed by ``wbs_path``
-    in a single pass so each task resolves its parent with one dict lookup — O(N)
-    total. The former inline construction scanned ``db_tasks`` for every task to find
-    its parent by string equality (O(N^2)), the one superlinear step left in recalc;
-    at 5k+ tasks it began to dominate the "Building schedule model" phase (#1011).
-
-    ``setdefault`` makes the first task in ``db_tasks`` order win a duplicate
-    ``wbs_path``, exactly mirroring the prior loop's first-match-and-break semantics,
-    and children are appended in ``db_tasks`` order — so the result is byte-for-byte
-    identical to the O(N^2) version it replaces.
-    """
-    id_by_wbs_path: dict[str, str] = {}
-    for t in db_tasks:
-        if t.wbs_path:
-            id_by_wbs_path.setdefault(str(t.wbs_path), str(t.id))
-
-    children_map: dict[str, list[str]] = {}
-    for t in db_tasks:
-        if not t.wbs_path:
-            continue
-        parts = str(t.wbs_path).rsplit(".", 1)
-        if len(parts) < 2:
-            continue
-        parent_id = id_by_wbs_path.get(parts[0])
-        if parent_id is not None:
-            children_map.setdefault(parent_id, []).append(str(t.id))
-    return children_map
-
-
 _CPM_DELTA_FIELDS: tuple[str, ...] = (
     "early_start",
     "early_finish",
@@ -949,7 +916,7 @@ def _run_schedule(
         project_id: UUID string of the project to schedule.
         tracker: Optional TaskRunTracker for progress reporting.
     """
-    from trueppm_scheduler.engine import expand_summary_dependencies, schedule
+    from trueppm_scheduler.engine import schedule
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
@@ -967,6 +934,7 @@ def _run_schedule(
     from trueppm_api.apps.scheduling.calendars import compose_project_calendar
     from trueppm_api.apps.scheduling.services import (
         apply_summary_rollups,
+        build_sched_graph,
         build_sched_tasks,
         resolve_cpm_status_date,
     )
@@ -1102,14 +1070,13 @@ def _run_schedule(
         if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
     ]
 
-    # Build children_map from wbs_path hierarchy for summary expansion.
-    # A task is a summary if any other task's wbs_path is a direct child of it.
+    # Strip summary rows and fan their edges down to leaves before CPM (ADR-0105).
+    # Shared with every Monte Carlo path since #3527 — one shaping step, one network.
     db_task_by_id = {str(t.id): t for t in db_tasks}
-    children_map = _build_children_map(db_tasks)
-    summary_ids = set(children_map.keys())
-
-    # Expand summary dependencies into leaf-level edges before CPM.
-    leaf_tasks, expanded_deps = expand_summary_dependencies(sched_tasks, sched_deps, children_map)
+    graph = build_sched_graph(db_tasks, sched_tasks, sched_deps)
+    children_map = graph.children_map
+    summary_ids = graph.summary_ids
+    leaf_tasks, expanded_deps = graph.tasks, graph.dependencies
 
     sched_project = SchedProject(
         id=project_id,

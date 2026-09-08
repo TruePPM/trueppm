@@ -288,6 +288,24 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
   });
 
+  it('refreshes shellStats on project_updated so the health chip follows the report', () => {
+    // #3501: the top bar's chip word is the server's `health_band`, which folds
+    // in the manual `Project.health` report. A PM filing a status emits
+    // `project_updated`; without the shellStats invalidation the chip keeps the
+    // old word for every other viewer and contradicts the Overview header again.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('project_updated');
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['shellStats', 'proj-1'] });
+    // …and the two that were already there. Registration is last-write-wins, so
+    // a second `on('project_updated', …)` would have silently dropped these
+    // (rule 331) — asserting all three is what catches that mistake.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+
   it('invalidates project and projects list on project_transferred', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

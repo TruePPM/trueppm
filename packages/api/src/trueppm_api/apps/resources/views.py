@@ -34,6 +34,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     ProjectScopedViewSet,
     _membership_role,
+    assert_project_not_archived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, Task, TaskActivityEventType
@@ -269,6 +270,19 @@ class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill
             ),
         ],
     ),
+    create=extend_schema(
+        responses={
+            201: ProjectResourceSerializer,
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks the Resource Manager role on the target project, or that "
+                    "project is archived (#3414). The project is named only in the request "
+                    "body here, so the refusal comes from the view rather than a permission "
+                    "class — the status and body are the same either way."
+                )
+            ),
+        },
+    ),
     destroy=extend_schema(
         parameters=[
             OpenApiParameter(
@@ -322,7 +336,17 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
         return qs
 
     def perform_create(self, serializer: BaseSerializer[ProjectResource]) -> None:
-        """Verify SCHEDULER+ role on the project before adding to roster."""
+        """Verify SCHEDULER+ role and a live project before adding to roster.
+
+        The archived check is here, not left to ``IsProjectNotArchived`` on the class,
+        because this route is top-level (``POST /api/v1/project-resources/``) and names
+        the project only in the request BODY (#3414). ``has_permission`` finds no
+        ``project_pk`` kwarg and stands down, and DRF never calls
+        ``has_object_permission`` on a create — there is no object yet. The declared
+        permission class therefore reads as gating in review and enforces nothing on
+        exactly the request that creates a row, which is how roster adds (and the CPM
+        recalculation they enqueue) reached archived projects.
+        """
         project = serializer.validated_data.get("project")
         if project:
             role = _membership_role(self.request, str(project.pk))
@@ -330,6 +354,7 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
                 raise PermissionDenied(
                     "You need at least Resource Manager role to manage the roster."
                 )
+            assert_project_not_archived(project.pk)
         instance = serializer.save()
 
         # Mirror the destroy() path: a roster add is invisible to connected
@@ -1122,6 +1147,19 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
             ),
         ],
     ),
+    create=extend_schema(
+        responses={
+            201: TaskResourceSerializer,
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks the Resource Manager role on the target project, or that "
+                    "project is archived (#3414). The project is named only in the request "
+                    "body here, so the refusal comes from the view rather than a permission "
+                    "class — the status and body are the same either way."
+                )
+            ),
+        },
+    ),
 )
 class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResource]):
     """CRUD for task-resource assignments.
@@ -1235,6 +1273,11 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
                 raise PermissionDenied(
                     "You need at least Resource Manager role to assign resources."
                 )
+            # Same shape as the role check above, and for the same structural reason
+            # (#3414): the route is top-level, the project is reached only through the
+            # body's ``task``, and ``has_object_permission`` does not run on a create —
+            # so the class-level ``IsProjectNotArchived`` cannot see this write.
+            assert_project_not_archived(task.project_id)
         if task and task_is_summary(task):
             raise ValidationError({"task": "Cannot assign resources to a summary task."})
         obj = serializer.save()
