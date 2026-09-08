@@ -44,9 +44,16 @@ function mapAssignment(a: ApiResourceAssignment): ResourceAssignment {
 
 /**
  * GET /api/v1/resources/{id}/assignments/ — cross-project task assignments for one
- * resource (#2047). The endpoint is IsOrgAdmin-gated, so this is only enabled for
- * callers who can see the org catalog's Assignments view; a 403 surfaces as the
- * query's error state and the section stays hidden for non-admins upstream.
+ * resource (#2047). The endpoint requires `IsWorkspaceOperator` — the installation
+ * superuser (#3569 raised it from `IsOrgAdmin`, which any account self-granted by
+ * creating a project). A 403 surfaces as the query's error state and the section
+ * renders nothing.
+ *
+ * Expect 403 to be the *common* case, not an exceptional one: the upstream
+ * `can_access_admin_settings` gate on the section is much broader than the server's
+ * operator check, so ordinary project admins reach this hook and are refused.
+ * Narrowing that gate needs a server-computed operator flag on `/me`, which does
+ * not exist yet.
  */
 export function useResourceAssignments(resourceId: string | undefined) {
   return useQuery({
