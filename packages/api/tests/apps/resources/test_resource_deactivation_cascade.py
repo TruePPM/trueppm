@@ -19,7 +19,7 @@ assertion at all.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -214,7 +214,7 @@ class TestRoster:
         assert row.is_deleted is True
         assert row.deactivated_with_resource is True
 
-    def test_restore_does_not_resurrect_a_hand_removed_membership(
+    def test_restore_does_not_adopt_a_row_it_did_not_soft_delete(
         self, client: APIClient, cal: Calendar, program: Program, alice: Resource
     ) -> None:
         """The whole reason the discriminator exists.
@@ -222,9 +222,13 @@ class TestRoster:
         A pure guard — it passes on the unfixed code too, because unfixed code
         resurrects nothing. It exists to pin the direction the cascade must NOT go.
 
-        A membership someone ended before the deactivation must stay ended:
-        reactivating an employee is not a licence to re-add them to a project a
-        PM had deliberately taken them off.
+        The row is built directly in the ORM on purpose: roster removal through
+        the API is a *hard* delete (``ProjectResourceViewSet.destroy`` calls
+        ``instance.delete()`` and ``VersionedModel`` has no override), so the
+        cascade is currently the only product path that produces a soft-deleted
+        roster row. This pins that restore reverses what it stamped rather than
+        adopting every ``is_deleted`` row it finds — the state an importer, a
+        management command or a data repair could leave behind.
         """
         other = Project.objects.create(
             name="Beta", start_date=WINDOW_START, calendar=cal, program=program
@@ -652,3 +656,89 @@ class TestCascadeBookkeeping:
         _restore(client, alice)
         row.refresh_from_db()
         assert row.is_deleted is False
+
+
+# ---------------------------------------------------------------------------
+# Surface 7 — the two siblings the first pass missed (regression-check)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestMissedSiblings:
+    """Both found by `regression-check`'s recurrence sweep, not by the first pass.
+
+    They are the same class as surfaces 2-5 above and were 7400 lines and one
+    module away from the call sites that got converted — which is exactly the
+    argument for `ResourceScopedManager.active()` existing at all.
+    """
+
+    def test_drawer_overallocation_flag_drops_a_deactivated_resources_load(
+        self, client: APIClient, project: Project, alice: Resource, bob: Resource
+    ) -> None:
+        """``assignee_is_overallocated`` is a capacity read like the heat map.
+
+        The flag is computed per *assignee user*, summing the units of every
+        resource assigned to that user's tasks. A deactivated person's retained
+        rows kept a user flagged as over-allocated on load nobody carries.
+        """
+        member = User.objects.create_user(username="drawer_3572", password="pw")
+        ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+        task = _task(project, "Heavy", "1")
+        task.assignee = member
+        task.save(update_fields=["assignee"])
+        # 0.8 + 0.8 = 1.6 > 1.0, so the flag is on while both count.
+        TaskResource.objects.create(task=task, resource=alice, units=Decimal("0.80"))
+        TaskResource.objects.create(task=task, resource=bob, units=Decimal("0.80"))
+
+        def _flag() -> bool:
+            resp = client.get(f"/api/v1/tasks/{task.pk}/")
+            assert resp.status_code == 200, resp.content
+            return bool(resp.json()["assignee_is_overallocated"])
+
+        assert _flag() is True
+        _deactivate(client, alice)
+        assert _flag() is False
+        _restore(client, alice)
+        assert _flag() is True
+
+    def test_recurring_generator_stops_reassigning_a_deactivated_resource(
+        self, client: APIClient, project: Project, alice: Resource, bob: Resource
+    ) -> None:
+        """The one path that could silently *undo* a deactivation.
+
+        ``inherit_assignee`` copies the template's assignments onto every
+        generated occurrence — a **write**. Left unfiltered it re-assigns a
+        deactivated person to future work indefinitely, and does so through a
+        back door around the API refusal added for the same issue.
+        """
+        from trueppm_api.apps.projects.models import (
+            RecurrenceEndType,
+            TaskRecurrenceFrequency,
+            TaskRecurrenceRule,
+        )
+        from trueppm_api.apps.projects.services import _generate_due_occurrences
+
+        anchor = date.today()
+        template = _task(project, "Standup", "1")
+        template.planned_start = anchor
+        template.is_recurring = True
+        template.save(update_fields=["planned_start", "is_recurring"])
+        TaskResource.objects.create(task=template, resource=alice, units=Decimal("0.50"))
+        TaskResource.objects.create(task=template, resource=bob, units=Decimal("0.50"))
+        rule = TaskRecurrenceRule.objects.create(
+            task=template,
+            frequency=TaskRecurrenceFrequency.DAILY,
+            interval=1,
+            end_type=RecurrenceEndType.NEVER,
+            time_of_day=time(9, 0),
+            inherit_assignee=True,
+        )
+
+        _deactivate(client, alice)
+        created = _generate_due_occurrences(rule, horizon_days=5)
+        assert created, "the generator produced no occurrences; the assertion below is vacuous"
+
+        owners = set(
+            TaskResource.objects.filter(task__in=created).values_list("resource_id", flat=True)
+        )
+        assert owners == {bob.pk}, "a deactivated resource was assigned to newly generated work"

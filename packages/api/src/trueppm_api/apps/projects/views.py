@@ -4411,8 +4411,13 @@ def annotate_tasks_queryset(
     # same user contribute to that user's overallocation total.
     from trueppm_api.apps.resources.models import TaskResource as _TR
 
+    # ``.active()`` (#3572): a deactivated resource's assignment rows are retained
+    # for audit, so without this the drawer keeps flagging a user as over-allocated
+    # on load nobody is carrying. Same class as ProjectAttentionView's
+    # over-allocation bucket below.
     overallocated_subq = (
-        _TR.objects.filter(
+        _TR.objects.active()
+        .filter(
             task__assignee_id=OuterRef("assignee_id"),
             task__project_id=OuterRef("project_id"),
             task__status__in=[

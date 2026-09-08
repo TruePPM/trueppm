@@ -175,13 +175,20 @@ class ProjectResource(VersionedModel):
     role_title = models.CharField(max_length=120, blank=True)
     units_override = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     notes = models.TextField(blank=True, default="")
-    # The discriminator that makes reactivation reversible (#3572). A roster row can
-    # reach is_deleted=True two ways with opposite intent: a person removed the
-    # resource from *this* project, or the resource was deactivated org-wide and
-    # ResourceViewSet.perform_destroy cascaded. Only the second may be undone by
-    # ResourceViewSet.restore — without the flag, restoring a resource would also
-    # resurrect memberships somebody deliberately ended, silently re-adding a person
-    # to a project they had been taken off.
+    # The discriminator that makes reactivation reversible (#3572): it marks a roster
+    # row as soft-deleted BY the org-wide deactivation cascade in
+    # ResourceViewSet.perform_destroy, so ResourceViewSet.restore puts back exactly
+    # the rows that cascade took away and nothing else.
+    #
+    # Be precise about why that is not redundant with is_deleted. Roster removal
+    # through the API (ProjectResourceViewSet.destroy) is a HARD delete — it calls
+    # instance.delete() and VersionedModel has no delete() override — so a
+    # hand-removed membership leaves no row at all, and today the cascade is the only
+    # product path that produces a soft-deleted ProjectResource. The flag is what
+    # keeps that true rather than assumed: without it, restore would have to revive
+    # every is_deleted row for the resource, which silently adopts whatever the
+    # importer, a management command, a data repair, or a future soft-delete path
+    # left behind. Restore states what it reverses instead of inferring it.
     deactivated_with_resource = models.BooleanField(default=False)
 
     objects: ClassVar[ProjectResourceManager] = ProjectResourceManager()

@@ -6047,10 +6047,17 @@ def _generate_due_occurrences(
     # Same for the template's assignments, in the shape apply_task_owners expects.
     # ``select_related`` because that helper reads ``resource.project_id`` when it
     # auto-rosters, which would otherwise be one extra query per owner per occurrence.
+    # ``.active()`` (#3572) because this is a WRITE path, not a read: apply_task_owners
+    # creates a new TaskResource row on every generated occurrence, so an unfiltered
+    # template would keep assigning a deactivated person to future work forever — the
+    # one place deactivation could be silently undone. It is also the same write the
+    # API now refuses outright (ResourceSerializer's active-only ``resource`` FK), and
+    # the generator must not be a back door around it. A template whose only owner has
+    # been deactivated generates unowned occurrences, which is the honest outcome.
     template_owners: list[dict[str, object]] = (
         [
             {"resource": tr.resource, "units": tr.units}
-            for tr in TaskResource.objects.filter(task=template).select_related("resource")
+            for tr in TaskResource.objects.active().filter(task=template).select_related("resource")
         ]
         if rule.inherit_assignee
         else []

@@ -974,9 +974,10 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
             instance.deleted_version = instance.server_version
             instance.save(update_fields=["is_deleted", "server_version", "deleted_version"])
 
-            # Roster cascade. Only rows that are live *right now* are stamped, so a
-            # membership already ended by hand keeps deactivated_with_resource=False
-            # and restore leaves it alone. Bulk ``update()`` rather than per-row
+            # Roster cascade. Only rows that are live *right now* are stamped, so any
+            # roster row soft-deleted by some other path keeps
+            # deactivated_with_resource=False and restore leaves it alone — see the
+            # field's own comment for why that matters. Bulk ``update()`` rather than per-row
             # ``soft_delete()``: ProjectResource is outside the sync union (nothing
             # reads its sync_seq), so there is no tombstone to publish and no reason
             # to spend a query per roster row on an off-boarding.
@@ -1074,10 +1075,13 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         catalog but silently absent from every team they were on — a second bug in
         the shape of the first.
 
-        Only rows stamped ``deactivated_with_resource`` come back. A membership
-        someone ended by hand before the deactivation carries ``False`` and stays
-        removed: reactivating an employee must not silently re-add them to a project
-        a PM had taken them off.
+        Only rows stamped ``deactivated_with_resource`` come back — restore states
+        what it reverses rather than inferring it from ``is_deleted``. Roster removal
+        through the API is a hard delete, so the cascade is currently the only
+        product path that leaves a soft-deleted roster row; the stamp is what keeps
+        that an assertion rather than an assumption, so a row soft-deleted by an
+        import, a management command, or a data repair is never silently adopted
+        into somebody's reactivation. See ``ProjectResource.deactivated_with_resource``.
         """
         if pk is None:
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
@@ -1303,6 +1307,13 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         # select_related("task__project") avoids N+1 queries in perform_create
         # and perform_update, both of which call ensure_project_resource(obj.task.project, ...)
         # and therefore load the full Project object (R2).
+        #
+        # Deliberately NOT ``.active()`` (#3572), unlike its two siblings in this
+        # file. This is the assignment list, not a capacity read: when somebody is
+        # deactivated their assignment rows are kept precisely so a PM can still see
+        # the orphaned work and reassign it. Hiding them here would make the tasks
+        # look unowned with no way to find out who had them. The rows carry no load
+        # anywhere else — every capacity surface filters them out.
         qs = (
             TaskResource.objects.select_related("task__project", "resource")
             .filter(task__project_id__in=member_project_ids)
