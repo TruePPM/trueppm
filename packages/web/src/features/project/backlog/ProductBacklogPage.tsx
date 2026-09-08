@@ -54,6 +54,7 @@ import { Button } from '@/components/Button';
 import { toast } from '@/components/Toast';
 import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
+import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
 import { ListIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -1104,6 +1105,27 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
             totalCount={totalCount}
             labels={labels}
             labelCounts={labelCounts}
+          />
+        )}
+
+        {/* A methodology flip to WATERFALL hides Backlog from the nav
+            (methodologyTabs.ts) but never touches the stories in it (#2619) —
+            without this, a groomed backlog renders as an ordinary populated page
+            with nothing saying the surface now sits outside the project's
+            workflow. `totalCount` is the UNFILTERED story count on purpose (rule
+            388): this is a statement about the project, not about the active
+            filter, and the filter has its own no-results state. Both early
+            returns above have already resolved `isLoading` / `isError`, so the
+            count here can never be a loading `0` (rule 392). */}
+        {!allEmpty && effectiveMethodology === 'WATERFALL' && (
+          <MethodologyMismatchBanner
+            projectId={projectId}
+            className="mx-6 mt-2"
+            message={`This project is configured as Waterfall, but ${totalCount} ${
+              totalCount === 1 ? 'story' : 'stories'
+            } already ${
+              totalCount === 1 ? 'is' : 'are'
+            } groomed here — they stay reachable even though they sit outside its workflow.`}
           />
         )}
 

@@ -68,11 +68,33 @@ async function setup(page: import('@playwright/test').Page) {
   );
   // Broad empty stubs so the views (and the TaskFormModal's dependent queries) don't
   // hit the live network. The "+ New" lives in the chrome, independent of view data.
-  for (const path of ['tasks', 'dependencies', 'sprints', 'risks', 'attention', 'my-tasks', 'resource-allocation', 'status-summary', 'presence', 'velocity', 'monte-carlo/latest']) {
+  for (const path of ['tasks', 'dependencies', 'sprints', 'risks', 'attention', 'my-tasks', 'resource-allocation', 'presence', 'velocity', 'monte-carlo/latest']) {
     await page.route(`**/api/v1/projects/${PID}/${path}/**`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj(page200) }),
     );
   }
+  // status-summary is OBJECT-shaped and is deliberately not in the loop above: the
+  // list-shaped `page200` is the malformed-mock class that crashes a component into
+  // the root error boundary and surfaces as an unrelated flake later (this spec's own
+  // #1190). It also has to carry `health_band` since #3501 — the shell chip reads the
+  // server's band and derives nothing from the counts.
+  await page.route(`**/api/v1/projects/${PID}/status-summary/**`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        task_count: 0,
+        health_band: 'on_track',
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
+      }),
+    }),
+  );
   await page.route('**/api/v1/projects/*/presence/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }));
   await page.route('**/api/v1/tasks/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj(page200) }));
   await page.route('**/api/v1/dependencies/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj(page200) }));

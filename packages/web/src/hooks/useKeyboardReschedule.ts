@@ -32,6 +32,7 @@ import {
   isPinnedByActuals,
   PINNED_KEYBOARD_REFUSAL,
 } from '@/features/schedule/pinnedByActuals';
+import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
 import { nudgeWorkingDays } from '@/features/schedule/scheduleUtils';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
@@ -153,13 +154,9 @@ export function useKeyboardReschedule({
 
       updatePreview(msg.results, msg.worstMilestone, msg.overflowCount);
 
-      // Polite announcement of the worst milestone slip (rule 30 pattern)
+      // Polite announcement of the most-moved milestone (rule 30 pattern)
       if (ariaLiveRef.current && msg.worstMilestone) {
-        const { name, deltaDays } = msg.worstMilestone;
-        ariaLiveRef.current.textContent =
-          deltaDays > 0
-            ? `${name} slips ${deltaDays} day${deltaDays === 1 ? '' : 's'}`
-            : `${name} on schedule`;
+        ariaLiveRef.current.textContent = milestoneDeltaAnnouncement(msg.worstMilestone);
       }
     };
 

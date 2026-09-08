@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import statistics
 import uuid
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -528,6 +529,131 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
         )
         for t in db_tasks
     ]
+
+
+def build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
+    """Map each summary task's id to its direct children's ids via the WBS hierarchy.
+
+    A task is a *summary* when another task's ``wbs_path`` is a direct child of its
+    own (e.g. ``1.2`` is a direct child of ``1``). Tasks are indexed by ``wbs_path``
+    in a single pass so each task resolves its parent with one dict lookup — O(N)
+    total. The former inline construction scanned ``db_tasks`` for every task to find
+    its parent by string equality (O(N^2)), the one superlinear step left in recalc;
+    at 5k+ tasks it began to dominate the "Building schedule model" phase (#1011).
+
+    ``setdefault`` makes the first task in ``db_tasks`` order win a duplicate
+    ``wbs_path``, exactly mirroring the prior loop's first-match-and-break semantics,
+    and children are appended in ``db_tasks`` order — so the result is byte-for-byte
+    identical to the O(N^2) version it replaces.
+
+    Lives here rather than in ``scheduling.tasks`` (#3527) because summary shaping is
+    part of the shared API→engine graph construction, not a detail of the Celery
+    recalc: see :func:`build_sched_graph`.
+    """
+    id_by_wbs_path: dict[str, str] = {}
+    for t in db_tasks:
+        if t.wbs_path:
+            id_by_wbs_path.setdefault(str(t.wbs_path), str(t.id))
+
+    children_map: dict[str, list[str]] = {}
+    for t in db_tasks:
+        if not t.wbs_path:
+            continue
+        parts = str(t.wbs_path).rsplit(".", 1)
+        if len(parts) < 2:
+            continue
+        parent_id = id_by_wbs_path.get(parts[0])
+        if parent_id is not None:
+            children_map.setdefault(parent_id, []).append(str(t.id))
+    return children_map
+
+
+@dataclass(frozen=True)
+class SchedGraph:
+    """The leaf-only scheduler graph for a project, with the summary shape that made it.
+
+    ``tasks``/``dependencies`` are what goes into ``SchedProject``; ``summary_ids``
+    and ``children_map`` are what the deterministic pass needs afterwards to roll the
+    summaries back up (ADR-0105), and ``leaf_db_tasks`` is the Django-row subset that
+    corresponds to ``tasks`` — for any per-task reporting that must describe the set
+    actually simulated rather than the set loaded.
+    """
+
+    tasks: list[Any]
+    dependencies: list[Any]
+    summary_ids: set[str]
+    children_map: dict[str, list[str]]
+    leaf_db_tasks: list[Any]
+
+
+def build_sched_graph(
+    db_tasks: list[Any], sched_tasks: list[Any], sched_deps: list[Any]
+) -> SchedGraph:
+    """Strip summary rows out of a scheduler graph and fan their edges down to leaves.
+
+    Summary (phase) rows are grouping nodes, not schedulable work: ADR-0105 excludes
+    them from the CPM pass and derives their dates by rolling up their leaves. This is
+    the shaping step that enforces that, and it is shared for the same reason
+    :func:`build_sched_tasks` is (#1185): the deterministic CPM pass and every Monte
+    Carlo path must schedule *the same network*.
+
+    Sharing only the converter was not enough (#3527). ``_run_schedule`` did this
+    shaping inline while the Monte Carlo endpoint, the what-if endpoint and the
+    derivation builder all called ``build_sched_tasks`` and fed the result straight to
+    the engine, so every phase entered those simulations as an ordinary task: a large,
+    never-started, unconstrained block of work. A summary's stored ``percent_complete``
+    is 0 (the 100% the UI shows is the read-time ``percent_complete_rollup``
+    annotation, never a stored value) and it carries no dependencies of its own, so
+    each phase floored at the data date and the longest one became the simulated
+    project finish. The forecast was flat, unrelated to the network, and *worsened* by
+    recording real progress — closing a task stretched the phase span the phantom's
+    duration was read from. Every project with phases was affected; a flat-WBS project
+    was not, which is why no unit suite caught it.
+
+    Removing summaries from the network also removes the only reader that turned
+    #3530 into a wrong forecast: ``_apply_cpm_results`` writes a summary's ``duration``
+    as a **calendar-day** span while the engine reads ``duration`` as **working days**,
+    which inflated the phantom a further ~1.4x. That field is still wrong for every
+    other consumer — #3530 owns it, and this function is not a fix for it.
+
+    Args:
+        db_tasks: the Django ``Task`` rows the graph was built from, in the same order.
+        sched_tasks: scheduler tasks from :func:`build_sched_tasks`, summaries included.
+        sched_deps: scheduler dependencies, which may reference summary endpoints.
+
+    Returns:
+        A :class:`SchedGraph`. When the project has no summaries the task and
+        dependency lists are the inputs unchanged.
+    """
+    from trueppm_scheduler.engine import (
+        MAX_DEPENDENCIES,
+        InvalidScheduleInput,
+        expand_summary_dependencies,
+    )
+
+    # The O(1) raw-edge cap, enforced HERE rather than left to the engine (#3527).
+    # `_validate_project` checks it too, but only once `schedule()`/`monte_carlo()`
+    # is called — which is *after* this function has already walked the edge list.
+    # `run_monte_carlo`'s synchronous-by-design argument (#1203) rests on the cheap
+    # cap running before any per-edge work, and moving expansion onto the request
+    # path put the expensive step first. Checking the list length restores that
+    # order for every caller, including the Celery pass, where it is simply earlier.
+    if len(sched_deps) > MAX_DEPENDENCIES:
+        raise InvalidScheduleInput(
+            f"Project has {len(sched_deps)} dependencies, exceeding the maximum of "
+            f"{MAX_DEPENDENCIES}; the graph cannot be scheduled within resource limits."
+        )
+
+    children_map = build_children_map(db_tasks)
+    summary_ids = set(children_map.keys())
+    leaf_tasks, expanded_deps = expand_summary_dependencies(sched_tasks, sched_deps, children_map)
+    return SchedGraph(
+        tasks=leaf_tasks,
+        dependencies=expanded_deps,
+        summary_ids=summary_ids,
+        children_map=children_map,
+        leaf_db_tasks=[t for t in db_tasks if str(t.id) not in summary_ids],
+    )
 
 
 def build_sched_calendar(cal: Calendar | None) -> Any:

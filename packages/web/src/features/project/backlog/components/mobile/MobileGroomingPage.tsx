@@ -18,6 +18,7 @@ import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
+import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
 import type { Task } from '@/types';
 import { filterBacklog } from '../../filter';
 import { useGroomingFilters } from '../../hooks/useGroomingFilters';
@@ -151,6 +152,24 @@ export function MobileGroomingPage() {
           </button>
         )}
       </header>
+
+      {/* The phone half of the populated-backlog signal (#2619). Mobile already
+          ships the EMPTY half below, so omitting this would recreate on mobile
+          the emptiness-gated blind spot this change closes. `totalCount` is the
+          unfiltered story count (rule 388), and this page's own `isLoading` /
+          `isError` early returns sit above it, so it is never a loading `0`
+          (rule 392). */}
+      {!allEmpty && effectiveMethodology === 'WATERFALL' && (
+        <MethodologyMismatchBanner
+          projectId={projectId}
+          className="mx-4 mt-2"
+          message={`This project is configured as Waterfall, but ${totalCount} ${
+            totalCount === 1 ? 'story' : 'stories'
+          } already ${
+            totalCount === 1 ? 'is' : 'are'
+          } groomed here — they stay reachable even though they sit outside its workflow.`}
+        />
+      )}
 
       {allEmpty && effectiveMethodology === 'WATERFALL' ? (
         // WATERFALL hides this view's nav entry (methodologyTabs.ts), but the

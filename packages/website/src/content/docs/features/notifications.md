@@ -183,6 +183,14 @@ leaves the digest immediately — it is not named in the next send, and it is no
 counted in the "showing the first 25 of N" line when you belong to more than the
 per-digest cap.
 
+Deactivating an account stops both digests outright, whatever its memberships
+still say. Off-boarding disables the account without touching its project and
+program memberships, so this is a separate stop from the membership scoping
+above — a deactivated member is dropped from the audience before the send is
+even considered. Any notification email already queued for them when they are
+deactivated is dropped rather than delivered. See
+[Off-boarding also stops outbound mail](/administration/workspace-settings/).
+
 Turning on either digest reveals a **Digest schedule** card — a day and hour
 picker, evaluated in your own timezone, that governs both digests together
 (there is one schedule per user, not one per digest).

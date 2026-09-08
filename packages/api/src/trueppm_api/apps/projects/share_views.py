@@ -164,6 +164,17 @@ class ProjectShareLinkRevokeView(IdempotencyMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated, IsProjectAdmin]  # noqa: RUF012
+    # Exempt from the archived-write invariant (#3414), for the same reason the kill
+    # switch does not block it: revocation REMOVES access, and an archived project's
+    # share links keep serving. `_serve_public_share` 410s a link whose project is in
+    # Trash, not one whose project is archived — so gating revoke would leave an Admin
+    # watching a live public link on a frozen plan with no way to kill it short of
+    # unarchiving. Minting a link IS gated: `ProjectShareLinkListCreateView` carries
+    # `IsProjectNotArchived`.
+    archived_write_exempt = (
+        "revocation only removes access; an archived project's links keep serving, so "
+        "blocking revoke would strand an Admin with a live public link"
+    )
 
     @extend_schema(
         summary="Revoke a board share link",

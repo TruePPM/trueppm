@@ -238,6 +238,44 @@ time without gaining a code: removing a project or program member whose role is
 at or above your own now answers a bare `{"detail": "..."}` `403`, the same shape
 as the not-an-Owner refusal beside it.
 
+#### The archived-project `403`
+
+:::note[Ships in 0.4]
+The completeness described here ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the
+latest release) the gate is real but has gaps a client can hit: a `DELETE` on any
+project-scoped resource succeeds on an archived project, and so do a roster add, a
+resource assignment, a CPM recalculation, a Monte Carlo run, CI verdict ingest, and
+the project-webhook and Git-automation admin routes. On 0.3, do not treat archiving
+as the thing that stops an integration writing to a plan.
+:::
+
+An **archived** project is read-only, and every write against one answers `403`
+with a bare `detail` and no `code`:
+
+```json
+{ "detail": "This project is archived and cannot be modified. Unarchive it first." }
+```
+
+Three things worth knowing before you branch on it:
+
+- **It is not a role problem, so retrying with more permission never helps.** An
+  Owner gets the same refusal as a Viewer; the state belongs to the plan, not to
+  you. The only fix is `POST /api/v1/projects/{id}/unarchive/`.
+- **It shares its status with the role refusals above.** The two are
+  indistinguishable by status code, and this refusal carries no `code` key — match
+  on `detail` if you need to tell them apart.
+- **Reads are unaffected, and so is taking access away.** `GET` on any endpoint
+  keeps working on an archived project, and so do the routes that *remove* a grant
+  rather than add one: revoking a share link or an API token, removing yourself
+  from the project, and cancelling an in-flight task run. An archived project keeps
+  serving what those revoke, so closing them would strand you.
+
+Where an endpoint cannot answer `403` without leaking something, it refuses
+differently and says so: the inbound Git webhook receiver answers its usual bare
+`404` — identical to every other pre-verification refusal, because it is
+unauthenticated — and records the reason as `project_archived` on the project's
+Git automation config, which only an Admin can read.
+
 ### 404 / 409 — conflicts and protected references
 
 Refused deletes carry a count of the rows still pointing at the target, and —
@@ -403,7 +441,7 @@ treat them as failures:
 
 | Code | Appears on | Meaning |
 |------|-----------|---------|
-| `resource_overallocated` | assignment writes | The resource is now allocated beyond its capacity |
+| `resource_overallocated` | assignment writes | The resource's load on at least one working day now exceeds their capacity. The `detail` names that day |
 | `skill_mismatch` | assignment writes | The resource lacks a skill the task requires |
 | `has_assignments` | task restructure | A task became a summary task while still carrying assignments |
 | `scope_pending_on_close` | sprint close | Scope-injection requests were still pending at close |

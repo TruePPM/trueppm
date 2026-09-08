@@ -404,7 +404,7 @@ The three things that actually go wrong, and what each one means:
 |---|---|
 | The persona login is rejected | The sample was loaded without `--with-personas`, so the accounts exist but have no usable password. Re-run the load command with the flag. |
 | The password `demo` doesn't work | You are not on a `DEBUG=True` stack. The real password was printed once when the command ran — it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token. Re-run the load command to print a fresh one. |
-| A view named in a step isn't in the rail | The project's methodology hides it — an agile project has no **Plan** group, a waterfall project has no **Deliver** group. Switch to the sample the step names, or check **Settings → Methodology**. |
+| A view named in a step isn't in the rail | The project's methodology hides it — an agile project has no **Plan** group, a waterfall project has no **Deliver** group. Switch to the sample the step names, or check **Settings → How this team works**. |
 
 Anything else that doesn't match this page is worth telling us about — the
 walkthroughs are meant to be followable exactly as written.

@@ -198,7 +198,17 @@ def _merge_children_map(db_tasks: list[Any], children_map: dict[str, list[str]])
     """Add ``db_tasks``' parent→children edges to the merged WBS map, in place.
 
     Built per project from ``wbs_path`` then merged — keys are globally-unique task
-    ids, so no namespacing is needed. Mirrors ``_run_schedule`` exactly.
+    ids, so no namespacing is needed, but the *paths* are only unique within a
+    project, which is why this merges one project at a time instead of calling
+    ``scheduling.services.build_children_map`` over the whole merged set.
+
+    It no longer "mirrors ``_run_schedule`` exactly" as this docstring used to claim:
+    since #3527 that function builds its map through ``build_children_map`` (the O(N)
+    index from #1011), while this is still the O(N^2) parent scan that predates it.
+    The two produce identical output — ``tests/apps/scheduling/test_children_map.py``
+    pins that equivalence — so nothing is wrong today; it is a fourth copy of one
+    rule, and collapsing it into ``build_children_map`` is follow-up work rather than
+    part of the forecast fix.
     """
     for t in db_tasks:
         if not t.wbs_path:
