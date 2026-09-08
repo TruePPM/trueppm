@@ -266,6 +266,20 @@ this and keep their existing, more restrictive rules:
   step an attacker has already worked around. Manage tokens from a signed-in
   session; for an operator-side sweep see
   [`revoke_api_tokens`](/administration/management-commands/).
+- **SSO provider configuration is session-only too.**
+  `/workspace/sso/providers/`, `/workspace/sso/providers/{slug}/` and
+  `/workspace/sso/providers/{slug}/test-connection/` refuse token callers the same
+  way, on **every** method including the reads. Provider configuration decides who
+  may become a member and at what role, so a token that could widen a provider's
+  allowed domains and switch on auto-create at the Admin default role would turn one
+  leaked credential into a durable admin account that revoking the token does not
+  reach. Configure providers from a signed-in session.
+
+  The refused `403` carries the same body in both cases: a `detail` string plus a
+  `refusal` envelope of `{"verdict": "refused", "reason": "policy", "constraint":
+  "capability_scope"}`. A token that is revoked, expired, or carries the wrong
+  scope never reaches that check — the authenticator answers `401` with
+  `reason: identity` first.
 - **`TaskSyncView`** and the acceptance-result ingest endpoint (above) still
   require `IsTokenForProject` — the token's `project`/`program` FK must
   resolve to the URL's project. A personal token has neither set, so a PAT
@@ -292,8 +306,11 @@ public by design — they *are* the login flow:
 SSO-authenticated sessions are always session-scoped (12h sliding, session
 cookie) — there is no `remember_me` checkbox in an IdP redirect, so the safe
 default applies unconditionally. The admin-facing provider CRUD
-(`/api/v1/workspace/sso/providers/`) is a separate, authenticated surface; see
-[Workspace Settings](/administration/workspace-settings/).
+(`/api/v1/workspace/sso/providers/`) is a separate, authenticated surface — workspace
+Admin on every method, and **session/JWT only**: it refuses API tokens, reads
+included (see [Authentication](#authentication) above). See
+[Workspace Settings](/administration/workspace-settings/) and
+[Single sign-on](/administration/single-sign-on/).
 
 This is deliberately basic, self-service login federation — OSS per the
 [auth carve-out](/license/): an admin points TruePPM at their own IdP and users

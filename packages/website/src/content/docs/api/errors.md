@@ -426,12 +426,17 @@ https://ppm.example.com/auth/complete?error=invalid_state
 These codes never carry token material or PII.
 
 The admin provider-configuration endpoints under `/api/v1/workspace/sso/providers/`
-are ordinary JSON APIs, not redirects, and add two conflicts:
+are ordinary JSON APIs, not redirects, and add a refusal and two conflicts:
 
 | Code / status | Meaning |
 |---------------|---------|
+| `403` with `refusal.constraint: capability_scope` | The caller authenticated with an API token. Provider configuration is session/JWT-only on **every** method, reads included — see [Token management is session-only](/api/reference/#authentication). A token that is revoked, expired, or carries the wrong scope is rejected earlier by the authenticator and gets `401` with `refusal.reason: identity` instead |
 | `409` on `POST …/providers/` | A provider of that type is already configured. The provider type is its identity, so each type can be configured only once |
 | `409` with `code: sso_removal_locks_out_members` on `DELETE …/providers/{slug}/` | Removing the provider would leave members with no way to sign in at all — no password and no other configured provider. The body carries `locked_out_account_count`. Re-send with `?confirm_lockout=true` to proceed anyway |
+
+A `403` here can also come from the workspace-Admin gate when a signed-in
+non-admin calls it. That one carries `detail` alone, with no `refusal` envelope —
+which is how the two are told apart.
 
 ## Warning codes are not errors
 
