@@ -1152,6 +1152,27 @@ export interface ShellStatTask {
   name: string;
 }
 
+/**
+ * Which of the server's two branches decided a project's `healthBand`
+ * (`status-summary` / `health-summary`'s `health_band_source`, #3525).
+ *
+ * `'reported'` — a project manager set `Project.health` by hand and that report
+ * decided the band. `'derived'` — no report is filed and the at-risk / critical
+ * counts decided it. Two values, not three: `AUTO` is "no report", which *is* the
+ * derived case.
+ *
+ * It lives here rather than in `lib/healthBand.ts` on purpose. That module's whole
+ * contract is that a band is a server fact and it "deliberately holds no way to
+ * compute one" — a discriminator *about* the band's computation reopens it as a
+ * home for band-decision logic, which is exactly what #3501 deleted from it.
+ *
+ * A client must never infer this by comparing the band against the counts: a
+ * report that agrees with the counts is indistinguishable from no report at all,
+ * so the comparison misses it silently on precisely the projects where nothing
+ * looks wrong. Read the field (web rules 403(c), 397(b), 301(a)).
+ */
+export type HealthBandSource = 'reported' | 'derived';
+
 export interface ShellStats {
   taskCount: number;
   criticalPathCount: number;
@@ -1164,6 +1185,13 @@ export interface ShellStats {
    * band reads this and never re-derives one from the counts.
    */
   healthBand: HealthBand;
+  /**
+   * Where `healthBand` came from (#3525). Required, like `healthBand` itself: the
+   * server sends it on every `status-summary` response, and a surface that
+   * explains the band by listing the at-risk / critical tasks below it needs to
+   * know when those rows do NOT explain it.
+   */
+  healthBandSource: HealthBandSource;
   atRiskCount: number;
   criticalCount: number;
   /** Tasks with health = at-risk (up to 5 shown in badge popover) */

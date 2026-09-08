@@ -1473,6 +1473,16 @@ REST_FRAMEWORK = {
         # an abuse bound so an admin cannot drive unbounded outbound requests.
         # 20/min is ample for a human wiring up a provider.
         "sso_test_connection": _MODERATE_RATE,
+        # SSO provider create/update/delete (#3552, ADR-1120). These views previously
+        # declared no throttle and fell back to the global "user" rate of 1000/min. Each
+        # accepted write now also appends an AuditEvent row, and the OSS audit table has
+        # no retention or pruning — so a scripted `enabled` toggle would append at the
+        # request ceiling, every row a *genuine* change that the no-op suppression cannot
+        # filter. Note who pays: in a self-hosted install the workspace Admin driving the
+        # loop and the operator whose disk fills are frequently different people. Applied
+        # to the mutating methods only (see ``_SsoProviderWriteThrottle``) — the
+        # collection GET backs the admin page and must not be capped at a write rate.
+        "sso_provider_write": _MODERATE_RATE,
         # Integration-credential and Git webhook-secret endpoints (#1551). Covers the
         # per-user credential store (connect/rotate/revoke/read) and the project-admin
         # Git-automation config + secret-rotation views. Each of these mints, returns,
@@ -2179,6 +2189,16 @@ SPECTACULAR_SETTINGS = {
         # ShareLinkCreateResponse and Task. Same regression class as every pin in
         # this block. Keep the incumbent's name; the new set takes the prefixed one.
         "KindEnum": "trueppm_api.apps.projects.asset_feed.KIND_CHOICES",
+        # #3525: health_band_source is declared on BOTH the single-project status
+        # summary and the my-projects health summary. Identical choices already
+        # resolve to one component, but the pin is proactive rather than
+        # incidental: the next endpoint that grows a "source" choice set would
+        # otherwise make drf-spectacular disambiguate every one of them by prefix
+        # and rename the published component — the project_drf_enum_name_collision
+        # regression every pin in this block exists to prevent. Pinned to the
+        # shared constant the two declarations reference, so the name cannot drift
+        # from the vocabulary.
+        "HealthBandSourceEnum": "trueppm_api.apps.projects.views.HEALTH_BAND_SOURCE_CHOICES",
         "TemplateSourceEnum": "trueppm_api.apps.projects.models.TemplateSource",
         # ADR-0116: Workspace.iteration_label_override_policy adds an
         # INHERIT/SUGGEST/ENFORCE choice set. Pin it so drf-spectacular does not

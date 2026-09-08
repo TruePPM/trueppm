@@ -37,7 +37,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import DateField
+from django.db.models import DateField, Exists, OuterRef, Prefetch
 from django.db.models.functions import Coalesce
 
 # weekday() returns 0=Mon, 1=Tue, …, 6=Sun.
@@ -296,20 +296,29 @@ def compute_utilization(
     prefetch_related("assignments__resource__calendar__exceptions") applied.
     The caller (ProjectViewSet.utilization) handles the prefetch.
     """
+    # Imported here rather than at module scope: resources.models imports Task
+    # from this app, so a top-level import would close the cycle.
+    from trueppm_api.apps.resources.models import TaskResource
+
     # Delegate to the internal engine, then count unassigned tasks separately.
     rows = _compute_utilization_internal(project, window_start, window_end)
 
     # Count tasks in window that have no assignments (unassigned_task_count).
-    assigned_task_ids: set[str] = set()
-    for row in rows:
-        for day_data in row["_days"].values():
-            assigned_task_ids.update(day_data["tasks"])
-
+    #
+    # Asked as a correlated NOT EXISTS, not as a literal `NOT IN (<uuid>, …)`
+    # built from the day expansion above (#3576). The old form shipped one UUID
+    # of SQL text per in-window task — ~40 bytes each, and O(N) to evaluate per
+    # candidate row — and it answered a subtly different question: its set came
+    # from `_days`, which only holds a task if one of its assignments produced a
+    # *working day of load* inside the window. A task whose span falls entirely
+    # on non-working days therefore counted as unassigned despite plainly having
+    # an assignment. `~Exists` answers the question the field name asks, and it
+    # is served by the FK index on resources_task_resource.task_id.
     unassigned_count = (
         project.tasks.filter(is_deleted=False, early_start__isnull=False)
         .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
         .filter(_span_start__lte=window_end, early_finish__gte=window_start)
-        .exclude(pk__in=assigned_task_ids)
+        .filter(~Exists(TaskResource.objects.filter(task=OuterRef("pk"))))
         .count()
     )
 
@@ -544,8 +553,16 @@ def _compute_utilization_internal(
 
     Rows include the private ``_mask``, ``_exc_ranges``, and ``_days`` fields
     needed by ``aggregate_utilization_weekly``.  Not part of the public API.
+
+    Deactivated resources are excluded (#3572) — see the ``Prefetch`` below. This is
+    the ONE point at which the daily engine assembles its resource set, so every
+    caller inherits it: :func:`compute_utilization` (heat map),
+    :func:`aggregate_utilization_weekly` (weekly buckets, and through it
+    ``resources/summary``), :func:`compute_team_utilization` (Overview KPI numerator),
+    and the over-allocation digest.
     """
     from trueppm_api.apps.resources.capacity import project_effective_units
+    from trueppm_api.apps.resources.models import TaskResource
 
     project_cal = project.calendar
     proj_mask, proj_exceptions, proj_cal_id = _resolve_project_calendar(project_cal)
@@ -570,6 +587,17 @@ def _compute_utilization_internal(
         .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
         .filter(_span_start__lte=window_end, early_finish__gte=window_start)
         .prefetch_related(
+            # The deactivation filter lives HERE and only here: narrowing the first
+            # prefetch level is what keeps a deactivated person's retained assignment
+            # rows (kept on purpose, for audit) from drawing load on the heat map and
+            # from carrying capacity into the Overview denominator. The chained
+            # lookup below extends this same prefetch — it must stay second, or
+            # Django rejects the pair as one lookup with two querysets.
+            # ``select_related("resource")`` so the chained lookup below reuses the
+            # already-cached resource and prefetches only the calendar level.
+            Prefetch(
+                "assignments", queryset=TaskResource.objects.active().select_related("resource")
+            ),
             "assignments__resource__calendar__exceptions",
         )
     )
@@ -810,9 +838,11 @@ def compute_team_utilization(
 
     roster = {
         str(pr.resource_id): pr
-        for pr in project.resource_pool.filter(is_deleted=False).prefetch_related(
-            "resource__calendar__exceptions"
-        )
+        # ``.active()`` (#3572): a deactivated person contributes no load (the engine
+        # above dropped their assignments) but WOULD still contribute capacity here,
+        # so leaving them in the denominator understates team load at exactly the
+        # moment an off-boarding makes the remaining team busier.
+        for pr in project.resource_pool.active().prefetch_related("resource__calendar__exceptions")
     }
 
     measured = set(roster) | set(rows_by_id)

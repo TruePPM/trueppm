@@ -17,6 +17,8 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -720,6 +722,117 @@ class TestPeakConcurrentUnits:
         )
         assert peak == Decimal("1.5")
         assert day is None
+
+
+# ---------------------------------------------------------------------------
+# Perf contract (#3576): unassigned_task_count is a NOT EXISTS, not a literal
+# NOT IN built from the day expansion
+# ---------------------------------------------------------------------------
+
+
+def _seed_utilization(project: Project, resources: int, tasks_per_resource: int = 2) -> None:
+    for r in range(resources):
+        resource = Resource.objects.create(
+            name=f"U{r:03d}", email=f"u{r:03d}@example.com", max_units=Decimal("1.00")
+        )
+        for t in range(tasks_per_resource):
+            task = Task.objects.create(
+                project=project,
+                name=f"T{r:03d}-{t}",
+                duration=5,
+                early_start=date(2026, 3, 2),
+                early_finish=date(2026, 3, 6),
+                status=TaskStatus.NOT_STARTED,
+            )
+            TaskResource.objects.create(task=task, resource=resource, units=Decimal("0.50"))
+
+
+@pytest.mark.django_db
+class TestUtilizationQueryBudget:
+    def test_query_count_is_flat_in_the_number_of_resources(self, project: Project) -> None:
+        """The read cost must not grow with the number of assignment rows.
+
+        Moves the number of underlying ROWS, not a page size — two requests at
+        different ``?page_size=`` values are the same request and prove nothing.
+        """
+        client = _auth_client(Role.SCHEDULER, project)
+        window = {"start": "2026-03-02", "end": "2026-03-06"}
+
+        _seed_utilization(project, resources=1)
+        assert client.get(_url(project), window).status_code == 200  # warm caches
+
+        with CaptureQueriesContext(connection) as small:
+            small_body = client.get(_url(project), window).json()
+
+        _seed_utilization(project, resources=10)
+        with CaptureQueriesContext(connection) as large:
+            large_body = client.get(_url(project), window).json()
+
+        # Not vacuous: the second request really did compute ten times the load.
+        assert len(small_body["resources"]) == 1
+        assert len(large_body["resources"]) == 11
+
+        assert len(large.captured_queries) == len(small.captured_queries), (
+            f"{len(small.captured_queries)} → {len(large.captured_queries)}"
+        )
+
+    def test_unassigned_count_uses_not_exists_not_a_literal_not_in(self, project: Project) -> None:
+        """The counting statement must not carry an inlined UUID list.
+
+        The old form shipped one UUID of SQL text per in-window task and was O(N)
+        per candidate row. Asserted on the emitted SQL: a `NOT IN (` in the
+        statement that counts tasks is the defect, and a growing statement length
+        is its fingerprint.
+        """
+        client = _auth_client(Role.SCHEDULER, project)
+        window = {"start": "2026-03-02", "end": "2026-03-06"}
+
+        _seed_utilization(project, resources=6, tasks_per_resource=4)  # 24 assigned tasks
+
+        with CaptureQueriesContext(connection) as ctx:
+            assert client.get(_url(project), window).status_code == 200
+
+        counts = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].startswith("SELECT COUNT(") and "projects_task" in q["sql"]
+        ]
+        assert counts, "no statement counted tasks"
+        for sql in counts:
+            assert "NOT IN (" not in sql, sql
+        assert any("NOT EXISTS" in sql for sql in counts), counts
+
+    def test_a_task_whose_span_has_no_working_day_still_counts_as_assigned(
+        self, project: Project
+    ) -> None:
+        """Regression: the count answers "has no assignment", not "produced load".
+
+        The old implementation derived its assigned-set from the per-day
+        expansion, so a task whose span falls entirely on non-working days was
+        reported as *unassigned* despite carrying an assignment.
+        """
+        client = _auth_client(Role.SCHEDULER, project)
+        resource = Resource.objects.create(
+            name="Weekender", email="w@example.com", max_units=Decimal("1.00")
+        )
+        # 2026-03-07 / 03-08 are Saturday and Sunday under the Mon–Fri calendar.
+        weekend_task = Task.objects.create(
+            project=project,
+            name="WeekendOnly",
+            duration=2,
+            early_start=date(2026, 3, 7),
+            early_finish=date(2026, 3, 8),
+            status=TaskStatus.NOT_STARTED,
+        )
+        TaskResource.objects.create(task=weekend_task, resource=resource, units=Decimal("1.00"))
+
+        body = client.get(_url(project), {"start": "2026-03-07", "end": "2026-03-08"}).json()
+
+        # It produced no load — the span holds no working day, so the per-day
+        # expansion the old count read its set from is empty …
+        assert all(row["days"] == {} for row in body["resources"])
+        # … but the task plainly has an assignment, so it is not unassigned.
+        assert body["unassigned_task_count"] == 0
 
 
 # ---------------------------------------------------------------------------

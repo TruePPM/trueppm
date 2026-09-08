@@ -22,6 +22,8 @@ function contended(): ProgramContentionResponse {
     program_id: 'prog-1',
     window_start: '2026-07-06',
     window_end: '2026-08-02',
+    resource_count: 1,
+    truncated: false,
     resources: [
       {
         id: 'r-janus',
@@ -97,6 +99,8 @@ describe('ProgramResourcesPage (#1149)', () => {
         program_id: 'prog-1',
         window_start: '2026-07-06',
         window_end: '2026-08-02',
+        resource_count: 0,
+        truncated: false,
         resources: [],
       },
       status: 'success',

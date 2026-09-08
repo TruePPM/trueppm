@@ -60,7 +60,25 @@ function pickWorst(rows: ProjectHealthRow[]): ProjectHealthRow | null {
   return worst;
 }
 
+/**
+ * The one-line explanation under the worst project's name.
+ *
+ * The band is the SERVER's, and it puts a PM's manual report ahead of the two
+ * counts — so the counts do not always explain it. Built from the counts alone,
+ * this row rendered "0 critical tasks" under a red dot for a project a PM had
+ * reported Critical on a clean plan: a header disagreeing with its own evidence,
+ * which reads as a broken tool rather than as somebody's judgement (rule 403,
+ * the same defect #3525 fixed on the shell health chip).
+ *
+ * So a reported band names the report instead of counting tasks. The source is
+ * read off `health-summary`, never inferred: a report that agrees with the counts
+ * is indistinguishable from no report at all, so comparing band against counts
+ * would miss it on exactly the projects where nothing looks wrong.
+ */
 function worstReason(worst: ProjectHealthRow): string | null {
+  if (worst.healthBandSource === 'reported') {
+    return 'reported by the project manager';
+  }
   if (worst.healthBand === 'critical') {
     const n = worst.criticalCount;
     return `${n} critical ${n === 1 ? 'task' : 'tasks'}`;
@@ -85,7 +103,10 @@ export function MyProjectsHealthSummary() {
 
   if (error) {
     return (
-      <section aria-label="Project health summary" className="mx-auto w-full max-w-[1100px] px-4 md:px-6">
+      <section
+        aria-label="Project health summary"
+        className="mx-auto w-full max-w-[1100px] px-4 md:px-6"
+      >
         <QueryErrorState
           variant="inline"
           message="Couldn't load project health."
@@ -97,7 +118,10 @@ export function MyProjectsHealthSummary() {
 
   if (isLoading) {
     return (
-      <section aria-label="Project health summary" className="mx-auto w-full max-w-[1100px] px-4 md:px-6">
+      <section
+        aria-label="Project health summary"
+        className="mx-auto w-full max-w-[1100px] px-4 md:px-6"
+      >
         <div
           className="h-[60px] animate-pulse rounded-card border border-neutral-border bg-neutral-surface-sunken"
           aria-hidden="true"
@@ -112,7 +136,10 @@ export function MyProjectsHealthSummary() {
   const showWorst = worst !== null && worst.healthBand !== 'on_track';
 
   return (
-    <section aria-label="Project health summary" className="mx-auto w-full max-w-[1100px] px-4 md:px-6">
+    <section
+      aria-label="Project health summary"
+      className="mx-auto w-full max-w-[1100px] px-4 md:px-6"
+    >
       <div
         className="flex flex-col gap-3 rounded-card border border-neutral-border bg-neutral-surface px-4 py-3
           md:flex-row md:items-center md:gap-4"
@@ -125,7 +152,10 @@ export function MyProjectsHealthSummary() {
             const n = counts[band];
             return (
               <span key={band} className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${BAND_DOT[band]}`} aria-hidden="true" />
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${BAND_DOT[band]}`}
+                  aria-hidden="true"
+                />
                 <span
                   className={`text-sm font-medium ${n > 0 ? 'text-neutral-text-primary' : 'text-neutral-text-secondary'}`}
                 >
@@ -147,7 +177,10 @@ export function MyProjectsHealthSummary() {
               hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary
               md:ml-auto md:min-h-0 md:h-9"
           >
-            <span className={`h-2 w-2 shrink-0 rounded-full ${BAND_DOT[worst.healthBand]}`} aria-hidden="true" />
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${BAND_DOT[worst.healthBand]}`}
+              aria-hidden="true"
+            />
             <span className="flex min-w-0 flex-col leading-tight">
               <span className="min-w-0 truncate text-sm font-medium text-neutral-text-primary">
                 {worst.name}

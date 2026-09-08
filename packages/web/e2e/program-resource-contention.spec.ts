@@ -39,6 +39,12 @@ const CONTENTION = {
   program_id: PROGRAM_ID,
   window_start: '2026-07-06',
   window_end: '2026-08-02',
+  // The real endpoint always sends these (ADR-1118); the truncation tests below
+  // override them rather than introduce them, so this base object stays a
+  // faithful untruncated response instead of an inaccurate one that happens to
+  // read as falsy.
+  resource_count: 1,
+  truncated: false,
   resources: [
     {
       id: 'r-janus',
@@ -166,6 +172,39 @@ test.describe('Program resource contention (#1149)', () => {
       timeout: 10_000,
     });
     await expect(page.getByText(/Jul 6.*Jul 21/)).toBeVisible();
+  });
+
+  test('says so when the server capped the read, instead of showing a partial roster as complete (#3576)', async ({
+    page,
+  }) => {
+    // ADR-1118: the cut lands on a resource boundary, so Janus is complete and
+    // his over-allocation badge is still exact — but 61 other people are simply
+    // absent, and a contention view that hides that is worse than a slow one.
+    await setup(page, {
+      status: 200,
+      body: { ...CONTENTION, resource_count: 62, truncated: true },
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/resources`);
+
+    await expect(page.getByRole('heading', { name: 'Resource contention' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/Showing 1 of 62 resources/)).toBeVisible();
+    // The resource that WAS returned is still rendered, and still judged.
+    await expect(page.getByLabel(/Over-allocated in W/)).toBeVisible();
+  });
+
+  test('shows no truncation notice on an untruncated read', async ({ page }) => {
+    // Negative control for the test above: the notice must key on `truncated`,
+    // not merely on the presence of the field.
+    await setup(page, {
+      status: 200,
+      body: { ...CONTENTION, resource_count: 1, truncated: false },
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/resources`);
+
+    await expect(page.getByText('Janus')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Showing \d+ of \d+ resources/)).toHaveCount(0);
   });
 
   test('shows the schedule-not-run empty state on 409', async ({ page }) => {

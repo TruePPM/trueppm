@@ -151,3 +151,194 @@ test.describe('Shell health chip reads the server band (#3501)', () => {
     await expect(page.getByLabel(/^Reported project health:/)).toHaveCount(0);
   });
 });
+
+/**
+ * #3525 — the popover must explain the word it prints, and an absent band must
+ * not render as the reassuring one.
+ *
+ * The suite above proves the chip reads the SERVER's band. This one covers what
+ * that cost: the popover's rows still come from the at-risk / critical counts, so
+ * a reported band left a red header sitting above two "0 tasks" rows with no
+ * explanation and no route to the report.
+ */
+test.describe('Health popover explains its own header (#3525)', () => {
+  test.use({ viewport: { width: 1280, height: 720 } });
+
+  /** The chip's popover. */
+  async function openPopover(page: Page) {
+    await shellChip(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Project health' });
+    await expect(dialog).toBeVisible();
+    return dialog;
+  }
+
+  test('a reported Critical over a clean plan names the report and routes to it', async ({
+    page,
+  }) => {
+    await setup(page, {
+      health: 'CRITICAL',
+      statusSummary: {
+        task_count: 6,
+        health_band: 'critical',
+        health_band_source: 'reported',
+        at_risk_count: 0,
+        critical_count: 0,
+      },
+    });
+
+    // Schedule, not Overview: this is the route where the top bar is the ONLY
+    // health reading, so a dead-end indicator here has no fallback.
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    await expect(shellChip(page)).toContainText('Critical');
+
+    const dialog = await openPopover(page);
+
+    // The header still asserts the server's word...
+    await expect(dialog).toContainText('Critical');
+    // ...the rows that exist to explain it still say nothing is wrong...
+    await expect(dialog).toContainText('0 tasks');
+    // ...and the popover now says which of the two the reader is looking at.
+    const provenance = dialog.getByTestId('health-provenance-row');
+    await expect(provenance).toBeVisible();
+    await expect(provenance).toContainText('Reported by the project manager');
+
+    await provenance.click();
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/overview$`));
+    await expect(page.getByRole('dialog', { name: 'Project health' })).toBeHidden();
+    // The route landed on the surface that owns the report.
+    await expect(reportedChip(page, 'Critical')).toBeVisible();
+  });
+
+  test('a derived band gets no provenance row — its rows already explain it', async ({ page }) => {
+    await setup(page, {
+      health: 'AUTO',
+      statusSummary: {
+        task_count: 9,
+        health_band: 'at_risk',
+        health_band_source: 'derived',
+        at_risk_count: 3,
+        critical_count: 0,
+      },
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    const dialog = await openPopover(page);
+
+    await expect(dialog).toContainText('At risk');
+    await expect(dialog.getByTestId('health-provenance-row')).toHaveCount(0);
+  });
+
+  test('an AGILE project with a reported band has a drill-through at all', async ({ page }) => {
+    // The worst case in the issue: `healthClusterModel` emits sprint / points /
+    // velocity for AGILE and no at-risk or critical segment whatsoever, so a
+    // Critical chip there had NO drill-through of any kind.
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projectId: PROJECT_ID,
+      projects: [
+        {
+          id: PROJECT_ID,
+          name: 'Agile Health Project',
+          description: '',
+          start_date: '2026-01-01',
+          calendar: 'default',
+          health: 'CRITICAL',
+          methodology: 'AGILE',
+        },
+      ],
+      overview: { schedule_health: 'unknown', total_tasks: 4, critical_task_count: 0 },
+      statusSummary: {
+        task_count: 4,
+        health_band: 'critical',
+        health_band_source: 'reported',
+        at_risk_count: 0,
+        critical_count: 0,
+      },
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/board`);
+    await expect(shellChip(page)).toContainText('Critical');
+
+    const dialog = await openPopover(page);
+    await expect(dialog.getByTestId('health-provenance-row')).toBeVisible();
+    // Confirm this really is the AGILE cluster, or the assertion above proves
+    // nothing about the methodology that needed it.
+    await expect(dialog).not.toContainText('Critical path');
+  });
+
+  test('a failed status-summary does NOT render "On track"', async ({ page }) => {
+    await setup(page, { health: 'AUTO', statusSummary: {} });
+    // Override the mock the setup installed with a 5xx. `data` is `undefined`
+    // for this and for an in-flight query alike, which is why the chip used to
+    // print the same calm word for both.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/status-summary/`, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+
+    const chip = shellChip(page);
+    await expect(chip).toHaveAttribute('data-state', 'unavailable');
+    await expect(chip).not.toContainText('On track');
+    // Not a band word at all — including the cautious one. There is no value
+    // here to be cautious about.
+    await expect(chip).not.toContainText('At risk');
+    await expect(chip).not.toContainText('Critical');
+    await expect(chip).toContainText('Health');
+
+    // It is still a real trigger, and the popover explains the failure rather
+    // than listing zeros for counts nobody read.
+    const dialog = await openPopover(page);
+    await expect(dialog.getByTestId('health-error')).toBeVisible();
+    await expect(dialog).toContainText("Couldn't load project health.");
+    await expect(dialog).not.toContainText('0 tasks');
+    await expect(dialog.getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
+
+  test('Retry recovers the chip without reloading the app', async ({ page }) => {
+    await setup(page, { health: 'CRITICAL', statusSummary: {} });
+
+    // Fail until the test says otherwise, then serve the real payload — so Retry
+    // is proved to re-run the request rather than to reload the page.
+    //
+    // Gated on a flag the TEST flips, not on a call counter: the app's query
+    // client retries a failed request on its own, so a "fail the first call"
+    // route is satisfied by React Query's own retry and the chip is already
+    // recovered before the assertion runs. The error state has to be held open
+    // deliberately or there is nothing for Retry to recover from.
+    let failing = true;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/status-summary/`, (route) => {
+      if (failing) {
+        return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          task_count: 6,
+          health_band: 'critical',
+          health_band_source: 'reported',
+          monte_carlo_p80: null,
+          at_risk_count: 0,
+          critical_count: 0,
+          at_risk_tasks: [],
+          critical_tasks: [],
+          last_saved: null,
+          recalculated_at: null,
+        }),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    await expect(shellChip(page)).toHaveAttribute('data-state', 'unavailable');
+
+    const dialog = await openPopover(page);
+    failing = false;
+    await dialog.getByRole('button', { name: 'Retry' }).click();
+
+    await expect(shellChip(page)).toContainText('Critical');
+    await expect(shellChip(page)).toHaveAttribute('data-health-source', 'reported');
+  });
+});
