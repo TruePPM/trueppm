@@ -28,6 +28,13 @@ export interface ProgramContentionResponse {
   window_start: string;
   window_end: string;
   resources: ProgramAllocationResource[];
+  /** Resources in scope on the server, before the assignment cap (ADR-1118). */
+  resource_count: number;
+  /**
+   * True when the cap dropped whole resources. Cut on a resource boundary, so
+   * each resource present is complete and its contention verdict is exact.
+   */
+  truncated: boolean;
 }
 
 /**

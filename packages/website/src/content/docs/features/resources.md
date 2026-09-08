@@ -142,6 +142,17 @@ share a working day are 80% allocated, not 240%. Two consequences are worth know
   window that could rule out an overlap, so it is treated as concurrent with everything
   else. This keeps the warning meaningful on a project whose schedule has not been
   calculated yet — which is often when the first assignments are made.
+- **A very large project may show a partial roster, and says when it does.** The
+  allocation timeline and the program contention view cap how many assignments one
+  response carries. The cut always lands on a whole person: someone is either shown with
+  every one of their in-window tasks, or left out and counted in a notice above the list
+  ("Showing 40 of 62 resources"). Nobody is ever shown with only part of their work,
+  because a partial view of a person would under-report exactly the overcommitment these
+  views exist to surface. The cap is set clear of the supported project size, so you
+  should not meet it. If you do, the notice names the remedy that surface actually
+  offers: the project allocation timeline can narrow the window or search by name, and
+  the program contention view — which has no filters yet — points you at a member
+  project's Resources view instead.
 
 :::note[Ships in 0.4]
 Date windowing on the overallocation warning ships in 0.4. Through 0.3 the warning sums a

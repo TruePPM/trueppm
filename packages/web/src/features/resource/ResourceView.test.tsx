@@ -83,6 +83,8 @@ function allocation(resources: AllocationResource[]): AllocationResponse {
     window_start: '2026-01-05',
     window_end: '2026-02-22',
     resources,
+    resource_count: resources.length,
+    truncated: false,
   };
 }
 
@@ -649,5 +651,65 @@ describe('ResourceView overallocation live region', () => {
     const { container } = render(<ResourceView projectId="proj-1" />);
     const live = container.querySelector(LIVE_REGION);
     expect(live?.textContent).toBe('Overallocation: Ada Lovelace is at 150% on 2026-01-06.');
+  });
+});
+
+describe('ResourceView truncation notice (#3576 / ADR-1118)', () => {
+  it('says how many resources are missing when the server capped the read', () => {
+    // The cut lands on a resource boundary, so the two resources shown are
+    // still judged exactly — what is missing is whole people, and a view about
+    // who is over-committed must not present that as a complete roster.
+    allocationSuccess({
+      ...allocation([allocResource(), overallocatedResource()]),
+      resource_count: 62,
+      truncated: true,
+    });
+    render(<ResourceView projectId="proj-1" />);
+
+    expect(screen.getByText(/Showing 2 of 62 resources/)).toBeInTheDocument();
+    expect(screen.getByText(/60 resources are not listed/)).toBeInTheDocument();
+  });
+
+  it('shows no notice on an untruncated read', () => {
+    // Negative control: the notice must key on `truncated`, not on the mere
+    // presence of the field.
+    allocationSuccess(allocation([allocResource()]));
+    render(<ResourceView projectId="proj-1" />);
+
+    expect(screen.queryByText(/Showing \d+ of \d+ resources/)).not.toBeInTheDocument();
+  });
+
+  it('does not contradict itself when the cap dropped every resource', () => {
+    // If the first resource's own rows exceed the cap, the boundary rewind keeps
+    // nothing: `resources: []` with `truncated: true`. Rendering "No assignments
+    // in this window" under "60 resources are not listed" would state both
+    // halves of a contradiction on one screen.
+    allocationSuccess({
+      ...allocation([]),
+      resource_count: 60,
+      truncated: true,
+    });
+    render(<ResourceView projectId="proj-1" />);
+
+    expect(screen.getByText(/Showing 0 of 60 resources/)).toBeInTheDocument();
+    expect(screen.queryByText('No assignments in this window.')).not.toBeInTheDocument();
+  });
+
+  it('keeps the notice on the unfiltered payload when the search box narrows the list', () => {
+    // The search box hides rows too, but that hiding is the user's own doing and
+    // already visible to them. Counting filtered rows in the notice would make
+    // it read as though the SERVER had dropped what the user just filtered out.
+    allocationSuccess({
+      ...allocation([allocResource(), overallocatedResource()]),
+      resource_count: 62,
+      truncated: true,
+    });
+    render(<ResourceView projectId="proj-1" />);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter resources by name' }), {
+      target: { value: 'zzzz-matches-nothing' },
+    });
+
+    expect(screen.getByText(/Showing 2 of 62 resources/)).toBeInTheDocument();
   });
 });
