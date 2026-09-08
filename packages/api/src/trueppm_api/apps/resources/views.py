@@ -238,7 +238,7 @@ class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill
 
     serializer_class = ResourceSkillSerializer
     filter_backends = [filters.OrderingFilter]
-    queryset = ResourceSkill.objects.select_related("skill").filter(is_deleted=False)
+    queryset = ResourceSkill.objects.active().select_related("skill").filter(is_deleted=False)
 
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
@@ -246,7 +246,12 @@ class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill
         return [IsAuthenticated(), IsOrgScheduler()]
 
     def get_queryset(self) -> QuerySet[ResourceSkill]:
-        qs = ResourceSkill.objects.select_related("skill").filter(is_deleted=False)
+        # ``.active()`` (#3572): the resource row itself is admin-only once
+        # deactivated (``?include_deleted=true`` on the catalog), so listing its
+        # skill tags to every authenticated user leaked the tail of a record the
+        # catalog had already withdrawn. Admins reach a deactivated resource's
+        # skills through the catalog's expanded ``skills`` instead.
+        qs = ResourceSkill.objects.active().select_related("skill").filter(is_deleted=False)
         resource_id = self.request.query_params.get("resource")
         if resource_id:
             qs = qs.filter(resource_id=resource_id)
@@ -313,9 +318,9 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
     serializer_class = ProjectResourceSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = (
-        ProjectResource.objects.select_related("resource", "resource__calendar")
+        ProjectResource.objects.active()
+        .select_related("resource", "resource__calendar")
         .prefetch_related("resource__skills__skill")
-        .filter(is_deleted=False)
     )
 
     def get_queryset(self) -> QuerySet[ProjectResource]:
@@ -324,10 +329,15 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
         member_project_ids = ProjectMembership.objects.filter(
             user_id=user_pk, is_deleted=False
         ).values_list("project_id", flat=True)
+        # ``.active()`` (#3572) is ``is_deleted=False`` on the roster row AND on the
+        # resource behind it. The roster row is the surface an off-boarding is
+        # measured on: a deactivated person left the catalog but kept a full
+        # ``resource_detail`` on every project's Team tab.
         qs = (
-            ProjectResource.objects.select_related("resource", "resource__calendar")
+            ProjectResource.objects.active()
+            .select_related("resource", "resource__calendar")
             .prefetch_related("resource__skills__skill")
-            .filter(project_id__in=member_project_ids, is_deleted=False)
+            .filter(project_id__in=member_project_ids)
             .order_by("resource__name")
         )
         project_id = self.request.query_params.get("project")
@@ -925,22 +935,49 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         return qs
 
     def perform_destroy(self, instance: Resource) -> None:
-        """Soft-delete: set is_deleted=True and recalc affected project schedules.
+        """Soft-delete: hide from the catalog, drop off every roster, recalc schedules.
 
-        Hard delete is intentionally unavailable from this endpoint. Historical
-        task assignments and capacity data reference this resource and must
-        remain intact for audit trails and utilization reports.
+        Deactivation is **catalog-only on the assignment rows** (#3572). Hard delete is
+        intentionally unavailable from this endpoint, and the ``TaskResource`` rows are
+        deliberately left in place: historical task assignments and capacity data
+        reference this resource and must remain intact for audit trails — an
+        off-boarding is precisely the moment that record matters most.
+
+        What deactivation *does* end is the person's presence in the team:
+
+        1. Every live ``ProjectResource`` roster row is soft-deleted and stamped
+           ``deactivated_with_resource`` so :meth:`restore` can put back exactly these
+           and not a membership someone ended by hand.
+        2. Every capacity, roster, and skill read filters the resource out through
+           ``ResourceScopedManager.active()`` — the retained assignment rows stop
+           contributing load and stop contributing capacity to the denominator.
+
+        The CPM recalculation fan-out below stays coherent under (2): it is not
+        undoing the assignments (they still hold their tasks and their units), it is
+        re-running the schedule for projects whose *reported* team just changed, so the
+        heat map, the allocation timeline, and the Overview utilization card agree with
+        the roster on the very next read rather than on the next unrelated write.
         """
-        # Wrap the soft-delete save and the per-project recalculation fan-out in
-        # a single atomic block so a crash after save() but before all enqueue
-        # calls cannot leave the resource deactivated without the CPM recalcs
-        # firing (R3). The _enqueue_recalculate calls use the transactional
-        # outbox pattern (ADR-0027), so they are durable against broker failures.
+        # Wrap the soft-delete save, the roster cascade, and the per-project
+        # recalculation fan-out in a single atomic block so a crash partway through
+        # cannot leave the resource deactivated without the roster cascade or the CPM
+        # recalcs (R3). The _enqueue_recalculate calls use the transactional outbox
+        # pattern (ADR-0027), so they are durable against broker failures.
         with transaction.atomic():
             instance.is_deleted = True
             instance.server_version = (instance.server_version or 0) + 1
             instance.deleted_version = instance.server_version
             instance.save(update_fields=["is_deleted", "server_version", "deleted_version"])
+
+            # Roster cascade. Only rows that are live *right now* are stamped, so a
+            # membership already ended by hand keeps deactivated_with_resource=False
+            # and restore leaves it alone. Bulk ``update()`` rather than per-row
+            # ``soft_delete()``: ProjectResource is outside the sync union (nothing
+            # reads its sync_seq), so there is no tombstone to publish and no reason
+            # to spend a query per roster row on an off-boarding.
+            ProjectResource.objects.filter(resource_id=instance.pk, is_deleted=False).update(
+                is_deleted=True, deactivated_with_resource=True
+            )
 
             # Fan out a schedule recalculation to every project with open
             # task assignments for this resource. Uses the transactional outbox
@@ -953,12 +990,25 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
             for project_id in affected_project_ids:
                 _enqueue_recalculate(str(project_id))
 
+        # The roster cascade above reaches projects the assignment fan-out does not:
+        # a resource can sit on a roster carrying no tasks at all, which is exactly
+        # the person an off-boarding is most likely to leave behind. Read the cascaded
+        # rows back so the broadcast set is the union, not just the projects that
+        # happened to carry assignments.
+        cascaded_project_ids = list(
+            ProjectResource.objects.filter(
+                resource_id=instance.pk, deactivated_with_resource=True
+            ).values_list("project_id", flat=True)
+        )
+
         # Fan a roster_changed broadcast out to every affected project so peers
         # viewing the roster see the deactivation live, not on the next poll
         # (#1359). Deferred to commit and snapshotted to plain strings; mirrors
         # the per-project recalc fan-out above.
         resource_id = str(instance.pk)
-        broadcast_project_ids = [str(p) for p in affected_project_ids]
+        broadcast_project_ids = sorted(
+            {str(p) for p in affected_project_ids} | {str(p) for p in cascaded_project_ids}
+        )
 
         def _on_commit() -> None:
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -994,6 +1044,17 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         Requires IsOrgAdmin (checked in get_permissions since this is a write
         action). Fetches from the unfiltered queryset so soft-deleted records
         are reachable; the standard get_object() path excludes them.
+
+        Reverses **both** halves of :meth:`perform_destroy` (#3572). The catalog flag
+        alone is not enough: deactivation also soft-deleted the resource's roster
+        rows, and a one-way cascade would leave a reactivated person visible in the
+        catalog but silently absent from every team they were on — a second bug in
+        the shape of the first.
+
+        Only rows stamped ``deactivated_with_resource`` come back. A membership
+        someone ended by hand before the deactivation carries ``False`` and stays
+        removed: reactivating an employee must not silently re-add them to a project
+        a PM had taken them off.
         """
         if pk is None:
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
@@ -1006,20 +1067,39 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
                 {"detail": "Resource is not deactivated."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        resource.is_deleted = False
-        resource.deleted_version = None
-        resource.server_version = (resource.server_version or 0) + 1
-        resource.save(update_fields=["is_deleted", "deleted_version", "server_version"])
 
-        # Reactivation puts the resource back on every roster it still has
-        # assignments on — broadcast roster_changed so those projects' clients
-        # refetch the roster live (#1359), mirroring the soft-delete fan-out.
-        affected_project_ids = [
-            str(p)
-            for p in TaskResource.objects.filter(resource_id=resource.pk)
-            .values_list("task__project_id", flat=True)
-            .distinct()
-        ]
+        # Atomic so the catalog flag and the roster rows cannot disagree: a crash
+        # between them would leave the resource selectable but off every roster,
+        # which is the exact asymmetry this action exists to prevent.
+        with transaction.atomic():
+            resource.is_deleted = False
+            resource.deleted_version = None
+            resource.server_version = (resource.server_version or 0) + 1
+            resource.save(update_fields=["is_deleted", "deleted_version", "server_version"])
+
+            # Read the project ids before the update clears the stamp.
+            restored_project_ids = list(
+                ProjectResource.objects.filter(
+                    resource_id=resource.pk, deactivated_with_resource=True
+                ).values_list("project_id", flat=True)
+            )
+            ProjectResource.objects.filter(
+                resource_id=resource.pk, deactivated_with_resource=True
+            ).update(is_deleted=False, deleted_version=None, deactivated_with_resource=False)
+
+        # Reactivation puts the resource back on every roster the deactivation took
+        # it off, plus every project it still has assignments on — broadcast
+        # roster_changed so those projects' clients refetch the roster live (#1359),
+        # mirroring the soft-delete fan-out.
+        affected_project_ids = sorted(
+            {
+                str(p)
+                for p in TaskResource.objects.filter(resource_id=resource.pk)
+                .values_list("task__project_id", flat=True)
+                .distinct()
+            }
+            | {str(p) for p in restored_project_ids}
+        )
         resource_id = str(resource.pk)
 
         def _on_commit() -> None:

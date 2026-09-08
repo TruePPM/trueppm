@@ -315,8 +315,11 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
     """
     from trueppm_api.apps.resources.models import TaskResource
 
+    # ``.active()`` (#3572): sprint capacity is a capacity read like the heat map —
+    # a deactivated person must not appear as a sprint member with hours to give.
     assignment_rows = list(
-        TaskResource.objects.filter(task__sprint_id=sprint.pk, task__is_deleted=False)
+        TaskResource.objects.active()
+        .filter(task__sprint_id=sprint.pk, task__is_deleted=False)
         .select_related("resource")
         .values_list(
             "resource_id",
@@ -355,7 +358,10 @@ def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
     rows_by_sprint: dict[Any, list[Any]] = {}
     if pks:
         for row in (
-            TaskResource.objects.filter(task__sprint_id__in=pks, task__is_deleted=False)
+            # ``.active()`` (#3572): same filter as capacity_summary, so the batched
+            # path and the per-sprint path stay byte-identical.
+            TaskResource.objects.active()
+            .filter(task__sprint_id__in=pks, task__is_deleted=False)
             .select_related("resource")
             .values_list(
                 "resource_id",

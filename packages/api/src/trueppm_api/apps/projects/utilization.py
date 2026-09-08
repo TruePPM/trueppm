@@ -37,7 +37,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import DateField
+from django.db.models import DateField, Prefetch
 from django.db.models.functions import Coalesce
 
 # weekday() returns 0=Mon, 1=Tue, …, 6=Sun.
@@ -534,7 +534,16 @@ def _compute_utilization_internal(
 
     Rows include the private ``_mask``, ``_exc_ranges``, and ``_days`` fields
     needed by ``aggregate_utilization_weekly``.  Not part of the public API.
+
+    Deactivated resources are excluded (#3572) — see the ``Prefetch`` below. This is
+    the ONE point at which the daily engine assembles its resource set, so every
+    caller inherits it: :func:`compute_utilization` (heat map),
+    :func:`aggregate_utilization_weekly` (weekly buckets, and through it
+    ``resources/summary``), :func:`compute_team_utilization` (Overview KPI numerator),
+    and the over-allocation digest.
     """
+    from trueppm_api.apps.resources.models import TaskResource
+
     project_cal = project.calendar
     proj_mask, proj_exceptions, proj_cal_id = _resolve_project_calendar(project_cal)
 
@@ -550,6 +559,13 @@ def _compute_utilization_internal(
         .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
         .filter(_span_start__lte=window_end, early_finish__gte=window_start)
         .prefetch_related(
+            # The deactivation filter lives HERE and only here: narrowing the first
+            # prefetch level is what keeps a deactivated person's retained assignment
+            # rows (kept on purpose, for audit) from drawing load on the heat map and
+            # from carrying capacity into the Overview denominator. The chained
+            # lookup below extends this same prefetch — it must stay second, or
+            # Django rejects the pair as one lookup with two querysets.
+            Prefetch("assignments", queryset=TaskResource.objects.active()),
             "assignments__resource__calendar__exceptions",
         )
     )
@@ -767,9 +783,11 @@ def compute_team_utilization(
 
     roster = {
         str(pr.resource_id): pr
-        for pr in project.resource_pool.filter(is_deleted=False).prefetch_related(
-            "resource__calendar__exceptions"
-        )
+        # ``.active()`` (#3572): a deactivated person contributes no load (the engine
+        # above dropped their assignments) but WOULD still contribute capacity here,
+        # so leaving them in the denominator understates team load at exactly the
+        # moment an off-boarding makes the remaining team busier.
+        for pr in project.resource_pool.active().prefetch_related("resource__calendar__exceptions")
     }
 
     measured = set(roster) | set(rows_by_id)

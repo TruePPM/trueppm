@@ -3002,8 +3002,12 @@ class ProjectViewSet(
         # remaining-work window early_start narrows to as percent_complete
         # rises. See utilization.py's identical annotation (#2623) for the
         # full rationale.
+        # ``.active()`` (#3572): the assignment rows of a deactivated resource are
+        # retained for audit, but the allocation timeline is a capacity read — it must
+        # not draw a lane for somebody who is no longer on the team.
         qs = (
-            TaskResource.objects.filter(
+            TaskResource.objects.active()
+            .filter(
                 task__project=project,
                 task__is_deleted=False,
             )
@@ -3238,11 +3242,11 @@ class ProjectViewSet(
         start_date = today - datetime.timedelta(days=today.weekday())
         heatmap = aggregate_utilization_weekly(project, start_date, 8, "none")
 
-        # Headcount from project roster (not just assigned resources).
+        # Headcount from project roster (not just assigned resources). ``.active()``
+        # (#3572) excludes deactivated people: headcount is the KPI a PM reads right
+        # after an off-boarding, and it was the last place still counting them.
         project_resources = list(
-            ProjectResource.objects.select_related("resource").filter(
-                project=project, is_deleted=False
-            )
+            ProjectResource.objects.active().select_related("resource").filter(project=project)
         )
         headcount = len(project_resources)
         contractor_count = sum(
@@ -11833,7 +11837,8 @@ class ProjectAttentionView(APIView):
         overalloc_rows = cast(
             "list[dict[str, Any]]",
             (
-                TaskResource.objects.filter(
+                TaskResource.objects.active()
+                .filter(
                     task__project=project,
                     task__is_deleted=False,
                 )
@@ -11841,7 +11846,11 @@ class ProjectAttentionView(APIView):
                 .values("resource_id")
                 .annotate(total=Sum("units"))
                 .filter(total__gt=db_models.F("resource__max_units"))
-            )[: self._MAX_PER_BUCKET],
+            )[
+                # ``.active()`` (#3572): a deactivated person cannot be acted on, so
+                # naming them in the attention bucket is an item nobody can clear.
+                : self._MAX_PER_BUCKET
+            ],
         )
         if not overalloc_rows:
             return []
