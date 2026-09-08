@@ -637,8 +637,15 @@ returns `409` if no member project has a computed schedule yet, and `400` for an
 invalid date or a `start` after `end`. This is within-program visibility only —
 cross-program leveling and the portfolio heat map remain Enterprise.
 
+`resource-contention` and the per-project `resource-allocation` share a response
+shape but not a meaning for `max_units`: from 0.4 the per-project endpoint states
+the resource's capacity **on that project** (the roster's `units_override` when one
+is set), while `resource-contention` spans several projects at once and therefore
+states the whole person — the resource's catalog-wide `max_units`. A client that
+joins the two must not compare one against the other.
+
 Each task span in `resource-contention` (and the per-project
-`resource-allocation` it mirrors) windows and renders on `scheduled_start`
+`resource-allocation`) windows and renders on `scheduled_start`
 through `early_finish` — the task's **span** — not `early_start` through
 `early_finish`, the narrower *remaining-work* window `early_start` shrinks
 toward as an in-progress task's `percent_complete` rises (ADR-0752). `early_start`
@@ -1555,17 +1562,34 @@ exceed the OSS simulation cap or the request returns `402`. See
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
-| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) |
-| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated |
-| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource (org admin only) |
+| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — **workspace Admin only from 0.4** |
+| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated; **workspace Admin only from 0.4** |
+| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource — **workspace Admin only from 0.4** |
+
+Creating and updating catalog rows requires the Project Manager or Project Admin
+role on at least one **active** project. From 0.4, deactivating and restoring a
+row, listing the deactivated pool with `?include_deleted=true`, and reading
+`assignments/` require the **workspace Admin** role.
+Those surfaces reach every project in the installation, and a project role cannot
+bound them: project creation is deliberately open, so any account can hold Owner
+on a project of its own.
 
 The resource catalog is readable by any authenticated user, so the `email` field
-is **gated** to prevent org-wide address harvesting: org admins (Admin or Owner
-on any project, or superusers) receive `email` on every row, and a caller
+is **gated** to prevent org-wide address harvesting. From 0.4 only a workspace
+Admin receives `email` on catalog rows (previously any org admin), and a caller
 always sees their own email (`is_me: true`). For all other callers the `email`
-field is **omitted** from the payload entirely. A per-user throttle of **60 req/min**
+field is **omitted** from the payload entirely — absent means *withheld*, not
+"this person has no address". `?search=` matches `email` only for a workspace Admin;
+everyone else searches by name alone. A per-user throttle of **60 req/min**
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
+
+:::caution[Catalog endpoints only]
+This gating covers the resource **catalog**. The project and program
+`resource-allocation` endpoints and `GET /api/v1/projects/{id}/export/` build their
+responses separately and still include `email` for resources attached to a project
+you administer.
+:::
 
 The list endpoint's two project-scoped filters are gated the same way, for the
 same reason. `?exclude_project=<project id>` drops the resources already on that
@@ -1574,15 +1598,17 @@ that task's skill requirements — both reach through an open catalog read into 
 project's data, so both are honored **only for members of the project they name**.
 For a non-member the parameter is ignored and the response is identical to
 omitting it, so neither filter can be used to confirm that a project or task id
-exists. `?include_deleted=true` is likewise honored only for org admins.
+exists. `?include_deleted=true` is likewise honored only for a workspace Admin.
 
 `assignments/` returns every task the resource is assigned to, across **all**
 projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
 Because it carries task and project **names** — project-scoped confidential data
-that the base catalog read deliberately withholds — it requires **org-admin**
-(resource-manager: Admin or Owner on any project); other callers receive
-`403 Forbidden`. It is a read-only projection: no utilization score, no
+that the base catalog read deliberately withholds — from 0.4 it requires the
+**workspace Admin** role; every other caller, project
+admins included, receives `403 Forbidden`. For the membership-scoped view of one
+person's assignments, use `GET /api/v1/task-resources/?resource=<id>`, which needs
+no elevated role. It is a read-only projection: no utilization score, no
 overallocation flag, and no cross-program rollup. Each row carries:
 
 | Field | Type | Description |
@@ -1655,6 +1681,28 @@ See ADR-0774.
 | PUT / PATCH | `/api/v1/project-resources/{id}/` | Update (Scheduler+) |
 | DELETE | `/api/v1/project-resources/{id}/` | Remove from roster (Scheduler+) |
 | DELETE | `/api/v1/project-resources/{id}/?force=true` | Force-remove and cascade-delete the resource's task assignments |
+
+A roster entry carries `units_override`, a per-project capacity override, and the
+read-only `effective_max_units` it resolves to (`units_override` when set — `0`
+included — else the resource's catalog-wide `max_units`).
+
+:::note[Ships in 0.4]
+`units_override` reaches every per-project capacity read in **0.4**. In the current
+release only the project Overview's Team utilization card applies it; the utilization
+endpoint, the resources heatmap and summary, `resource-allocation`, the attention
+feed's `overallocation` items, `Task.assignee_is_overallocated`, the assignment-time
+`resource_overallocated` warning and the sprint capacity summary all measure against
+`Resource.max_units`.
+:::
+
+From 0.4 `effective_max_units` will be the denominator behind
+`GET /projects/{id}/utilization/` (`max_units`, `load_pct`, `load_band`,
+`overallocated`), `/resources/heatmap/`, `/resources/summary/`,
+`/resource-allocation/` (`max_units`), the `overallocation` items on
+`/projects/{id}/attention/`, `Task.assignee_is_overallocated`, the
+`resource_overallocated` warning on `POST /task-resources/`, and
+`GET /sprints/{id}/capacity/`. Cross-project reads keep `Resource.max_units` — see
+the note under **Programs** above.
 
 A plain `DELETE` returns `409 Conflict` with code `has_assignments` if the
 resource has live task assignments on the project; the response body lists the
@@ -2379,6 +2427,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `oidc_login` | 20/min | SSO login start |
 | `oidc_callback` | 30/min | SSO callback |
 | `sso_test_connection` | 20/min | SSO admin "Test connection" |
+| `sso_provider_write` | 20/min | SSO provider create/update/delete (reads exempt) |
 | `credential_rotate` | 10/min | Personal integration credentials + Git webhook secret rotation |
 | `external_sync` | 20/min | Manual external-connection pull trigger |
 | `monte_carlo` | 10/min | Synchronous Monte Carlo run |

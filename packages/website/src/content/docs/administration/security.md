@@ -7,7 +7,7 @@ documentedFor: "0.4"
 ## Authentication
 
 :::note[Ships in 0.4]
-Seven items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
+Eight items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
 in `v0.3.0-alpha.3`, the latest release:
 
 - **Session-only "Remember me"** — in 0.3 the checkbox is present but inert; every
@@ -33,6 +33,10 @@ in `v0.3.0-alpha.3`, the latest release:
   `USE_X_FORWARDED_HOST = False` position stated alongside it in 0.4 is not new
   behavior: it restates the default 0.3 already had, and only makes it a decision
   the file records rather than one it inherits.
+- **Auth-event auditing** — the five single sign-on audit verbs and the
+  `auth.login_succeeded` log line described under
+  [Single sign-on](#single-sign-on-oidc--oauth2) below. In 0.3 there is no single
+  sign-on and no record of a successful login at all.
 
 Everything else on this page describes 0.3 behavior and is current.
 :::
@@ -108,9 +112,17 @@ charged against an empty-string bucket — the per-IP throttle still applies to
 those.
 
 This is brute-force hardening, not an org-wide lockout **policy**. Admin-configurable
-escalation, unlock workflows, and the auth-event audit trail are Enterprise
-capabilities; what is described here is the table-stakes protection every
-self-hosted install gets.
+escalation and unlock workflows are Enterprise capabilities; what is described here is
+the table-stakes protection every self-hosted install gets.
+
+Auth events themselves are **not** an Enterprise capability. Recording of single
+sign-on administration — `sso_provider_created`, `sso_provider_updated` (with a
+per-field before/after diff), `sso_provider_deleted`, `sso_secret_rotated` — and of
+`sso_account_linked` in the [audit log](/administration/audit-log/), together with
+structured `trueppm.auth` lines for login success and failure, **ships in 0.4** in the
+community edition. What stays Enterprise is the *governed* trail layered on top: an
+immutable, signed, retained trail with SOC 2 evidence export, plus the auth events of
+the identity-governance layer itself (group→role mapping, enforced org-wide SSO).
 
 :::caution[Django admin is not covered]
 Both throttles are DRF scopes on the API login view. Django admin is a plain
