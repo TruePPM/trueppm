@@ -3165,8 +3165,11 @@ class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
 #: cap the only bound was ``DATA_UPLOAD_MAX_MEMORY_SIZE`` (100 MB), and because
 #: ``apply_task_owners`` deliberately replays the payload **entry by entry** into the
 #: ADR-0394 audit trail and the ``assignment_*`` fanout, one write naming one rostered
-#: resource ~100k times minted ~100k ``TaskActivityEvent`` rows and ~100k
-#: ``broadcast_board_event`` calls to every connected project member.
+#: resource ~100k times **with the units changing between entries** minted ~100k
+#: ``TaskActivityEvent`` rows and ~100k ``broadcast_board_event`` calls to every connected
+#: project member. The units have to vary: ``_write_one_owner`` returns no event and
+#: writes no audit row for a re-write at the same units, so a constant repeat costs one
+#: of each. That makes the amplification a payload the caller shapes, not an accident.
 #:
 #: 100 is chosen, not arbitrary: it is twice the closest shipped per-task budget
 #: (``MAX_ATTACHMENTS_PER_TASK = 50``) and a fifth of the per-batch
@@ -3525,6 +3528,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # than through a ``MaxLengthValidator``, and drf-spectacular derives ``maxItems``
         # only from validators — so the cap is invisible in the schema unless it is said
         # here. A client discovers a 400 it cannot see coming otherwise.
+        #
+        # This is why ``TaskBulkRequest.operations`` publishes a machine-readable
+        # ``maxItems: 500`` and this does not: that one is a ``ListField``, which registers
+        # a real validator. Attaching one here purely for the schema would be dead code —
+        # ``to_internal_value`` raises first, so ``run_validators`` never sees the payload.
         help_text=(
             f"At most {MAX_TASK_OWNERS_PER_WRITE} entries. Owners are upserted, so a "
             "longer assignment can be split across several writes without any of them "

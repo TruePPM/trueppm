@@ -58,12 +58,12 @@ whole:
 - **List of objects** — an array with one entry per item you submitted, in order,
   and `{}` in the slots that validated.
 
-One exception to the index keying: a constraint on the **list as a whole** — its
-length, or the fact that what you sent was not a list at all — has no failing item
-to point at, so it reports as a nested object under `non_field_errors` instead:
+One exception to the index keying: a constraint on the **list as a whole** — a
+length bound, or the fact that what you sent was not a list at all — has no failing
+item to point at, so it reports as a nested object under `non_field_errors` instead:
 
 ```json
-{"owners": {"non_field_errors": ["A task write may name at most 100 owners. …"]}}
+{"hidden_views": {"non_field_errors": ["Expected a list of items but got type \"str\"."]}}
 ```
 
 A client that assumes every list field's errors are index-keyed will look for

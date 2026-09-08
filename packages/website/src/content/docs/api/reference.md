@@ -1623,9 +1623,16 @@ any roster lookup runs, under `owners` → `non_field_errors`:
 ```
 
 Splitting is always safe because the field upserts: no later write removes an owner named
-by an earlier one. The cap applies to `POST /api/v1/projects/{id}/tasks/bulk/` as well —
-that endpoint validates each `create` and `update` operation through the same serializer,
-so a batch is bounded at 100 owners **per operation** on top of its own 500-operation cap.
+by an earlier one. The cap is a bound on one *write*, not on a task — a task can still
+accumulate more than 100 owners across several writes.
+
+Every surface that validates a task through this serializer inherits the cap:
+
+| Surface | How the refusal reaches you |
+|---------|-----------------------------|
+| `POST /api/v1/tasks/`, `PATCH /api/v1/tasks/{id}/` | the `400` above |
+| `POST /api/v1/projects/{id}/tasks/bulk/` | `207` with the row in `rejected[]`, `code: "invalid"` and the same sentence in `message`. Bounded at 100 owners **per operation** on top of the endpoint's own 500-operation cap |
+| Offline-sync push (`POST /api/v1/projects/{id}/sync/`) | a pushed task row carrying more than 100 `owners` is refused like any other row the task serializer rejects |
 
 Semantics worth pinning down:
 

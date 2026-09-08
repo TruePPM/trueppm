@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -446,11 +447,20 @@ def test_owners_over_the_cap_is_rejected(client: APIClient, task: Task, ana: Res
     ``apply_task_owners`` replays the payload entry by entry on purpose, so the cost is
     per payload *row*, not per distinct resource — which is why the bound belongs on the
     list rather than on a de-duplicating resolver.
+
+    The units alternate here for the same reason the vector needs them to: a repeat at the
+    *same* units is not an ownership change, so ``_write_one_owner`` records no audit row
+    and returns no event for it. A constant repeat is cheap; the amplification is a shape
+    the caller chooses.
     """
     over = MAX_TASK_OWNERS_PER_WRITE + 1
     res = client.patch(
         _task_url(task),
-        {"owners": [{"resource": str(ana.pk), "units": "1.0"}] * over},
+        {
+            "owners": [
+                {"resource": str(ana.pk), "units": "1.0" if i % 2 else "0.5"} for i in range(over)
+            ]
+        },
         format="json",
     )
 
@@ -501,15 +511,21 @@ def test_the_cap_is_checked_before_the_roster_query(client: APIClient, task: Tas
 
 @pytest.mark.django_db
 def test_owners_at_exactly_the_cap_is_accepted(
-    client: APIClient, project: Project, task: Task
+    client: APIClient, project: Project, task: Task, django_assert_max_num_queries: Any
 ) -> None:
-    """An off-by-one here is a shipped 400 on legitimate work, so pin the boundary."""
+    """An off-by-one here is a shipped 400 on legitimate work, so pin the boundary.
+
+    The query ceiling is the second half: a cap decides what payload the server *blesses*,
+    so the at-cap payload is now the worst legitimate case and the cost of serving it is
+    part of the contract. ``apply_task_owners`` currently spends ~9 statements per entry
+    (#3575 / !2422 batches this to a constant); the bound below is a ceiling, so it stays
+    green when that lands and reds if the per-entry cost ever grows instead.
+    """
     people = _roster(project, MAX_TASK_OWNERS_PER_WRITE)
-    res = client.patch(
-        _task_url(task),
-        {"owners": [{"resource": str(r.pk), "units": "0.1"} for r in people]},
-        format="json",
-    )
+    payload = {"owners": [{"resource": str(r.pk), "units": "0.1"} for r in people]}
+
+    with django_assert_max_num_queries(12 * MAX_TASK_OWNERS_PER_WRITE):
+        res = client.patch(_task_url(task), payload, format="json")
 
     assert res.status_code == 200, res.data
     assert TaskResource.objects.filter(task=task).count() == MAX_TASK_OWNERS_PER_WRITE
@@ -545,8 +561,15 @@ def test_bulk_cannot_bypass_the_owners_cap(
     assert res.status_code == 207, res.data
     assert res.data["applied"] == []
     assert len(res.data["rejected"]) == 1
-    assert "owners" in str(res.data["rejected"][0])
     assert TaskResource.objects.filter(resource=ana).count() == 0
+
+    # ``rejected[].message`` is declared as a human sentence. Asserting only that "owners"
+    # appears somewhere in it passes on a Python dict repr — which is exactly what
+    # ``_first_error_message`` produced before it learned to descend to the leaf.
+    message = res.data["rejected"][0]["message"]
+    assert message == f"owners: {MSG_TOO_MANY_OWNERS.format(max_length=MAX_TASK_OWNERS_PER_WRITE)}"
+    assert "ErrorDetail" not in message
+    assert "non_field_errors" not in message
 
 
 @pytest.mark.django_db
