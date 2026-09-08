@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -145,6 +145,11 @@ class ProgramScheduleGraph:
     result: Any | None
     result_map: dict[str, Any]
     leaf_ids: set[str]
+    # Composed engine calendar per member project, keyed by ``str(project.id)`` —
+    # the same map the merged ``SchedProject`` runs on (ADR-0120 D3). The persisted
+    # write-back needs it to express each summary's rolled-up span in that
+    # project's own working days (#3530); the on-read endpoint ignores it.
+    calendars: dict[str, Any] = field(default_factory=dict)
 
     @property
     def summary_ids(self) -> set[str]:
@@ -410,6 +415,7 @@ def gather_program_schedule(
             result=None,
             result_map={},
             leaf_ids=set(),
+            calendars=calendars,
         )
 
     included_ids = set(db_task_by_id.keys())
@@ -477,6 +483,7 @@ def gather_program_schedule(
         result=result,
         result_map=result_map,
         leaf_ids=leaf_ids,
+        calendars=calendars,
     )
 
 

@@ -944,6 +944,11 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
     ``FORECAST_DEDUP_WINDOW_SECONDS``: if the latest snapshot is newer than the
     window and every forecast field is unchanged, this no-ops and returns ``None``.
 
+    The aggregate population is ``Task.committed`` — the same set every
+    ``SchedProject`` construction site feeds to CPM. See the comment on the
+    aggregate below for why using ``Task.objects`` here was a correctness bug
+    (#3539) rather than a scoping preference.
+
     Returns the created row, or ``None`` when the capture was deduped.
     """
     from datetime import timedelta
@@ -956,8 +961,35 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
 
     # One aggregate query for the whole-project schedule shape. cpm_finish is the
     # latest task finish; total_float_days is the tightest slack across the project
-    # (negative = a constraint is breached). Counts are over non-deleted tasks.
-    agg = Task.objects.filter(project_id=project_id, is_deleted=False).aggregate(
+    # (negative = a constraint is breached).
+    #
+    # The population is Task.committed, NOT Task.objects (#3539). A snapshot must
+    # describe the population CPM actually ran on, and every SchedProject
+    # construction site schedules Task.committed — BACKLOG rows, EPIC grouping
+    # nodes and recurring occurrences are never fed to the engine. Two things go
+    # wrong when they are admitted to the aggregate:
+    #
+    #   1. A task groomed back to BACKLOG keeps whatever early_finish/total_float
+    #      it carried when it was last scheduled — _apply_cpm_results only
+    #      bulk_updates the rows it scheduled, so nothing ever clears them
+    #      (clearing them is a separate decision, tracked in #3578).
+    #      That stale value then wins the Max/Min and reports a finish date, or a
+    #      slack figure, belonging to work the schedule does not contain. Measured
+    #      on dev: a 6-day false project finish, and a project with no float at
+    #      all reporting 30 days of it from seven groomed-out stories.
+    #   2. cpm_finish feeds notify_project_end_date_shift, which emails the
+    #      PM/Owner cohort on a material move. A stale BACKLOG row entering or
+    #      leaving the Max moves cpm_finish with no change to any committed work,
+    #      so the wrong population does not merely mis-report — it emails owners
+    #      that their end date shifted when it did not, and symmetrically hides a
+    #      real shift inside that noise.
+    #
+    # The counts are aggregated over the same population on purpose: they are
+    # recorded as "schedule shape at capture time — context for interpreting the
+    # forecast", and a task_count drawn from a wider set than cpm_finish makes the
+    # snapshot internally incoherent (a trend chart annotating a committed-set
+    # finish with a whole-board task count).
+    agg = Task.committed.filter(project_id=project_id).aggregate(
         cpm_finish=Max("early_finish"),
         total_float_days=Min("total_float"),
         task_count=Count("id"),

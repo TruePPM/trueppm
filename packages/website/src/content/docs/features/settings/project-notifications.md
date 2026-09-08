@@ -5,11 +5,14 @@ documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4]
-The default matrix below, and the **not delivered yet** labels beside eight of the
-nine events, land in **TruePPM 0.4**. On the latest release those eight rows are
-defaulted **on** across in-app, email and Slack and carry no label — but they are
-dispatched by nothing either way, so no notification is sent for them on any
-release. 0.4 makes the page say so; it does not change what is delivered.
+The default matrix below, the **not delivered yet** labels beside eight of the nine
+events, the same labels on the **Slack** and **Mobile push** columns, and the
+`event_delivery` / `channel_delivery` API fields that drive them all land in
+**TruePPM 0.4**. On the latest release those eight rows are defaulted **on** across
+in-app, email and Slack, the mention row defaults **on** for Slack and mobile push,
+and none of it carries a label — but they are dispatched by nothing either way, so
+no notification is sent for them on any release. 0.4 makes the page say so; it does
+not change what is delivered.
 :::
 
 The **Project Settings → Notifications** page controls how a single project's events reach *you*. Every project member owns their own copy of this page: the toggles you set apply only to your account on this project, and there is no admin surface for editing another member's routing. Open it at **Project → Settings → Notifications**.
@@ -59,7 +62,13 @@ Each event can be routed to four channels:
 | Slack | **Not delivered yet.** TruePPM has no Slack notification delivery, and no setting anywhere enables it — a toggle here records your intent for when it ships. To get project events into Slack today, add a Slack-format [webhook](/features/webhooks/): a project-wide feed with its own event list, which does not read this matrix. |
 | Mobile push | **Not delivered yet.** TruePPM has no push delivery, and no device setting enables it — a toggle here records your intent for when it ships. |
 
-A toggle in the matrix represents *your intent to be notified*. It does not imply the underlying integration is live: turning on the Slack column for an event does nothing until a Slack channel is wired up in Integrations.
+A toggle in the matrix records *your intent to be notified*. It is not a guarantee
+of arrival: a cell delivers only when its event **is dispatched** and its channel
+**delivers**. Turning on the Slack column has no effect on any row, and there is
+nothing you can do about that from Integrations or anywhere else — TruePPM has no
+Slack notification delivery to enable. From 0.4 the API reports which columns
+deliver, in the [`channel_delivery`](/api/reference/) field, so the page's labels can
+never drift from what the server actually does.
 
 ## The default matrix
 
@@ -70,7 +79,7 @@ that promise for an event it does not yet dispatch.
 
 | Event | In-app | Email | Slack | Mobile push |
 |-------|:------:|:-----:|:-----:|:-----------:|
-| Mention (@) in a comment | on | on | on | on |
+| Mention (@) in a comment | on | on | off | off |
 | Task assigned to me | off | off | off | off |
 | Task I own is overdue | off | off | off | off |
 | Task moves to another column | off | off | off | off |
@@ -80,16 +89,22 @@ that promise for an event it does not yet dispatch.
 | Sprint started | off | off | off | off |
 | Sprint closed | off | off | off | off |
 
-Each of those rows returns to a sensible on/off default in the same release that
-wires up its delivery. If you have used TruePPM before 0.4, whatever you had
-stored is kept as-is — these defaults apply to a preference row the first time it
-is created, not to one you already have.
+The mention row is the one event TruePPM delivers, and it still defaults **off** for
+Slack and mobile push — being dispatched does not make a channel that sends nothing
+deliver. Each cell returns to a sensible on/off default in the same release that
+wires up the missing half.
+
+If you have used TruePPM before 0.4, whatever you had stored is kept as-is —
+including a Slack or mobile-push toggle you already had on. These defaults apply to
+a preference row the first time it is created, not to one you already have, and
+nothing rewrites a choice you made. From 0.4 the column is labeled **not delivered
+yet** either way, so a stored `on` no longer reads as a promise.
 
 Defaults are applied lazily the first time you open the page — there is no per-member backfill when you join a project. If TruePPM adds a new event type later, your saved preferences are merged with the new defaults on read, so a row that predates the new event still routes correctly.
 
 ## Quiet hours
 
-Quiet hours hold back **transient** interruptions during a daily window — email, Slack, and mobile push. Quiet hours are **enabled by default**, from **20:00 to 07:00** in the project's timezone.
+Quiet hours hold back **transient** interruptions during a daily window — every channel except the in-app inbox. In practice that means email, and only email: Slack and mobile push are held back by the window too, but nothing delivers on them in the first place. Quiet hours are **enabled by default**, from **20:00 to 07:00** in the project's timezone.
 
 In-app notifications are deliberately **exempt** from quiet hours. The in-app inbox row *is* the notification: suppressing it would lose the event outright rather than defer a ping. So during quiet hours the durable in-app record is always written, and only the transient channels are silenced. This mirrors how Slack and GitHub do-not-disturb behave — the record persists, only the interruption is held back.
 
@@ -191,7 +206,7 @@ The in-app inbox row for a mention, by contrast, is governed by the project matr
 No. Each member owns their own routing. There is no admin surface to edit another member's preferences — by design, "each user owns their notification contract."
 
 **Why does the in-app inbox still show a notification during quiet hours?**
-Because the in-app row is a durable record, not a transient ping. Quiet hours only silence email, Slack, and mobile push. Dropping the in-app row would lose the event entirely.
+Because the in-app row is a durable record, not a transient ping. Quiet hours silence every other channel — today that is email, since Slack and mobile push deliver nothing to silence. Dropping the in-app row would lose the event entirely.
 
 **I turned on the Slack column but nothing arrives in Slack.**
 Nothing is delivered on the Slack channel yet. TruePPM has no Slack notification delivery and there is no setting that enables it, so there is nothing you can configure to make this work today — your toggle is saved and applies once delivery ships. If you want project events in Slack now, add a Slack-format [webhook](/features/webhooks/) under **Project Settings → Integrations**. That is a project-wide feed on its own event list; it does not read this matrix and is not per-person routing.
