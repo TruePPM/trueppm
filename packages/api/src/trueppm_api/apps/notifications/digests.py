@@ -313,12 +313,30 @@ def _opted_in_user_ids(event_type: str) -> set[Any]:
     Both channels default to ``False`` (ADR-0663 §1), so an opted-in user
     necessarily has a stored ``NotificationPreference`` row — which is what lets
     the sweep read a handful of rows instead of scanning every user.
+
+    Deactivated accounts are excluded (#3523). Off-boarding is a **second,
+    independent revocation axis** from membership (``access/signals.py``): it writes
+    ``WorkspaceMembership.status = DEACTIVATED`` and ``User.is_active = False`` and
+    never touches ``ProjectMembership``/``ProgramMembership``, so an off-boarded user
+    keeps *live* membership rows and the #3456 ``is_deleted=False`` floor below never
+    reaches them. Every credential path closes on ``is_active`` — JWT, session, PAT,
+    live sockets — but a digest is *pushed*: it keeps naming every at-risk program,
+    its health band and its worst-contributing project, weekly and unrecallably, at
+    an address the account no longer controls.
+
+    The floor sits **here**, in the audience, rather than in
+    :func:`_maybe_send_for_user`, for two reasons. It is one filter above *both*
+    digest event types, so neither builder can be corrected without the other. And it
+    is above the ``NotificationDigestRun`` ledger insert, so a deactivated user stops
+    consuming a ledger row every week for a send that will never happen — a guard
+    inside ``_maybe_send_for_user`` would suppress the mail and still write the row.
     """
     return set(
         NotificationPreference.objects.filter(
             event_type=event_type,
             enabled=True,
             channel__in=[NotificationChannel.IN_APP.value, NotificationChannel.EMAIL.value],
+            user__is_active=True,
         ).values_list("user_id", flat=True)
     )
 

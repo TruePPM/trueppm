@@ -13,6 +13,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -26,6 +27,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.projects.utilization import Allocation, peak_concurrent_units
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
@@ -600,3 +602,121 @@ class TestUtilizationLoadVerdict:
         assert day["load_band"] == "critical"
         assert day["overallocated"] is True
         assert res["overallocated"] is True
+
+
+# ---------------------------------------------------------------------------
+# peak_concurrent_units — the write-time overallocation verdict (#3534)
+#
+# Pure function, no DB: the arithmetic the write-time warning compares against
+# Resource.max_units. Mon-Fri mask (31) matches Calendar's own default.
+# ---------------------------------------------------------------------------
+
+_MON_FRI = 31
+
+
+def _alloc(units: str, start: date | None = None, end: date | None = None) -> Allocation:
+    return Allocation(units=Decimal(units), start=start, end=end)
+
+
+class TestPeakConcurrentUnits:
+    """Peak load on one working day — not a project-lifetime sum."""
+
+    def test_non_overlapping_spans_peak_at_one_task(self) -> None:
+        """Three 0.8-unit tasks with no shared day peak at 0.8, not 2.4 (#3534)."""
+        peak, day = peak_concurrent_units(
+            [
+                _alloc("0.8", date(2026, 9, 7), date(2026, 9, 14)),
+                _alloc("0.8", date(2026, 10, 13), date(2026, 10, 16)),
+                _alloc("0.8", date(2026, 11, 6), date(2026, 11, 9)),
+            ],
+            _MON_FRI,
+            [],
+        )
+        assert peak == Decimal("0.8")
+        assert day == date(2026, 9, 7)
+
+    def test_three_way_overlap_sums(self) -> None:
+        """The peak needs no pairwise assumption — three spans stack on one day."""
+        peak, day = peak_concurrent_units(
+            [
+                _alloc("0.4", date(2026, 9, 7), date(2026, 9, 30)),
+                _alloc("0.4", date(2026, 9, 9), date(2026, 9, 30)),
+                _alloc("0.4", date(2026, 9, 11), date(2026, 9, 30)),
+            ],
+            _MON_FRI,
+            [],
+        )
+        assert peak == Decimal("1.2")
+        assert day == date(2026, 9, 11)
+
+    def test_weekend_only_overlap_is_not_a_peak(self) -> None:
+        """2026-04-04 is a Saturday and the only shared day — no working-day conflict."""
+        peak, _day = peak_concurrent_units(
+            [
+                _alloc("0.6", date(2026, 4, 1), date(2026, 4, 4)),
+                _alloc("0.6", date(2026, 4, 4), date(2026, 4, 10)),
+            ],
+            _MON_FRI,
+            [],
+        )
+        assert peak == Decimal("0.6")
+
+    def test_calendar_exception_removes_the_overlap(self) -> None:
+        """A shutdown range covering the only shared working day clears the peak."""
+        spans = [
+            _alloc("0.6", date(2026, 4, 1), date(2026, 4, 6)),
+            _alloc("0.6", date(2026, 4, 6), date(2026, 4, 10)),
+        ]
+        peak_without, _ = peak_concurrent_units(spans, _MON_FRI, [])
+        assert peak_without == Decimal("1.2")  # both cover Mon 2026-04-06
+        peak_with, _ = peak_concurrent_units(
+            spans, _MON_FRI, [(date(2026, 4, 6), date(2026, 4, 6))]
+        )
+        assert peak_with == Decimal("0.6")
+
+    def test_undated_allocations_apply_to_every_day(self) -> None:
+        """An unscheduled task has no span to exonerate it, so it is a floor."""
+        peak, day = peak_concurrent_units(
+            [
+                _alloc("0.5"),
+                _alloc("0.5", date(2026, 9, 7), date(2026, 9, 14)),
+            ],
+            _MON_FRI,
+            [],
+        )
+        assert peak == Decimal("1.0")
+        assert day == date(2026, 9, 7)
+
+    def test_all_undated_returns_a_floor_with_no_day(self) -> None:
+        peak, day = peak_concurrent_units([_alloc("0.5"), _alloc("0.8")], _MON_FRI, [])
+        assert peak == Decimal("1.3")
+        assert day is None
+
+    def test_empty_is_zero(self) -> None:
+        assert peak_concurrent_units([], _MON_FRI, []) == (Decimal("0"), None)
+
+    def test_degenerate_calendar_falls_back_to_raw_span_starts(self) -> None:
+        """No working day anywhere must not silently report a genuine overlap as zero.
+
+        A mask of 0 is rejected by the model validator, but a calendar whose
+        exceptions blanket the spans reaches the same state — and reporting the
+        peak as the undated floor there would disarm the warning entirely.
+        """
+        peak, day = peak_concurrent_units(
+            [
+                _alloc("0.6", date(2026, 4, 6), date(2026, 4, 10)),
+                _alloc("0.6", date(2026, 4, 6), date(2026, 4, 10)),
+            ],
+            _MON_FRI,
+            [(date(2026, 4, 1), date(2026, 4, 30))],
+        )
+        assert peak == Decimal("1.2")
+        assert day == date(2026, 4, 6)
+
+    def test_reversed_span_is_treated_as_undated(self) -> None:
+        """A finish before its start is not a window; count it rather than drop it."""
+        peak, day = peak_concurrent_units(
+            [_alloc("1.5", date(2026, 9, 14), date(2026, 9, 7))], _MON_FRI, []
+        )
+        assert peak == Decimal("1.5")
+        assert day is None

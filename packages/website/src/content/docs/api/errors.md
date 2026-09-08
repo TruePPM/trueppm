@@ -441,7 +441,7 @@ treat them as failures:
 
 | Code | Appears on | Meaning |
 |------|-----------|---------|
-| `resource_overallocated` | assignment writes | The resource is now allocated beyond its capacity |
+| `resource_overallocated` | assignment writes | The resource's load on at least one working day now exceeds their capacity. The `detail` names that day |
 | `skill_mismatch` | assignment writes | The resource lacks a skill the task requires |
 | `has_assignments` | task restructure | A task became a summary task while still carrying assignments |
 | `scope_pending_on_close` | sprint close | Scope-injection requests were still pending at close |

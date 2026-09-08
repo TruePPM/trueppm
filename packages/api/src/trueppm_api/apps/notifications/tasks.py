@@ -221,6 +221,58 @@ def _drain_batch_size(email_settings: Any) -> int:
     )
 
 
+def _retire_pending_for_deactivated_recipients() -> int:
+    """Retire queued emails whose recipient has since been deactivated (#3523).
+
+    The digest sweep now excludes deactivated users at the audience (see
+    ``digests._opted_in_user_ids``), but rows queued *before* off-boarding are already
+    in the outbox — and every notification email in OSS leaves through this one drain,
+    so this is the single chokepoint at which the account axis covers the mention,
+    stale-task, event and digest rails at once.
+
+    **Retired, not merely skipped.** Excluding these rows from the candidate query
+    alone would leave them ``email_pending=True`` forever, and
+    ``observability.selectors.notification_email_signals`` reads exactly that as its
+    ``queued_aging`` signal — rows pending past an hour mean "Beat is dead, the worker
+    is gone, or the transport cannot be built". A permanent false alarm on the System
+    Health card is the over-claiming that selector's docstring exists to prevent, so
+    the row must reach a terminal state instead of parking in the backlog.
+
+    The terminal state written here is ``email_pending=False`` **only**.
+    ``email_attempts`` and ``email_failed_at`` are deliberately left untouched: the
+    same selector derives ``failed_recent`` from ``email_pending=False`` **and**
+    ``email_attempts >= EMAIL_MAX_RETRIES`` **and** a recent ``email_failed_at``, so
+    stamping either would report an off-boarding as a mail-relay failure. This is not
+    a delivery failure — there is no longer anyone to deliver to.
+
+    The durable in-app ``Notification`` row is left alone. It is the inbox record, and
+    a deactivated account cannot authenticate to read it (JWT, session and PAT all
+    close on ``is_active``); the email is the only channel that reaches outward.
+
+    Reactivation does not resurrect a retired row, which is the intended trade: an
+    off-boarding is not expected to reverse, and a week-old digest replayed on
+    reinstatement would state program health that has since moved on.
+
+    Returns:
+        The number of rows retired — 0 on every tick of a workspace with no pending
+        mail for a deactivated user, which is the steady state.
+    """
+    from .models import Notification
+
+    retired: int = Notification.objects.filter(
+        email_pending=True,
+        email_sent_at__isnull=True,
+        recipient__is_active=False,
+    ).update(email_pending=False)
+    if retired:
+        logger.info(
+            "drain_notification_emails: retired %d queued email(s) for deactivated "
+            "recipient(s) without sending",
+            retired,
+        )
+    return retired
+
+
 def _do_drain_emails() -> None:
     from django.utils import timezone
 
@@ -228,6 +280,8 @@ def _do_drain_emails() -> None:
 
     now = timezone.now()
     orphan_cutoff = now - timedelta(minutes=EMAIL_ORPHAN_WINDOW_MINUTES)
+
+    _retire_pending_for_deactivated_recipients()
 
     # Read the operator's delivery limits BEFORE the query, because they bound it
     # (#2860). max_recipients and throttle_per_min persisted, validated and rendered
@@ -250,6 +304,11 @@ def _do_drain_emails() -> None:
             email_sent_at__isnull=True,
             email_attempts__lt=EMAIL_MAX_RETRIES,
             created_at__lt=orphan_cutoff,
+            # Fail closed on the account axis (#3523). The retirement pass above has
+            # already cleared these rows, so this predicate normally matches nothing;
+            # it is here for the row deactivated in the gap between that UPDATE and
+            # this SELECT, where the only safe default is not to send.
+            recipient__is_active=True,
         )
         .select_related("recipient", "mention", "mention__task_comment", "mention__mentioner")
         .order_by("created_at")[:granted]
