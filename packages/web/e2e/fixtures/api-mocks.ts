@@ -613,6 +613,18 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
     }
     return route.continue();
   });
+  // Registered AFTER the generic tasks/** route above so it wins (last route
+  // registered is matched first): /tasks/search/ is a slim, non-paginated array
+  // (BoardCardSearchResult[] per the schema), not the paginated {count,results}
+  // shape the generic tasks/** route serves. A spec that needs real search
+  // matches (e.g. board-find-and-fit.spec.ts) still overrides this by
+  // registering its own route after setupApiMocks runs.
+  await page.route('**/api/v1/tasks/search/**', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill(jsonResponse([]));
+    }
+    return route.continue();
+  });
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill(jsonResponse(paginated(opts.dependencies ?? []))),
   );
