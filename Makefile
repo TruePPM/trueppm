@@ -1,7 +1,7 @@
 # TruePPM — universal command interface
 # Run `make help` for a list of targets.
 
-.PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
+.PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
         migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
@@ -523,6 +523,13 @@ up-prod: ## Start the production stack (requires .env — run init-prod.sh first
 
 release-smoke: ## Boot the dev stack, seed demo data, and curl every shipped endpoint
 	@bash scripts/smoke-test.sh
+
+# ─── Claude harness ───────────────────────────────────────────────────────────
+# Deliberately NOT part of `pre-push` or CI: the memory store is a per-user,
+# per-machine directory outside the repo, so it can never be a shared gate. Run
+# at dot-release close beside changelog assembly and migration squashing (#3577).
+memory-check: ## Check the Claude memory index for size and dangling links
+	@bash scripts/check-memory-index.sh
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 clean: ## Remove generated files and caches
