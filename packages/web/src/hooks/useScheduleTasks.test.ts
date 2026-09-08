@@ -78,6 +78,19 @@ describe('useScheduleTasks mapper', () => {
     expect(task.baselineStart).toBeUndefined();
   });
 
+  it('serves a SUMMARY the server duration, not a recomputed calendar span (#3530)', () => {
+    // Oct 5 → Oct 15 is 10 calendar days but 9 working days. The mapper used to
+    // overwrite the API's `duration` with the calendar number for summary rows,
+    // mirroring a backend that stored the same wrong unit in a working-days
+    // column. Both halves are fixed: the server value is authoritative, and it is
+    // what the Σ cell renders as "9d" beside its leaves' working-day durations.
+    const summary = mapTask({ ...base, is_summary: true, duration: 9 });
+    expect(summary.duration).toBe(9);
+    // The bar itself is unaffected — it draws from the CPM dates, not `duration`.
+    expect(summary.start).toBe('2026-10-05');
+    expect(summary.finish).toBe('2026-10-15');
+  });
+
   it('maps the classification taxonomy (type / governance_class / delivery_mode)', () => {
     const task = mapTask({
       ...base,
@@ -279,18 +292,22 @@ describe('useScheduleTasks mapper', () => {
     expect(task.finish).toBe('');
   });
 
-  it('summary: duration is computed as calendar-day span from CPM dates', () => {
+  it('summary: duration is the server value even with CPM dates present (#3530)', () => {
+    // Jan 6 → Feb 6 is 31 calendar days and 23 working days. The mapper used to
+    // report 31 here — the calendar count — because the CPM write-back stored the
+    // same calendar span into a column documented as working days. The server now
+    // stores 23, and the mapper reports whatever the server says.
     const task = mapTask({
       ...base,
       is_summary: true,
       early_start: '2026-01-06',
       early_finish: '2026-02-06',
-      duration: 1,
+      duration: 23,
     });
-    expect(task.duration).toBe(31);
+    expect(task.duration).toBe(23);
   });
 
-  it('summary: duration falls back to stored value when CPM has not run', () => {
+  it('summary: duration is the stored value when CPM has not run', () => {
     const task = mapTask({
       ...base,
       is_summary: true,
@@ -834,15 +851,22 @@ describe('deriveBarGeometry', () => {
     expect(g.finish).toBe('2026-10-09');
   });
 
-  it('computes a summary display duration as the calendar-day span', () => {
+  // #3530: deriveBarGeometry used to return a `displayDuration` that replaced a
+  // summary's server `duration` with a client-computed CALENDAR-day span, mirroring
+  // a backend that wrote the same wrong unit into a working-days column. Both are
+  // fixed; the geometry helper now returns dates only, and the duration a summary
+  // renders is the server's.
+  it('derives a summary bar from its CPM dates and reports no duration of its own', () => {
     const g = deriveBarGeometry({
       plannedStart: null,
       earlyStart: '2026-10-05',
       earlyFinish: '2026-10-15',
-      duration: 99, // stored value ignored for summaries with CPM dates
+      duration: 9,
       isSummary: true,
     });
-    expect(g.displayDuration).toBe(10);
+    expect(g.start).toBe('2026-10-05');
+    expect(g.finish).toBe('2026-10-15');
+    expect(g).not.toHaveProperty('displayDuration');
   });
 });
 
@@ -886,6 +910,18 @@ describe('applyTaskDatesDelta', () => {
     expect(spliced.totalFloat).toBe(refetched.totalFloat);
     expect(spliced.lateFinish).toBe(refetched.lateFinish);
     expect(spliced.plannedStart).toBe(refetched.plannedStart);
+  });
+
+  it('splices the server duration for a SUMMARY instead of recomputing a calendar span (#3530)', () => {
+    // Mon Nov 2 → Thu Nov 12 is 9 working days but 10 calendar days. The splice
+    // used to substitute the calendar number (matching a backend that wrote the
+    // same wrong unit); it must now carry the server's working-day value through
+    // untouched, and the bar must still span the CPM dates.
+    const existing = { ...mapTask(base), isSummary: true };
+    const spliced = applyTaskDatesDelta(existing, { ...delta, duration: 9 });
+    expect(spliced.duration).toBe(9);
+    expect(spliced.start).toBe('2026-11-02');
+    expect(spliced.finish).toBe('2026-11-12');
   });
 
   it('splices free_float, which the wire has always carried and the splice used to drop (#3344)', () => {

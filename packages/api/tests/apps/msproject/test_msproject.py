@@ -786,6 +786,13 @@ class TestImporter:
             ProjectResource.objects.filter(project=project).values_list("resource__name", flat=True)
         )
         assert rostered == {"Alice", "Bob"}
+        # ProjectResource is a VersionedModel and this roster INSERT is a bulk_create,
+        # which never calls save() — so the INSERT-path server_version has to be set
+        # explicitly. A row left at the field default of 0 publishes an optimistic-lock
+        # token no client can have echoed back (#3575).
+        assert set(
+            ProjectResource.objects.filter(project=project).values_list("server_version", flat=True)
+        ) == {1}
         # Idempotent — re-running the import does not duplicate roster rows.
         import_project(str(project.pk), data)
         assert ProjectResource.objects.filter(project=project).count() == 2

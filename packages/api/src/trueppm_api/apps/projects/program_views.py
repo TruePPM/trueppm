@@ -1595,6 +1595,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         client-side (ADR-0031): the caller receives the merged spans and sums daily units
         against each resource's ``max_units``.
 
+        ``max_units`` here is deliberately the resource's **own** default and NOT a
+        per-project ``units_override`` (#3574). This span is cross-project by
+        construction, so there is no single project whose override applies; and the
+        overrides are slices of one person's time rather than additive capacities, so
+        summing them would not produce a total ceiling either. The per-project reads
+        (``ProjectViewSet.resource_allocation``, the utilization engine, the heat map,
+        the Overview card) all apply the override; this one states the whole person.
+
         Windowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,
         ADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect
         fixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map

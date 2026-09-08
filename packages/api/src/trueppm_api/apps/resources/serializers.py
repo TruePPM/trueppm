@@ -9,7 +9,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from rest_framework import serializers
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.resources.models import (
     ProjectResource,
     Resource,
@@ -19,6 +18,7 @@ from trueppm_api.apps.resources.models import (
     TaskSkillRequirement,
 )
 from trueppm_api.apps.resources.services import MAX_ASSIGNMENT_UNITS, MIN_ASSIGNMENT_UNITS
+from trueppm_api.apps.workspace.permissions import is_workspace_admin
 
 
 def _active_resource_field() -> serializers.PrimaryKeyRelatedField[Resource]:
@@ -144,13 +144,13 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
     current user (Resource.user FK or, for legacy rows, an exact email match).
     Drives the "My tasks" Board filter (#198) without leaking other users' IDs.
 
-    Email exposure is gated on org-admin (#891, mirrors #815's UserSearchView
-    fix): the resource catalog is readable by any authenticated user, so echoing
-    ``email`` on every row let a single low-privilege account paginate the
-    catalog to harvest the whole org's email list. ``to_representation`` strips
-    ``email`` for callers below ADMIN on every project, while still letting the
-    caller see their own email (is_me) so self-view is unaffected. Org admins —
-    who legitimately manage the catalog — continue to receive it.
+    Email exposure is gated on the workspace ADMIN role (#891, mirrors #815's
+    UserSearchView fix; raised from org-admin in #3569): the resource catalog is
+    readable by any authenticated user, so echoing ``email`` on every row let a
+    single low-privilege account paginate the catalog to harvest the whole org's
+    email list. ``to_representation`` strips ``email`` for every caller below
+    workspace ADMIN, while still letting the caller see their own email (is_me) so
+    self-view is unaffected.
     """
 
     skills = ResourceSkillSerializer(many=True, read_only=True)
@@ -191,53 +191,54 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
             return bool(user_email) and obj.email.strip().lower() == user_email
         return False
 
-    def _caller_is_org_admin(self) -> bool:
-        """Return True if the requesting user is an org admin (ADMIN+ on any project).
+    def _caller_is_workspace_admin(self) -> bool:
+        """Return True if the requesting user holds workspace ADMIN or above.
 
-        Mirrors :class:`~trueppm_api.apps.access.permissions.IsOrgAdmin`: OSS has
-        no separate org-admin entity, so admin authority is derived from holding
-        Project Manager (ADMIN) or Owner on at least one project. Superusers
-        bypass. Used to gate email exposure in ``to_representation`` (#891).
+        Mirrors :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict`,
+        the gate on this viewset's sibling actions, via the shared
+        :func:`~trueppm_api.apps.workspace.permissions.is_workspace_admin`. Used to
+        gate email exposure in ``to_representation`` (#891).
 
-        The result is memoized on the serializer instance: org-admin status is
-        request-scoped and constant across rows, so a list serialization must not
-        re-run the ProjectMembership EXISTS query per row (N+1, #perf). The cache
-        lives for the lifetime of one serializer instance (one request).
+        **Raised from the org-admin derivation in #3569.** This used to ask
+        ``IsOrgAdmin``'s question — ADMIN+ on at least one project — which any
+        authenticated account satisfies after a single ``POST /projects/``, since
+        nothing gates project creation and the creator is made Owner. That made the
+        #891 org-wide email-harvest control decorative: two requests bought every
+        address in the catalog. ``WorkspaceMembership`` is a **stored** grant, handed
+        out only by an existing workspace admin or by SSO provisioning, so it is not
+        reachable that way. Self-view is unaffected — ``to_representation``
+        short-circuits on ``is_me`` before reaching this check, so a contributor
+        still sees their own address.
+
+        The result is memoized on the serializer instance: the role is request-scoped
+        and constant across rows, so a list serialization must not re-derive it per
+        row (N+1, #perf). The cache lives for the lifetime of one serializer instance
+        (one request).
         """
-        cached: bool | None = getattr(self, "_org_admin_cache", None)
+        cached: bool | None = getattr(self, "_workspace_admin_cache", None)
         if cached is not None:
             return cached
         request = self.context.get("request")
-        result: bool
-        if request is None or not getattr(request.user, "is_authenticated", False):
-            result = False
-        elif request.user.is_superuser:
-            result = True
-        else:
-            result = ProjectMembership.objects.filter(
-                user=request.user,
-                role__gte=Role.ADMIN,
-                is_deleted=False,
-            ).exists()
-        self._org_admin_cache = result
+        result = is_workspace_admin(getattr(request, "user", None))
+        self._workspace_admin_cache = result
         return result
 
     def to_representation(self, instance: Resource) -> dict[str, object]:
-        """Strip ``email`` for non-admin callers to prevent org-wide harvest (#891).
+        """Strip ``email`` below workspace ADMIN to prevent org-wide harvest (#891).
 
-        The catalog is readable by any authenticated user; only org admins (who
-        manage it) and the resource's own user (self-view) should see email. For
-        everyone else the field is dropped from the payload entirely rather than
-        nulled, so it cannot be reconstructed.
+        The catalog is readable by any authenticated user; only a workspace admin
+        (#3569 — previously any org admin) and the resource's own user (self-view)
+        should see email. For everyone else the field is dropped from the payload
+        entirely rather than nulled, so it cannot be reconstructed.
 
-        Self-rows (``is_me``) short-circuit before the org-admin check so a
-        contributor viewing their own row never pays for the org-admin EXISTS
-        query (#perf); the admin status is otherwise memoized across rows.
+        Self-rows (``is_me``) short-circuit before the role check, so a contributor
+        viewing their own row still sees their own address and never pays for the
+        check (#perf); the role is otherwise memoized across rows.
         """
         data = super().to_representation(instance)
         if "email" not in data:
             return data
-        if data.get("is_me") or self._caller_is_org_admin():
+        if data.get("is_me") or self._caller_is_workspace_admin():
             return data
         data.pop("email", None)
         return data
@@ -287,8 +288,14 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
         return attrs
 
     def get_effective_max_units(self, obj: ProjectResource) -> str:
-        value = obj.units_override if obj.units_override is not None else obj.resource.max_units
-        return f"{value:.2f}"
+        """This resource's capacity on this project.
+
+        The roster's ``units_override`` when one is set — including ``0``, which
+        means rostered here and holding no capacity here — otherwise the resource's
+        catalog-wide ``max_units``. Rendered to two decimal places. This is the
+        figure every per-project capacity read measures against (#3574).
+        """
+        return f"{obj.effective_max_units:.2f}"
 
 
 class TaskSkillRequirementSerializer(serializers.ModelSerializer[TaskSkillRequirement]):
@@ -358,8 +365,14 @@ class ResourceAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
     overloaded?". Purely read-only — assignment *writes* still go through
     ``TaskResourceSerializer`` on the project-nested route. It carries the task and
     project *names* (which ``TaskResourceSerializer`` deliberately omits), so the
-    action that serves it is gated on ``IsOrgAdmin`` rather than the base catalog
-    read gate — those names are project-scoped confidential data.
+    action that serves it is gated on ``IsWorkspaceAdminStrict`` rather than the base
+    catalog read gate — those names are project-scoped confidential data.
+
+    ADR-0499 chose ``IsOrgAdmin`` for that gate and said it "is what makes this
+    safe". It was not: the org-admin derivation is reachable by any account that
+    creates a throwaway project, so the gate admitted everyone (#3569). Raised to
+    workspace admin; a member who needs only their *own* projects' view reads
+    ``/task-resources/?resource=``, which is membership-scoped and unchanged.
     """
 
     task = serializers.UUIDField(source="task_id", read_only=True)

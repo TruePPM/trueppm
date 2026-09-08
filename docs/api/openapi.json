@@ -2073,7 +2073,7 @@
         "/api/v1/calendars/": {
             "get": {
                 "operationId": "v1_calendars_list",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -2149,7 +2149,7 @@
             },
             "post": {
                 "operationId": "v1_calendars_create",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "tags": [
                     "calendars"
                 ],
@@ -2251,7 +2251,7 @@
         "/api/v1/calendars/{calendar_pk}/exceptions/": {
             "get": {
                 "operationId": "v1_calendars_exceptions_list",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2335,7 +2335,7 @@
             },
             "post": {
                 "operationId": "v1_calendars_exceptions_create",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2447,7 +2447,7 @@
         "/api/v1/calendars/{calendar_pk}/exceptions/{id}/": {
             "get": {
                 "operationId": "v1_calendars_exceptions_retrieve",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2512,7 +2512,7 @@
             },
             "put": {
                 "operationId": "v1_calendars_exceptions_update",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2630,7 +2630,7 @@
             },
             "patch": {
                 "operationId": "v1_calendars_exceptions_partial_update",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2747,7 +2747,7 @@
             },
             "delete": {
                 "operationId": "v1_calendars_exceptions_destroy",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+),\nmirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2807,7 +2807,7 @@
         "/api/v1/calendars/{id}/": {
             "get": {
                 "operationId": "v1_calendars_retrieve",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "in": "path",
@@ -2866,7 +2866,7 @@
             },
             "put": {
                 "operationId": "v1_calendars_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "in": "path",
@@ -2978,7 +2978,7 @@
             },
             "patch": {
                 "operationId": "v1_calendars_partial_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
                 "parameters": [
                     {
                         "in": "path",
@@ -5119,7 +5119,7 @@
                                 }
                             }
                         },
-                        "description": "Array of per-project summary cards, one for each project where the caller owns a non-complete task in that project's ACTIVE sprint. Each entry carries `{project_id, project_name, sprint, capacity_ratio, capacity_label, velocity}`, where `sprint` holds the burndown snapshot (day N of M, points remaining, trend) and `velocity` the rolling forecast range. Sorted most-behind first. Empty array when the user has no active sprint work."
+                        "description": "Array of per-project summary cards, one for each project where the caller owns a non-complete task in that project's ACTIVE sprint. Each entry carries `{project_id, project_name, sprint, capacity_ratio, capacity_label, velocity}`, where `sprint` holds the burndown snapshot (day N of M, points remaining, trend) and `velocity` the rolling forecast range. `capacity_ratio` / `capacity_label` measure committed hours against the resource's capacity ON THAT SPRINT'S PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units. Sorted most-behind first. Empty array when the user has no active sprint work."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -10685,7 +10685,7 @@
         "/api/v1/programs/{id}/resource-contention/": {
             "get": {
                 "operationId": "v1_programs_resource_contention_retrieve",
-                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\nWindowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,\nADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect\nfixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map\n(#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an\nin-progress task and narrows toward ``early_finish`` as ``percent_complete``\nrises, which would otherwise misreport cross-project contention as work is\nreported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for\nrows a CPM run has not yet populated it on.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           task span start across all member projects. Returns 409 if no\n           member project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\n``max_units`` here is deliberately the resource's **own** default and NOT a\nper-project ``units_override`` (#3574). This span is cross-project by\nconstruction, so there is no single project whose override applies; and the\noverrides are slices of one person's time rather than additive capacities, so\nsumming them would not produce a total ceiling either. The per-project reads\n(``ProjectViewSet.resource_allocation``, the utilization engine, the heat map,\nthe Overview card) all apply the override; this one states the whole person.\n\nWindowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,\nADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect\nfixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map\n(#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an\nin-progress task and narrows toward ``early_finish`` as ``percent_complete``\nrises, which would otherwise misreport cross-project contention as work is\nreported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for\nrows a CPM run has not yet populated it on.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           task span start across all member projects. Returns 409 if no\n           member project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "summary": "Within-program resource contention (cross-project allocation)",
                 "parameters": [
                     {
@@ -18456,7 +18456,7 @@
                                 }
                             }
                         },
-                        "description": "Prioritised attention list: {items: [{severity, type, task_id, task_name, assignee_name, date, detail, link_target}]}. severity is one of critical/warning/info; type is one of critical_task_late, unassigned_approaching, baseline_drift, overallocation."
+                        "description": "Prioritised attention list: {items: [{severity, type, task_id, task_name, assignee_name, date, detail, link_target}]}. severity is one of critical/warning/info; type is one of critical_task_late, unassigned_approaching, baseline_drift, overallocation. An overallocation item is raised when a resource's committed units on open tasks exceed their capacity ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -21862,7 +21862,7 @@
         "/api/v1/projects/{id}/resource-allocation/": {
             "get": {
                 "operationId": "v1_projects_resource_allocation_retrieve",
-                "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / scheduled_start / units / status) within\nthe requested window. Resources with no assignments in the window are\nexcluded.\n\nWindowed and rendered on the task's SPAN\n(``scheduled_start``..``early_finish``, ADR-0752), not on\n``early_start``..``early_finish`` (#2677). Since ADR-0132, ``early_start``\nis the *remaining-work* window for an in-progress task — it shrinks\ntoward ``early_finish`` as ``percent_complete`` rises. Windowing/rendering\non it made reporting progress look like the allocation bar shrinking or\ndropping off the timeline entirely, mirroring the utilization heat map\ndefect fixed in #2623. ``scheduled_start`` falls back to ``early_start``\nvia ``Coalesce`` for rows a CPM run has not yet populated it on — where\nthe two windows coincide anyway for not-started and complete tasks.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           task span start across all tasks. Returns 409 if no CPM dates\n           exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / scheduled_start / units / status) within\nthe requested window. Resources with no assignments in the window are\nexcluded.\n\nWindowed and rendered on the task's SPAN\n(``scheduled_start``..``early_finish``, ADR-0752), not on\n``early_start``..``early_finish`` (#2677). Since ADR-0132, ``early_start``\nis the *remaining-work* window for an in-progress task — it shrinks\ntoward ``early_finish`` as ``percent_complete`` rises. Windowing/rendering\non it made reporting progress look like the allocation bar shrinking or\ndropping off the timeline entirely, mirroring the utilization heat map\ndefect fixed in #2623. ``scheduled_start`` falls back to ``early_start``\nvia ``Coalesce`` for rows a CPM run has not yet populated it on — where\nthe two windows coincide anyway for not-started and complete tasks.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n``max_units`` is the resource's capacity **on this project** — the roster's\n``units_override`` when one is set, else ``Resource.max_units`` (#3574) — so\nthe client's verdict matches the heat map's and the Overview card's.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           task span start across all tasks. Returns 409 if no CPM dates\n           exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "parameters": [
                     {
                         "in": "query",
@@ -21943,7 +21943,7 @@
                                 }
                             }
                         },
-                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units, tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
+                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units (project-effective: roster units_override if set, else Resource.max_units), tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
                     },
                     "409": {
                         "content": {
@@ -22049,7 +22049,7 @@
                                 }
                             }
                         },
-                        "description": "Week x person utilization heatmap."
+                        "description": "Week x person utilization heatmap: integer percent per ISO week, against hours_per_day x max_units x working days. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "409": {
                         "content": {
@@ -22126,7 +22126,7 @@
                                 }
                             }
                         },
-                        "description": "Resource KPIs over an 8-week window: avg utilization, over/under-allocation counts, headcount, and contractor count."
+                        "description": "Resource KPIs over an 8-week window: avg utilization, over/under-allocation counts, headcount, and contractor count. Utilization and the over-allocation verdict share the heatmap's denominator. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "409": {
                         "description": "Schedule has not been computed; run the scheduler."
@@ -24130,7 +24130,7 @@
                                 }
                             }
                         },
-                        "description": "Sparse map of resource -> working day -> {hours, task_ids, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%)."
+                        "description": "Sparse map of resource -> working day -> {hours, task_ids, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%). Each resource row also carries {max_units, hours_per_day, job_role, calendar_id, calendar_differs_from_project}; per-day capacity is hours_per_day x max_units, the same denominator load_pct uses. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "409": {
                         "content": {
@@ -37248,7 +37248,7 @@
         "/api/v1/resource-skills/": {
             "get": {
                 "operationId": "v1_resource_skills_list",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -37324,7 +37324,7 @@
             },
             "post": {
                 "operationId": "v1_resource_skills_create",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "tags": [
                     "resources"
                 ],
@@ -37426,7 +37426,7 @@
         "/api/v1/resource-skills/{id}/": {
             "get": {
                 "operationId": "v1_resource_skills_retrieve",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37485,7 +37485,7 @@
             },
             "put": {
                 "operationId": "v1_resource_skills_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37597,7 +37597,7 @@
             },
             "patch": {
                 "operationId": "v1_resource_skills_partial_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37708,7 +37708,7 @@
             },
             "delete": {
                 "operationId": "v1_resource_skills_destroy",
-                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: SCHEDULER+ on at least one active project (``IsOrgScheduler``). The\nroute is not project-nested so ``IsProjectMember`` alone would not gate writes.\nThe docstring here claimed an ADMIN+ floor via ``IsOrgAdmin``; the code has\nreturned ``IsOrgScheduler`` since #254. Corrected to the code, not the reverse\n— skill tagging is curation, which is what the SCHEDULER floor is for.",
                 "parameters": [
                     {
                         "in": "path",
@@ -37779,7 +37779,7 @@
                         "schema": {
                             "type": "boolean"
                         },
-                        "description": "When 'true', include soft-deleted (deactivated) resources. Only honoured for org admin callers."
+                        "description": "When 'true', include soft-deleted (deactivated) resources. Only honoured for callers holding workspace Admin or above; silently ignored for everyone else."
                     },
                     {
                         "name": "ordering",
@@ -37864,7 +37864,7 @@
             },
             "post": {
                 "operationId": "v1_resources_create",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "tags": [
                     "resources"
                 ],
@@ -37966,7 +37966,7 @@
         "/api/v1/resources/{id}/": {
             "get": {
                 "operationId": "v1_resources_retrieve",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38025,7 +38025,7 @@
             },
             "put": {
                 "operationId": "v1_resources_update",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38137,7 +38137,7 @@
             },
             "patch": {
                 "operationId": "v1_resources_partial_update",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38248,7 +38248,7 @@
             },
             "delete": {
                 "operationId": "v1_resources_destroy",
-                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner\n    role on at least one *active* project (#3569).\n  DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:\n    IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —\n    these reach across every project in the install, and the org-admin\n    derivation they used to sit behind is self-grantable by creating a\n    throwaway project.\n\nDELETE is a soft-delete (\"deactivate\"): it sets is_deleted=True, soft-deletes\nthe resource's live ProjectResource roster row in every project, and enqueues a\nschedule recalculation for every project that has open TaskResource rows for the\ndeactivated resource. TaskResource assignment rows are deliberately retained so\nassignment history survives an off-boarding; every roster, capacity, and skill\nread filters the deactivated resource out instead. The resource record is never\nhard-deleted, and POST /resources/{id}/restore/ reverses both halves — including\nthe roster rows, but not a membership that was already removed by hand.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter); email is\n                         searchable only for org admins (#892)\n  ?exclude_project=    — exclude resources already in a project's roster;\n                         only honoured for members of that project (#3571)\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing.\n                         Only honoured for members of the task's project (#3571)\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for workspace Admin or above\n  ?ordering=           — order by name (DRF OrderingFilter)\n\nEvery parameter that names a project- or task-scoped id is gated on the\ncaller's membership of that project. The catalog read itself is open, so a\nparameter is the only place a project boundary can be crossed here; an\nunauthorized id is treated as absent rather than refused, so no parameter\ndoubles as an existence oracle.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38302,7 +38302,7 @@
         "/api/v1/resources/{id}/assignments/": {
             "get": {
                 "operationId": "v1_resources_assignments_list",
-                "description": "Cross-project task assignments for one resource — the org catalog's 'what is this person working on' view (#2047). Gated on IsOrgAdmin because it carries task/project names across project boundaries. Soft-deleted tasks are excluded; a deactivated resource still returns its assignments. Ordered by project then task.",
+                "description": "Cross-project task assignments for one resource — the org catalog's 'what is this person working on' view (#2047). Requires the workspace Admin role because it carries task/project names across project boundaries. Soft-deleted tasks are excluded; a deactivated resource still returns its assignments. Ordered by project then task.",
                 "parameters": [
                     {
                         "in": "path",
@@ -38390,7 +38390,7 @@
         "/api/v1/resources/{id}/restore/": {
             "post": {
                 "operationId": "v1_resources_restore_create",
-                "description": "Restore a soft-deleted resource back to active status.\n\nRequires IsOrgAdmin (checked in get_permissions since this is a write\naction). Fetches from the unfiltered queryset so soft-deleted records\nare reachable; the standard get_object() path excludes them.\n\nReverses **both** halves of :meth:`perform_destroy` (#3572). The catalog flag\nalone is not enough: deactivation also soft-deleted the resource's roster\nrows, and a one-way cascade would leave a reactivated person visible in the\ncatalog but silently absent from every team they were on — a second bug in\nthe shape of the first.\n\nOnly rows stamped ``deactivated_with_resource`` come back — restore states\nwhat it reverses rather than inferring it from ``is_deleted``. Roster removal\nthrough the API is a hard delete, so the cascade is currently the only\nproduct path that leaves a soft-deleted roster row; the stamp is what keeps\nthat an assertion rather than an assumption, so a row soft-deleted by an\nimport, a management command, or a data repair is never silently adopted\ninto somebody's reactivation. See ``ProjectResource.deactivated_with_resource``.",
+                "description": "Restore a soft-deleted resource back to active status.\n\nRequires IsWorkspaceAdminStrict (checked in get_permissions since this is a\nwrite action; raised from IsOrgAdmin in #3569 so the whole deactivation\nlifecycle sits on one principal). Fetches from the unfiltered queryset so\nsoft-deleted records are reachable; the standard get_object() path\nexcludes them.\n\nReverses **both** halves of :meth:`perform_destroy` (#3572). The catalog flag\nalone is not enough: deactivation also soft-deleted the resource's roster\nrows, and a one-way cascade would leave a reactivated person visible in the\ncatalog but silently absent from every team they were on — a second bug in\nthe shape of the first.\n\nOnly rows stamped ``deactivated_with_resource`` come back — restore states\nwhat it reverses rather than inferring it from ``is_deleted``. Roster removal\nthrough the API is a hard delete, so the cascade is currently the only\nproduct path that leaves a soft-deleted roster row; the stamp is what keeps\nthat an assertion rather than an assumption, so a row soft-deleted by an\nimport, a management command, or a data repair is never silently adopted\ninto somebody's reactivation. See ``ProjectResource.deactivated_with_resource``.",
                 "summary": "Restore a deactivated resource",
                 "parameters": [
                     {
@@ -40854,7 +40854,7 @@
                                 }
                             }
                         },
-                        "description": "Per-person and aggregate capacity for the sprint."
+                        "description": "Per-person and aggregate capacity for the sprint. Available hours are capacity x sprint working days x hours/day. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -44829,7 +44829,7 @@
         "/api/v1/task-skill-requirements/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_list",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -44905,7 +44905,7 @@
             },
             "post": {
                 "operationId": "v1_task_skill_requirements_create",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "tags": [
                     "resources"
                 ],
@@ -45010,7 +45010,7 @@
         "/api/v1/task-skill-requirements/{id}/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_retrieve",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45069,7 +45069,7 @@
             },
             "put": {
                 "operationId": "v1_task_skill_requirements_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45181,7 +45181,7 @@
             },
             "patch": {
                 "operationId": "v1_task_skill_requirements_partial_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -45292,7 +45292,7 @@
             },
             "delete": {
                 "operationId": "v1_task_skill_requirements_destroy",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project),\nand the requirement's task must live in a project that is not archived.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ **on the target task's own project**, and the target task's\nproject must not be archived — both enforced per-write by\n:meth:`_require_scheduler_on_task`.\n\nThis surface is project-scoped, not org-global: every row belongs to exactly\none task, which belongs to exactly one project. It carried ``IsOrgScheduler``\nas a class gate, which was strictly redundant — anyone passing the real\nper-target check necessarily holds SCHEDULER+ on some project and so passed\nthe org gate too. Redundant is not free: it kept a project-scoped endpoint\ninside the blast radius of the self-grantable org derivation (#3569), and it\nmade the endpoint's true rule harder to read. Dropped in favour of the check\nthat was already doing the work. The archived-project floor (#3570) is the\nsame story: enforced inline against the *target* task's project, not via a\nclass-level ``IsProjectNotArchived`` that could only ever check the object\nDRF already resolved.",
                 "parameters": [
                     {
                         "in": "path",
@@ -59902,7 +59902,7 @@
             },
             "PatchedResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -64893,6 +64893,7 @@
                     },
                     "effective_max_units": {
                         "type": "string",
+                        "description": "This resource's capacity on this project.\n\nThe roster's ``units_override`` when one is set — including ``0``, which\nmeans rostered here and holding no capacity here — otherwise the resource's\ncatalog-wide ``max_units``. Rendered to two decimal places. This is the\nfigure every per-project capacity read measures against (#3574).",
                         "readOnly": true
                     },
                     "notes": {
@@ -65502,7 +65503,7 @@
             },
             "Resource": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -65557,7 +65558,7 @@
             },
             "ResourceAssignment": {
                 "type": "object",
-                "description": "Read-only projection of one resource's task assignments across all projects.\n\nBacks the org catalog's \"Assignments\" panel (#2047, ADR-0499): it answers the\nresource manager's daily question \"what is this person working on / are they\noverloaded?\". Purely read-only — assignment *writes* still go through\n``TaskResourceSerializer`` on the project-nested route. It carries the task and\nproject *names* (which ``TaskResourceSerializer`` deliberately omits), so the\naction that serves it is gated on ``IsOrgAdmin`` rather than the base catalog\nread gate — those names are project-scoped confidential data.",
+                "description": "Read-only projection of one resource's task assignments across all projects.\n\nBacks the org catalog's \"Assignments\" panel (#2047, ADR-0499): it answers the\nresource manager's daily question \"what is this person working on / are they\noverloaded?\". Purely read-only — assignment *writes* still go through\n``TaskResourceSerializer`` on the project-nested route. It carries the task and\nproject *names* (which ``TaskResourceSerializer`` deliberately omits), so the\naction that serves it is gated on ``IsWorkspaceAdminStrict`` rather than the base\ncatalog read gate — those names are project-scoped confidential data.\n\nADR-0499 chose ``IsOrgAdmin`` for that gate and said it \"is what makes this\nsafe\". It was not: the org-admin derivation is reachable by any account that\ncreates a throwaway project, so the gate admitted everyone (#3569). Raised to\nworkspace admin; a member who needs only their *own* projects' view reads\n``/task-resources/?resource=``, which is membership-scoped and unchanged.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -65611,7 +65612,7 @@
             },
             "ResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -69321,7 +69322,8 @@
                     "assignee_is_overallocated": {
                         "type": "boolean",
                         "readOnly": true,
-                        "default": false
+                        "default": false,
+                        "description": "True when the assignee's TaskResource.units across active tasks in this project exceed their capacity ON THIS PROJECT. Capacity is resolved in three steps: the roster units_override for the Resource that Resource.user links to this assignee (0 included), else that Resource's max_units, else 1.0 for an assignee with no Resource row at all."
                     },
                     "sprint": {
                         "type": "string",
@@ -72484,7 +72486,8 @@
                     "assignee_is_overallocated": {
                         "type": "boolean",
                         "readOnly": true,
-                        "default": false
+                        "default": false,
+                        "description": "True when the assignee's TaskResource.units across active tasks in this project exceed their capacity ON THIS PROJECT. Capacity is resolved in three steps: the roster units_override for the Resource that Resource.user links to this assignee (0 included), else that Resource's max_units, else 1.0 for an assignee with no Resource row at all."
                     },
                     "sprint": {
                         "type": "string",
