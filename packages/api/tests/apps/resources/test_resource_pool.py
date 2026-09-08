@@ -488,6 +488,33 @@ class TestTaskSkillRequirementViewSet:
         assert res.status_code == 403
         assert not TaskSkillRequirement.objects.filter(task=other_task).exists()
 
+    def test_create_with_no_membership_anywhere_is_forbidden(
+        self,
+        db: object,
+        task: Task,
+        react_skill: Skill,
+    ) -> None:
+        """#3569: the caller with no ProjectMembership at all is still refused.
+
+        This viewset used to carry an ``IsOrgScheduler`` class gate that refused this
+        caller at the door, before any per-target logic ran. #3569 removed that gate as
+        redundant — every caller it admitted still had to pass
+        ``_require_scheduler_on_task`` against the target task's own project. Nothing
+        covered the cell the class gate uniquely owned, so removing it was unverified
+        in exactly one direction: a caller who is a member of *nothing*, for whom
+        ``_membership_role`` returns None rather than a role below SCHEDULER.
+        """
+        stranger = User.objects.create_user(username="no_memberships", password="pw")
+        client = APIClient()
+        client.force_authenticate(user=stranger)
+
+        res = client.post(
+            "/api/v1/task-skill-requirements/",
+            {"task": str(task.pk), "skill": str(react_skill.pk), "min_proficiency": 2},
+        )
+        assert res.status_code == 403
+        assert not TaskSkillRequirement.objects.filter(task=task).exists()
+
     def test_update_below_scheduler_on_target_project_is_forbidden(
         self,
         viewer_client: APIClient,
