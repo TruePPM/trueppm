@@ -5953,9 +5953,12 @@ def _spawn_occurrence(
 
     occurrence = Task.objects.create(
         # ``project=`` rather than ``project_id=`` so the occurrence carries the
-        # template's already-loaded Project instance in its FK cache. apply_task_owners
-        # auto-rosters through ``task.project``, which on a ``project_id``-only create
-        # is a fresh SELECT per occurrence inside the sweep loop.
+        # template's already-loaded Project instance in its FK cache. This used to be
+        # load-bearing: apply_task_owners auto-rostered through ``task.project``, which
+        # on a ``project_id``-only create was a fresh SELECT per occurrence inside the
+        # sweep loop. Since #3575 it rosters through ``task.project_id`` and needs no
+        # cached instance, so this is now belt-and-braces for any future reader of
+        # ``occurrence.project`` rather than a live optimization.
         project=template.project,
         name=template.name,
         duration=template.duration,
