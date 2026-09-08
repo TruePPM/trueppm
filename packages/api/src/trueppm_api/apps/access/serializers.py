@@ -22,7 +22,10 @@ from trueppm_api.apps.access.models import (
 )
 from trueppm_api.apps.profiles.models import DateFormat, RoleContext
 from trueppm_api.apps.workspace.models import WorkspaceRole
-from trueppm_api.apps.workspace.permissions import workspace_role_for_user
+from trueppm_api.apps.workspace.permissions import (
+    _workspace_membership_role,
+    workspace_role_for_user,
+)
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 User = get_user_model()
@@ -54,7 +57,7 @@ _TARGET_HELP_TEXT = (
 )
 
 
-def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
+def reachable_membership_targets(actor: Any, *, request: Any = None) -> QuerySet[Any]:
     """Accounts ``actor`` may name as the target of a membership write (#3641).
 
     Membership writes take a bare ``auth.User`` integer primary key and answer with
@@ -102,11 +105,19 @@ def reachable_membership_targets(actor: Any) -> QuerySet[Any]:
 
     Args:
         actor: The requesting user. An anonymous or deactivated principal reaches nobody.
+        request: The DRF request, when there is one. Resolving the workspace role
+            through it populates the per-request cache the permission layer reads, so a
+            workspace-scoped permission class added to these viewsets later does not
+            silently resolve the same role a second time.
 
     Returns:
         A ``User`` queryset of the accounts ``actor`` may name.
     """
-    role = workspace_role_for_user(actor)
+    role = (
+        _workspace_membership_role(request)
+        if request is not None
+        else workspace_role_for_user(actor)
+    )
     if role is None:
         return User.objects.none()
 
@@ -169,7 +180,7 @@ class _ReachableMembershipTargetMixin:
         request = self.context.get("request")  # type: ignore[attr-defined]
         actor = getattr(request, "user", None)
         if actor is not None and getattr(actor, "is_authenticated", False):
-            field.queryset = reachable_membership_targets(actor)
+            field.queryset = reachable_membership_targets(actor, request=request)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # ``user`` is read-only on update, so DRF drops it silently. Surface the
