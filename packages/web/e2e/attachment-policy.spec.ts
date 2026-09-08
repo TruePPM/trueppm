@@ -38,7 +38,7 @@ function makeProject(overrides: Record<string, unknown> = {}) {
     description: '',
     start_date: '2026-03-02',
     calendar: null,
-    estimation_mode: 'OPEN',
+    estimation_mode: 'open',
     agile_features: false,
     methodology: 'HYBRID',
     effective_methodology: 'HYBRID',

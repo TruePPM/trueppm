@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
 
+import { installSchemaGuard } from './schema-guard';
+
 /**
  * Shared Playwright API mocks — kills `ECONNREFUSED 127.0.0.1:8000` log noise
  * and removes ~50 lines of boilerplate per spec. See ./README.md for the
@@ -65,7 +67,6 @@ export interface OverviewFixture {
 
 export interface StatusSummaryFixture {
   task_count: number;
-  critical_path_count: number;
   /**
    * The server's health band (#3501). It folds in the manual `Project.health`
    * override, so it is NOT derivable from the two counts below — a spec that
@@ -232,7 +233,6 @@ const DEFAULT_OVERVIEW: OverviewFixture = {
 
 const DEFAULT_STATUS_SUMMARY: StatusSummaryFixture = {
   task_count: 0,
-  critical_path_count: 0,
   health_band: 'on_track',
   // 'derived' by default: 'reported' would put a provenance row in the popover of
   // every spec that mounts the shell, so a spec asserting the row's ABSENCE would
@@ -277,6 +277,15 @@ function paginated(results: unknown[]) {
  * Register BEFORE setupApiMocks so more-specific routes win.
  */
 export async function setupCatchAll(page: Page): Promise<void> {
+  // Bind every mock this page will register to docs/api/openapi.json (#3440).
+  // This is the FIRST thing setupCatchAll does, and it is here rather than in
+  // setupApiMocks for one reason: `lint:e2e-catchall` already requires every
+  // API-mocking spec to call setupCatchAll, so installing the guard here makes
+  // the schema binding as universal as the catch-all itself — including the
+  // ~290 specs whose payloads are inlined in the spec body and never pass
+  // through a fixture. See fixtures/schema-guard.ts for why it patches
+  // page.route instead of exposing an opt-in helper.
+  installSchemaGuard(page);
   await page.route('**/api/v1/**', async (route) => {
     const req = route.request();
     console.warn(`[e2e mock] unmocked ${req.method()} ${req.url()} → 404`);

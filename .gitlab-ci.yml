@@ -999,6 +999,35 @@ lint:e2e-catchall:
     - bash scripts/check-e2e-catchall.sh --self-test
     - bash scripts/check-e2e-catchall.sh
 
+lint:e2e-schema-guard:
+  extends: .fast-job
+  # The e2e mock layer must stay bound to docs/api/openapi.json (#3440).
+  #
+  # `web:e2e` used to be evidence about the fixtures, not about the API: 1,808
+  # lines of hand-written mocks and every inline page.route payload were authored
+  # independently of the schema, so a renamed serializer field left 295 specs
+  # green. `fixtures/schema-guard.ts` closes that by validating every mocked
+  # response against the schema, and it is wired in by ONE line inside
+  # setupCatchAll. Delete that line and the binding is gone with no red anywhere.
+  #
+  # This job is the structural half — it cannot check a payload (only the suite
+  # can, via e2e/schema-guard.spec.ts), it checks that nothing disarmed the
+  # guard, that CI is not disabling it, and that the drift ledger has not grown.
+  # ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    # Self-test FIRST, same reason as the catch-all gate above: this gate's own
+    # failure mode is a green pipeline, so a green run has to be backed by proof
+    # it can still reject a disarmed tree (#3194).
+    - bash scripts/check-e2e-schema-guard.sh --self-test
+    - bash scripts/check-e2e-schema-guard.sh
+
 lint:adr-collisions:
   extends: .fast-job
   # ADR number-collision gate (#918). Fails if any two files under docs/adr/

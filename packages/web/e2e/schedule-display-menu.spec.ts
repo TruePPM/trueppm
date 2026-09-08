@@ -111,7 +111,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
         description: '',
         start_date: '2026-01-01',
         calendar: 'default',
-        estimation_mode: 'OPEN',
+        estimation_mode: 'open',
         agile_features: false,
         methodology: 'HYBRID',
         code: '',
@@ -141,7 +141,6 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         task_count: 0,
-        critical_path_count: 0,
         health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,

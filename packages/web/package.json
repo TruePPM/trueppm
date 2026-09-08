@@ -30,6 +30,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:coverage": "VITE_COVERAGE=true npm run build && playwright test && npm run coverage:e2e:merge",
     "coverage:e2e:merge": "node scripts/merge-e2e-coverage.mjs",
+    "//e2e:schema-report": "Measure how much of docs/api/openapi.json the e2e mock layer is actually bound to (#3440). Two steps, because the numbers come from a real run: `TRUEPPM_E2E_SCHEMA_GUARD=report TRUEPPM_E2E_SCHEMA_REPORT=/tmp/schema.ndjson npx playwright test` observes without failing, then this aggregates. `report` mode is for measurement only — CI must never set it, and scripts/check-e2e-schema-guard.sh enforces that.",
+    "e2e:schema-report": "node scripts/e2e-schema-report.mjs",
     "//knip:strict": "Dead-export gate (#3375), run by the web:knip CI job. `--no-config-hints` because two of the `ignore` entries in knip.jsonc name gitignored build artifacts that are absent from a clean checkout, so knip hints to remove them on every CI run — the ignores exist for the working tree that HAS built. Note the name is not `knip --strict`: that flag means something else entirely (consider only direct dependencies, not devDependencies) and would report most of this package's imports as unlisted.",
     "knip:strict": "knip --no-progress --no-config-hints",
     "screenshots": "playwright test --config=playwright.marketing.config.ts",

@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks \
+        migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -438,6 +438,16 @@ e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
+e2e-schema-guard-check: ## Run the lint:e2e-schema-guard CI job locally (#3440)
+	@# The e2e mock layer is bound to docs/api/openapi.json by ONE line inside
+	@# setupCatchAll. Delete it and 290 specs go back to asserting the front end
+	@# against their own fixtures — with the whole suite still green, which is the
+	@# same silence the binding was written to remove. This checks the wire is
+	@# there, that CI is not disabling it, and that the drift ledger has not grown.
+	@# ~50ms.
+	@bash scripts/check-e2e-schema-guard.sh --self-test
+	@bash scripts/check-e2e-schema-guard.sh
+
 demo-nginx-allowlist-check: ## Run the demo nginx allowlist CI job locally (#2941)
 	@bash scripts/check-demo-nginx-allowlist.sh
 
@@ -491,7 +501,7 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check dependency-soft-delete-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check dependency-soft-delete-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check e2e-schema-guard-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
