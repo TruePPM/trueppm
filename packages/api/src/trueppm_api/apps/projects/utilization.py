@@ -173,8 +173,10 @@ def peak_concurrent_units(
     This is the overallocation question a project-lifetime ``Sum(units)`` cannot
     answer: three 0.8-unit tasks that never share a calendar day are a peak of
     0.8, not 2.4 (#3534). It is the same verdict the daily engine above reaches
-    in hours, kept in units here because write-time callers compare directly
-    against ``Resource.max_units`` and never need a calendar's ``hours_per_day``.
+    in hours, kept in units here because write-time callers compare it directly
+    against a units capacity and never need a calendar's ``hours_per_day``. Since
+    #3574 that capacity is the caller's project-effective figure (the roster's
+    ``units_override`` when set, else ``Resource.max_units``), not the raw default.
 
     Undated commitments — a task with no ``scheduled_start``/``early_start``
     span, which the daily engine simply drops — are folded in as a **baseline
@@ -269,7 +271,9 @@ def compute_utilization(
         {
           "resource_id": str,
           "resource_name": str,
-          "max_units": str,          # Decimal as string for stable serialization
+          # Capacity ON THIS PROJECT: the roster's units_override when one is set,
+          # else Resource.max_units. Decimal as string for stable serialization.
+          "max_units": str,
           "calendar_id": str | null,
           "calendar_differs_from_project": bool,
           "overallocated": bool,     # true if any day exceeds 100% load
@@ -319,7 +323,8 @@ def compute_utilization(
     )
 
     # Build the public response — strip internal _mask/_exc_ranges/_days fields.
-    # Per-day capacity = hours_per_day × max_units (web rule 92). The server now
+    # Per-day capacity = hours_per_day × max_units (web rule 92), where max_units is
+    # already the project-effective figure the engine resolved (#3574). The server now
     # emits load_pct / load_band / overallocated per day so the client renders the
     # verdict rather than re-deriving it from raw hours (#989) — and a resource-
     # level ``overallocated`` flag (any day over 100%) for the overallocation
@@ -348,7 +353,9 @@ def compute_utilization(
                 "max_units": row["max_units"],
                 # hours_per_day is the effective working hours for this resource
                 # after calendar resolution. The frontend divides actual load hours
-                # by (hours_per_day × max_units) to compute the % bar fill.
+                # by (hours_per_day × max_units) to compute the % bar fill — and
+                # max_units is override-resolved, so that bar and the server's own
+                # load_pct cannot disagree (#3574).
                 "hours_per_day": row["hours_per_day"],
                 "calendar_id": row["calendar_id"],
                 "calendar_differs_from_project": row["calendar_differs_from_project"],
@@ -443,7 +450,9 @@ def aggregate_utilization_weekly(
     }
 
     Util percent = (weekly_hours / weekly_capacity) × 100, where weekly_capacity
-    is hours_per_day × max_units × working_days_in_that_week (calendar-aware).
+    is hours_per_day × max_units × working_days_in_that_week (calendar-aware), and
+    ``max_units`` is the project-effective capacity — the roster's
+    ``units_override`` when one is set, else ``Resource.max_units`` (#3574).
     """
     # Build ISO-week boundaries and labels
     week_dates: list[tuple[datetime.date, datetime.date]] = []
@@ -518,6 +527,7 @@ def _weekly_util_for_resource(
 
     Util percent = (weekly_hours / weekly_capacity) × 100, where weekly_capacity is
     hours_per_day × max_units × working_days_in_that_week (calendar-aware).
+    ``row["max_units"]`` is the project-effective capacity resolved by the engine.
     """
     hrs = row["hours_per_day"]
     max_units = float(row["max_units"])
@@ -544,8 +554,18 @@ def _compute_utilization_internal(
     Rows include the private ``_mask``, ``_exc_ranges``, and ``_days`` fields
     needed by ``aggregate_utilization_weekly``.  Not part of the public API.
     """
+    from trueppm_api.apps.resources.capacity import project_effective_units
+
     project_cal = project.calendar
     proj_mask, proj_exceptions, proj_cal_id = _resolve_project_calendar(project_cal)
+
+    # One query for the whole roster. ``ProjectResource.units_override`` is a
+    # PER-PROJECT capacity statement, and this engine is the choke point every
+    # per-project capacity read funnels through — the daily load bands, the weekly
+    # heat map, ``resources/summary``, the Overview KPI and the weekly digest all
+    # read the rows it returns. Resolving the override anywhere else would let two
+    # adjacent surfaces report different numbers for the same person (#3574).
+    roster_units = project_effective_units(project.pk)
 
     # Window by the task's SPAN (scheduled_start..early_finish), not its
     # remaining-work window (early_start..early_finish) — see the module
@@ -584,6 +604,7 @@ def _compute_utilization_internal(
                 proj_mask,
                 proj_exceptions,
                 proj_cal_id,
+                roster_units,
             )
 
     return sorted(resource_rows.values(), key=lambda r: r["resource_name"])
@@ -650,13 +671,24 @@ def _init_resource_row(
     cal_differs: bool,
     mask: int,
     exc_ranges: list[tuple[datetime.date, datetime.date]],
+    effective_units: Decimal | None = None,
 ) -> dict[str, Any]:
-    """Build a fresh accumulator row for a resource (including internal `_` fields)."""
+    """Build a fresh accumulator row for a resource (including internal `_` fields).
+
+    ``effective_units`` is the resource's capacity **on this project** — the roster's
+    ``units_override`` when one is set, else ``Resource.max_units``. It is ``None``
+    for a resource carrying assignments without a roster row, whose capacity is the
+    resource default by definition.
+    """
     return {
         "resource_id": rid,
         "resource_name": resource.name,
         "job_role": resource.job_role or "",
-        "max_units": str(resource.max_units),
+        # The row's single capacity figure, already override-resolved. Every
+        # consumer (load_pct, load_band, overallocated, the weekly heat map, the
+        # Overview KPI, the client's % bar) divides by this one value, which is what
+        # keeps them from disagreeing (#3574).
+        "max_units": str(effective_units if effective_units is not None else resource.max_units),
         "hours_per_day": hrs,
         "calendar_id": str(resource.calendar_id) if resource.calendar_id else None,
         "calendar_differs_from_project": cal_differs,
@@ -696,6 +728,7 @@ def _accumulate_assignment(
     proj_mask: int,
     proj_exceptions: list[tuple[datetime.date, datetime.date]],
     proj_cal_id: Any,
+    roster_units: dict[str, Decimal] | None = None,
 ) -> None:
     """Fold one TaskResource assignment's daily load into ``resource_rows``."""
     resource = assignment.resource
@@ -704,7 +737,15 @@ def _accumulate_assignment(
         resource, project_cal, proj_mask, proj_exceptions, proj_cal_id
     )
     if rid not in resource_rows:
-        resource_rows[rid] = _init_resource_row(rid, resource, hrs, cal_differs, mask, exc_ranges)
+        resource_rows[rid] = _init_resource_row(
+            rid,
+            resource,
+            hrs,
+            cal_differs,
+            mask,
+            exc_ranges,
+            (roster_units or {}).get(rid),
+        )
 
     daily_hours = hrs * float(assignment.units)
     _accumulate_days(
@@ -764,7 +805,9 @@ def compute_team_utilization(
 
     Per-project ``units_override`` wins over ``Resource.max_units`` for anyone on
     the roster — that override exists precisely to say "this person is only half
-    on this project", and ignoring it would understate their utilization.
+    on this project", and ignoring it would understate their utilization. Since
+    #3574 that resolution happens once, inside the daily engine, so this card and
+    every other per-project capacity read share one answer.
     """
     rows_by_id = {
         row["resource_id"]: row
@@ -792,22 +835,22 @@ def compute_team_utilization(
         roster_entry = roster.get(rid)
 
         if row is not None:
-            # The engine row already resolved this resource's calendar; reuse it
-            # rather than re-deriving it, so numerator and denominator cannot drift.
+            # The engine row already resolved this resource's calendar AND its
+            # effective per-project capacity; reuse both rather than re-deriving
+            # them, so numerator and denominator cannot drift and this card cannot
+            # disagree with the heat map it links to (#3574).
             mask, hrs, exc_ranges = row["_mask"], row["hours_per_day"], row["_exc_ranges"]
             units = float(row["max_units"])
             load_total += _window_load_hours(row)
         else:
             # On the roster but carrying no assignments in the window — pure idle
-            # capacity, which still belongs in the denominator.
+            # capacity, which still belongs in the denominator. No engine row exists
+            # to carry the resolved capacity, so resolve it from the roster entry.
             resource = roster_entry.resource  # type: ignore[union-attr]
             mask, hrs, exc_ranges, _ = _resolve_resource_calendar(
                 resource, project_cal, proj_mask, proj_exceptions, proj_cal_id
             )
-            units = float(resource.max_units)
-
-        if roster_entry is not None and roster_entry.units_override is not None:
-            units = float(roster_entry.units_override)
+            units = float(roster_entry.effective_max_units)  # type: ignore[union-attr]
 
         working_days = _count_working_days_in_range(mask, exc_ranges, window_start, window_end)
         capacity_total += hrs * units * working_days

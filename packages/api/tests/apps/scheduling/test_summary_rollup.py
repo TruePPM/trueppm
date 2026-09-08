@@ -3,7 +3,7 @@
 After recalculate_schedule runs, summary tasks must have:
   - early_start = min(leaf early_start)
   - early_finish = max(leaf early_finish)
-  - duration = calendar-day span (early_finish - early_start)
+  - duration = WORKING-day span of [early_start, early_finish] inclusive (#3530)
   - is_critical = any(leaf is_critical)
 """
 
@@ -76,15 +76,24 @@ class TestSummaryRollup:
         assert phase.early_finish is not None
         assert phase.early_finish >= date(2026, 1, 9)
 
-    def test_summary_duration_equals_span(self, project: Project) -> None:
-        """Summary task duration is updated to calendar-day span after CPM."""
+    def test_summary_duration_is_the_working_day_span(self, project: Project) -> None:
+        """Summary duration is the WORKING-day span of its rolled-up window (#3530).
+
+        The single leaf is 5 working days from Mon Jan 5, so it finishes Fri Jan 9
+        and the phase's span is exactly those 5 working days. The pre-#3530
+        write-back stored ``(early_finish - early_start).days`` — 4 — a calendar
+        span in a column documented as working days.
+        """
         phase = Task.objects.create(project=project, name="Phase 1", duration=1, wbs_path="1")
         Task.objects.create(project=project, name="T1", duration=5, wbs_path="1.1")
         _run_schedule(str(project.pk))
         phase.refresh_from_db()
-        # Duration must reflect the CPM span, not the stale stored value of 1.
-        expected_span = max(1, (phase.early_finish - phase.early_start).days)
-        assert phase.duration == expected_span
+        assert phase.early_start == date(2026, 1, 5)
+        assert phase.early_finish == date(2026, 1, 9)
+        assert phase.duration == 5
+        # The exact value the broken write-back produced, named so a revert fails
+        # here rather than silently passing a looser assertion.
+        assert phase.duration != (phase.early_finish - phase.early_start).days
 
     def test_summary_is_critical_when_any_child_is_critical(self, project: Project) -> None:
         """Summary task is_critical = True if any leaf is on the critical path."""

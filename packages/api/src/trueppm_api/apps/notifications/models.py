@@ -635,8 +635,8 @@ PROJECT_NOTIFICATION_DISPATCHED_EVENTS: frozenset[str] = frozenset(
 #: (TODO(#3016) wire the dispatchers).
 #:
 #: They are kept rather than deleted because they are a stated product intent, and
-#: the API reports them with ``delivered: false`` so a client can say so instead of
-#: implying a delivery that never happens. Crucially they now default **OFF** on
+#: the API reports them in ``event_delivery`` as ``false`` so a client can say so
+#: instead of implying a delivery that never happens. Crucially they default **OFF** on
 #: every channel: eight events defaulting ON across in-app, email and Slack told an
 #: admin that eight kinds of notification were being delivered, which made turning
 #: one *off* the only action with any apparent meaning — and it had none either.
@@ -659,12 +659,23 @@ PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS: frozenset[str] = frozenset(
 
 
 class ProjectNotificationChannel(models.TextChoices):
-    """Delivery channels for project-scoped notifications.
+    """Columns of the project notification matrix — not a claim that each delivers.
 
-    `slack` and `mobile_push` are wired here for the settings UI; actual
-    delivery requires the Slack/mobile integrations to be configured at the
-    project (Slack) or user (mobile push) level. A toggle in the matrix
-    represents user intent — it does not imply the integration is live.
+    Which of these TruePPM actually delivers on is not restated here: it is
+    :data:`PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS` and its complement
+    :data:`PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS` below, the one place that
+    classification is made and the pair a coverage test holds against this enum.
+    ``slack`` and ``mobile_push`` are on the undeliverable side: nothing sends to
+    them and **no setting anywhere turns them on** — there is no integration to
+    configure, which is what the pre-#3378 wording here claimed. They remain as
+    columns so a member can record routing intent that applies once delivery ships.
+
+    This axis is *not* the ADR-0049 ``NOTIFICATION_CHANNELS`` registry — that is the
+    account-wide ``NotificationPreference.channel`` vocabulary, registered but not
+    yet consumed here (see the module docstring); whether the two converge is #3252.
+
+    A toggle in the matrix is therefore user intent, and the API says which columns
+    that intent can reach today via ``channel_delivery`` (#3378).
     """
 
     IN_APP = "in_app", "In-app"
@@ -673,9 +684,52 @@ class ProjectNotificationChannel(models.TextChoices):
     MOBILE_PUSH = "mobile_push", "Mobile push"
 
 
+#: Matrix columns TruePPM has a delivery path for (#3378).
+#:
+#: A literal, deliberately. The obvious move — deriving it from ADR-0049's
+#: ``NOTIFICATION_CHANNELS`` registrations — is wrong twice over. The registry is
+#: the vocabulary of the *account-wide* ``NotificationPreference.channel`` surface,
+#: not of this matrix, and it is registered but not yet consumed (see the module
+#: docstring); whether the two axes converge is #3252's open question, so pinning
+#: this to it would encode a decision nobody has made. And the registry is
+#: populated at ``AppConfig.ready()``, so a value read from it would make the
+#: published OpenAPI schema depend on which apps happened to be loaded when it was
+#: generated — including Enterprise's, which would change the *OSS* schema.
+#:
+#: What keeps the literal honest is
+#: ``tests/apps/notifications/test_project_notification_channel_coverage.py``: the
+#: two sets must cover :class:`ProjectNotificationChannel` exactly and be disjoint,
+#: and an AST walk asserts a channel declared undeliverable is named by no dispatch
+#: site.
+PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS: frozenset[str] = frozenset(
+    {
+        ProjectNotificationChannel.IN_APP.value,
+        ProjectNotificationChannel.EMAIL.value,
+    }
+)
+
+#: Columns the matrix renders that **nothing delivers on** (TODO(#3252)).
+#:
+#: Not "the integration is not configured" — there is nothing to configure. No code
+#: in ``apps/notifications`` sends to either, and no setting anywhere turns them on.
+#: They are kept as columns because they are a stated product intent and a member's
+#: stored routing choice survives until delivery ships; the API reports them in
+#: ``channel_delivery`` as ``false`` so a client can label the column instead of
+#: rendering a control that cannot do anything.
+PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS: frozenset[str] = frozenset(
+    {
+        ProjectNotificationChannel.SLACK.value,
+        ProjectNotificationChannel.MOBILE_PUSH.value,
+    }
+)
+
+
 # Default matrix — applied lazily on first GET (no per-user backfill on join).
-# Mobile push is OFF by default for non-critical events to avoid waking users;
-# critical-path / risk / budget alerts default ON across every channel.
+# A cell defaults ON only where both halves of the claim hold: the event has a
+# dispatcher (PROJECT_NOTIFICATION_DISPATCHED_EVENTS) and the channel has a
+# delivery path (PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS). Everything else
+# defaults OFF, because a default of True is a claim that something will be
+# delivered.
 _T = ProjectNotificationEventType
 _C = ProjectNotificationChannel
 
@@ -688,16 +742,27 @@ def _ALL_OFF() -> dict[str, bool]:
 PROJECT_NOTIFICATION_DEFAULT_MATRIX: dict[str, dict[str, bool]] = {
     # Only COMMENT_MENTION has a dispatch path, so it is the only row that may
     # default ON — a default of True is a claim that something will be delivered.
+    # Slack and mobile push stay OFF even here: the event IS dispatched, but those
+    # two columns are in PROJECT_NOTIFICATION_UNDELIVERABLE_CHANNELS, so ON would be
+    # the same false claim one axis over. Flip them ON in the same change that ships
+    # their delivery (TODO(#3252)).
+    #
+    # This changes what a NEW row is seeded with, and nothing else. The JSONField
+    # default is materialized in full at row creation and every read path prefers the
+    # stored value, so a member who has already opened this page keeps whatever they
+    # have — deliberately. Force-clearing a stored cell would destroy a routing
+    # intent the whole surface exists to preserve, and it is no longer misleading
+    # either way: `channel_delivery` now labels the column on every response.
     _T.COMMENT_MENTION: {
         _C.IN_APP: True,
         _C.EMAIL: True,
-        _C.SLACK: True,
-        _C.MOBILE_PUSH: True,
+        _C.SLACK: False,
+        _C.MOBILE_PUSH: False,
     },
     # TODO(#3016): every row below is dispatched by nothing. They default OFF on
     # every channel so the settings matrix does not promise a delivery that never
-    # comes; the API reports them with delivered=false so a client can label them.
-    # Flip a row back to True in the same change that wires its dispatcher.
+    # comes; the API reports them in event_delivery as false so a client can label
+    # them. Flip a row back to True in the same change that wires its dispatcher.
     _T.TASK_ASSIGNED: _ALL_OFF(),
     _T.TASK_OVERDUE: _ALL_OFF(),
     _T.STATUS_CHANGE: _ALL_OFF(),
@@ -744,6 +809,43 @@ def project_notification_event_delivery() -> dict[str, bool]:
     return {
         event: event in PROJECT_NOTIFICATION_DISPATCHED_EVENTS
         for event in PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS
+    }
+
+
+#: Every channel the ``channel_delivery`` map reports on, as plain strings (#3378).
+#:
+#: The matrix's own column vocabulary — :class:`ProjectNotificationChannel` — which
+#: is a different, closed set from the ADR-0049 registry keys: Enterprise registers
+#: ``slack_dm`` / ``teams_dm`` / ``sms`` there and none of them is a column here.
+#: Named so the published OpenAPI schema enumerates the same keys from the same
+#: source rather than restating them.
+PROJECT_NOTIFICATION_DELIVERY_REPORTED_CHANNELS: tuple[str, ...] = tuple(
+    sorted(str(channel.value) for channel in ProjectNotificationChannel)
+)
+
+
+def project_notification_channel_delivery() -> dict[str, bool]:
+    """``{channel: does TruePPM deliver on it}`` for every matrix column (#3378).
+
+    The per-column counterpart to :func:`project_notification_event_delivery`, and
+    the reason it exists is the same: the web client was hard-coding
+    ``['slack', 'mobile_push']`` and its own comment said the copy should not
+    survive. Whether a channel delivers is server state — it changes in the release a
+    delivery path lands — so a client-side copy drifts the moment one does.
+
+    Derived from :data:`PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS` rather than
+    restating the classification, so the coverage test that pins that set also pins
+    this map. The two maps are deliberately independent axes: a cell is live only
+    when its event is dispatched **and** its channel delivers, which is why a
+    per-row badge could never have covered this — ``comment_mention`` *is*
+    dispatched and its Slack cell still delivers nothing.
+
+    Server-global: the answer does not vary by user or by project. It rides on the
+    per-user preference document only so a client can label the grid in one render.
+    """
+    return {
+        channel: channel in PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS
+        for channel in PROJECT_NOTIFICATION_DELIVERY_REPORTED_CHANNELS
     }
 
 

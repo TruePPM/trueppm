@@ -775,7 +775,9 @@ class AuditEventType(models.TextChoices):
     INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
     INVITE_REVOKED = "invite_revoked", "Invite revoked"
     # #3174. Calendars are shared org-level resources gated on IsOrgAdmin, which
-    # passes anyone holding ADMIN on *at least one* project. Editing working_days,
+    # passes anyone holding ADMIN on at least one *active* project (#3569 narrowed
+    # the derivation to exclude archived and soft-deleted projects; it did not
+    # change who may edit a calendar). Editing working_days,
     # hours_per_day, or a single holiday exception fans a CPM recompute across every
     # project bound to that calendar — including projects the actor is not a member
     # of, whose owners saw their finish dates move with nothing naming who did it or

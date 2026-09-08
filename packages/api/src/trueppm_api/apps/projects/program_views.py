@@ -1608,6 +1608,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         returned with only part of its spans would report a *wrong* load, not an
         incomplete one, because ADR-0031's verdict is summed over the whole set.
 
+        ``max_units`` here is deliberately the resource's **own** default and NOT a
+        per-project ``units_override`` (#3574). This span is cross-project by
+        construction, so there is no single project whose override applies; and the
+        overrides are slices of one person's time rather than additive capacities, so
+        summing them would not produce a total ceiling either. The per-project reads
+        (``ProjectViewSet.resource_allocation``, the utilization engine, the heat map,
+        the Overview card) all apply the override; this one states the whole person.
+
         Windowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,
         ADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect
         fixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map

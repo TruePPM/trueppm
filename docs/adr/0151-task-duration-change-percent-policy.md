@@ -138,6 +138,21 @@ on read, never persisted — so it is excluded by the `% > 0` guard anyway, and 
 summary's display-span is not a *planned duration* whose change is meaningful to
 earned value.
 
+> **Superseded in part — 2026-09-07, !2402 (#3530).** The parenthetical above is
+> no longer accurate on two counts, and is kept as written because it records why
+> the write-back looked harmless at the time. (1) A summary's duration is now the
+> **working**-day count of its rolled-up span, not the calendar-day span: it was
+> being written into a field the model documents as working days, which inflated
+> every consumer of it by ~1.4x. (2) The line reference `scheduling/tasks.py line
+> ~613` is stale; the write-back now lives in `_apply_cpm_results` around line
+> 1009, sourced from `summary_working_day_durations()`, and `scripts/check-summary-duration-units.sh`
+> gates the units.
+>
+> The *conclusion* of this section is unaffected — the cascade path still records
+> no `TaskDurationChangeEvent` rows, and a summary's `percent_complete` is still
+> always `0`, so the `% > 0` guard still excludes it. Only the description of what
+> the write-back stores has changed.
+
 Therefore **the cascade path records no `TaskDurationChangeEvent` rows in the
 current engine**, and this MR adds **no code to the perf-critical recalc path**.
 AC9's operative requirement — *zero prompts on cascade* — is satisfied
