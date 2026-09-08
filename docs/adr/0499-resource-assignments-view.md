@@ -1,5 +1,19 @@
 # ADR-0499: Resource assignments view — "what is this person working on?"
 
+> **Amended (2026-09-07, #3569).** This ADR gates the endpoint on `IsOrgAdmin` and
+> reasons that "the RBAC gate is what makes that safe". That premise was false when
+> written: `IsOrgAdmin` derives from holding ADMIN+ on any project, project creation
+> is ungated, and `perform_create` makes the creator Owner — so the gate admitted
+> every authenticated account, and with it task and project names for any person
+> across every project in the installation. The endpoint now requires
+> `IsWorkspaceAdminStrict` — the stored `WorkspaceRole.ADMIN` of ADR-0087 §6, which
+> is granted in-app by an existing workspace admin (or by SSO provisioning) and so,
+> unlike a project role, cannot be self-granted. A superuser with no membership row
+> still resolves to implicit OWNER and retains access. Everything else in
+> this ADR — the projection, its shape, ordering, and cross-project (not
+> member-scoped) semantics — stands. Callers who need only their own projects' view
+> use `GET /task-resources/?resource=`, as this ADR already notes.
+
 ## Status
 Accepted
 

@@ -96,7 +96,8 @@ Calendars are managed via the REST API (a visual settings editor is planned):
 | `DELETE /api/v1/calendars/{id}/` | Delete |
 
 Any authenticated user can read calendars; creating and editing them requires the
-Project Manager or Project Admin role on at least one project.
+Project Manager or Project Admin role on at least one **active** project
+(from 0.4 a role held on an archived or deleted project no longer counts).
 
 ## Managing exceptions
 
