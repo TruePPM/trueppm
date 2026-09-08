@@ -27,6 +27,18 @@ export const HEALTH_ACTIVE: Record<ProjectHealth, string> = {
 };
 
 /** Plain-language label for a health value. */
+/**
+ * The one sentence that explains what a *reported* health is, wherever it is shown.
+ *
+ * Two surfaces render it: the Overview header's "Reported: X" chip, and the shell
+ * health chip's provenance row (#3525). It lives here rather than as two literals
+ * because "the two surfaces cannot drift into two wordings of one verdict" is an
+ * invariant a comment cannot hold — extracting it turns a future divergence into a
+ * missing import (rule 395(a)).
+ */
+export const REPORTED_HEALTH_TITLE =
+  'Status reported by the project manager — separate from the schedule signal.';
+
 export const HEALTH_LABEL: Record<ProjectHealth, string> = {
   ON_TRACK: 'On track',
   AT_RISK: 'At risk',

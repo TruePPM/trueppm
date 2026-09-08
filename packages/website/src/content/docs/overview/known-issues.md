@@ -1,6 +1,7 @@
 ---
 title: Known Issues
 description: The maintained list of defects and limitations in what 0.4 will ship — each one naming its tracking issue and the release that fixes it.
+documentedFor: "0.4"
 ---
 
 This page lists **defects and limitations in what TruePPM already ships**. It is the
@@ -14,6 +15,17 @@ covers capabilities that were never built. The split is worth keeping straight:
 
 Every entry names the issue tracking it and the release it is fixed in. When an
 issue closes, its entry comes off this page.
+
+:::note[Ships in 0.4]
+This page describes the defect surface of **TruePPM 0.4**, the first beta. The latest
+release is `v0.3.0-alpha.3`, and 0.4 is still [Underway](/overview/roadmap/#underway).
+
+If you are running 0.3, read this page as the list of edges you will meet *when you
+upgrade*, not as a description of your install. Entries whose fix is dated ("planned
+for 0.5") are dated against the 0.4 baseline. Some behavior described here as working
+— the agent refusal envelope below, for one — is itself part of 0.4 and is not in
+0.3.
+:::
 
 :::caution[0.4 is a beta]
 0.4 is the first release we ask anyone to run a real project on. It is a beta, not a
@@ -285,6 +297,31 @@ what submission means.
   to the grid's language, deliberately **not** a server-side lock, which would pre-empt
   an accepted design decision.
 
+## Resource management and capacity
+
+### A task with only an assignee contributes no load to any capacity view
+
+There are two ways to record who is working on a task, and only one of them creates
+capacity load. Setting a task's **assignee** names the person responsible and drives the
+"can edit their own tasks" permission rule. Adding a **resource assignment** — a person
+plus the fraction of their time the task takes — is what the heatmap, the utilization
+card, overallocation warnings and resource contention all sum.
+
+A task that has an assignee but no resource assignment is therefore real, visible, and
+owned, while counting as **zero load** for the person it is assigned to. Nothing in the
+product currently says so.
+
+- **Impact:** a resource manager reading the heatmap can see someone as available while
+  they carry assigned work. The numbers are internally consistent — they sum exactly
+  what they say they sum — but they will disagree with what a team is actually doing if
+  assignments were made the simpler way.
+- **Workaround:** add a resource assignment (with units) to any task whose load should
+  appear in capacity views, not only an assignee. A task that has both is counted once,
+  from the assignment.
+- **Tracked on** [#3605](https://gitlab.com/trueppm/trueppm/-/issues/3605), which will
+  rule on whether the two paths are reconciled, disclosed in the product, or collapsed.
+
+
 ## MCP and agents
 
 ### The team-level agent opt-out exists at project scope only
@@ -307,21 +344,26 @@ settings yet.
   [#2700](https://gitlab.com/trueppm/trueppm/-/issues/2700) (building the workspace-
   and program-scope settings sections).
 
-### A refused agent request does not say why
+### A computed answer does not name the engine that produced it
 
-The API records a structured, two-axis refusal taxonomy — identity vs. policy, with the
-specific constraint — on every refused agent action. The MCP client raises an error
-built from the HTTP status alone and never reads the response body, so the reason does
-not reach the caller.
+Every value the MCP read tools return is computed by the scheduling engine rather than
+guessed, and the primary answer tools carry a `why` block explaining the derivation.
+What they do not carry is the provenance envelope
+[ADR-0112](/architecture/decisions/) §2 specifies — the stamp naming *which engine
+version* produced the number, inline on the answer itself.
 
-- **Impact:** an operator whose question is refused sees a bare HTTP error in session.
-  For a release whose pitch names *refuse* as one of the four parts of **computed, not
-  guessed**, a refusal that will not explain itself is the wrong first impression.
-- **Workaround:** the reason is recorded and retrievable — query
-  `GET /api/v1/agent-actions/?constraint=…` for the refusal detail after the fact.
-- **Tracked on** [#2689](https://gitlab.com/trueppm/trueppm/-/issues/2689). The separate
-  provenance-envelope gap is [#2642](https://gitlab.com/trueppm/trueppm/-/issues/2642) —
-  the two are deliberately kept apart.
+- **Impact:** an operator cannot cite an engine version alongside a forecast, or
+  reproduce an answer later against the version that generated it. For an agent
+  workflow that records what it was told, the answer is attributable to a point in time
+  but not to a build.
+- **Workaround:** the engine version is captured in the agent-action audit log, so the
+  pairing is recoverable after the fact — query `GET /api/v1/agent-actions/` and match
+  on the action's timestamp.
+- **Tracked on** [#2642](https://gitlab.com/trueppm/trueppm/-/issues/2642), currently
+  sequenced for 0.5. The related refusal-transparency gap closed with
+  [#2689](https://gitlab.com/trueppm/trueppm/-/issues/2689): a refused agent request
+  now carries its `refusal` envelope — verdict, reason and constraint — to the MCP
+  client, per [ADR-0809](/architecture/decisions/).
 
 ## Data import
 

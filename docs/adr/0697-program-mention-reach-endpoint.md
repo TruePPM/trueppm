@@ -187,7 +187,8 @@ paragraph, because the first draft overstated the case:
    whoever can fire the mention; that is a separate decision.
 2. **ADR-0070 does not forbid this.** Three shipped endpoints already disclose
    child-project *people* data to a program-level caller with no project grant, at
-   equal or weaker floors: `resource-contention` (names and emails, Scheduler+),
+   equal or weaker floors: `resource-contention` (names, Scheduler+ — it also
+   returned emails when this ADR was written; #3599 removed that field),
    `mention-groups` (full user rows from the `ProjectMembership` union, Viewer+),
    and `export` (usernames, emails, per-member effort, the same Admin+). A count at
    Admin+ discloses strictly less than `export` does at the identical floor.

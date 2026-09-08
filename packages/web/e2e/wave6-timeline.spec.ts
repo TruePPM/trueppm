@@ -36,7 +36,6 @@ const FIXTURE_ALLOCATION = {
     {
       id: 'res-alice',
       name: 'Alice Kim',
-      email: 'alice@example.com',
       max_units: '1.00',
       tasks: [
         {
@@ -62,7 +61,6 @@ const FIXTURE_ALLOCATION = {
     {
       id: 'res-bob',
       name: 'Bob Nguyen',
-      email: 'bob@example.com',
       max_units: '1.00',
       tasks: [
         {

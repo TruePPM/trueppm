@@ -294,8 +294,9 @@ class _SeedImporter:
         # state and walked forward to these by the timeline + synthesizer.
         self.final_status: dict[tuple[str, str], str] = {}
         self.final_sprint: dict[tuple[str, str], dict[str, Any]] = {}
-        # Authored progress for tasks that end IN_PROGRESS, restored by replay's
-        # ``_finalize_tasks`` (#3486). Holds only the keys the document wrote.
+        # Authored progress for tasks that end IN_PROGRESS or REVIEW, restored
+        # by replay's ``_finalize_tasks`` (#3486, widened #3518). Holds only
+        # the keys the document wrote.
         self.final_progress: dict[tuple[str, str], dict[str, Any]] = {}
 
     def run(self) -> Program:
@@ -1256,17 +1257,26 @@ class _SeedImporter:
         if self.replay:
             self.final_status[(project_slug, data["wbs_path"])] = final_status
             # A task born at 0%/full-points to give the timeline room to walk it
-            # forward never gets those numbers back on its own — REVIEW and
-            # COMPLETE are rescued by ``Task._coerce_signoff_percent``, IN_PROGRESS
-            # is not (#3486). Hand replay the authored values to restore, keyed
-            # per field so a dated ``task.points`` beat still wins where the
-            # document declared nothing.
+            # forward never gets those numbers back on its own — COMPLETE is
+            # rescued by ``Task._coerce_signoff_percent``, IN_PROGRESS is not
+            # (#3486). REVIEW is a mixed case (#3518): the same coercion fixes
+            # ``percent_complete`` to 100 by design ("work done, awaiting
+            # sign-off"), but ``remaining_points`` has no such contract — a
+            # story in review with points still open is a real, authorable
+            # state — so REVIEW only hands back ``remaining_points``, never
+            # ``percent_complete``, to avoid fighting the coercion. Hand
+            # replay the authored values to restore, keyed per field so a
+            # dated ``task.points`` beat still wins where the document
+            # declared nothing.
+            progress_fields: tuple[str, ...]
             if final_status == "IN_PROGRESS":
-                authored = {
-                    key: data[key]
-                    for key in ("percent_complete", "remaining_points")
-                    if data.get(key) is not None
-                }
+                progress_fields = ("percent_complete", "remaining_points")
+            elif final_status == "REVIEW":
+                progress_fields = ("remaining_points",)
+            else:
+                progress_fields = ()
+            if progress_fields:
+                authored = {key: data[key] for key in progress_fields if data.get(key) is not None}
                 if authored:
                     self.final_progress[(project_slug, data["wbs_path"])] = authored
         return task, created_on

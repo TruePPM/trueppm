@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any
 from django.db import DatabaseError, connection, transaction
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.settings import api_settings
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.access.permissions import can_user_edit_task
@@ -248,15 +249,46 @@ def _row_serializer_context(ctx: BulkContext) -> dict[str, Any]:
     return {"request": ctx.request, "caller_role": ctx.caller_role}
 
 
+def _first_leaf_message(node: Any) -> str:
+    """The first message string under ``node``, descending lists and dicts (#3596).
+
+    DRF nests a validation error as deep as the payload and only the **leaves** are
+    message strings: a scalar field holds a list of them, a nested object holds a dict
+    keyed by subfield, a list of objects holds a list with ``{}`` in the slots that
+    validated, and a constraint on a *list as a whole* holds a dict keyed
+    ``non_field_errors``. Taking ``str()`` of an intermediate node therefore puts a Python
+    ``dict``/``ErrorDetail`` repr on the wire as the caller's error message — which is
+    what the ``owners`` cap produced before this descended.
+
+    ``non_field_errors`` wins when present: it carries the constraint that was violated,
+    which is the sentence worth showing, rather than an arbitrarily-ordered sibling.
+    """
+    if isinstance(node, dict):
+        key = (
+            api_settings.NON_FIELD_ERRORS_KEY
+            if api_settings.NON_FIELD_ERRORS_KEY in node
+            else next((k for k, v in node.items() if v), None)
+        )
+        if key is not None:
+            return _first_leaf_message(node[key])
+        return str(node)
+    if isinstance(node, list):
+        # Skip the `{}` slots a list-of-objects error uses for the items that validated.
+        populated = next((item for item in node if item), None)
+        if populated is not None:
+            return _first_leaf_message(populated)
+        return str(node)
+    return str(node)
+
+
 def _first_error_message(exc: DRFValidationError) -> str:
     """Flatten a DRF validation error to one human sentence for ``rejected[].message``."""
     detail = exc.detail
     if isinstance(detail, dict):
         for field, errors in detail.items():
-            first = errors[0] if isinstance(errors, list) and errors else errors
-            return f"{field}: {first}"
+            return f"{field}: {_first_leaf_message(errors)}"
     if isinstance(detail, list) and detail:
-        return str(detail[0])
+        return _first_leaf_message(detail)
     return str(detail)
 
 

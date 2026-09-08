@@ -373,6 +373,15 @@ playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image 
 	@# ~1s, no network.
 	@bash scripts/check-playwright-pins.sh
 
+nul-bytes-check: ## Fail if a tracked text=set file contains a literal NUL byte (#3601)
+	@# A NUL byte in a `buildSubgraph.ts` template literal made git classify the
+	@# whole file as binary regardless of .gitattributes — `git diff` printed
+	@# "Binary files ... differ" instead of a line, `git grep` found nothing
+	@# inside it, and a plain `grep` sweep across the tree returned a false
+	@# clean rather than an error. Enumerates from the git index, not a
+	@# filesystem walk; python3 does the byte scan. ~1s, no network.
+	@bash scripts/check-nul-bytes.sh
+
 ci-api-tag-check: ## Fail if CI_API_TAG no longer matches the ci-api image inputs (#3275)
 	@# A fixed image tag whose contents change is invisible to every runner that
 	@# already cached it — three digests ran one commit and api:type-check
@@ -491,7 +500,7 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check dependency-soft-delete-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check dependency-soft-delete-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check nul-bytes-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

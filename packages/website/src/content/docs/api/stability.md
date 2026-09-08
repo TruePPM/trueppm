@@ -64,8 +64,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the six Breaking changes taken so far all
-bypassed it deliberately, and all six are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the eight Breaking changes taken so far all
+bypassed it deliberately, and all eight are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -217,7 +217,23 @@ deprecation window rather than being removed outright:
    branched on `200` to mean "already existed" was reading a bug and should branch on
    `201` for "created" instead.
 
-   **Bypassed a seventh time, in 0.4 (#3641).** `user` stops being accepted in the
+   **Bypassed a seventh time, in 0.4 (#3599).** `GET /api/v1/projects/{id}/resource-allocation/`
+   and `GET /api/v1/programs/{id}/resource-contention/` stop returning `email` on each
+   resource row. Removing a response field is **Breaking** by the table above, so this is
+   recorded as a policy exception rather than as routine.
+
+   The reasoning: this is the security carve-out named in step 3's opening — the field was
+   the last bypass of the org-wide address-harvest control. Both endpoints build their rows
+   by hand and so never reached the resource serializer that enforces that control, and both
+   are gated on Scheduler+ against the caller's *own* project or program, which any account
+   can grant itself by creating a project. A deprecation window on a field in that position
+   would mean publishing a known disclosure for another release.
+
+   A client reading `resources[].email` from either endpoint should read the resource catalog
+   (`GET /api/v1/resources/`) instead, where the field is gated. Nothing else about either
+   response changes.
+
+   **Bypassed an eighth time, in 0.4 (#3641).** `user` stops being accepted in the
    request body of `PATCH /api/v1/projects/{id}/members/{mid}/` and
    `PATCH /api/v1/programs/{id}/members/{mid}/`; a body carrying it is answered `400`
    where it previously reassigned the membership row and answered `200`. Removing a

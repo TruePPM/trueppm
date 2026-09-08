@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderWithRouter } from '@/test/utils';
+import { renderWithRouter, renderWithProvidersAndRouter } from '@/test/utils';
 import { FIXTURE_SHELL_STATS } from '@/fixtures/shellStats';
 import type { ShellStats, ApiSprint, Methodology, AddedTimeFacts } from '@/types';
 import { ADDED_TIME_FIXTURES } from '@/fixtures/addedTime';
@@ -40,8 +40,22 @@ vi.mock('@/hooks/useProject', () => ({
 }));
 
 const stats = vi.hoisted<{ current: ShellStats | undefined }>(() => ({ current: undefined }));
+// The three non-settled query states, configurable per test. Before #3525 this
+// mock pinned `isLoading: false, error: null`, so `stats.current = undefined`
+// modelled ONLY the pre-load tick — and every assertion written against it was
+// silently exercising the loaded path's fallback. A failed fetch reaches
+// `HealthCluster` through the same `data: undefined`, which is the whole bug, so
+// a mock that cannot express it cannot test the fix.
+const statsLoading = vi.hoisted<{ current: boolean }>(() => ({ current: false }));
+const statsErrored = vi.hoisted<{ current: boolean }>(() => ({ current: false }));
+const statsRefetch = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useShellStats', () => ({
-  useShellStats: () => ({ data: stats.current, isLoading: false, error: null }),
+  useShellStats: () => ({
+    data: stats.current,
+    isLoading: statsLoading.current,
+    error: statsErrored.current ? new Error('status-summary failed') : null,
+    refetch: statsRefetch,
+  }),
 }));
 
 const activeSprint = vi.hoisted<{ current: ApiSprint | null }>(() => ({ current: null }));
@@ -160,6 +174,9 @@ beforeEach(() => {
   projectErrorStatus.current = null;
   methodology.current = 'WATERFALL';
   stats.current = FIXTURE_SHELL_STATS;
+  statsLoading.current = false;
+  statsErrored.current = false;
+  statsRefetch.mockClear();
   activeSprint.current = makeSprint({});
   velocity.current = VELOCITY;
   mcResult.current = { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' };
@@ -217,7 +234,7 @@ describe('HealthCluster', () => {
 
   // (a2) the manual override the counts cannot see -----------------------------
 
-  it('reads the server band over a clean plan — the PM\'s manual Critical wins', () => {
+  it("reads the server band over a clean plan — the PM's manual Critical wins", () => {
     // #3501. `Project.health = CRITICAL` on a plan with zero at-risk and zero
     // critical tasks. The server folds the override into `health_band`; the chip
     // prints it. Before the fix the chip could only see the two zero counts, so
@@ -252,17 +269,31 @@ describe('HealthCluster', () => {
     expect(chip).not.toHaveTextContent('Critical');
   });
 
-  it('falls back to "On track" when the summary has not resolved', () => {
-    // `undefined` stats is the pre-load tick, not a band. The fallback must not
-    // be read as the chip deriving anything: there is nothing to derive from.
-    //
-    // Scope, stated honestly: `useShellStats` returns `data: undefined` for a
-    // FAILED fetch too, and this case does not distinguish them — a 5xx on
-    // `status-summary` therefore also reads "On track". That is the chip's
-    // error state, which #3469 owns; tracked for the band specifically in #3525.
+  it('renders NO band while the summary is in flight — never the reassuring one', () => {
+    // Inverted at #3525. This case used to assert "On track" for an unresolved
+    // summary and record the failed-fetch collision as a known gap in its own
+    // comment. That comment was the bug: `useShellStats` returns
+    // `data: undefined` for BOTH states, so the fallback it documented was not
+    // covering a pre-load tick — it printed the most reassuring word in the
+    // vocabulary over a project whose health nobody could read.
     stats.current = undefined;
+    statsLoading.current = true;
     render();
-    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On track');
+    expect(screen.queryByTestId('health-cluster')).not.toBeInTheDocument();
+    const skeleton = screen.getByTestId('health-cluster-loading');
+    expect(skeleton).toBeInTheDocument();
+    // "On track" IS in this subtree — it is the width shim that keeps the
+    // skeleton exactly as wide as the widest real chip. Nobody reads it: it
+    // carries Tailwind's `invisible` (`visibility: hidden`, so it paints nothing
+    // while still taking its space) and the whole skeleton is `aria-hidden`, so
+    // it reaches neither a sighted reader nor assistive tech.
+    //
+    // Asserted on the class and the attribute rather than with `toBeVisible()`:
+    // no Tailwind stylesheet is loaded in jsdom, so `visibility: hidden` is never
+    // actually computed and `toBeVisible()` returns true for it — a vacuous pass
+    // in the other direction.
+    expect(screen.getByText('On track')).toHaveClass('invisible');
+    expect(skeleton).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('chip never renders the retired "On watch" word for the at-risk band', () => {
@@ -623,17 +654,23 @@ describe('HealthCluster degraded / edge reads', () => {
     expect(within(dialog).getByRole('group', { name: /critical task/i })).toBeInTheDocument();
   });
 
-  it('reads "On track" with 0-task drills when the shell stats have not arrived', async () => {
+  it('a failed summary shows no band and no 0-task drills — the rows would say nothing is wrong', async () => {
+    // Inverted at #3525. This used to assert "On track" plus two calm "0 tasks"
+    // rows for absent stats, which is the defect twice over: the word was the
+    // reassuring one, and the rows beneath it asserted a clean plan for a project
+    // whose task counts had not been read at all.
     const user = userEvent.setup();
     stats.current = undefined;
+    statsErrored.current = true;
     methodology.current = 'WATERFALL';
     render();
-    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On track');
+
+    expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('On track');
+
     const dialog = await openPopover(user);
-    // Both drill rows collapse to the calm static "0 tasks" read — no group, no
-    // task buttons.
-    expect(within(dialog).getAllByText('0 tasks')).toHaveLength(2);
-    expect(within(dialog).queryByRole('group')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('0 tasks')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('At risk')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('Critical path')).not.toBeInTheDocument();
   });
 
   it('caps the at-risk drill at five tasks with a "+N more" tail', async () => {
@@ -979,5 +1016,467 @@ describe('HealthCluster — project unavailable', () => {
   it('renders normally when the project query succeeds', () => {
     render();
     expect(screen.getByTestId('health-cluster')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3525 — half 1: the popover must explain the word it prints.
+//
+// Since #3501 the chip prints the SERVER's band, which folds in the PM's manual
+// report, while the popover rows still come from the at-risk / critical counts.
+// So the header could assert `Critical` above `At risk 0 tasks / Critical path
+// 0 tasks` and nothing said which of the two the reader was looking at.
+//
+// Every case here drives `healthBandSource` — the server's own answer — and
+// never a comparison of band against counts. That distinction is load-bearing
+// rather than stylistic: a PM reporting `at_risk` over a plan the counts also
+// call at-risk produces exactly the band the counts would, so a comparison
+// misses the report on precisely the projects where nothing looks wrong. The
+// `…even when the band agrees with the counts` case below is the one that fails
+// against a comparison-based implementation and passes against this one.
+// ---------------------------------------------------------------------------
+
+describe('HealthCluster provenance (#3525)', () => {
+  const REPORTED_ROW = 'health-provenance-row';
+
+  it('names the report as the source when the server says the band was reported', async () => {
+    const user = userEvent.setup();
+    // The headline scenario: reported Critical over a plan with nothing wrong.
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+      atRiskCount: 0,
+      criticalCount: 0,
+      atRiskTasks: [],
+      criticalTasks: [],
+    };
+    render();
+    const dialog = await openPopover(user);
+
+    // The header still prints the SERVER's word — the fix explains it, it does
+    // not soften or re-derive it (#3501 must not regress).
+    expect(within(dialog).getByText('Critical')).toBeInTheDocument();
+    const row = within(dialog).getByTestId(REPORTED_ROW);
+    expect(row).toHaveTextContent('Reported by the project manager');
+    // …and the rows that do NOT explain it are still there, saying zero.
+    expect(within(dialog).getAllByText('0 tasks')).toHaveLength(2);
+  });
+
+  it('routes to the project Overview, where the report lives, and closes the popover', async () => {
+    const user = userEvent.setup();
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBandSource: 'reported' };
+    render();
+    const dialog = await openPopover(user);
+
+    await user.click(within(dialog).getByTestId(REPORTED_ROW));
+
+    // Rule 403(b): on Schedule and Board the top bar is the only health reading
+    // there is, so a status the reader cannot resolve from where it is shown is
+    // a dead-end indicator.
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/overview');
+    expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
+  });
+
+  it('renders NOTHING when the band was derived from the counts', async () => {
+    const user = userEvent.setup();
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBandSource: 'derived' };
+    render();
+    const dialog = await openPopover(user);
+
+    // On the derived path the drill-through still explains the word, which is
+    // the guarantee rule 403 exists to announce the LOSS of. A row asserting it
+    // on the common path would be noise on every project in the product.
+    expect(within(dialog).queryByTestId(REPORTED_ROW)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/reported by the project manager/i)).not.toBeInTheDocument();
+  });
+
+  it('names the report even when the band AGREES with the counts', async () => {
+    // The case a client-side comparison cannot see, and the reason the source is
+    // a server field. Reported Critical on a plan the counts ALSO call critical:
+    // band and rows agree, so a "does the header disagree with its rows?" check
+    // concludes derived and never names the person who filed it.
+    const user = userEvent.setup();
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+      criticalCount: 3,
+    };
+    render();
+    const dialog = await openPopover(user);
+
+    expect(within(dialog).getByTestId(REPORTED_ROW)).toBeInTheDocument();
+  });
+
+  it('gives an AGILE project a drill-through for a reported band', async () => {
+    // The worst case in #3525. `healthClusterModel` emits sprint / points /
+    // velocity for AGILE and NO at-risk or critical segment at all, so a Critical
+    // chip there had no drill-through of any kind. The row is rendered above
+    // `segments.map` and unconditional on methodology precisely so this works —
+    // a provenance segment threaded through the model would be absent here.
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+    };
+    render();
+    const dialog = await openPopover(user);
+
+    expect(within(dialog).getByText('Critical')).toBeInTheDocument();
+    expect(within(dialog).getByTestId(REPORTED_ROW)).toBeInTheDocument();
+    // Confirm this really is the AGILE cluster, or the case proves nothing.
+    expect(within(dialog).queryByText('At risk')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Velocity')).toBeInTheDocument();
+  });
+
+  it.each<['AGILE' | 'WATERFALL' | 'HYBRID']>([['AGILE'], ['WATERFALL'], ['HYBRID']])(
+    'renders the provenance row on %s',
+    async (m) => {
+      const user = userEvent.setup();
+      methodology.current = m;
+      stats.current = { ...FIXTURE_SHELL_STATS, healthBandSource: 'reported' };
+      render();
+      const dialog = await openPopover(user);
+      expect(within(dialog).getByTestId(REPORTED_ROW)).toBeInTheDocument();
+    },
+  );
+
+  it('carries the source in the chip aria-label, which is its ONLY accessible text', () => {
+    // The chip is a button with an aria-label, so its inner text is suppressed
+    // for assistive tech. A screen-reader user on Board or Schedule cannot reach
+    // the popover row without first being told there is something to reach for.
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+    };
+    render();
+    expect(screen.getByTestId('health-cluster')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Project health: Critical, reported by the project manager'),
+    );
+  });
+
+  it('omits the source clause from the aria-label on a derived band', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBandSource: 'derived' };
+    const { container } = render();
+    expect(
+      container.querySelector('[data-testid="health-cluster"]')?.getAttribute('aria-label'),
+    ).not.toContain('reported by the project manager');
+  });
+
+  it('the provenance row takes neutral ink, never the band color', async () => {
+    // ADR-0126's one status vocabulary: semantic hue belongs to the state, not to
+    // metadata about the state. A red note under a red header reads as a second,
+    // independent health signal and the popover would carry two red things
+    // saying one thing.
+    const user = userEvent.setup();
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+    };
+    render();
+    const dialog = await openPopover(user);
+    const row = within(dialog).getByTestId(REPORTED_ROW);
+
+    expect(row.className).not.toContain('text-semantic-critical');
+    expect(row.innerHTML).not.toContain('text-semantic-critical');
+    expect(row.innerHTML).not.toContain('text-semantic-at-risk');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3525 — half 2: an absent band must not render as the reassuring one.
+//
+// `useShellStats` returns `data: undefined` for an in-flight query AND for a
+// failed one, and this component read neither flag — so `?? 'on_track'` painted
+// a calm "On track" with an on-track dot over a project that might be Critical,
+// indefinitely, on the routes where the top bar is the only health reading.
+// ---------------------------------------------------------------------------
+
+describe('HealthCluster absent band (#3525)', () => {
+  it('a failed status-summary does NOT render "On track"', () => {
+    // The acceptance criterion, stated as bluntly as the issue states it.
+    stats.current = undefined;
+    statsErrored.current = true;
+    render();
+
+    const chip = screen.getByTestId('health-cluster');
+    expect(chip).not.toHaveTextContent('On track');
+    expect(chip).toHaveTextContent('Health');
+    expect(chip).toHaveAttribute('data-state', 'unavailable');
+  });
+
+  it('never falls back to a band word at all — not the cautious one either', () => {
+    stats.current = undefined;
+    statsErrored.current = true;
+    render();
+    const chip = screen.getByTestId('health-cluster');
+    // `at_risk` was the issue's own suggested fallback. It is still a band the
+    // client does not have: there is no value here to be cautious *about*, and
+    // printing one is the client-side derivation #3501 deleted, under a new name.
+    for (const word of ['On track', 'At risk', 'Critical']) {
+      expect(chip).not.toHaveTextContent(word);
+    }
+  });
+
+  it('shows no semantic health dot when there is no band', () => {
+    stats.current = undefined;
+    statsErrored.current = true;
+    const { container } = render();
+    const chip = container.querySelector('[data-testid="health-cluster"]');
+    // A hollow ring, not a filled dot — no hue at all, so it cannot be read as
+    // green/amber/red under any color-vision profile.
+    expect(chip?.innerHTML).not.toContain('bg-semantic-on-track');
+    expect(chip?.innerHTML).not.toContain('bg-semantic-at-risk');
+    expect(chip?.innerHTML).not.toContain('bg-semantic-critical');
+  });
+
+  it('rewrites the chip aria-label, which would otherwise announce a word it no longer prints', () => {
+    stats.current = undefined;
+    statsErrored.current = true;
+    render();
+    const label = screen.getByTestId('health-cluster').getAttribute('aria-label') ?? '';
+    expect(label).toContain('Project health unavailable');
+    expect(label).not.toContain('Project health: On track');
+  });
+
+  it('opens a popover carrying the failure and a retry, not a health reading', async () => {
+    const user = userEvent.setup();
+    stats.current = undefined;
+    statsErrored.current = true;
+    render();
+
+    // The chip stays a real trigger in this state — unlike the loading skeleton,
+    // there IS something to explain, and a chip that simply vanished would read
+    // as "this project has no health" and reflow the fixed-width right cluster.
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByTestId('health-error')).toBeInTheDocument();
+    expect(within(dialog).getByText("Couldn't load project health.")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    expect(statsRefetch).toHaveBeenCalled();
+  });
+
+  it('binds the dialog aria-describedby to the failure text', async () => {
+    // Rule 335(a): the message is then read WITH the dialog focus is moved into,
+    // which works whether or not the live region fires.
+    const user = userEvent.setup();
+    stats.current = undefined;
+    statsErrored.current = true;
+    render();
+    const dialog = await openPopover(user);
+    expect(dialog).toHaveAttribute('aria-describedby', 'health-error-msg');
+  });
+
+  it('drops the methodology rows entirely rather than showing confident zeros', async () => {
+    const user = userEvent.setup();
+    stats.current = undefined;
+    statsErrored.current = true;
+    methodology.current = 'WATERFALL';
+    render();
+    const dialog = await openPopover(user);
+
+    // `healthClusterModel` degrades an undefined `stats` to `At risk 0 tasks` /
+    // `Critical path 0 tasks` / `Forecast P80 —`. Rendering those under a chip
+    // that just said it could not read the health is the same failure-as-good-
+    // news defect one level down.
+    expect(within(dialog).queryByText('0 tasks')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('At risk')).not.toBeInTheDocument();
+  });
+
+  it('treats a 200 that carried no band as unavailable, not as on track', () => {
+    // Reached by a different door — an older server, a proxy, or a test mock
+    // serving the wrong shape — but the failure direction is identical, so it
+    // takes the same branch rather than falling through to a word.
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: undefined as never };
+    render();
+    expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('On track');
+    expect(screen.getByTestId('health-cluster')).toHaveAttribute('data-state', 'unavailable');
+  });
+
+  it('distinguishes in-flight from failed: a skeleton, and it is not the chip', () => {
+    statsLoading.current = true;
+    stats.current = undefined;
+    render();
+
+    // The skeleton must NOT answer to `health-cluster`: two dozen specs locate
+    // the surface by that id and one measures its boundingBox for a phone-clip
+    // guard, which would then report a clip-safe width for a chip that never
+    // rendered.
+    expect(screen.queryByTestId('health-cluster')).not.toBeInTheDocument();
+    const skeleton = screen.getByTestId('health-cluster-loading');
+    expect(skeleton).toHaveAttribute('aria-hidden', 'true');
+    // Decoration, not a control: a disabled button would still announce
+    // "Project health, button, dimmed" and offer an affordance that does not exist.
+    expect(skeleton.tagName).not.toBe('BUTTON');
+  });
+
+  it('the skeleton renders the widest band word as its width shim', () => {
+    // Width is derived, not pinned: "On track" (48.73px) is the widest of the
+    // three, NOT the worst severity. Named for what it proves and no more — jsdom
+    // has no layout, so this asserts the MECHANISM (the widest label is the shim)
+    // and cannot assert any geometry. The real clip guard is
+    // `e2e/mobile-chrome-clip.spec.ts`, which measures in a browser.
+    statsLoading.current = true;
+    stats.current = undefined;
+    render();
+    expect(screen.getByTestId('health-cluster-loading')).toHaveTextContent('On track');
+  });
+
+  it('suppression still outranks both states on a project the caller cannot open', () => {
+    // A 404/403 on the project itself renders nothing at all — the route is about
+    // to say "This project isn't available", and a "couldn't load" chip over that
+    // would be a second, wrong explanation (#3469 must not regress).
+    projectErrorStatus.current = 404;
+    statsErrored.current = true;
+    render();
+    expect(screen.queryByTestId('health-cluster')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('health-cluster-loading')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3525 — WCAG 2.1 AA 4.1.3. The chip's word can now change because a person
+// changed their mind, with no focus move and no navigation event to carry it.
+// ---------------------------------------------------------------------------
+
+describe('HealthCluster band announcer (#3525)', () => {
+  function announcer() {
+    return screen.getByTestId('health-announcer');
+  }
+
+  // `renderWithRouter` bakes the element into `createMemoryRouter`'s config, so
+  // its `rerender` does not re-render the component under test — the announcer is
+  // about a value CHANGING, so these cases need a wrapper that re-renders.
+  function renderRerenderable() {
+    return renderWithProvidersAndRouter(<HealthCluster onTaskNavigate={vi.fn()} />, {
+      initialEntries: ['/projects/test-project-id/board'],
+    });
+  }
+
+  it('is mounted in every state, with only its text swapped', () => {
+    // Rule 335: a `role="status"` node that mounts together with its own content
+    // is announced inconsistently across AT, so the region must already be in the
+    // tree before there is anything to say.
+    statsLoading.current = true;
+    stats.current = undefined;
+    const loading = render();
+    expect(loading.getByTestId('health-announcer')).toHaveAttribute('aria-live', 'polite');
+    loading.unmount();
+
+    statsLoading.current = false;
+    statsErrored.current = true;
+    const errored = render();
+    expect(errored.getByTestId('health-announcer')).toBeInTheDocument();
+    errored.unmount();
+
+    statsErrored.current = false;
+    stats.current = FIXTURE_SHELL_STATS;
+    render();
+    expect(announcer()).toBeInTheDocument();
+  });
+
+  it('says nothing on first render', () => {
+    // A band is news only when it CHANGES. Announcing the initial value would
+    // fire on every project navigation — noise, not a status message.
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'critical' };
+    render();
+    expect(announcer()).toHaveTextContent('');
+  });
+
+  it('announces a change, naming the report when the change came from a person', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'on_track', healthBandSource: 'derived' };
+    const view = renderRerenderable();
+    expect(announcer()).toHaveTextContent('');
+
+    // The PM files a Critical report: the word flips with no edit to the plan,
+    // which is exactly the change a reader cannot otherwise account for.
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+    };
+    view.rerender(<HealthCluster onTaskNavigate={vi.fn()} />);
+
+    expect(announcer()).toHaveTextContent(
+      'Project health changed to Critical, reported by the project manager.',
+    );
+  });
+
+  it('announces a derived change without the report clause', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'on_track', healthBandSource: 'derived' };
+    const view = renderRerenderable();
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'at_risk', healthBandSource: 'derived' };
+    view.rerender(<HealthCluster onTaskNavigate={vi.fn()} />);
+
+    expect(announcer()).toHaveTextContent('Project health changed to At risk.');
+    expect(announcer()).not.toHaveTextContent('reported');
+  });
+
+  it('says nothing when the BAND is the same but only the source changed', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'critical', healthBandSource: 'derived' };
+    const view = renderRerenderable();
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+    };
+    view.rerender(<HealthCluster onTaskNavigate={vi.fn()} />);
+    // The word on screen did not change, so there is no state change to announce.
+    expect(announcer()).toHaveTextContent('');
+  });
+
+  it('says nothing when the PROJECT changed, only the band the reader arrived at', () => {
+    // `HealthCluster` is mounted by the app shell and outlives any one project, so
+    // a ref holding only the last band still holds project A's when B's arrives.
+    // A direct project→project navigation — the rail switcher, the command
+    // palette, My Work's worst-project link, this popover's own cross-team sprint
+    // rows — would then announce "Project health changed to Critical, reported by
+    // the project manager" about a project the reader has merely opened, falsely
+    // attributing a non-event to a named person. Nothing changed; somebody
+    // navigated.
+    //
+    // Starting the ref at null prevents the announcement once per MOUNT, and the
+    // mount is exactly what outlives the project. A `staleTime` hit serves the
+    // second project synchronously, so there is not even a loading tick to mask
+    // it. The memo therefore carries its subject.
+    projectId.current = 'project-a';
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'on_track', healthBandSource: 'derived' };
+    const view = renderRerenderable();
+    expect(announcer()).toHaveTextContent('');
+
+    projectId.current = 'project-b';
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      healthBandSource: 'reported',
+    };
+    view.rerender(<HealthCluster onTaskNavigate={vi.fn()} />);
+
+    expect(announcer()).toHaveTextContent('');
+  });
+
+  it('is silent while the band is unavailable, and silent again when the SAME band returns', () => {
+    // The trap this guards: clearing the remembered band on the failure branch
+    // would make every recovery from a 5xx announce as a change, because the band
+    // coming back is then compared against nothing rather than against the band
+    // that was on screen before the failure.
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'at_risk' };
+    const view = renderRerenderable();
+
+    stats.current = undefined;
+    statsErrored.current = true;
+    view.rerender(<HealthCluster onTaskNavigate={vi.fn()} />);
+    expect(announcer()).toHaveTextContent('');
+
+    statsErrored.current = false;
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'at_risk' };
+    view.rerender(<HealthCluster onTaskNavigate={vi.fn()} />);
+    expect(announcer()).toHaveTextContent('');
   });
 });

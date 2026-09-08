@@ -308,6 +308,28 @@ describe('buildSubgraph — summary dependency expansion', () => {
     expect(edges.filter((e) => e.sourceId === 'C1' && e.targetId === 'B')).toHaveLength(1);
   });
 
+  it('does not conflate two leaf pairs whose ids concatenate to the same string (issue #3601)', () => {
+    // The dedup key that guards the test above joins source/target with a
+    // delimiter. A literal NUL byte previously served that role and made git
+    // classify the whole file as binary (#3601); the fix keeps the same
+    // runtime separator, expressed without an embedded raw byte. Either way,
+    // the delimiter's job is to keep 'A' + '1B' distinct from 'A1' + 'B' — a
+    // plain concatenation with no separator would collide both onto 'A1B' and
+    // silently drop the second pair as a false duplicate.
+    const tasks = [
+      task('A'),
+      task('S1', { isSummary: true }),
+      task('1B', { parentId: 'S1' }),
+      task('S2', { isSummary: true }),
+      task('A1', { parentId: 'S2' }),
+      task('B'),
+    ];
+    const links = [link('l1', 'A', 'S1'), link('l2', 'S2', 'B'), link('l3', '1B', 'A1')];
+    const { edges } = buildSubgraph('A', tasks, links);
+    expect(edges).toContainEqual({ sourceId: 'A', targetId: '1B', type: 'FS', lag: 0 });
+    expect(edges).toContainEqual({ sourceId: 'A1', targetId: 'B', type: 'FS', lag: 0 });
+  });
+
   it('drops an SS link from a summary rather than fanning it out (ADR-0370)', () => {
     // `_reject_summary_start_links` refuses this link outright — fanning a
     // start-side constraint across every leaf silently over-constrains the

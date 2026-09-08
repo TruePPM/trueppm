@@ -4,7 +4,7 @@ Covers:
   - Permission gate: VIEWER/MEMBER denied, SCHEDULER+ allowed
   - 409 when no CPM dates exist on the project
   - Response shape: project_id, window_start, window_end, resources list
-  - Resource row: id, name, email, max_units, tasks list
+  - Resource row: id, name, max_units, tasks list (email is never emitted, #3599)
   - Task entry: assignment_id, id, name, early_start, early_finish, units, status
   - Null early_start/early_finish tasks included (unscheduled section)
   - Date window filtering (?start=, ?end=)
@@ -21,6 +21,8 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -161,7 +163,7 @@ def test_response_shape(project: Project, resource: Resource, task_scheduled: Ta
     r = data["resources"][0]
     assert r["id"] == str(resource.pk)
     assert r["name"] == "Alice"
-    assert r["email"] == "alice@example.com"
+    assert "email" not in r
     assert r["max_units"] == "1.00"
 
     assert len(r["tasks"]) == 1
@@ -448,3 +450,327 @@ class TestResourceAllocationUsesSpanNotRemainingWindow:
         resp = self.client.get(_url(self.project))  # no start/end — defaults resolved
         assert resp.status_code == 200
         assert resp.json()["window_start"] == "2026-03-02"
+
+
+# ---------------------------------------------------------------------------
+# Perf contract (#3576 / ADR-1118): bounded query count, no literal NOT IN,
+# and a cap that falls on a resource boundary
+# ---------------------------------------------------------------------------
+
+
+def _seed_resources(project: Project, count: int, per_resource: int = 2, offset: int = 0) -> None:
+    """Create ``count`` resources, each holding ``per_resource`` assignments.
+
+    Rows, not page size, are the variable the N+1 guard below moves: two requests
+    at different ``?page_size=`` values are the *same* request and prove nothing.
+    ``offset`` keeps names unique when a test seeds a second, larger cohort.
+    """
+    for r in range(offset, offset + count):
+        resource = Resource.objects.create(
+            name=f"R{r:03d}",
+            email=f"r{r:03d}@example.com",
+            max_units=Decimal("1.00"),
+        )
+        for t in range(per_resource):
+            task = Task.objects.create(
+                project=project,
+                name=f"T{r:03d}-{t}",
+                duration=5,
+                early_start=date(2026, 3, 2),
+                early_finish=date(2026, 3, 6),
+                status=TaskStatus.NOT_STARTED,
+            )
+            TaskResource.objects.create(task=task, resource=resource, units=Decimal("0.50"))
+
+
+@pytest.mark.django_db
+class TestResourceAllocationQueryBudget:
+    """The read cost must not grow with the number of assignment rows."""
+
+    def test_query_count_is_flat_in_the_number_of_resources(self, project: Project) -> None:
+        client = _auth_client(Role.SCHEDULER, project)
+
+        _seed_resources(project, count=1)
+        # Warm per-process caches (content types, permissions) so the first
+        # measured request is not charged for them.
+        assert client.get(_url(project)).status_code == 200
+
+        with CaptureQueriesContext(connection) as small:
+            small_body = client.get(_url(project)).json()
+
+        _seed_resources(project, count=10, offset=1)
+        with CaptureQueriesContext(connection) as large:
+            large_body = client.get(_url(project)).json()
+
+        # Not vacuous: the second request really did serve ten times the rows.
+        assert len(small_body["resources"]) == 1
+        assert len(large_body["resources"]) == 11
+        assert sum(len(r["tasks"]) for r in large_body["resources"]) == 22
+
+        assert len(large.captured_queries) == len(small.captured_queries), (
+            "allocation query count grew with the row count: "
+            f"{len(small.captured_queries)} → {len(large.captured_queries)}"
+        )
+
+    def test_the_assignment_read_is_bounded_by_a_limit(self, project: Project) -> None:
+        """The row-fetching statement must carry a LIMIT.
+
+        Be precise about what this buys: the plan is `Sort → Limit`, so Postgres
+        still reads the whole filtered join — the LIMIT lets it keep a bounded
+        top-N heap instead of materializing and ordering every row, and it caps
+        what crosses the wire. It does not let the scan stop early. Asserted on
+        the compiled SQL rather than on timing.
+        """
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=3)
+
+        with CaptureQueriesContext(connection) as ctx:
+            assert client.get(_url(project)).status_code == 200
+
+        assignment_reads = [
+            q["sql"] for q in ctx.captured_queries if "resources_task_resource" in q["sql"]
+        ]
+        assert assignment_reads, "no statement read the assignment table"
+        assert all("LIMIT" in sql for sql in assignment_reads)
+
+    def test_resources_are_not_sorted_on_the_joined_resource_name(self, project: Project) -> None:
+        """ORDER BY must not reach into resources_resource.name (ADR-1118).
+
+        The by-name ordering the response promises is restored in Python; the
+        SQL sorts on a local column so a LIMIT can stop the scan early.
+        """
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=3)
+
+        with CaptureQueriesContext(connection) as ctx:
+            body = client.get(_url(project)).json()
+
+        row_read = next(
+            q["sql"]
+            for q in ctx.captured_queries
+            if "resources_task_resource" in q["sql"] and "ORDER BY" in q["sql"]
+        )
+        order_clause = row_read.split("ORDER BY", 1)[1]
+        assert "resources_resource" not in order_clause, order_clause
+
+        # The promise the Python sort has to keep.
+        names = [r["name"] for r in body["resources"]]
+        assert names == sorted(names)
+
+
+@pytest.mark.django_db
+class TestResourceAllocationCap:
+    """The cap is disclosed, and it never returns half a resource (ADR-1118)."""
+
+    def test_untruncated_response_reports_its_own_resource_count(self, project: Project) -> None:
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=4)
+
+        body = client.get(_url(project)).json()
+        assert body["truncated"] is False
+        assert body["resource_count"] == 4
+        assert len(body["resources"]) == 4
+
+    def test_cap_drops_whole_resources_and_says_so(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A resource is returned entire or not at all.
+
+        ADR-0031 sums a resource's spans client-side, so a resource returned with
+        only some of its spans would report a *wrong* load, not an incomplete one.
+        The cap therefore rewinds to the last complete resource.
+        """
+        from trueppm_api.apps.projects import views as project_views
+
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=4, per_resource=3)  # 12 assignment rows
+
+        # A cap of 7 lands mid-way through the third resource's three rows.
+        monkeypatch.setattr(project_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 7)
+        body = client.get(_url(project)).json()
+
+        assert body["truncated"] is True
+        assert body["resource_count"] == 4, "the count reports the full scope, not the page"
+        assert len(body["resources"]) == 2, "the half-fetched third resource was dropped"
+        for resource in body["resources"]:
+            assert len(resource["tasks"]) == 3, "a returned resource is missing spans"
+
+    def test_cap_exactly_on_a_boundary_keeps_every_whole_resource(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cap that coincides with a resource boundary must not over-trim.
+
+        The overflow row belongs to the *next* resource, so the boundary rewind
+        has nothing to drop — the off-by-one that would silently lose a complete
+        resource here is exactly what the +1 probe row exists to avoid.
+        """
+        from trueppm_api.apps.projects import views as project_views
+
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=3, per_resource=2)  # 6 rows, 3 resources
+
+        monkeypatch.setattr(project_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 4)
+        body = client.get(_url(project)).json()
+
+        assert body["truncated"] is True
+        assert len(body["resources"]) == 2
+        assert all(len(r["tasks"]) == 2 for r in body["resources"])
+
+    def test_a_single_resource_overflowing_the_cap_yields_no_resources_at_all(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The degenerate case: every fetched row belongs to one resource.
+
+        The boundary rewind then has nothing left to keep, so the response is
+        empty with ``truncated: true``. That is deliberate and it is the honest
+        answer — returning the rows anyway would hand the client a resource with
+        part of its spans, whose ADR-0031 load verdict would be *wrong* rather
+        than merely incomplete. `resource_count` still names the denominator, so
+        the client says "Showing 0 of 1" rather than rendering an empty roster as
+        if nobody were assigned.
+        """
+        from trueppm_api.apps.projects import views as project_views
+
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=1, per_resource=5)
+
+        monkeypatch.setattr(project_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 3)
+        body = client.get(_url(project)).json()
+
+        assert body["truncated"] is True
+        assert body["resources"] == []
+        assert body["resource_count"] == 1
+
+    def test_the_distinct_count_query_fires_only_when_the_cap_actually_cut(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`resource_count` must cost a query on the truncated path and only there.
+
+        The helper returns the already-known group count when nothing was cut, so
+        the common request pays nothing for the field. Without this test a
+        regression that made the COUNT unconditional would charge every
+        allocation read an extra aggregate and nothing would notice —
+        `test_query_count_is_flat_in_the_number_of_resources` compares two
+        untruncated requests to each other and would stay green.
+        """
+        from trueppm_api.apps.projects import views as project_views
+
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=4, per_resource=3)
+        assert client.get(_url(project)).status_code == 200  # warm caches
+
+        def distinct_counts(queries: list[dict[str, str]]) -> list[str]:
+            return [
+                q["sql"]
+                for q in queries
+                if "COUNT(" in q["sql"] and "DISTINCT" in q["sql"] and "resource_id" in q["sql"]
+            ]
+
+        with CaptureQueriesContext(connection) as untruncated:
+            body = client.get(_url(project)).json()
+        assert body["truncated"] is False
+        assert distinct_counts(untruncated.captured_queries) == []
+
+        monkeypatch.setattr(project_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 7)
+        with CaptureQueriesContext(connection) as truncated:
+            body = client.get(_url(project)).json()
+        assert body["truncated"] is True
+        assert len(distinct_counts(truncated.captured_queries)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Email is never emitted (#3599)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_scheduler_never_receives_resource_email(
+    project: Project, resource: Resource, task_scheduled: Task
+) -> None:
+    """A project Scheduler reading the allocation timeline gets no ``email`` key.
+
+    The response is a hand-rolled dict, so it never reaches
+    ``ResourceSerializer.to_representation`` where the #891 harvest control lives.
+    The field is dropped rather than nulled so it cannot be reconstructed.
+    """
+    TaskResource.objects.create(task=task_scheduled, resource=resource, units=Decimal("1.00"))
+    client = _auth_client(Role.SCHEDULER, project)
+
+    resp = client.get(_url(project), {"start": "2026-03-02", "end": "2026-03-08"})
+
+    assert resp.status_code == 200
+    rows = resp.json()["resources"]
+    assert rows, "fixture must produce at least one resource row for this to be meaningful"
+    for row in rows:
+        assert "email" not in row
+    assert "alice@example.com" not in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_self_provisioned_owner_cannot_harvest_catalog_email(cal: Calendar) -> None:
+    """End-to-end pin of the #3599 exploit chain — it must yield no email.
+
+    A fresh user with no memberships creates a project (ungated, and
+    ``perform_create`` makes them Owner), assigns an unrelated catalog resource to
+    a task in it — ``TaskResourceSerializer.resource`` is an unrestricted FK and
+    ``perform_create`` auto-rosters any catalog row — and reads the allocation
+    timeline. Every step is legitimately available to them; the chain must still
+    end without an address.
+    """
+    victim = Resource.objects.create(
+        name="Victim", email="victim@example.com", max_units=Decimal("1.00")
+    )
+
+    attacker = User.objects.create_user(username="attacker", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=attacker)
+
+    # 1. Create a project — ungated, mints the caller as Owner.
+    resp = client.post(
+        "/api/v1/projects/",
+        {"name": "Harvest", "start_date": "2026-03-02", "calendar": str(cal.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    project_id = resp.json()["id"]
+
+    # 2. Enumerate the catalog for resource ids — all the chain needs from it.
+    #    The catalog's OWN email exposure to a caller who is org-admin only because
+    #    they just created a project is #3569's scope (the ``IsOrgAdmin`` derivation),
+    #    not this one; this test deliberately asserts nothing about that response.
+    catalog = client.get("/api/v1/resources/")
+    assert catalog.status_code == 200
+    assert str(victim.pk) in [row["id"] for row in catalog.json()["results"]]
+
+    # 3. A task in the attacker's own project, with CPM dates so the window resolves.
+    task = Task.objects.create(
+        project=Project.objects.get(pk=project_id),
+        name="Bait",
+        duration=5,
+        early_start=date(2026, 3, 2),
+        early_finish=date(2026, 3, 6),
+        status=TaskStatus.NOT_STARTED,
+    )
+
+    # 4. Auto-roster the unrelated catalog resource onto it.
+    resp = client.post(
+        "/api/v1/task-resources/",
+        {"task": str(task.pk), "resource": str(victim.pk), "units": "1.00"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+
+    # 5. Read the allocation timeline — the harvest step.
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/resource-allocation/",
+        {"start": "2026-03-02", "end": "2026-03-08"},
+    )
+    assert resp.status_code == 200, resp.content
+    body = resp.content.decode()
+    rows = resp.json()["resources"]
+    assert any(r["id"] == str(victim.pk) for r in rows), (
+        "the chain must actually reach the victim's row, or this test proves nothing"
+    )
+    for row in rows:
+        assert "email" not in row
+    assert "victim@example.com" not in body

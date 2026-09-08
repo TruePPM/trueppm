@@ -1799,6 +1799,44 @@ web:playwright-pins:
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
 
+lint:nul-bytes:
+  extends: .fast-job
+  # Every tracked file git resolves to `text: set` must contain zero 0x00
+  # bytes (#3601).
+  #
+  # A literal NUL byte sat in a buildSubgraph.ts template literal, and a NUL
+  # makes git classify the WHOLE FILE as binary no matter what .gitattributes
+  # says: `git diff` printed "Binary files a/... and b/... differ" instead of
+  # a line, `git grep` found nothing inside it, and a plain `grep` sweep
+  # across the tree returned a false clean rather than an error — the exact
+  # shape that let it go unnoticed.
+  #
+  # Scope is deliberately narrower than "every tracked file": only files
+  # EXPLICITLY declared text (`text: set`) are scanned. Files declared
+  # `-text`/`binary` (`unset`) are skipped — 37 of them are encoding fixtures
+  # under packages/api/tests/apps/{csvimport,projects}/files/*.csv whose UTF-16
+  # NUL bytes ARE the test (#2892, #2937). Files resolving `auto` (the repo
+  # default, no more specific rule — 128 of them: .rs, .mjs, Dockerfile, .webp,
+  # …) are also skipped: `auto` means "let git's own heuristic decide", so a
+  # NUL there is not a contradicted declaration.
+  #
+  # Needs `git` (unlike web:playwright-pins) to classify each path with
+  # `git check-attr`; enumeration is from the index (`git ls-files`), never a
+  # filesystem walk. python3 does the byte scan. Static, offline; well under
+  # a second even across ~6,500 tracked files.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash git python3
+  script:
+    # Self-test first: this gate's failure mode produces a GREEN pipeline, so
+    # "it passed" is not evidence that it can still fail.
+    - bash scripts/check-nul-bytes.sh --self-test
+    - bash scripts/check-nul-bytes.sh
+
 mobile:version-pin:
   extends: .fast-job
   # packages/mobile must stay at 0.0.0 until it ships (#3367).
