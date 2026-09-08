@@ -118,8 +118,10 @@ describe('useRowMetrics', () => {
       rowHeight: 28,
       barTopOffset: 5,
       gripWidth: 14,
-      // Zero: a mouse gives up no row width to a grip it can aim at.
-      gripReserve: 0,
+      // The grip's own width, not zero (#3078). A mouse can aim at 14px, but
+      // aiming was never the question the lane answers — with no lane the grip
+      // drew on top of the ⇤ outdent that #3026 put at the same edge.
+      gripReserve: 14,
       // The nudges are in flow and always drawn, so their lane is real at both
       // pointer classes — it is simply narrow on a mouse (#3026).
       nudgeSize: 16,
@@ -186,8 +188,13 @@ describe('Comfortable rows', () => {
   it('leaves the grip lane on the pointer class, not on the height', () => {
     // Not an oversight. `gripWidth`/`gripReserve` answer "can this pointer aim?"
     // — a mouse still can, and still has hover — so a fine-pointer user who
-    // asked for roomier rows does not silently lose 44px of the name column.
-    // The grip still *grows*, because its height is the row's.
+    // asked for roomier rows does not silently widen the lane to 44 and lose a
+    // fifth of the name column. The grip still *grows*, because its height is
+    // the row's.
+    //
+    // What did change in #3078 is the fine value: 14, not 0. The lane is the
+    // grip's width at both classes, so the pointer class chooses which width —
+    // it no longer chooses whether the grip gets a lane at all.
     stubPointer(false);
     const { result } = renderHook(() => useRowMetrics());
 
@@ -197,7 +204,7 @@ describe('Comfortable rows', () => {
 
     expect(result.current.rowHeight).toBe(44);
     expect(result.current.gripWidth).toBe(14);
-    expect(result.current.gripReserve).toBe(0);
+    expect(result.current.gripReserve).toBe(14);
     expect(result.current.coarse).toBe(false);
   });
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -122,9 +123,20 @@ class ProjectResource(VersionedModel):
         return f"{self.resource} on {self.project}"
 
     @property
-    def effective_max_units(self) -> object:
-        """Return the project-specific override if set, otherwise the resource default."""
-        return self.units_override if self.units_override is not None else self.resource.max_units
+    def effective_max_units(self) -> Decimal:
+        """Return the project-specific override if set, otherwise the resource default.
+
+        Delegates to :func:`trueppm_api.apps.resources.capacity.effective_units`, the
+        single definition of this fallback (#1582) — the same one every per-project
+        capacity read applies, so no two surfaces can resolve it differently (#3574).
+        """
+        from trueppm_api.apps.resources.capacity import effective_units
+
+        # ``self.resource`` is dereferenced ONLY when there is no override, so a
+        # roster row loaded without select_related does not trigger a query it does
+        # not need. The rule itself still lives in one place.
+        override = self.units_override
+        return effective_units(override, None if override is not None else self.resource.max_units)
 
 
 class TaskSkillRequirement(VersionedModel):
@@ -150,6 +162,22 @@ class TaskSkillRequirement(VersionedModel):
 
     def __str__(self) -> str:
         return f"{self.task} requires {self.skill} ({self.get_min_proficiency_display()}+)"
+
+    @property
+    def project_id(self) -> object:
+        """Expose the task's project_id so _get_project_id_from_obj can find it.
+
+        The same shape, and the same reason, as ``TaskResource.project_id`` below: the
+        resolver walks ``project_id`` / ``project`` / ``predecessor`` and nothing else,
+        and it returns ``None`` — which ``IsProjectNotArchived.has_object_permission``
+        reads as "permitted" — for a model that reaches its project only through ``task``.
+        Declaring the permission class without this property is a fail-open that reads as
+        a gate (#3570). Deliberately a property rather than a widening of the resolver:
+        #3414 removed a generic ``task_id -> task.project_id`` hop because it would have
+        flipped eleven fail-closed classes from deny to role-based grant on models that
+        never intended to be project-scoped.
+        """
+        return self.task.project_id
 
 
 class TaskResource(models.Model):

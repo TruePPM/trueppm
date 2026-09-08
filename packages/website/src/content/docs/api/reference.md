@@ -266,6 +266,20 @@ this and keep their existing, more restrictive rules:
   step an attacker has already worked around. Manage tokens from a signed-in
   session; for an operator-side sweep see
   [`revoke_api_tokens`](/administration/management-commands/).
+- **SSO provider configuration is session-only too.**
+  `/workspace/sso/providers/`, `/workspace/sso/providers/{slug}/` and
+  `/workspace/sso/providers/{slug}/test-connection/` refuse token callers the same
+  way, on **every** method including the reads. Provider configuration decides who
+  may become a member and at what role, so a token that could widen a provider's
+  allowed domains and switch on auto-create at the Admin default role would turn one
+  leaked credential into a durable admin account that revoking the token does not
+  reach. Configure providers from a signed-in session.
+
+  The refused `403` carries the same body in both cases: a `detail` string plus a
+  `refusal` envelope of `{"verdict": "refused", "reason": "policy", "constraint":
+  "capability_scope"}`. A token that is revoked, expired, or carries the wrong
+  scope never reaches that check — the authenticator answers `401` with
+  `reason: identity` first.
 - **`TaskSyncView`** and the acceptance-result ingest endpoint (above) still
   require `IsTokenForProject` — the token's `project`/`program` FK must
   resolve to the URL's project. A personal token has neither set, so a PAT
@@ -292,8 +306,11 @@ public by design — they *are* the login flow:
 SSO-authenticated sessions are always session-scoped (12h sliding, session
 cookie) — there is no `remember_me` checkbox in an IdP redirect, so the safe
 default applies unconditionally. The admin-facing provider CRUD
-(`/api/v1/workspace/sso/providers/`) is a separate, authenticated surface; see
-[Workspace Settings](/administration/workspace-settings/).
+(`/api/v1/workspace/sso/providers/`) is a separate, authenticated surface — workspace
+Admin on every method, and **session/JWT only**: it refuses API tokens, reads
+included (see [Authentication](#authentication) above). See
+[Workspace Settings](/administration/workspace-settings/) and
+[Single sign-on](/administration/single-sign-on/).
 
 This is deliberately basic, self-service login federation — OSS per the
 [auth carve-out](/license/): an admin points TruePPM at their own IdP and users
@@ -593,8 +610,15 @@ returns `409` if no member project has a computed schedule yet, and `400` for an
 invalid date or a `start` after `end`. This is within-program visibility only —
 cross-program leveling and the portfolio heat map remain Enterprise.
 
+`resource-contention` and the per-project `resource-allocation` share a response
+shape but not a meaning for `max_units`: from 0.4 the per-project endpoint states
+the resource's capacity **on that project** (the roster's `units_override` when one
+is set), while `resource-contention` spans several projects at once and therefore
+states the whole person — the resource's catalog-wide `max_units`. A client that
+joins the two must not compare one against the other.
+
 Each task span in `resource-contention` (and the per-project
-`resource-allocation` it mirrors) windows and renders on `scheduled_start`
+`resource-allocation`) windows and renders on `scheduled_start`
 through `early_finish` — the task's **span** — not `early_start` through
 `early_finish`, the narrower *remaining-work* window `early_start` shrinks
 toward as an in-progress task's `percent_complete` rises (ADR-0752). `early_start`
@@ -1511,25 +1535,53 @@ exceed the OSS simulation cap or the request returns `402`. See
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
-| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) |
-| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated |
-| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource (org admin only) |
+| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — **workspace Admin only from 0.4** |
+| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated; **workspace Admin only from 0.4** |
+| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource — **workspace Admin only from 0.4** |
+
+Creating and updating catalog rows requires the Project Manager or Project Admin
+role on at least one **active** project. From 0.4, deactivating and restoring a
+row, listing the deactivated pool with `?include_deleted=true`, and reading
+`assignments/` require the **workspace Admin** role.
+Those surfaces reach every project in the installation, and a project role cannot
+bound them: project creation is deliberately open, so any account can hold Owner
+on a project of its own.
 
 The resource catalog is readable by any authenticated user, so the `email` field
-is **gated** to prevent org-wide address harvesting: org admins (Admin or Owner
-on any project, or superusers) receive `email` on every row, and a caller
+is **gated** to prevent org-wide address harvesting. From 0.4 only a workspace
+Admin receives `email` on catalog rows (previously any org admin), and a caller
 always sees their own email (`is_me: true`). For all other callers the `email`
-field is **omitted** from the payload entirely. A per-user throttle of **60 req/min**
+field is **omitted** from the payload entirely — absent means *withheld*, not
+"this person has no address". `?search=` matches `email` only for a workspace Admin;
+everyone else searches by name alone. A per-user throttle of **60 req/min**
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
+
+:::caution[Catalog endpoints only]
+This gating covers the resource **catalog**. The project and program
+`resource-allocation` endpoints and `GET /api/v1/projects/{id}/export/` build their
+responses separately and still include `email` for resources attached to a project
+you administer.
+:::
+
+The list endpoint's two project-scoped filters are gated the same way, for the
+same reason. `?exclude_project=<project id>` drops the resources already on that
+project's roster, and `?task=<task id>` annotates each row with its fit against
+that task's skill requirements — both reach through an open catalog read into one
+project's data, so both are honored **only for members of the project they name**.
+For a non-member the parameter is ignored and the response is identical to
+omitting it, so neither filter can be used to confirm that a project or task id
+exists. `?include_deleted=true` is likewise honored only for a workspace Admin.
 
 `assignments/` returns every task the resource is assigned to, across **all**
 projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
 Because it carries task and project **names** — project-scoped confidential data
-that the base catalog read deliberately withholds — it requires **org-admin**
-(resource-manager: Admin or Owner on any project); other callers receive
-`403 Forbidden`. It is a read-only projection: no utilization score, no
+that the base catalog read deliberately withholds — from 0.4 it requires the
+**workspace Admin** role; every other caller, project
+admins included, receives `403 Forbidden`. For the membership-scoped view of one
+person's assignments, use `GET /api/v1/task-resources/?resource=<id>`, which needs
+no elevated role. It is a read-only projection: no utilization score, no
 overallocation flag, and no cross-program rollup. Each row carries:
 
 | Field | Type | Description |
@@ -1603,12 +1655,40 @@ See ADR-0774.
 | DELETE | `/api/v1/project-resources/{id}/` | Remove from roster (Scheduler+) |
 | DELETE | `/api/v1/project-resources/{id}/?force=true` | Force-remove and cascade-delete the resource's task assignments |
 
+A roster entry carries `units_override`, a per-project capacity override, and the
+read-only `effective_max_units` it resolves to (`units_override` when set — `0`
+included — else the resource's catalog-wide `max_units`).
+
+:::note[Ships in 0.4]
+`units_override` reaches every per-project capacity read in **0.4**. In the current
+release only the project Overview's Team utilization card applies it; the utilization
+endpoint, the resources heatmap and summary, `resource-allocation`, the attention
+feed's `overallocation` items, `Task.assignee_is_overallocated`, the assignment-time
+`resource_overallocated` warning and the sprint capacity summary all measure against
+`Resource.max_units`.
+:::
+
+From 0.4 `effective_max_units` will be the denominator behind
+`GET /projects/{id}/utilization/` (`max_units`, `load_pct`, `load_band`,
+`overallocated`), `/resources/heatmap/`, `/resources/summary/`,
+`/resource-allocation/` (`max_units`), the `overallocation` items on
+`/projects/{id}/attention/`, `Task.assignee_is_overallocated`, the
+`resource_overallocated` warning on `POST /task-resources/`, and
+`GET /sprints/{id}/capacity/`. Cross-project reads keep `Resource.max_units` — see
+the note under **Programs** above.
+
 A plain `DELETE` returns `409 Conflict` with code `has_assignments` if the
 resource has live task assignments on the project; the response body lists the
 `affected_tasks`, a sample of `task_names`, and the `assignment_count`. Passing
 `?force=true` cascades the deletion to the resource's `TaskResource` rows on the
 project and triggers a CPM recalculation for the affected tasks. All write and
 delete operations require the Scheduler role or higher on the project.
+
+From **0.4**, every write on `/api/v1/project-resources/`, `/api/v1/task-resources/`
+and `/api/v1/task-skill-requirements/` — create, update, delete, and the
+`?force=true` cascade — is refused with a `403` when the project is archived, at
+every role including Owner. Reads are unaffected. In `v0.3.0-alpha.3` (the latest
+release) those writes still succeed on an archived project.
 
 ### Workspace
 
@@ -2045,12 +2125,19 @@ workspace row exists yet, and `fallback` means no tier was usable at all. These 
 fields ship in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
 
 Both methods return the same document, published as the
-`ProjectNotificationPreferenceDocument` schema — the stored row plus one field the
+`ProjectNotificationPreferenceDocument` schema — the stored row plus two fields the
 view adds:
 
 | Field | Type | Description |
 |---|---|---|
 | `event_delivery` | object of `event_type` → boolean | Whether a delivery path is wired for that matrix row. `false` means the row is stored and honored but nothing dispatches it yet, so render it as such rather than implying a delivery that never happens. |
+| `channel_delivery` | object of `channel` → boolean | Whether TruePPM delivers on that matrix column at all. `false` means the column is rendered and the preference stored, but nothing delivers on it yet and no setting anywhere turns it on — so label it rather than imply a delivery that never happens. |
+
+Both fields ship in 0.4. They are independent axes: a cell delivers only when its
+event is dispatched **and** its channel delivers. Both are server-global — they
+report server wiring, not anything about the user or project whose document carries
+them — and both are read-only. Read them rather than hard-coding either list: a
+client-side copy drifts the moment a delivery path lands.
 
 `apply-preset` takes a preset name, not a preference row:
 

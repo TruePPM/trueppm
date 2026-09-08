@@ -28,7 +28,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.projects.utilization import Allocation, peak_concurrent_units
-from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
 
@@ -720,3 +720,151 @@ class TestPeakConcurrentUnits:
         )
         assert peak == Decimal("1.5")
         assert day is None
+
+
+# ---------------------------------------------------------------------------
+# #3574 — ProjectResource.units_override is a PER-PROJECT capacity statement,
+# so the daily engine must apply it. Before this, the Overview card honored the
+# override and every other read used Resource.max_units, so a person rostered at
+# 0.5 and assigned 0.5 read 100% on the card and 50% one click away.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestDailyEngineHonorsUnitsOverride:
+    def _roster(
+        self,
+        project: Project,
+        cal: Calendar,
+        *,
+        max_units: str,
+        units_override: str | None,
+        name: str = "Ada",
+    ) -> Resource:
+        resource = Resource.objects.create(name=name, calendar=cal, max_units=Decimal(max_units))
+        ProjectResource.objects.create(
+            project=project,
+            resource=resource,
+            units_override=(Decimal(units_override) if units_override is not None else None),
+        )
+        return resource
+
+    def _one_day(self, project: Project, resource: Resource, units: str) -> None:
+        # Mon 2026-03-02, one working day, so the day's load is unambiguous.
+        task = Task.objects.create(
+            project=project,
+            name="T",
+            duration=1,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 2),
+            status=TaskStatus.NOT_STARTED,
+            wbs_path="1",
+        )
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal(units))
+
+    def _day(self, project: Project) -> dict[str, object]:
+        c = _auth_client(Role.SCHEDULER, project)
+        resp = c.get(_url(project), {"start": "2026-03-02", "end": "2026-03-02"})
+        assert resp.status_code == 200
+        row = resp.data["resources"][0]
+        return {"row": row, "day": row["days"]["2026-03-02"]}
+
+    def test_half_time_roster_reads_100_percent_not_50(
+        self, project: Project, cal: Calendar
+    ) -> None:
+        """The bug, stated directly: 0.5 assigned against a 0.5 roster slot is full."""
+        resource = self._roster(project, cal, max_units="1.0", units_override="0.5")
+        self._one_day(project, resource, "0.5")
+        out = self._day(project)
+        assert out["day"]["load_pct"] == 100.0
+        assert out["day"]["load_band"] == "at-risk"
+        assert out["day"]["overallocated"] is False
+        # The published capacity is the per-project one, so the client's own bar
+        # (hours / (hours_per_day x max_units)) cannot disagree with load_pct.
+        assert out["row"]["max_units"] == "0.50"
+
+    def test_half_time_roster_over_capacity_is_flagged(
+        self, project: Project, cal: Calendar
+    ) -> None:
+        resource = self._roster(project, cal, max_units="1.0", units_override="0.5")
+        self._one_day(project, resource, "0.6")
+        out = self._day(project)
+        assert out["day"]["load_pct"] == 120.0
+        assert out["day"]["load_band"] == "critical"
+        assert out["day"]["overallocated"] is True
+        assert out["row"]["overallocated"] is True
+
+    def test_no_override_still_uses_the_resource_default(
+        self, project: Project, cal: Calendar
+    ) -> None:
+        """The negative control: without an override nothing about the read changes."""
+        resource = self._roster(project, cal, max_units="1.0", units_override=None)
+        self._one_day(project, resource, "0.5")
+        out = self._day(project)
+        assert out["day"]["load_pct"] == 50.0
+        assert out["row"]["max_units"] == "1.00"
+
+    def test_an_override_above_the_default_widens_capacity(
+        self, project: Project, cal: Calendar
+    ) -> None:
+        """The override is the capacity, not a cap on it — 1.5 means 1.5."""
+        resource = self._roster(project, cal, max_units="1.0", units_override="1.5")
+        self._one_day(project, resource, "1.5")
+        out = self._day(project)
+        assert out["day"]["load_pct"] == 100.0
+        assert out["row"]["max_units"] == "1.50"
+
+    def test_zero_override_is_not_treated_as_unset(self, project: Project, cal: Calendar) -> None:
+        """0 is a legitimate stored value: rostered here, holding no capacity here.
+
+        A truthiness fallback (``units_override or max_units``) would silently
+        promote it back to full time, which is the inverse of what it says.
+        """
+        resource = self._roster(project, cal, max_units="1.0", units_override="0")
+        self._one_day(project, resource, "0.5")
+        out = self._day(project)
+        assert out["row"]["max_units"] == "0.00"
+        # Zero capacity makes the ratio undefined; the engine's divide-by-zero guard
+        # reports 0.0 rather than raising. The point of the assertion is the line
+        # above: the 0 was not read as "no override set".
+        assert out["day"]["load_pct"] == 0.0
+
+    def test_assignee_without_a_roster_row_keeps_the_resource_default(
+        self, project: Project, cal: Calendar
+    ) -> None:
+        """TaskResource does not require a ProjectResource; that person's capacity
+        is their own default, and the engine must not invent an override for them."""
+        resource = Resource.objects.create(
+            name="Off Roster", calendar=cal, max_units=Decimal("1.0")
+        )
+        self._one_day(project, resource, "0.5")
+        out = self._day(project)
+        assert out["row"]["max_units"] == "1.00"
+        assert out["day"]["load_pct"] == 50.0
+
+    def test_an_override_on_another_project_does_not_leak(
+        self, project: Project, cal: Calendar
+    ) -> None:
+        """A per-project override is scoped to its project — the roster lookup is
+        keyed on (project, resource), so a sibling project's slot cannot bleed in."""
+        other = Project.objects.create(name="Other", start_date=date(2026, 3, 2), calendar=cal)
+        resource = Resource.objects.create(name="Shared", calendar=cal, max_units=Decimal("1.0"))
+        ProjectResource.objects.create(
+            project=other, resource=resource, units_override=Decimal("0.25")
+        )
+        self._one_day(project, resource, "0.5")
+        out = self._day(project)
+        assert out["row"]["max_units"] == "1.00"
+        assert out["day"]["load_pct"] == 50.0
+
+    def test_a_soft_deleted_roster_row_is_ignored(self, project: Project, cal: Calendar) -> None:
+        resource = Resource.objects.create(name="Removed", calendar=cal, max_units=Decimal("1.0"))
+        ProjectResource.objects.create(
+            project=project,
+            resource=resource,
+            units_override=Decimal("0.5"),
+            is_deleted=True,
+        )
+        self._one_day(project, resource, "0.5")
+        out = self._day(project)
+        assert out["row"]["max_units"] == "1.00"
