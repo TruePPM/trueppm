@@ -30,6 +30,10 @@ from trueppm_api.apps.projects.models import (
     TaskActivityEvent,
     TaskActivityEventType,
 )
+from trueppm_api.apps.projects.serializers import (
+    MAX_TASK_OWNERS_PER_WRITE,
+    MSG_TOO_MANY_OWNERS,
+)
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
@@ -415,6 +419,173 @@ def test_empty_owners_list_is_a_no_op(client: APIClient, task: Task, ben: Resour
     assert res.status_code == 200
     # An empty list is "I named nobody", not "remove everyone" — removal has its own verb.
     assert TaskResource.objects.filter(task=task).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# The list is bounded (#3596)
+# ---------------------------------------------------------------------------
+
+
+def _roster(project: Project, n: int) -> list[Resource]:
+    """``n`` distinct resources, all on ``project``'s roster."""
+    people = [
+        Resource(name=f"Rostered {i}", email=f"r{i}@example.com", max_units=Decimal("1.0"))
+        for i in range(n)
+    ]
+    Resource.objects.bulk_create(people)
+    ProjectResource.objects.bulk_create(
+        [ProjectResource(project=project, resource=r) for r in people]
+    )
+    return people
+
+
+@pytest.mark.django_db
+def test_owners_over_the_cap_is_rejected(client: APIClient, task: Task, ana: Resource) -> None:
+    """One write naming a resource 100k times minted 100k audit rows and 100k broadcasts.
+
+    ``apply_task_owners`` replays the payload entry by entry on purpose, so the cost is
+    per payload *row*, not per distinct resource — which is why the bound belongs on the
+    list rather than on a de-duplicating resolver.
+    """
+    over = MAX_TASK_OWNERS_PER_WRITE + 1
+    res = client.patch(
+        _task_url(task),
+        {"owners": [{"resource": str(ana.pk), "units": "1.0"}] * over},
+        format="json",
+    )
+
+    assert res.status_code == 400, res.data
+    assert TaskResource.objects.filter(task=task).count() == 0
+    assert TaskActivityEvent.objects.filter(task=task).count() == 0
+
+
+@pytest.mark.django_db
+def test_the_cap_error_states_the_limit_and_the_way_out(
+    client: APIClient, task: Task, ana: Resource
+) -> None:
+    """A bare "no more than N elements" leaves a caller who hit this with nowhere to go."""
+    res = client.patch(
+        _task_url(task),
+        {"owners": [{"resource": str(ana.pk)}] * (MAX_TASK_OWNERS_PER_WRITE + 1)},
+        format="json",
+    )
+
+    assert res.status_code == 400, res.data
+    message = str(res.data["owners"]["non_field_errors"][0])
+    assert message == MSG_TOO_MANY_OWNERS.format(max_length=MAX_TASK_OWNERS_PER_WRITE)
+    assert str(MAX_TASK_OWNERS_PER_WRITE) in message
+    assert "duplicate" in message and "split" in message
+
+
+@pytest.mark.django_db
+def test_the_cap_is_checked_before_the_roster_query(client: APIClient, task: Task) -> None:
+    """``ListSerializer.to_internal_value`` runs before ``validate``.
+
+    Pins the ordering the cap depends on for its value: an oversized payload of ids that
+    are not on the roster is refused for its *length*, so ``_resolve_owners`` never builds
+    the 100k-element ``requested`` list or issues its ``pk__in`` read.
+    """
+    stranger = Resource.objects.create(
+        name="Not Rostered", email="nr@example.com", max_units=Decimal("1.0")
+    )
+    res = client.patch(
+        _task_url(task),
+        {"owners": [{"resource": str(stranger.pk)}] * (MAX_TASK_OWNERS_PER_WRITE + 1)},
+        format="json",
+    )
+
+    assert res.status_code == 400, res.data
+    assert "non_field_errors" in res.data["owners"]
+    assert "roster" not in str(res.data["owners"])
+
+
+@pytest.mark.django_db
+def test_owners_at_exactly_the_cap_is_accepted(
+    client: APIClient, project: Project, task: Task
+) -> None:
+    """An off-by-one here is a shipped 400 on legitimate work, so pin the boundary."""
+    people = _roster(project, MAX_TASK_OWNERS_PER_WRITE)
+    res = client.patch(
+        _task_url(task),
+        {"owners": [{"resource": str(r.pk), "units": "0.1"} for r in people]},
+        format="json",
+    )
+
+    assert res.status_code == 200, res.data
+    assert TaskResource.objects.filter(task=task).count() == MAX_TASK_OWNERS_PER_WRITE
+
+
+@pytest.mark.django_db
+def test_bulk_cannot_bypass_the_owners_cap(
+    client: APIClient, project: Project, ana: Resource
+) -> None:
+    """``TaskBulkView`` routes ``create`` through ``TaskSerializer``, so it inherits this.
+
+    Worth pinning rather than assuming: the batch endpoint is the one surface that could
+    grow a second way to express ownership, and it is also the one that multiplies the
+    per-row budget by ``TASK_BULK_MAX_OPERATIONS``.
+    """
+    res = client.post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/",
+        {
+            "operations": [
+                {
+                    "op": "create",
+                    "data": {
+                        "name": "Row from a batch",
+                        "duration": 3,
+                        "owners": [{"resource": str(ana.pk)}]
+                        * (MAX_TASK_OWNERS_PER_WRITE + 1),
+                    },
+                }
+            ]
+        },
+        format="json",
+    )
+
+    assert res.status_code == 207, res.data
+    assert res.data["applied"] == []
+    assert len(res.data["rejected"]) == 1
+    assert "owners" in str(res.data["rejected"][0])
+    assert TaskResource.objects.filter(resource=ana).count() == 0
+
+
+@pytest.mark.django_db
+def test_duplicate_entries_under_the_cap_still_replay_into_the_audit_trail(
+    client: APIClient, task: Task, ana: Resource
+) -> None:
+    """Option 2 (collapse repeated ids) was considered and NOT taken — this is why.
+
+    ``apply_task_owners`` de-duplicates the rows it *writes* but deliberately replays the
+    payload entry by entry into the ADR-0394 audit trail, so naming one resource twice at
+    different units records an add followed by a units delta. A resolver that collapsed
+    repeats would drop the intermediate delta silently. If that trade is ever revisited,
+    this test is the record of the semantics being changed — update it, do not delete it.
+    """
+    res = client.patch(
+        _task_url(task),
+        {
+            "owners": [
+                {"resource": str(ana.pk), "units": "1.0"},
+                {"resource": str(ana.pk), "units": "0.5"},
+            ]
+        },
+        format="json",
+    )
+
+    assert res.status_code == 200, res.data
+    # One row written (upsert keyed by resource), two audit entries (one per payload row).
+    assert TaskResource.objects.get(task=task, resource=ana).units == Decimal("0.50")
+    assert (
+        TaskActivityEvent.objects.filter(
+            task=task, event_type=TaskActivityEventType.ASSIGNEE_ADDED
+        ).count()
+        == 1
+    )
+    delta = TaskActivityEvent.objects.get(
+        task=task, event_type=TaskActivityEventType.ASSIGNEE_UNITS_CHANGED
+    )
+    assert delta.detail["units"] == {"from": "1.00", "to": "0.50"}
 
 
 # ---------------------------------------------------------------------------
