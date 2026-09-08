@@ -26,15 +26,22 @@ class SkillSerializer(serializers.ModelSerializer[Skill]):
 
     Normalises name to lower-case + stripped on write to prevent duplicate
     entries ("React" vs "react"). Returns the existing row (not a 201) when
-    the normalized_name already exists — callers read the ``created`` attribute
-    this serializer sets on save to pick 200 vs 201.
+    the normalized_name already exists — the status code, not the body,
+    distinguishes the two (200 vs 201).
     """
+
+    # This docstring is published verbatim as the ``Skill`` component description in
+    # docs/api/openapi.json, so it stays client-facing: ``created`` below is a
+    # server-side attribute an API consumer can never observe.
 
     #: Whether the last ``create()`` inserted (True) or de-duplicated (False).
     #: The flag has to travel out of ``create()`` because it cannot be recovered
     #: from the saved row afterwards: an inserted skill and a de-dup hit are
     #: indistinguishable by inspection (#3573 — the caller used to probe
     #: ``server_version=0``, which ``VersionedModel.save`` never leaves behind).
+    #: Only meaningful after a ``save()`` that went through ``create()``: bound with
+    #: an ``instance``, ``save()`` takes the ``update()`` branch and this keeps the
+    #: ``False`` default, which would read as a de-dup hit.
     created: bool = False
 
     class Meta:

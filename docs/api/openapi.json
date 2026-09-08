@@ -59899,7 +59899,7 @@
             },
             "PatchedSkillRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers read the ``created`` attribute\nthis serializer sets on save to pick 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — the status code, not the body,\ndistinguishes the two (200 vs 201).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -66878,7 +66878,7 @@
             },
             "Skill": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers read the ``created`` attribute\nthis serializer sets on save to pick 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — the status code, not the body,\ndistinguishes the two (200 vs 201).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -66911,7 +66911,7 @@
             },
             "SkillRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers read the ``created`` attribute\nthis serializer sets on save to pick 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — the status code, not the body,\ndistinguishes the two (200 vs 201).",
                 "properties": {
                     "name": {
                         "type": "string",
