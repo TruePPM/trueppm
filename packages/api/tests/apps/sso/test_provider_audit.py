@@ -276,9 +276,7 @@ def test_rotating_the_secret_writes_a_row_with_no_secret_material(admin: Any) ->
 def test_rotation_is_a_separate_verb_not_a_field_in_the_update_diff(admin: Any) -> None:
     client = _create(admin)
 
-    resp = client.put(
-        DETAIL, {"client_secret": _NEW_SECRET, "enabled": False}, format="json"
-    )
+    resp = client.put(DETAIL, {"client_secret": _NEW_SECRET, "enabled": False}, format="json")
     assert resp.status_code == 200, resp.data
 
     assert len(_rows(AuditEventType.SSO_SECRET_ROTATED)) == 1
@@ -320,9 +318,7 @@ def test_delete_records_both_impact_counts_before_the_cascade(admin: Any) -> Non
     """
     client = _create(admin)
     # One linked account that still has a password, so it is linked but not locked out.
-    user = User.objects.create_user(
-        username="has_password", email="hp@example.com", password="pw"
-    )
+    user = User.objects.create_user(username="has_password", email="hp@example.com", password="pw")
     SocialAccount.objects.create(
         user=user, provider="generic", uid="sub-hp", extra_data={"iss": ISSUER}
     )
@@ -457,7 +453,7 @@ def test_the_link_row_carries_nothing_from_the_claims_dict_beyond_the_subject(
 def test_the_link_row_records_the_users_existing_workspace_role(
     provider_ctx: services.ProviderContext, member: Any
 ) -> None:
-    """"What access did this federated identity just get?" must be answerable from the row."""
+    """ "What access did this federated identity just get?" must be answerable from the row."""
     member.email = "member@example.com"
     member.save(update_fields=["email"])
 
