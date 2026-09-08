@@ -1,6 +1,7 @@
 ---
 title: Project members
 description: Invite teammates to a project, change their role, and remove or leave a project — the management UI for the 5-role RBAC model.
+documentedFor: "0.4"
 ---
 
 The **Project Settings → Members** page is where a project Owner manages who is on a project and what each person can do. Open it at **Project → Settings → Members** (`/projects/:id/settings/members`).
@@ -25,6 +26,31 @@ The invite form is a typeahead. Start typing a name and TruePPM searches existin
 The invited user **must already have a TruePPM account** — this page does not create accounts. To bring in someone who has never signed in, send them a [workspace invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow) first; once they accept and have an account, they appear in the project member search.
 
 For privacy, the search returns username, display name, and initials only — never email addresses.
+
+### Who you can add
+
+:::note[Ships in 0.4]
+Until 0.4, an Owner can add any account on the installation. Everything in this
+section describes the 0.4 behavior; the rest of the page describes the current
+release.
+:::
+
+0.4 bounds the people an Owner can add to those they can already reach, so adding a
+member never reveals an account they could not already see:
+
+- **A workspace Admin or Owner** can add any active account — this is the tier that
+  already holds the workspace member list and the invite form.
+- **Everyone else** can add themselves, and anyone already on a project or program
+  roster they belong to. Somebody you removed earlier still counts, so re-adding a
+  member you revoked keeps working.
+
+If the search turns up somebody outside that set, the add is refused and you will be
+pointed at the [workspace invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow)
+instead — ask a workspace admin to send one. Deactivated accounts are never addable.
+
+This is a fix for an address-disclosure defect: the add response carried the target's
+email address, so an unbounded target field let any signed-in account read every
+address on the installation one request at a time.
 
 ## Default role for new members
 
