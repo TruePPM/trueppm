@@ -784,6 +784,22 @@ class AuditEventType(models.TextChoices):
     # why. The permission question is deliberately left open (see the issue); this
     # verb is the attribution half, so the movement is at least traceable.
     CALENDAR_CHANGED = "calendar_changed", "Calendar changed"
+    # #3552, ADR-1120. The auth surface recorded failures and no successes: an SSO
+    # provider could be created, repointed, widened, disabled or torn down, and its
+    # client secret rotated, with nothing naming who did it or what the value was
+    # before — while the serializer already treated an issuer repoint as dangerous
+    # enough to refuse. These five are the admin-actioned and once-per-identity half
+    # of that gap; login success is deliberately a ``trueppm.auth`` log line instead,
+    # because its rate is set by request traffic and this table has no OSS retention.
+    SSO_PROVIDER_CREATED = "sso_provider_created", "SSO provider created"
+    SSO_PROVIDER_UPDATED = "sso_provider_updated", "SSO provider updated"
+    SSO_PROVIDER_DELETED = "sso_provider_deleted", "SSO provider deleted"
+    SSO_SECRET_ROTATED = "sso_secret_rotated", "SSO client secret rotated"
+    # Branch 3 of ``sso.services.resolve_user`` — an IdP identity binding itself to an
+    # account that already exists. Branch 4 (auto-create) wrote MEMBER_ADDED and this
+    # one wrote nothing, so the path that grants a federated credential over an
+    # *existing* local account was the only one leaving no trace.
+    SSO_ACCOUNT_LINKED = "sso_account_linked", "SSO account linked"
 
 
 class AuditEvent(models.Model):

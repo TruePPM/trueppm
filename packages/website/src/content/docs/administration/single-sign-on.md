@@ -38,7 +38,9 @@ deprovision, and govern accounts from a directory → Enterprise.**
 | Auto-create a member on first sign-in (single default role, domain-gated) | ✅ Open-source core |
 | Group → role mapping (`groups` scope / custom claims) | Enterprise |
 | Enforced SSO (disable password sign-in / disable local accounts) | Enterprise |
-| SCIM provisioning, LDAP/AD directory sync, SAML federation, auth-event audit trail | Enterprise |
+| SCIM provisioning, LDAP/AD directory sync, SAML federation | Enterprise |
+| Immutable, retained auth-event trail with evidence export | Enterprise |
+| Audit rows for provider config changes, secret rotation, and account linking | ✅ Open-source core |
 
 For OIDC, the open-source core requests only the `openid email profile` scopes —
 never a `groups` scope. For GitHub it requests only `read:user user:email`. On
@@ -198,6 +200,22 @@ every existing sign-in would silently stop working).
   [Revoking a token](/features/personal-access-tokens/#revoking-a-token) for what
   a token can still reach.
 - Client secrets are encrypted at rest and are never returned to any client.
+- Every change to a provider is recorded in the
+  [audit log](/administration/audit-log/): adding one, deleting one, and rotating its
+  client secret each write a row naming the admin, and an edit records a **before and
+  after for each field that actually changed** — the allowed email domains, auto-create
+  setting, default role, enabled state, issuer URL, GitHub org, OAuth client id, and
+  display name. The client secret never appears in any of them, in any form: a rotation
+  records only that it happened. A save that changes nothing writes nothing.
+- Rows also record whether the change came from a browser session or from a Personal
+  Access Token (`actor_kind`), so a scripted change is not indistinguishable from an
+  admin sitting at the page.
+- When a single sign-on identity binds to an **existing** local account, that link is
+  recorded as `sso_account_linked` — with the provider, issuer, subject, and the role the
+  account holds. This is the moment an account that already had a password gains a second
+  way in, and it is now visible.
+- The provider create, update, and delete endpoints are rate-limited to 20 requests per
+  minute. Reading the provider list is not.
 - The OIDC login flow is protected against login-CSRF / session fixation with a
   single-use, browser-bound `state` value; the ID token's signature (an
   asymmetric-algorithm allow-list), issuer, audience, and nonce are all validated
