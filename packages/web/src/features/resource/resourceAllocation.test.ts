@@ -148,6 +148,8 @@ describe('fitToAllocationWindow', () => {
           tasks: tasks.map((t, i) => makeTask(`a${i}`, t.start, t.finish, '1.00')),
         },
       ],
+      resource_count: 1,
+      truncated: false,
     };
   }
 
@@ -348,6 +350,8 @@ describe('fitToAllocationWindow — SPAN start, not remaining-work window (#2677
           ],
         },
       ],
+      resource_count: 1,
+      truncated: false,
     };
     const win = fitToAllocationWindow('2026-03-15', data);
     expect(win.start).toBe(formatISODate(isoWeekMonday(parseUTCDate('2026-03-10'))));
