@@ -416,19 +416,25 @@ def _annotate_operation(
 # 429 documentation via a custom AutoSchema
 # ---------------------------------------------------------------------------
 
-# The 403 an API-token caller receives on the credential-management surface (#2878).
-# Declared on every operation whose view carries ``IsNotTokenAuthenticated``, so an
-# integrator scripting against a token learns from the contract that this refusal is
-# by design rather than discovering it as an apparent permissions bug.
+# The 403 an API-token caller receives on the credential-management surface (#2878) and
+# on SSO provider configuration (#3551). Declared on every operation whose view carries
+# ``IsNotTokenAuthenticated``, so an integrator scripting against a token learns from the
+# contract that this refusal is by design rather than discovering it as an apparent
+# permissions bug. Worded for the whole surface rather than the token routes alone: it is
+# emitted verbatim on SSO operations too, where a token-management-specific sentence
+# would be a confidently wrong diagnosis.
 _TOKEN_REFUSED_RESPONSE = {
     "description": (
-        "Refused because the caller authenticated with an API token. Managing API "
-        "tokens requires a session or JWT — a token cannot mint, list, or revoke "
-        "tokens, so that revoking a leaked credential is actual containment. The "
-        "``refusal`` envelope carries ``reason: policy`` and ``constraint: "
-        "capability_scope``. A token that is revoked, expired, or carries the wrong "
-        "scope for this surface is rejected earlier, by the authenticator, and "
-        "receives ``401`` with ``reason: identity`` instead."
+        "Refused because the caller authenticated with an API token. Managing "
+        "credentials or sign-in configuration requires a session or JWT — a token can "
+        "neither mint, list or revoke tokens, nor read or reconfigure SSO providers — "
+        "so that revoking a leaked credential is actual containment. The ``refusal`` "
+        "envelope carries ``reason: policy`` and ``constraint: capability_scope``. A "
+        "token that is revoked, expired, or carries the wrong scope for this surface is "
+        "rejected earlier, by the authenticator, and receives ``401`` with "
+        "``reason: identity`` instead. This status is also returned to a *session* "
+        "caller who lacks the required role; that refusal carries ``detail`` alone, "
+        "with no ``refusal`` envelope."
     ),
     "content": {
         "application/json": {
@@ -438,8 +444,8 @@ _TOKEN_REFUSED_RESPONSE = {
                     "detail": {
                         "type": "string",
                         "example": (
-                            "API tokens cannot manage API tokens. Sign in to create, "
-                            "list, or revoke tokens."
+                            "API tokens cannot manage credentials or sign-in "
+                            "configuration. Sign in to perform this action."
                         ),
                     },
                     "refusal": {
@@ -779,11 +785,12 @@ class TruePPMAutoSchema(AutoSchema):
     def _token_callers_refused(self) -> bool:
         """Whether this view refuses every API token outright (``IsNotTokenAuthenticated``).
 
-        The credential-management surface is session/JWT only since #2878, so neither
-        token scheme is reachable on any of its operations and the schema must not
-        advertise them — an integrator reading it would otherwise write a script that
-        cannot possibly work, against the one surface where the failure looks like a
-        permissions bug rather than a deliberate refusal.
+        The credential-management surface is session/JWT only since #2878, and SSO
+        provider configuration since #3551, so neither token scheme is reachable on any
+        of their operations and the schema must not advertise them — an integrator
+        reading it would otherwise write a script that cannot possibly work, against the
+        surfaces where the failure looks like a permissions bug rather than a deliberate
+        refusal.
 
         Read off ``permission_classes`` rather than ``get_permissions()`` because schema
         generation has no request to resolve per-action permissions against; every view

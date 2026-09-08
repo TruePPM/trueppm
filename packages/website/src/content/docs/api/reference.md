@@ -266,6 +266,20 @@ this and keep their existing, more restrictive rules:
   step an attacker has already worked around. Manage tokens from a signed-in
   session; for an operator-side sweep see
   [`revoke_api_tokens`](/administration/management-commands/).
+- **SSO provider configuration is session-only too.**
+  `/workspace/sso/providers/`, `/workspace/sso/providers/{slug}/` and
+  `/workspace/sso/providers/{slug}/test-connection/` refuse token callers the same
+  way, on **every** method including the reads. Provider configuration decides who
+  may become a member and at what role, so a token that could widen a provider's
+  allowed domains and switch on auto-create at the Admin default role would turn one
+  leaked credential into a durable admin account that revoking the token does not
+  reach. Configure providers from a signed-in session.
+
+  The refused `403` carries the same body in both cases: a `detail` string plus a
+  `refusal` envelope of `{"verdict": "refused", "reason": "policy", "constraint":
+  "capability_scope"}`. A token that is revoked, expired, or carries the wrong
+  scope never reaches that check — the authenticator answers `401` with
+  `reason: identity` first.
 - **`TaskSyncView`** and the acceptance-result ingest endpoint (above) still
   require `IsTokenForProject` — the token's `project`/`program` FK must
   resolve to the URL's project. A personal token has neither set, so a PAT
@@ -292,8 +306,11 @@ public by design — they *are* the login flow:
 SSO-authenticated sessions are always session-scoped (12h sliding, session
 cookie) — there is no `remember_me` checkbox in an IdP redirect, so the safe
 default applies unconditionally. The admin-facing provider CRUD
-(`/api/v1/workspace/sso/providers/`) is a separate, authenticated surface; see
-[Workspace Settings](/administration/workspace-settings/).
+(`/api/v1/workspace/sso/providers/`) is a separate, authenticated surface — workspace
+Admin on every method, and **session/JWT only**: it refuses API tokens, reads
+included (see [Authentication](#authentication) above). See
+[Workspace Settings](/administration/workspace-settings/) and
+[Single sign-on](/administration/single-sign-on/).
 
 This is deliberately basic, self-service login federation — OSS per the
 [auth carve-out](/license/): an admin points TruePPM at their own IdP and users
@@ -1523,6 +1540,15 @@ field is **omitted** from the payload entirely. A per-user throttle of **60 req/
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
 
+The list endpoint's two project-scoped filters are gated the same way, for the
+same reason. `?exclude_project=<project id>` drops the resources already on that
+project's roster, and `?task=<task id>` annotates each row with its fit against
+that task's skill requirements — both reach through an open catalog read into one
+project's data, so both are honored **only for members of the project they name**.
+For a non-member the parameter is ignored and the response is identical to
+omitting it, so neither filter can be used to confirm that a project or task id
+exists. `?include_deleted=true` is likewise honored only for org admins.
+
 `assignments/` returns every task the resource is assigned to, across **all**
 projects, ordered by project then task name (soft-deleted tasks excluded;
 completed tasks included; a deactivated resource still returns its assignments).
@@ -1609,6 +1635,12 @@ resource has live task assignments on the project; the response body lists the
 `?force=true` cascades the deletion to the resource's `TaskResource` rows on the
 project and triggers a CPM recalculation for the affected tasks. All write and
 delete operations require the Scheduler role or higher on the project.
+
+From **0.4**, every write on `/api/v1/project-resources/`, `/api/v1/task-resources/`
+and `/api/v1/task-skill-requirements/` — create, update, delete, and the
+`?force=true` cascade — is refused with a `403` when the project is archived, at
+every role including Owner. Reads are unaffected. In `v0.3.0-alpha.3` (the latest
+release) those writes still succeed on an archived project.
 
 ### Workspace
 
@@ -2045,12 +2077,19 @@ workspace row exists yet, and `fallback` means no tier was usable at all. These 
 fields ship in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
 
 Both methods return the same document, published as the
-`ProjectNotificationPreferenceDocument` schema — the stored row plus one field the
+`ProjectNotificationPreferenceDocument` schema — the stored row plus two fields the
 view adds:
 
 | Field | Type | Description |
 |---|---|---|
 | `event_delivery` | object of `event_type` → boolean | Whether a delivery path is wired for that matrix row. `false` means the row is stored and honored but nothing dispatches it yet, so render it as such rather than implying a delivery that never happens. |
+| `channel_delivery` | object of `channel` → boolean | Whether TruePPM delivers on that matrix column at all. `false` means the column is rendered and the preference stored, but nothing delivers on it yet and no setting anywhere turns it on — so label it rather than imply a delivery that never happens. |
+
+Both fields ship in 0.4. They are independent axes: a cell delivers only when its
+event is dispatched **and** its channel delivers. Both are server-global — they
+report server wiring, not anything about the user or project whose document carries
+them — and both are read-only. Read them rather than hard-coding either list: a
+client-side copy drifts the moment a delivery path lands.
 
 `apply-preset` takes a preset name, not a preference row:
 

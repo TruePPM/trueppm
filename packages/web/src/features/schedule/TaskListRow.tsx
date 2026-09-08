@@ -1587,7 +1587,11 @@ function useRowActions(ctx: {
  * its neighbours' grips inside a 28px row — that constraint is gone, not
  * loosened, and the width is reserved (`gripReserve`) rather than laid over the
  * WBS column's nudges, so nothing else loses a target to pay for this one.
- * A mouse still sees 14px and gives up no row width at all.
+ * A mouse still sees 14px — and since #3078 it reserves those 14px too. This
+ * line used to end "and gives up no row width at all", which was the defect
+ * stated as a feature: reserving nothing does not mean occupying nothing when
+ * the box is `absolute left-0`, it means drawing on top of whichever in-flow
+ * child comes first — the ⇤ outdent, once #3026 put its lane at this edge.
  */
 function RowReorderHandle({
   taskId,

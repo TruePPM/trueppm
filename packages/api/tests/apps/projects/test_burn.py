@@ -12,6 +12,8 @@ from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -22,6 +24,10 @@ from trueppm_api.apps.projects.models import (
     Project,
     Task,
     TaskStatus,
+)
+from trueppm_api.apps.projects.services import (
+    MAX_BURN_HORIZON_DAYS,
+    MAX_BURN_WINDOW_DAYS,
 )
 
 User = get_user_model()
@@ -102,6 +108,12 @@ def test_endpoint_returns_burndown_shape(project: Project, member: object) -> No
 @pytest.mark.django_db
 def test_default_window_is_project_start_to_today(project: Project, member: object) -> None:
     """No since/until → uses project.start_date through today."""
+    # Anchored to today rather than the fixture's fixed 2026-04-01 start: once the
+    # wall clock passes that date by MAX_BURN_WINDOW_DAYS the defaulted window is
+    # clamped (#3566) and this assertion would start failing on a calendar date
+    # rather than on a code change.
+    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=30))
+    project.refresh_from_db()
     _create_tasks(project, 1)
     c = _client(member)
     resp = c.get(f"/api/v1/projects/{project.pk}/burn/")
@@ -286,6 +298,103 @@ def test_malformed_date_returns_400(project: Project, member: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Window bounds (#3566)
+#
+# The replay costs O(days × tasks × history rows) and returns a row per day, so
+# an uncapped window is an unbounded read for any project member — and a
+# max-date `until` used to step past `date.max` inside `_date_range_inclusive`
+# and 500 with an OverflowError.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_far_future_until_returns_400_naming_the_bound(project: Project, member: object) -> None:
+    """`until=9999-12-31` is a 400 naming the horizon, not an OverflowError 500."""
+    c = _client(member)
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"since": date.today().isoformat(), "until": "9999-12-31"},
+    )
+    assert resp.status_code == 400
+    detail = resp.data["detail"]
+    assert str(MAX_BURN_HORIZON_DAYS) in detail
+    latest_allowed = (date.today() + timedelta(days=MAX_BURN_HORIZON_DAYS)).isoformat()
+    assert latest_allowed in detail
+
+
+@pytest.mark.django_db
+def test_far_future_since_and_until_returns_400(project: Project, member: object) -> None:
+    """A zero-day span at the max date is still refused — the span cap alone misses it."""
+    c = _client(member)
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"since": "9999-12-31", "until": "9999-12-31"},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_span_over_limit_returns_400_naming_the_limit(project: Project, member: object) -> None:
+    until = date.today()
+    since = until - timedelta(days=MAX_BURN_WINDOW_DAYS + 1)
+    c = _client(member)
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"since": since.isoformat(), "until": until.isoformat()},
+    )
+    assert resp.status_code == 400
+    assert str(MAX_BURN_WINDOW_DAYS) in resp.data["detail"]
+
+
+@pytest.mark.django_db
+def test_span_exactly_at_limit_returns_200(project: Project, member: object) -> None:
+    until = date.today()
+    since = until - timedelta(days=MAX_BURN_WINDOW_DAYS)
+    c = _client(member)
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"since": since.isoformat(), "until": until.isoformat()},
+    )
+    assert resp.status_code == 200
+    assert len(resp.data["series"]) == MAX_BURN_WINDOW_DAYS + 1
+
+
+@pytest.mark.django_db
+def test_defaulted_window_is_clamped_not_rejected(project: Project, member: object) -> None:
+    """A no-parameter read of a long-running project stays a 200 with a clamped window.
+
+    The caller asked for nothing, so refusing them would be a regression; the
+    response echoes the window it actually used.
+    """
+    # .update() rather than .save() so no project-edit side effects fire here.
+    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=900))
+    c = _client(member)
+    resp = c.get(f"/api/v1/projects/{project.pk}/burn/")
+    assert resp.status_code == 200
+    until = date.fromisoformat(resp.data["until"])
+    since = date.fromisoformat(resp.data["since"])
+    assert (until - since).days == MAX_BURN_WINDOW_DAYS
+
+
+@pytest.mark.django_db
+def test_empty_since_is_clamped_not_rejected(project: Project, member: object) -> None:
+    """`?since=` supplies no date, so it must clamp like an absent one, not 400.
+
+    The default is chosen on truthiness; a guard keyed on `is not None` instead
+    would refuse a window the caller never asked for. Not reachable from the web
+    UI, which drops the empty value — but a client serializing an empty date
+    field sends exactly this.
+    """
+    Project.objects.filter(pk=project.pk).update(start_date=date.today() - timedelta(days=900))
+    c = _client(member)
+    resp = c.get(f"/api/v1/projects/{project.pk}/burn/?since=")
+    assert resp.status_code == 200
+    until = date.fromisoformat(resp.data["until"])
+    since = date.fromisoformat(resp.data["since"])
+    assert (until - since).days == MAX_BURN_WINDOW_DAYS
+
+
+# ---------------------------------------------------------------------------
 # Permissions
 # ---------------------------------------------------------------------------
 
@@ -393,6 +502,29 @@ def test_combined_metric_points(project: Project, member: object) -> None:
     assert point["total"] == 12  # 4 tasks × 3 pts
     assert point["completed"] == 3  # 1 completed × 3 pts
     assert point["remaining"] == 9  # 3 remaining × 3 pts
+
+
+@pytest.mark.django_db
+def test_combined_replays_history_once(project: Project, member: object) -> None:
+    """combined derives both curves from ONE history query (#3566).
+
+    It used to call `burn_series` twice — one query and one full replay per
+    curve — for the variant the Reports page defaults to. Counting only the
+    HistoricalTask reads keeps the assertion about the replay rather than about
+    the unrelated auth/permission queries around it.
+    """
+    _create_tasks(project, 3)
+    c = _client(member)
+    since = (date.today() - timedelta(days=5)).isoformat()
+    until = date.today().isoformat()
+    with CaptureQueriesContext(connection) as ctx:
+        resp = c.get(
+            f"/api/v1/projects/{project.pk}/burn/",
+            {"chart_type": "combined", "since": since, "until": until},
+        )
+    assert resp.status_code == 200
+    history_queries = [q for q in ctx.captured_queries if "historicaltask" in q["sql"].lower()]
+    assert len(history_queries) == 1, history_queries
 
 
 @pytest.mark.django_db

@@ -10,10 +10,12 @@ Two groups:
   new URL segment) disambiguates which ``SocialApp`` is completing, so the OTel
   ``code``/``state`` redaction rule and operator IdP allow-lists keep matching
   (ADR-0517 §3.5).
-- **Admin config** (``IsWorkspaceAdminStrict``): the ``/workspace/sso/providers/``
-  collection (list/create), item (get/update/delete by slug), and
-  ``test-connection``. Strict (ADMIN on *all* methods, reads included) because
-  even a GET exposes the org's IdP topology.
+- **Admin config** (``IsNotTokenAuthenticated`` + ``IsWorkspaceAdminStrict``): the
+  ``/workspace/sso/providers/`` collection (list/create), item (get/update/delete
+  by slug), and ``test-connection``. Strict (ADMIN on *all* methods, reads
+  included) because even a GET exposes the org's IdP topology, and session/JWT-only
+  on top of that (#3551) because provider config decides who may become a member
+  and at what role — see the section comment above the collection view.
 
 The callback never puts a token in the URL: it sets the hardened httpOnly refresh
 cookie via the existing ``_set_refresh_cookie`` and 302s the browser to the SPA
@@ -30,13 +32,14 @@ from django.db import IntegrityError
 from django.http import HttpResponse, HttpResponseRedirect
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.permissions import SAFE_METHODS, AllowAny
+from rest_framework.permissions import SAFE_METHODS, AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.sso import services
 from trueppm_api.apps.sso.models import SsoProviderPolicy
@@ -309,6 +312,31 @@ class OIDCCallbackView(APIView):
 # Admin config — collection under /workspace/sso/providers/ (ADR-0517 §3.4)
 # ---------------------------------------------------------------------------
 
+# Session/JWT only, on all three admin views (#3551).
+#
+# ``IsNotTokenAuthenticated`` (#2878) refuses any caller whose credential is an
+# ``ApiToken``. It was written for the credential-management surface, but this
+# surface is the same class of hazard one step removed: an admin's leaked
+# ``legacy:full`` personal access token could rewrite the *join policy* — set
+# ``auto_create_members`` with ``default_role`` ADMIN, add an attacker-controlled
+# domain to ``allowed_email_domains``, rotate the IdP client secret, or delete a
+# provider with ``?confirm_lockout=true``. One SSO login at the widened domain then
+# mints a real, persistent ADMIN session, so revoking the token afterwards contains
+# nothing: the durable grant it created outlives it. That makes the containment
+# promise in ``features/personal-access-tokens.md#revoking-a-token`` false for an
+# admin's token unless this surface is closed too.
+#
+# Declared **before** ``IsWorkspaceAdminStrict`` so the refusal is deterministic:
+# DRF stops at the first class that returns False, and a token caller must always
+# get the token refusal (with its ``capability_scope`` envelope) rather than an
+# answer that depends on whether the token's owner happens to hold ADMIN.
+#
+# It is listed statically on every view rather than contributed by
+# ``get_permissions``, because the schema generator
+# (``core/openapi.py::_token_callers_refused``) and the route-table tripwire
+# (``tests/apps/access/test_route_table_invariants.py``) both read
+# ``permission_classes`` — a runtime-only guard is invisible to both.
+
 
 def _policy_or_none(slug: str) -> SsoProviderPolicy | None:
     return (
@@ -512,10 +540,11 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
 
     ``IsWorkspaceAdminStrict`` on every method: even a GET discloses IdP topology
     (issuers, client ids, allowed domains), so reads are ADMIN-gated exactly like
-    writes.
+    writes. Session/JWT only on top of that (``IsNotTokenAuthenticated``): an API token
+    cannot read or change SSO provider configuration at all.
     """
 
-    permission_classes = [IsWorkspaceAdminStrict]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceAdminStrict]
     # Writes bounded at 20/min (#3552). ``throttle_scope`` MUST be on the view:
     # ScopedRateThrottle reads it off the view and no-ops without it. And
     # ``ProbeExemptUserRateThrottle`` is kept because declaring ``throttle_classes``
@@ -623,9 +652,13 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
 
 
 class SsoProviderDetailView(IdempotencyMixin, APIView):
-    """``/workspace/sso/providers/{slug}/`` — get/update/delete one provider."""
+    """``/workspace/sso/providers/{slug}/`` — get/update/delete one provider.
 
-    permission_classes = [IsWorkspaceAdminStrict]
+    Session/JWT only, like the collection: an API token cannot read or change SSO
+    provider configuration (#3551 — see the section comment above for why).
+    """
+
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceAdminStrict]
     # PUT/DELETE bounded at 20/min (#3552); the detail GET keeps only the global
     # 1000/min ceiling. Both lines are load-bearing — see the collection view above and
     # ``_SsoProviderWriteThrottle``.
@@ -799,9 +832,15 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
 
 
 class SsoTestConnectionView(IdempotencyMixin, APIView):
-    """``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability."""
+    """``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.
 
-    permission_classes = [IsWorkspaceAdminStrict]
+    Session/JWT only, like the rest of the admin surface (#3551 — see the section
+    comment above). Included even though the probe mutates nothing: it is server-side
+    egress an admin's leaked token could aim at an arbitrary configured issuer, and
+    leaving one method of the surface token-reachable is how a guard erodes.
+    """
+
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceAdminStrict]
     # Throttled: the probe triggers server-side egress (OIDC discovery + JWKS, or
     # the GitHub API), so an admin must not be able to drive unbounded outbound
     # requests. Scoped like the flow endpoints (settings ``sso_test_connection``).

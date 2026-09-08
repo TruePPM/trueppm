@@ -63,12 +63,27 @@ null); `mc_p50_finish` / `mc_p80_finish` / `mc_p95_finish` (`DateField`, null);
 - **No `server_version` column.** See decision #2.
 
 `total_float_days` = the tightest total float (minimum `total_float`) across the project's
-non-deleted tasks: `0` on an unconstrained critical path, **negative** when a
+committed tasks: `0` on an unconstrained critical path, **negative** when a
 deadline/constraint is breached — so schedule *pressure* drift is visible, not just the
-finish date. `task_count` / `completed_task_count` count non-deleted tasks
+finish date. `task_count` / `completed_task_count` count the same population
 (`status == COMPLETE` for the latter). MC fields are copied from the project's most-recent
 `MonteCarloRun` at capture time and may predate this capture (truthful: the MC line stays
 flat until someone reruns MC — there is no newer probabilistic data to report).
+
+> **Amended 2026-09-07 (#3539).** This section originally specified all four aggregates
+> over the project's **non-deleted** tasks, and that is what shipped. It was wrong: every
+> `SchedProject` construction site schedules `Task.committed`, so a BACKLOG row, an EPIC
+> grouping node and a recurring occurrence are never in the CPM pass — and because
+> `_apply_cpm_results` only `bulk_update`s the rows it scheduled, a task groomed out of
+> the plan keeps its last `early_finish` / `total_float` indefinitely. That stale value
+> then won the `Max`/`Min` and the snapshot described a schedule that was never computed
+> (measured on dev: a 6-day false finish date, and a project with no float reporting 30
+> days of it). Because `cpm_finish` drives `notify_project_end_date_shift`, the wrong
+> population also emailed owners about end-date shifts that never happened. The
+> population is now `Task.committed`. Whether `_apply_cpm_results` should additionally
+> *clear* those fields on a row leaving the committed set — the residue is still readable
+> through the task serializer — is tracked in #3578; `scripts/check-forecast-snapshot-population.sh`
+> reports it.
 
 ### 2. Not on the offline-sync surface; no `server_version`
 The issue lists `server_version` as a "standard sync field", but `server_version` alone
