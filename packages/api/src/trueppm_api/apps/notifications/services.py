@@ -177,9 +177,14 @@ def get_or_create_default_preferences(user: UserType) -> list[NotificationPrefer
 # Channels carrying a durable record rather than a transient ping. The in-app
 # inbox row *is* the notification — suppressing it during quiet hours would
 # lose the mention outright instead of deferring a ping, so quiet hours never
-# gate it (the matrix in_app cell still does). Email / Slack / mobile push are
-# transient interrupts and ARE silenced inside the window. Mirrors Slack and
-# GitHub DND: the record persists; only the interruption is held back.
+# gate it (the matrix in_app cell still does). Every other channel is a transient
+# interrupt and IS silenced inside the window. Mirrors Slack and GitHub DND: the
+# record persists; only the interruption is held back.
+#
+# Today that means email, and only email: `slack` and `mobile_push` are matrix
+# columns with no delivery path (see PROJECT_NOTIFICATION_DELIVERABLE_CHANNELS),
+# so the gate below is written for them but has nothing to hold back. Naming them
+# as silenced channels would read as a claim that they otherwise deliver (#3378).
 _QUIET_HOURS_EXEMPT_CHANNELS = frozenset({ProjectNotificationChannel.IN_APP.value})
 
 # Channels account-wide Do-Not-Disturb (UserNotificationSettings.dnd_enabled)

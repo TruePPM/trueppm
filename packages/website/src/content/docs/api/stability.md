@@ -64,8 +64,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the five Breaking changes taken so far all
-bypassed it deliberately, and all five are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the six Breaking changes taken so far all
+bypassed it deliberately, and all six are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -197,6 +197,25 @@ deprecation window rather than being removed outright:
    A client that branched on `400` from these operations should treat `403` as the same
    condition. Nothing else about the operations changes: success responses, paths and
    request bodies are as before.
+
+   **Bypassed a sixth time, in 0.4 (#3573).** `POST /api/v1/skills/` starts answering
+   `201` when it adds a skill to the catalog, having answered `200` on every request
+   since 0.1. Changing an existing status code is **Breaking** by the table above, so
+   this is recorded as a policy exception rather than as routine.
+
+   The reasoning: the `200` on the create path was never the published contract. The
+   endpoint's own docstring and the OpenAPI schema both declared `201` for a create,
+   and only `201` — the `200` came from a created/existing flag re-derived after the
+   save from a `server_version=0` probe that the model's save method never leaves
+   behind, so the `201` the schema promised was unreachable. A deprecation window
+   would have meant publishing, for another release, a status the schema never
+   promised and which no generated client was built against. The de-dup path keeps
+   its `200`, which the schema now publishes alongside the `201`, and the response
+   body is unchanged on both paths.
+
+   A client that treats any 2xx from this endpoint as success is unaffected. One that
+   branched on `200` to mean "already existed" was reading a bug and should branch on
+   `201` for "created" instead.
 
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for
