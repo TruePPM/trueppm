@@ -668,14 +668,21 @@ live channel updates the plan as it always has — see
 
 You do not have to drop a bar to find out what it costs. While a drag or a
 keyboard reschedule is live, TruePPM paints **preview bars** — translucent
-ghosts on every downstream task the move would push, with a red frame and a
-**CP** badge on any task the move puts onto the critical path. A corner label
-reads *"Preview — server confirms on drop"*, because this is a browser-side
-estimate on a plain Monday–Friday week: it does not know the project's holiday
-exceptions, and the CPM pass on drop is what decides. At most ten ghosts are
-drawn at once; beyond that a **+N more affected** count tells you the blast
-radius is larger than what is on screen. Press **Esc** to back out with nothing
-changed.
+ghosts on every downstream task the move would shift, with a red frame and a
+**CP** badge on any task the move puts onto the critical path. This works in
+both directions: pulling a bar **earlier** shows the successors it pulls in with
+it, and the milestone readout reports a date that moves closer just as it
+reports one that slips. Work that has actually started stays where it started,
+and a task with a committed **start no earlier than** date is never pulled back
+through it.
+
+A corner label reads *"Preview — server confirms on drop"*, because this is a
+browser-side estimate on a plain Monday–Friday week: it does not know the
+project's holiday exceptions or a custom calendar, so near a shutdown week it
+can be several days out, and the CPM pass on drop is what decides. At most ten
+ghosts are drawn at once; beyond that a **+N more affected** count tells you the
+blast radius is larger than what is on screen. Press **Esc** to back out with
+nothing changed.
 
 **A bar whose dates come from recorded actuals will not move.** Once a task is
 complete *and* carries a recorded actual start or finish, the scheduling engine

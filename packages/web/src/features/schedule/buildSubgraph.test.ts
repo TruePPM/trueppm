@@ -207,3 +207,152 @@ describe('buildSubgraph', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Summary dependency expansion (issue #3535)
+//
+// A summary's children are WBS containment, not link edges, so a BFS over
+// literal TaskLink rows could not reach a task gated on a summary from a drag
+// that started inside the phase — the successor was ABSENT from the preview.
+// These mirror the server's `expand_summary_dependencies`, including the two
+// places this deliberately deviates from it.
+// ---------------------------------------------------------------------------
+
+describe('buildSubgraph — summary dependency expansion', () => {
+  /** S is a summary over C1/C2; A → C1 is a leaf link and S → B gates B. */
+  function phaseFixture() {
+    return {
+      tasks: [
+        task('A'),
+        task('S', { isSummary: true }),
+        task('C1', { parentId: 'S' }),
+        task('C2', { parentId: 'S' }),
+        task('B'),
+      ],
+      links: [link('l1', 'A', 'C1'), link('l2', 'S', 'B')],
+    };
+  }
+
+  it('reaches a summary-gated successor from a drag inside the phase', () => {
+    const { tasks, links } = phaseFixture();
+    const { tasks: subTasks } = buildSubgraph('A', tasks, links);
+    // Pre-#3535: ['A', 'C1'] — B was never reached.
+    expect(subTasks.map((t) => t.id).sort()).toEqual(['A', 'B', 'C1']);
+  });
+
+  it('rewrites the summary edge onto the leaf that is actually in the subgraph', () => {
+    const { tasks, links } = phaseFixture();
+    const { edges } = buildSubgraph('A', tasks, links);
+    expect(edges).toContainEqual({ sourceId: 'C1', targetId: 'B', type: 'FS', lag: 0 });
+    // The S → B edge itself is gone: nothing in the preview names a summary.
+    expect(edges.some((e) => e.sourceId === 'S' || e.targetId === 'S')).toBe(false);
+  });
+
+  it('preserves the link type and lag across the fan-out', () => {
+    const tasks = [
+      task('A'),
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('B'),
+    ];
+    const links = [
+      link('l1', 'A', 'C1'),
+      { ...link('l2', 'S', 'B', 'FF'), lag: 3 },
+    ];
+    const { edges } = buildSubgraph('A', tasks, links);
+    expect(edges).toContainEqual({ sourceId: 'C1', targetId: 'B', type: 'FF', lag: 3 });
+  });
+
+  it('expands a link INTO a summary onto each of its leaves', () => {
+    const tasks = [
+      task('A'),
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('C2', { parentId: 'S' }),
+    ];
+    const { tasks: subTasks } = buildSubgraph('A', tasks, [link('l1', 'A', 'S')]);
+    expect(subTasks.map((t) => t.id).sort()).toEqual(['A', 'C1', 'C2']);
+  });
+
+  it('walks nested summaries down to real leaves', () => {
+    const tasks = [
+      task('A'),
+      task('S', { isSummary: true }),
+      task('Mid', { parentId: 'S', isSummary: true }),
+      task('Leaf', { parentId: 'Mid' }),
+    ];
+    const { tasks: subTasks } = buildSubgraph('A', tasks, [link('l1', 'A', 'S')]);
+    expect(subTasks.map((t) => t.id).sort()).toEqual(['A', 'Leaf']);
+  });
+
+  it('drops a self-edge produced by expanding a link inside one phase', () => {
+    // S → S' where both resolve onto the same leaf would deadlock the
+    // topological sort; the server skips these too.
+    const tasks = [
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+    ];
+    const { edges } = buildSubgraph('C1', tasks, [link('l1', 'S', 'S')]);
+    expect(edges.some((e) => e.sourceId === e.targetId)).toBe(false);
+  });
+
+  it('deduplicates two summary links that land on the same leaf pair', () => {
+    const tasks = [
+      task('A'),
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('B'),
+    ];
+    const links = [link('l1', 'A', 'C1'), link('l2', 'S', 'B'), link('l3', 'S', 'B')];
+    const { edges } = buildSubgraph('A', tasks, links);
+    expect(edges.filter((e) => e.sourceId === 'C1' && e.targetId === 'B')).toHaveLength(1);
+  });
+
+  it('drops an SS link from a summary rather than fanning it out (ADR-0370)', () => {
+    // `_reject_summary_start_links` refuses this link outright — fanning a
+    // start-side constraint across every leaf silently over-constrains the
+    // successor (#1854). Showing nothing beats showing a slip the server will
+    // never produce.
+    const tasks = [
+      task('A'),
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('B'),
+    ];
+    const links = [link('l1', 'A', 'C1'), link('l2', 'S', 'B', 'SS')];
+    const { edges, tasks: subTasks } = buildSubgraph('A', tasks, links);
+    expect(edges.some((e) => e.targetId === 'B')).toBe(false);
+    expect(subTasks.map((t) => t.id).sort()).toEqual(['A', 'C1']);
+  });
+
+  it('keeps a summary drag root wired to its own successors', () => {
+    // The server drops summary NODES because it recomputes their dates by
+    // rollup; the preview has no rollup pass, so dropping the node being
+    // dragged would leave an empty subgraph. Pre-#3535 behavior is preserved
+    // for this one gesture rather than regressed to nothing.
+    const tasks = [
+      task('S', { isSummary: true }),
+      task('C1', { parentId: 'S' }),
+      task('B'),
+    ];
+    const { tasks: subTasks } = buildSubgraph('S', tasks, [link('l1', 'S', 'B')]);
+    expect(subTasks.map((t) => t.id).sort()).toEqual(['B', 'S']);
+  });
+
+  it('leaves a summary-free schedule byte-identical', () => {
+    const tasks = [task('A'), task('B'), task('C')];
+    const links = [link('l1', 'A', 'B'), link('l2', 'B', 'C')];
+    const { edges } = buildSubgraph('A', tasks, links);
+    expect(edges).toEqual([
+      { sourceId: 'A', targetId: 'B', type: 'FS', lag: 0 },
+      { sourceId: 'B', targetId: 'C', type: 'FS', lag: 0 },
+    ]);
+  });
+
+  it('carries planned_start across to the worker', () => {
+    // The SNET floor the engine needs now that it can pull tasks earlier.
+    const tasks = [task('A', { plannedStart: '2025-02-03' })];
+    const { tasks: subTasks } = buildSubgraph('A', tasks, []);
+    expect(subTasks[0].plannedStart).toBe('2025-02-03');
+  });
+});
