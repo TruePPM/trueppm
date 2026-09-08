@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
+import { extractFieldErrors } from '@/lib/apiError';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { Button } from '@/components/Button';
 import { useUserSearch } from '../hooks/useUserSearch';
@@ -37,6 +38,15 @@ export function InviteForm({ projectId }: InviteFormProps) {
   // The picker reflects the project default until the user overrides it, so the
   // "Default role for new members" setting is visible right where members are added.
   const role = roleOverride ?? project?.default_member_role ?? ROLE_MEMBER;
+
+  // A 400 on this route is a refusal the server can explain — most often a target
+  // this caller is not allowed to add (#3641). The generic branch's "please try
+  // again" is wrong advice for it: the server has already decided, so replaying the
+  // identical request is rejected identically. Surface the server's own `user`
+  // message, which names the remedy, rather than restating the rule here where the
+  // two would drift. Safe to key off one shared mutation: this form submits one
+  // target at a time, so the refusal can only be about the user it names.
+  const refusalMessage = extractFieldErrors(error).user ?? null;
 
   const conflictError =
     error &&
@@ -234,7 +244,12 @@ export function InviteForm({ projectId }: InviteFormProps) {
           This user is already a member of the project.
         </p>
       )}
-      {error && !conflictError && (
+      {refusalMessage && !conflictError && (
+        <p role="alert" className="text-xs text-semantic-critical">
+          {refusalMessage}
+        </p>
+      )}
+      {error && !conflictError && !refusalMessage && (
         <p role="alert" className="text-xs text-semantic-critical">
           Failed to add member — please try again.
         </p>

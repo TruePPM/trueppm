@@ -351,6 +351,31 @@ describe('ProgramInviteForm — errors', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/Failed to add member/i);
   });
 
+  it("surfaces the server's own message when the target is refused (#3641)", () => {
+    mutationState.error = {
+      isAxiosError: true,
+      response: {
+        status: 400,
+        data: { user: ['No such user, or not someone you can add. Ask a workspace admin.'] },
+      },
+    };
+    renderForm();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/not someone you can add/i);
+    expect(screen.queryByText(/please try again/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it('still prefers the duplicate-membership copy on a 409 body', () => {
+    mutationState.error = {
+      isAxiosError: true,
+      response: { status: 409, data: { detail: 'User is already a member of this program.' } },
+    };
+    renderForm();
+    expect(screen.getByRole('alert')).toHaveTextContent(/already a member of the program/i);
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
   it('shows no alert when the mutation is healthy', () => {
     renderForm();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
