@@ -360,15 +360,18 @@ def test_the_same_owner_named_twice_replays_the_add_then_the_delta(
 
     assert TaskResource.objects.filter(task=task, resource=res).count() == 1
     assert TaskResource.objects.get(task=task, resource=res).units == Decimal("0.50")
-    types = list(
-        TaskActivityEvent.objects.filter(task=task)
-        .order_by("created_at")
-        .values_list("event_type", flat=True)
-    )
-    assert types == [
-        TaskActivityEventType.ASSIGNEE_ADDED,
-        TaskActivityEventType.ASSIGNEE_UNITS_CHANGED,
-    ]
+    # Asserted on the rows' CONTENT, not on ``order_by("created_at")``. The two audit
+    # rows now get their ``auto_now_add`` stamps from consecutive ``Field.pre_save``
+    # calls inside one ``bulk_create``, where the old loop had a full INSERT round-trip
+    # between them — and ``TaskActivityEvent`` has no secondary sort key, so an ordering
+    # assertion would be resolving a tie the database does not promise to break.
+    rows = TaskActivityEvent.objects.filter(task=task)
+    assert rows.count() == 2
+    assert rows.get(event_type=TaskActivityEventType.ASSIGNEE_ADDED).detail["units"] == "1.00"
+    assert rows.get(event_type=TaskActivityEventType.ASSIGNEE_UNITS_CHANGED).detail["units"] == {
+        "from": "1.00",
+        "to": "0.50",
+    }
 
 
 @pytest.mark.django_db

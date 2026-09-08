@@ -366,11 +366,24 @@ def apply_task_owners(
     the same last-writer-wins outcome the lock produced — two concurrent requests
     naming the same owner serialize on the unique index inside the database and both
     commit, rather than one raising ``IntegrityError`` — but it survives being batched,
-    which a per-row lock does not. The one behavioral difference is narrow and on the
-    losing side of a genuine race: the loser's in-memory row keeps the pk it generated
-    rather than the winner's, so its ``assignment_created`` event names an id that was
-    discarded. Harmless in practice — every ``assignment_*`` event funnels to the same
-    ``scheduleInvalidate`` on the client, which refetches rather than reading the id.
+    which a per-row lock does not.
+
+    Two behavioral differences follow, both confined to the losing side of a genuine
+    concurrent add of the *same* owner to the *same* task, and both accepted:
+
+    * The loser's in-memory row keeps the pk it generated rather than the winner's, so
+      its ``assignment_created`` event names an id the database discarded. Inert — every
+      ``assignment_*`` event funnels to the same ``scheduleInvalidate`` on the client,
+      which refetches rather than reading the id, and all three callers discard this
+      function's return value.
+    * The loser records a second ``assignee_added`` audit row. Under the old lock its
+      ``get_or_create`` caught the ``IntegrityError``, re-read the row and returned
+      ``created=False``, and because ``prior`` was still ``None`` from the probe *before*
+      it, the loser recorded nothing at all. Both writers now read ``prior is None`` and
+      both write an add, so the activity feed can show one person added twice. Reading
+      that back off the database to suppress it would cost the query the batching exists
+      to remove, for a duplicate line in an append-only feed; a lost audit row would have
+      been the worse trade.
 
     Args:
         task: The task being authored. Must already be saved.
