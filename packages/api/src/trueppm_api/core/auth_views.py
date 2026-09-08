@@ -202,6 +202,52 @@ def _emit_login_failure_event(request: Request, canonical_identifier: str | None
     )
 
 
+def emit_login_success(request: Request, *, user: Any, method: str, remember: bool) -> None:
+    """Emit the structured login-success line for a session that was actually minted.
+
+    The counterpart to :func:`_emit_login_failure_event` (#3552, ADR-1120). Both land on
+    ``trueppm.auth`` — including the SSO callback's success, which imports this rather
+    than logging to ``trueppm.sso`` beside the SSO *refusals*. Correlating "who got in"
+    must not require knowing which door they used.
+
+    **Call this last, once the session exists — not when credentials validate.** The two
+    are different moments: :class:`CookieTokenObtainPairView` runs the enterprise
+    ``local_login_allowed`` seam *after* validation, and that seam can still return a 403
+    with no cookie. A line emitted at the validation point therefore reports a success
+    for a request that was refused, which inverts exactly the signal an operator alarms
+    on. The same applies to the SSO callback: after the refresh cookie is set, not after
+    ``resolve_user`` returns.
+
+    ``INFO``, not ``WARNING`` — a successful login is not an anomaly, and putting it at
+    ``WARNING`` beside ``auth.login_failed`` would poison the alerting rule that line
+    exists to feed. ``DJANGO_LOG_LEVEL`` defaults to ``INFO``, so the line is visible in a
+    default production deploy; ``settings/dev.py`` replaces ``LOGGING`` with a root
+    handler at ``WARNING``, so it is not visible under dev settings (which is why tests
+    raise the level explicitly).
+
+    Fields go in the message rather than in ``extra=`` because the dev console formatter
+    renders only ``%(message)s``: an ``extra``-only field would exist in the production
+    JSON handler and nowhere else, and a record whose content depends on the deployment is
+    worse than one that is uniformly greppable.
+
+    Args:
+        request: The request that established the session (read only for the client IP).
+        user: The authenticated user. Only ``pk`` is logged — never the email or
+            username, matching ``_emit_login_failure_event``, which hashes the submitted
+            identifier rather than writing it in the clear.
+        method: ``"password"`` or ``"sso:<provider-slug>"``.
+        remember: Whether the session opted into browser-persistent "remember me". SSO
+            logins are always ``False`` (an IdP redirect carries no such choice).
+    """
+    logger.info(
+        "auth.login_succeeded user_id=%s method=%s client_ip=%s remember=%s",
+        getattr(user, "pk", None),
+        method,
+        _client_ip(request),
+        remember,
+    )
+
+
 def _set_refresh_cookie(
     response: Response, refresh_token: str, *, persistent_seconds: int | None
 ) -> None:
@@ -540,6 +586,10 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             _set_refresh_cookie(
                 response, str(refresh), persistent_seconds=_cookie_seconds(remember)
             )
+        # LAST, deliberately (#3552, ADR-1120): the session now exists. Emitting this
+        # where the credentials validated would report a success for a login the
+        # ``local_login_allowed`` seam above still refuses with a 403 and no cookie.
+        emit_login_success(request, user=serializer.user, method="password", remember=remember)
         return response
 
 
