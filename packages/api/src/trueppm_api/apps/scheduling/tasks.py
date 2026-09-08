@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import operator
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from typing import Any
 
@@ -802,10 +802,131 @@ load path defers columns, so no access can trigger a deferred-field query.
 """
 
 
+def summary_working_day_durations(
+    result_map: dict[str, Any],
+    summary_ids: set[str],
+    db_task_by_id: dict[str, Any],
+    calendar_by_project: Mapping[str, Any],
+) -> dict[str, int]:
+    """Working-day duration for each rolled-up summary row (#3530).
+
+    ``Task.duration`` is documented and consumed everywhere as **working days**
+    (``help_text="Duration in working days"``; the MSPDI exporter multiplies it by
+    ``HOURS_PER_WORKING_DAY``, ``project_span_days`` sums it, and
+    ``build_sched_tasks`` feeds it straight back to the engine as
+    ``timedelta(days=…)``). The write-back used to store the raw **calendar-day**
+    span ``(early_finish - early_start).days`` on summary rows instead, justified by
+    a comment asserting nothing read a summary's duration. That was locally true of
+    the leaf CPM pass and globally false — a ~1.4x inflation reached every consumer
+    above, and 49 of 50 summary rows in the dev database carried it.
+
+    So: count working days in the summary's rolled-up span, **inclusive of both
+    endpoints**, which is the engine's own duration convention
+    (``_finish_from_start(start, 1) == start``). The counter answers the half-open
+    ``[start, end)``, so the finish day is added back — conditionally; see the
+    comment on that line for the weekend-``actual_finish`` case it guards.
+
+    WHY a batched pre-pass rather than a call inside the write-back loop: the scalar
+    counter is an O(span) day walk, so per-summary calls are O(summaries · span) —
+    a deeply nested WBS re-walks the whole project span once per level.
+    :class:`_WorkingDayCounter` (#822) pays O(span) once per calendar and answers
+    each span with two binary searches. Measured: one ``build`` over a 2-year span
+    costs about the same as one scalar walk of it (0.24 ms, 0.35 ms with 25 calendar
+    exceptions) and each ``between`` is 1.4 µs, so break-even is under two summaries
+    — and a project's root summary alone already spans the hull. At 50 summaries in
+    a 2-year project the batched form is ~0.35 ms against up to ~11 ms.
+
+    Be honest about the other comparison: what this replaced was an O(1) timedelta
+    subtraction, so the correct answer costs ~0.24–1.4 ms per project per recompute
+    where the wrong one cost nothing. Working days cannot be derived without walking
+    a calendar, and that is <0.3% of the recompute budget.
+
+    ``schedule()`` builds a counter of its own for float computation, which this
+    duplicates on the single-project path. It is local to that function and never
+    returned, and the program pass needs one counter *per member calendar* anyway
+    (ADR-0120 D3), so reusing it would mean widening the PyPI package's public
+    surface for ~1 ms. Left duplicated deliberately.
+
+    Args:
+        result_map: Engine rows keyed by task id, **after** ``apply_summary_rollups``
+            has added the synthetic summary rows.
+        summary_ids: Task ids that have at least one WBS child.
+        db_task_by_id: Django ``Task`` rows keyed by ``str(id)`` — read only for
+            each summary's ``project_id``, to pick its calendar.
+        calendar_by_project: Composed engine ``Calendar`` per ``str(project_id)``.
+            The program pass holds one per member project (ADR-0120 D3), so a
+            summary is always measured on its own project's working week.
+
+    Returns:
+        ``{summary_id: working_day_duration}``, omitting any summary the engine did
+        not roll up (no scheduled leaves) or whose project has no calendar.
+    """
+    # Private engine symbols, same boundary crossing `scheduling.services` already
+    # makes for `_collect_leaves`. `trueppm-scheduler` ships to PyPI on its own
+    # semver, so this couples the API to unexported internals: a change to either
+    # one's signature or complexity breaks the paragraph above, not just this call.
+    # The alternative — a public working-day-count export — is a public-surface
+    # change to an Apache 2.0 package and belongs in that package's own MR.
+    from trueppm_scheduler.engine import _WorkingDayCounter
+
+    # One pass: collect each summary's span and, per project, the enclosing range
+    # its counter must cover. Grouped as we go rather than re-scanning `spans` per
+    # project — a program pass holds many member projects and this would otherwise
+    # be O(projects · summaries).
+    spans: dict[str, tuple[str, Any, Any]] = {}
+    ranges: dict[str, tuple[Any, Any]] = {}
+    for sid in summary_ids:
+        sched = result_map.get(sid)
+        db_task = db_task_by_id.get(sid)
+        if sched is None or db_task is None:
+            continue
+        if sched.early_start is None or sched.early_finish is None:
+            continue
+        project_key = str(db_task.project_id)
+        spans[sid] = (project_key, sched.early_start, sched.early_finish)
+        lo, hi = ranges.get(project_key, (sched.early_start, sched.early_finish))
+        ranges[project_key] = (
+            min(lo, sched.early_start),
+            max(hi, sched.early_finish),
+        )
+
+    # One counter per calendar, covering that project's full summary date range.
+    # Paired with the calendar itself: the closed-interval correction below needs
+    # `is_working_day`, which the counter does not expose.
+    counters: dict[str, tuple[Any, Any]] = {}
+    for project_key, (lo, hi) in ranges.items():
+        cal = calendar_by_project.get(project_key)
+        if cal is not None:
+            counters[project_key] = (_WorkingDayCounter.build(lo, hi, cal), cal)
+
+    durations: dict[str, int] = {}
+    for sid, (project_key, early_start, early_finish) in spans.items():
+        entry = counters.get(project_key)
+        if entry is None:
+            # No calendar for this summary's project — leave its stored duration
+            # alone rather than write a value measured on the wrong working week.
+            continue
+        counter, cal = entry
+        # `between` counts the HALF-OPEN [early_start, early_finish); a duration is
+        # INCLUSIVE of its finish day, so add the finish back — but only if it is
+        # itself a working day. It need not be: a completed task pinned to a weekend
+        # `actual_finish` (ADR-0136) contributes a non-working `early_finish` to the
+        # rollup's max, and the engine says so in `_gather_successor_constraints`'
+        # own docstring. Adding an unconditional 1 there would report a phase as a
+        # day longer than the work inside it.
+        working = counter.between(early_start, early_finish)
+        if cal.is_working_day(early_finish):
+            working += 1
+        # Floor at 1: a summary whose whole span collapsed onto non-working days
+        # still occupied a day of the plan, and 0 reads as a milestone.
+        durations[sid] = max(1, working)
+    return durations
+
+
 def _apply_cpm_results(
     db_tasks: Iterable[Any],
     result_map: dict[str, Any],
-    summary_ids: set[str],
+    summary_durations: Mapping[str, int],
 ) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]], list[Any]]:
     """Write engine CPM results onto Task rows in memory.
 
@@ -838,10 +959,14 @@ def _apply_cpm_results(
     old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
     moved_tasks: list[Any] = []
     for db_task in db_tasks:
-        sched = result_map.get(str(db_task.id))
+        # One `str(UUID)` for the row, reused by all three lookups below. Same
+        # rationale as the `attrgetter` snapshot above: this loop runs once per task
+        # and the conversion is not free at 5,000 rows.
+        task_key = str(db_task.id)
+        sched = result_map.get(task_key)
         if sched is None:
             continue
-        old_cpm_dates[str(db_task.id)] = (
+        old_cpm_dates[task_key] = (
             db_task.early_start,
             db_task.early_finish,
             db_task.late_start,
@@ -871,12 +996,17 @@ def _apply_cpm_results(
         if db_task.is_milestone:
             db_task.early_finish = db_task.early_start
             db_task.late_finish = db_task.late_start
-        # For summary tasks, overwrite duration with the calendar-day span so the
-        # API returns a meaningful Gantt duration. The CPM engine never reads
-        # duration on summary tasks (excluded from the leaf pass), so this has no
-        # effect on schedule correctness.
-        if str(db_task.id) in summary_ids and db_task.early_start and db_task.early_finish:
-            db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
+        # For summary tasks, overwrite duration with the WORKING-day span of the
+        # rolled-up window, so the stored value means what the column documents and
+        # what every consumer of it assumes (#3530). Precomputed by
+        # `summary_working_day_durations` — the calendar walk is batched per
+        # calendar rather than run inside this hot loop. `summary_durations` is keyed
+        # exclusively by summary id, so the lookup IS the summary test; a leaf misses
+        # it, and so does a summary the engine did not roll up (which keeps its
+        # stored duration rather than getting a wrong one).
+        new_duration = summary_durations.get(task_key)
+        if new_duration is not None:
+            db_task.duration = new_duration
         tasks_to_update.append(db_task)
         if _cpm_delta_snapshot(db_task) != before:
             moved_tasks.append(db_task)
@@ -1117,6 +1247,12 @@ def _run_schedule(
     # program-scoped write-back derive summary dates through identical code.
     apply_summary_rollups(result_map, summary_ids, children_map, db_task_by_id)
 
+    # Working-day duration for each rolled-up summary (#3530), on the project's own
+    # composed calendar — the same one the CPM pass just ran on.
+    summary_durations = summary_working_day_durations(
+        result_map, summary_ids, db_task_by_id, {str(db_project.pk): sched_calendar}
+    )
+
     # Driving-link flags (#2095): set in memory here and persisted via bulk_update
     # below (like Task CPM fields — no server_version bump).
     _apply_driving_flags(db_deps, result.driving_edges)
@@ -1127,7 +1263,7 @@ def _run_schedule(
     # which tasks actually moved (ADR-0207); moved_tasks is that same moved subset
     # as a list, and is what the ADR-0091 delta broadcast ships (#2573).
     tasks_to_update, old_cpm_dates, moved_tasks = _apply_cpm_results(
-        db_tasks, result_map, summary_ids
+        db_tasks, result_map, summary_durations
     )
 
     # ADR-0752 §7: the suppression only makes sense once there is a prior
@@ -1605,12 +1741,18 @@ def _run_program_schedule(program_id: str) -> None:
         # the single-project write-back).
         summary_ids = graph.summary_ids
         apply_summary_rollups(result_map, summary_ids, graph.children_map, graph.db_task_by_id)
+        # Working-day summary durations (#3530). ADR-0120 D3 holds one calendar per
+        # member project, so each summary is measured on its own project's working
+        # week rather than a single program-wide one.
+        summary_durations = summary_working_day_durations(
+            result_map, summary_ids, graph.db_task_by_id, graph.calendars
+        )
         # Full write-back across every member project (the program pass is coarse;
         # incremental subgraph writes are a later optimization). Shared helper with
         # _run_schedule, so field assignment — milestone single-point normalisation
-        # and summary calendar-day duration included — can never drift.
+        # and summary working-day duration included — can never drift.
         tasks_to_update, old_cpm_dates, moved_tasks = _apply_cpm_results(
-            graph.db_task_by_id.values(), result_map, summary_ids
+            graph.db_task_by_id.values(), result_map, summary_durations
         )
 
         # Driving-link flags across the program (#2095), same shared helper as the
