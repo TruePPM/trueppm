@@ -201,7 +201,14 @@ describe('useProjectResourcePool', () => {
     // which omits the `email` key entirely (not null) below workspace ADMIN — the
     // regression #3647 fixes: this hook's `ApiResourceDetail.email` used to be a
     // required `string`, silently lying about what the server actually returns.
-    const { email: _email, ...resourceDetailWithoutEmail } = wire().resource_detail;
+    const resourceDetailWithoutEmail: WireProjectResource['resource_detail'] = {
+      id: 'r1',
+      name: 'Alice',
+      job_role: 'Engineer',
+      max_units: '1.00',
+      calendar: null,
+      skills: [],
+    };
     getMock.mockResolvedValueOnce({
       data: {
         count: 1,
