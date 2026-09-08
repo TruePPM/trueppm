@@ -144,30 +144,6 @@ def _compute_diffs(
     return result
 
 
-def _count_field_changes(records: list[Any]) -> dict[str, int]:
-    """Count changed tracked fields across a batch of HistoricalRecords.
-
-    Records may span multiple original objects (e.g. all tasks in a project).
-    Groups by original PK and pairs by history_date to avoid prev_record queries.
-    Keyed by field name like the diffs, and counts exactly the fields a routine
-    diff row would show — promotable noise is not tallied, because a count is not a
-    record of a single write and has nothing to rescue.
-    """
-    prev_map = _build_prev_map(records)
-    counts: dict[str, int] = {}
-    for record in records:
-        prev = prev_map.get(record.history_id)
-        if prev is None:
-            continue
-        model: Any = type(record)
-        for f in _compared_fields(model, object_scoped=False):
-            if f.name in HISTORY_DIFF_NOISE:
-                continue
-            if getattr(record, f.attname) != getattr(prev, f.attname):
-                counts[f.name] = counts.get(f.name, 0) + 1
-    return counts
-
-
 def _caller_can_see_user(request: Request, project: Project) -> bool:
     """True if the caller holds Owner or Admin role (>= Role.ADMIN)."""
     try:
