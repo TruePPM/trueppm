@@ -6105,9 +6105,12 @@ def _spawn_occurrence(
 
     occurrence = Task.objects.create(
         # ``project=`` rather than ``project_id=`` so the occurrence carries the
-        # template's already-loaded Project instance in its FK cache. apply_task_owners
-        # auto-rosters through ``task.project``, which on a ``project_id``-only create
-        # is a fresh SELECT per occurrence inside the sweep loop.
+        # template's already-loaded Project instance in its FK cache. This used to be
+        # load-bearing: apply_task_owners auto-rostered through ``task.project``, which
+        # on a ``project_id``-only create was a fresh SELECT per occurrence inside the
+        # sweep loop. Since #3575 it rosters through ``task.project_id`` and needs no
+        # cached instance, so this is now belt-and-braces for any future reader of
+        # ``occurrence.project`` rather than a live optimization.
         project=template.project,
         name=template.name,
         duration=template.duration,
@@ -6191,8 +6194,11 @@ def _generate_due_occurrences(
         else []
     )
     # Same for the template's assignments, in the shape apply_task_owners expects.
-    # ``select_related`` because that helper reads ``resource.project_id`` when it
-    # auto-rosters, which would otherwise be one extra query per owner per occurrence.
+    # ``select_related`` because the comprehension below dereferences ``tr.resource`` to
+    # build each dict, which would otherwise be one extra query per owner. (It used to
+    # be justified by apply_task_owners reading ``resource.project_id`` while
+    # auto-rostering, which it never did and, since #3575, could not: it rosters from
+    # ``task.project_id`` and the row's ``resource_id``.)
     template_owners: list[dict[str, object]] = (
         [
             {"resource": tr.resource, "units": tr.units}
