@@ -187,6 +187,13 @@ Editing the resource catalog requires the **Project Manager** or **Project Admin
 at least one project; editing the skill catalog, rosters, and task assignments requires
 the **Resource Manager** role or above on at least one project.
 
+`POST /api/v1/skills/` de-duplicates on the case-insensitive normalized name, so
+posting a name that already exists is not an error. Telling the two apart from the
+status code — `201` when the skill was added to the catalog, `200` when an existing
+row is returned unchanged — ships in 0.4; until then the endpoint answers `200` in
+both cases. The response body is identical either way, so a client that needs to
+know whether it created the skill must read the status code.
+
 A read-only cross-project assignments feed for one resource is exposed at
 `GET /api/v1/resources/{id}/assignments/` (ships in 0.4). Unlike
 `/api/v1/task-resources/?resource=`, it is **not** scoped to the caller's own

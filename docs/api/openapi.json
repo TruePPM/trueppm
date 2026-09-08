@@ -38995,7 +38995,8 @@
             },
             "post": {
                 "operationId": "v1_skills_create",
-                "description": "Create or return existing skill — de-dup by normalized_name.",
+                "description": "Adds a skill to the org-level catalog.\n\nNames are de-duplicated case-insensitively on `normalized_name`, so posting a name that already exists is not an error: the existing row is returned with `200` instead of `201`. Callers that need to know whether they added the skill must read the status code — the body is identical either way.",
+                "summary": "Create a skill, or return the existing one",
                 "tags": [
                     "resources"
                 ],
@@ -39031,6 +39032,16 @@
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Skill"
+                                }
+                            }
+                        },
+                        "description": "A skill with this normalized name already existed; it is returned unchanged."
+                    },
                     "201": {
                         "content": {
                             "application/json": {
@@ -39039,7 +39050,7 @@
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Skill created."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -39090,8 +39101,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Create skill"
+                }
             }
         },
         "/api/v1/skills/{id}/": {
@@ -59889,7 +59899,7 @@
             },
             "PatchedSkillRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers read the ``created`` attribute\nthis serializer sets on save to pick 200 vs 201.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -66868,7 +66878,7 @@
             },
             "Skill": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers read the ``created`` attribute\nthis serializer sets on save to pick 200 vs 201.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -66901,7 +66911,7 @@
             },
             "SkillRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers read the ``created`` attribute\nthis serializer sets on save to pick 200 vs 201.",
                 "properties": {
                     "name": {
                         "type": "string",
