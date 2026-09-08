@@ -1781,13 +1781,32 @@ class IsNotTokenAuthenticated(BasePermission):
     a session or a JWT.
 
     **What this covers, precisely.** API tokens (personal, project, program) and their
-    audit logs, plus the per-user connected-account credential store. It does **not**
-    cover every route that mints a durable grant of some kind: a leaked PAT belonging to
-    a project Admin can still rotate a git-automation webhook secret or mint a public
-    share link, and neither is revoked by password reset, off-boarding, or the
-    ``revoke_api_tokens`` sweep (TODO(#2939)). So "revoke the token and you are
-    contained" is true for the credential surface and not yet a whole-system property —
-    say the narrower thing in operator docs until #2939 closes.
+    audit logs, the per-user connected-account credential store, and — since #3551 — the
+    SSO provider admin surface (``/workspace/sso/providers/``). The SSO routes are here
+    because they mint a durable grant *indirectly*: an admin's leaked token could widen
+    ``allowed_email_domains`` and set ``auto_create_members`` with an ADMIN
+    ``default_role``, and one SSO login at the widened domain then produces a real
+    ADMIN session that revoking the token does not touch.
+
+    It does **not** cover every route that mints a durable grant of some kind: a leaked
+    PAT belonging to a project Admin can still rotate a git-automation webhook secret or
+    mint a public share link, and neither is revoked by password reset, off-boarding, or
+    the ``revoke_api_tokens`` sweep (TODO(#2939)).
+
+    Several membership routes have the same shape and are not covered either —
+    workspace invites, member role change, group membership and group→project grants,
+    ``transfer-ownership`` (which hands OWNER away, and is therefore *above* the
+    escalation #3551 closed), and the project/program membership viewsets in
+    ``apps/access/views.py``. **Nothing tracks that set.** #2939 is not its issue —
+    that one scopes the git-automation webhook secret and share links — and citing it
+    here would make an untracked gap read as filed. #3551's *Related* section defers the
+    filing to the team, so until an issue exists this paragraph is the only record of
+    it. Do not read the list as exhaustive either; ``tests/apps/access/
+    token_write_surface.txt`` is the inventory and this docstring is not a second copy
+    of it. So "revoke the token and you are contained" is true for the credential and
+    sign-in-configuration surfaces and is not a whole-system property — say the narrower
+    thing in operator docs, and keep saying it after #2939 closes, because #2939 does
+    not reach these routes.
 
     **The predicate is ``request.auth``, and that is only sound because it runs as a
     permission.** An identity refusal is raised by the *authenticator*, so on that
@@ -1798,7 +1817,13 @@ class IsNotTokenAuthenticated(BasePermission):
     in ``tests/apps/projects/test_token_management_is_session_only.py``.
     """
 
-    message = "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+    # Phrased for the whole surface, not just the token routes (#3551). It is now also
+    # the message an admin sees when a script tries to configure SSO, and "API tokens
+    # cannot manage API tokens" would be a confidently wrong diagnosis there.
+    message = (
+        "API tokens cannot manage credentials or sign-in configuration. "
+        "Sign in to perform this action."
+    )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         from trueppm_api.apps.agents.models import RefusalConstraint
