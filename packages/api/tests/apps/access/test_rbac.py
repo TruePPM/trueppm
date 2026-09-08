@@ -1500,18 +1500,42 @@ class TestIsProjectNotArchived:
         assert IsProjectNotArchived().has_permission(_plain_request(user, "POST"), view) is True
 
     @pytest.mark.parametrize("action", ["unarchive", "destroy", "archive", "restore"])
-    def test_bypass_actions_pass_even_when_archived(
+    def test_bypass_actions_pass_on_the_project_viewset_when_archived(
         self, user: object, project: Project, action: str
     ) -> None:
         """Without the bypass an Owner could never unarchive — a catch-22."""
+        from trueppm_api.apps.projects.views import ProjectViewSet
+
+        project.is_archived = True
+        project.save(update_fields=["is_archived"])
+        view = ProjectViewSet()
+        view.kwargs = {"project_pk": str(project.pk)}
+        view.action = action
+        perm = IsProjectNotArchived()
+        req = _plain_request(user, method="POST")
+        assert perm.has_permission(req, view) is True
+        assert perm.has_object_permission(req, view, project) is True
+
+    @pytest.mark.parametrize("action", ["destroy", "restore", "archive", "unarchive"])
+    def test_bypass_actions_do_not_pass_on_any_other_viewset(
+        self, user: object, project: Project, action: str
+    ) -> None:
+        """The bypass is scoped by viewset class, not by action name (#3414).
+
+        ``destroy`` is router-minted on every ``ModelViewSet``, so a name-only match
+        exempted the DELETE route of twenty project-scoped viewsets — tasks, risks,
+        comments, attachments, labels, phases, baselines, memberships, assignments —
+        from the archived check entirely. Only ``ProjectViewSet`` needs the escape
+        hatch, because only the project row itself can be locked out by its own flag.
+        """
         project.is_archived = True
         project.save(update_fields=["is_archived"])
         view = _make_view(project_pk=project.pk)
         view.action = action
         perm = IsProjectNotArchived()
         req = _plain_request(user, method="POST")
-        assert perm.has_permission(req, view) is True
-        assert perm.has_object_permission(req, view, project) is True
+        assert perm.has_permission(req, view) is False
+        assert perm.has_object_permission(req, view, project) is False
 
     def test_top_level_route_defers_to_object_check(self, user: object) -> None:
         view = _make_view()

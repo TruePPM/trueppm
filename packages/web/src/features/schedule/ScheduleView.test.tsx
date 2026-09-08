@@ -988,6 +988,67 @@ describe('ScheduleView — empty state', () => {
     expect(screen.queryByTestId('task-list-panel')).toBeNull();
   });
 
+  // #2619 finding A: the empty state above was the ONLY mismatch signal on this
+  // surface, so a project with a REAL CPM schedule flipped to AGILE said nothing
+  // at all — the worse of the two states, because there is committed work in it.
+  it('warns on a POPULATED schedule under AGILE, and still renders the outline', () => {
+    mockEffectiveMethodology = 'AGILE';
+    renderSchedule();
+    expect(
+      screen.getByText(/This project is configured as Agile, but it already has a schedule/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review methodology' })).toBeInTheDocument();
+    // The work itself is never hidden — the route stays reachable by design.
+    expect(screen.getByTestId('task-list-panel')).toBeInTheDocument();
+    // Disjointness: the banner and the empty state never co-occur.
+    expect(
+      screen.queryByText("Schedule isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on a populated schedule under HYBRID', () => {
+    mockEffectiveMethodology = 'HYBRID';
+    renderSchedule();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  it('shows no banner on an EMPTY schedule under AGILE — that is the empty state\'s job', () => {
+    mockTasks = [];
+    mockLinks = [];
+    mockEffectiveMethodology = 'AGILE';
+    renderSchedule();
+    expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
+  });
+
+  // Rule 388 — the one most likely to regress. The banner gates on the
+  // UNFILTERED `allTasks`, never on `visibleTasks`: it is a statement about the
+  // PROJECT, not about the active filter. `?ms=1` with no milestone rows empties
+  // `visibleTasks` while `allTasks` still holds the schedule, so a gate written
+  // against `visibleTasks` would silence the warning on a real schedule and this
+  // test is what catches it.
+  it('keeps warning under AGILE when a filter hides every row (#388 denominator)', () => {
+    mockEffectiveMethodology = 'AGILE';
+    mockTasks = [
+      {
+        ...FIXTURE_TASKS[0],
+        id: 'leaf-1',
+        parentId: null,
+        isSummary: false,
+        isMilestone: false,
+        isCritical: false,
+      },
+    ];
+    mockLinks = [];
+    renderSchedule(['/?ms=1']);
+    // The filter emptied the rendered set…
+    expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
+    // …but the project still HAS a schedule, so the banner must stand.
+    expect(
+      screen.getByText(/This project is configured as Agile, but it already has a schedule/),
+    ).toBeInTheDocument();
+  });
+
   it('draws the blank canvas on a non-AGILE project (#2733)', () => {
     mockTasks = [];
     mockLinks = [];

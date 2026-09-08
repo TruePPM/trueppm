@@ -1664,6 +1664,27 @@ describe('TaskDetailDrawer open / cache edges', () => {
     expect(screen.queryByLabelText('Task name')).not.toBeInTheDocument();
   });
 
+  it('exposes no dialog role while closed, but stays mounted for the rescue latch (#3545)', () => {
+    TASKS = [];
+    render(
+      <MemoryRouter>
+        <TaskDetailDrawer task={null} projectId="p1" onClose={() => {}} />
+      </MemoryRouter>,
+    );
+
+    // Both halves matter. The element must stay in the DOM — unmounting it would
+    // destroy `renderedTask`, the dirty-swap rescue latch (#1978) — but it must
+    // leave the accessibility tree, or ScheduleView (which mounts this on
+    // `projectId` alone) puts a permanent nameless `role="dialog"` on every
+    // schedule route, and any `getByRole('dialog')` absence assertion there can
+    // only pass by sampling before the render.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    const shells = document.querySelectorAll('[role="dialog"]');
+    expect(shells).toHaveLength(2); // desktop + mobile, both closed
+    shells.forEach((shell) => expect(shell).toHaveAttribute('aria-hidden', 'true'));
+  });
+
   it('falls back to the client role rule when the task carries no canEdit verdict', () => {
     const task = makeTask({ canEdit: undefined });
     TASKS = [task];

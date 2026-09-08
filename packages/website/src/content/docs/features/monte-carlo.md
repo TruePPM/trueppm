@@ -55,6 +55,13 @@ below.
 **Focus your effort on critical path tasks.** Tasks with float do not drive the
 finish date; uncertainty in their durations has little effect on the output.
 
+**Phases are not simulated — put your estimates on the leaves.** A summary (phase)
+row is a grouping node: its dates are rolled up from the tasks beneath it and it has
+no duration of its own, so it is excluded from the simulated network exactly as it is
+excluded from the [CPM pass](/features/scheduler/). A three-point estimate on a phase
+does nothing. Dependencies drawn to or from a phase are honored — they are applied to
+its leaf tasks — so you do not need to redraw them.
+
 ### Step 2 — Run the simulation
 
 ```
@@ -136,7 +143,7 @@ It will return persisted runs newest-first. Each run carries:
 | `p50` / `p80` / `p95` | The percentile finish dates as of that run. |
 | `cpm_finish` | The deterministic CPM spine at run time, for context. |
 | `n_simulations` | Number of runs in that simulation. |
-| `task_count` | Committed tasks included in that simulation. |
+| `task_count` | Committed tasks included in that simulation — leaf tasks only, since phases are not simulated. |
 | `status_date` | *(coming in 0.4)* The data date that run was computed against — see [Progress-aware forecasting](#progress-aware-forecasting) below. `null` for runs recorded before this field existed. |
 | `delta` | Per-percentile signed day change versus the immediately previous run (positive = the forecast slipped later). `null` on the oldest/baseline run. |
 | `triggered_by_name` | Who ran the simulation — see the visibility note below. |
@@ -200,6 +207,10 @@ same `MC_SIMULATION_CAP` as a normal run). The response will carry:
 | `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. |
 | `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). |
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
+
+A perturbation target must be a real unit of work: a milestone (zero duration by
+definition) and a phase (whose span is rolled up from its children) will both be
+rejected with a `400`. Point it at a leaf task instead.
 
 Both forecasts sample with the same fixed RNG seed, so the delta isolates the effect
 of your change rather than run-to-run noise, and the same query always returns the

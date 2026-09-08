@@ -6,7 +6,7 @@ import { FIXTURE_SHELL_STATS } from '@/fixtures/shellStats';
 import type { ShellStats, ApiSprint, Methodology, AddedTimeFacts } from '@/types';
 import { ADDED_TIME_FIXTURES } from '@/fixtures/addedTime';
 import type { ProjectVelocity } from '@/hooks/useSprints';
-import { deriveHealthBand, type HealthBand } from '@/lib/healthBand';
+import type { HealthBand } from '@/lib/healthBand';
 import { HealthCluster } from './HealthCluster';
 
 // Configurable per test: `null` models an off-project route (My Work,
@@ -196,30 +196,81 @@ describe('HealthCluster', () => {
   // The chip prints the SERVER band word and nothing else (#3470). The expected
   // word is written out as a LITERAL rather than read from `HEALTH_BAND_LABEL`:
   // asserting `HEALTH_BAND_LABEL[band]` against a component that renders
-  // `HEALTH_BAND_LABEL[deriveHealthBand(...)]` puts the same constant on both
-  // sides, so editing a value in that map could not fail it. Each case also pins
-  // the band the counts produce, which is the half that mirrors the server
-  // (`deriveHealthBand` follows `views.py::compute_band`).
-  it.each<[number, number, HealthBand, string]>([
-    [0, 0, 'on_track', 'On track'],
-    [3, 0, 'at_risk', 'At risk'],
-    [0, 1, 'critical', 'Critical'],
-  ])(
-    'counts (at-risk %i, critical %i) give the %s band, and the chip reads "%s"',
-    (atRiskCount, criticalCount, band, word) => {
-      stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount, criticalCount };
-      render();
-      expect(deriveHealthBand(criticalCount, atRiskCount)).toBe(band);
-      expect(screen.getByTestId('health-cluster')).toHaveTextContent(word);
-    },
-  );
+  // `HEALTH_BAND_LABEL[stats.healthBand]` puts the same constant on both sides,
+  // so editing a value in that map could not fail it.
+  //
+  // The band comes off `status-summary`'s `health_band` (#3501). Every case here
+  // therefore sets `healthBand` and leaves the counts at the fixture's values,
+  // which do NOT agree with it — that is deliberate: if the component ever went
+  // back to deriving a band from `criticalCount` / `atRiskCount` these cases
+  // would read the fixture's counts (critical 1 → "Critical") and two of the
+  // three would fail.
+  it.each<[HealthBand, string]>([
+    ['on_track', 'On track'],
+    ['at_risk', 'At risk'],
+    ['critical', 'Critical'],
+  ])('the server band %s makes the chip read "%s"', (healthBand, word) => {
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand };
+    render();
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent(word);
+  });
+
+  // (a2) the manual override the counts cannot see -----------------------------
+
+  it('reads the server band over a clean plan — the PM\'s manual Critical wins', () => {
+    // #3501. `Project.health = CRITICAL` on a plan with zero at-risk and zero
+    // critical tasks. The server folds the override into `health_band`; the chip
+    // prints it. Before the fix the chip could only see the two zero counts, so
+    // it said "On track" while the project's own Overview said Critical.
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'critical',
+      atRiskCount: 0,
+      criticalCount: 0,
+    };
+    render();
+    const chip = screen.getByTestId('health-cluster');
+    expect(chip).toHaveTextContent('Critical');
+    expect(chip).not.toHaveTextContent('On track');
+    expect(chip).toHaveAttribute('aria-label', expect.stringContaining('Project health: Critical'));
+  });
+
+  it('reads the server band over a real critical task — a manual On track wins', () => {
+    // The inverse of the case above, and the one a counts-first chip gets wrong
+    // in the other direction: a PM has reported ON_TRACK on a project that does
+    // have a critical task, so the server band is `on_track` while
+    // `criticalCount` is 2.
+    stats.current = {
+      ...FIXTURE_SHELL_STATS,
+      healthBand: 'on_track',
+      atRiskCount: 4,
+      criticalCount: 2,
+    };
+    render();
+    const chip = screen.getByTestId('health-cluster');
+    expect(chip).toHaveTextContent('On track');
+    expect(chip).not.toHaveTextContent('Critical');
+  });
+
+  it('falls back to "On track" when the summary has not resolved', () => {
+    // `undefined` stats is the pre-load tick, not a band. The fallback must not
+    // be read as the chip deriving anything: there is nothing to derive from.
+    //
+    // Scope, stated honestly: `useShellStats` returns `data: undefined` for a
+    // FAILED fetch too, and this case does not distinguish them — a 5xx on
+    // `status-summary` therefore also reads "On track". That is the chip's
+    // error state, which #3469 owns; tracked for the band specifically in #3525.
+    stats.current = undefined;
+    render();
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On track');
+  });
 
   it('chip never renders the retired "On watch" word for the at-risk band', () => {
     // The negative control for the #3470 regression: before the fix the at-risk
     // band printed "On watch", a word defined by no ADR and rendered nowhere
     // else in the product. Asserting the positive word alone does not catch a
     // reintroduction, because "On watch" would still be *a* word for the band.
-    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 3, criticalCount: 0 };
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'at_risk' };
     render();
     expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('On watch');
   });
@@ -229,7 +280,7 @@ describe('HealthCluster', () => {
     // top bar contradicted the page beneath it. The absence assertion is scoped
     // to the chip trigger — the popover is portaled out of it and repeats the
     // same word from the same source.
-    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 1 };
+    stats.current = { ...FIXTURE_SHELL_STATS, healthBand: 'critical' };
     render();
     const chip = screen.getByTestId('health-cluster');
     expect(chip).toHaveTextContent('Critical');
