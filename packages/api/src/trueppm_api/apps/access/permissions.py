@@ -1518,6 +1518,26 @@ class IsOrgAdmin(BasePermission):
         return has_org_role_from_live_project(request.user, Role.ADMIN)
 
 
+def is_workspace_operator(user: Any) -> bool:
+    """Return True when ``user`` is the install operator — a Django superuser (#3569).
+
+    The single definition behind :class:`IsWorkspaceOperator` and the two callers in
+    ``apps.resources`` that gate ``email`` exposure and the deactivated pool outside
+    the permission-class path (a serializer's ``to_representation`` and a
+    ``SearchFilter`` backend, neither of which can express a DRF permission).
+
+    It exists so those three cannot drift. They were three independent
+    ``is_superuser`` reads, which is the exact shape #3569 consolidated on the org
+    side into :func:`has_org_role_from_live_project` — and the drift is not
+    hypothetical: if this gate is ever widened (see the docstring on
+    :class:`IsWorkspaceOperator` about the override seam that does *not* exist
+    today), a widened permission class plus two un-widened mirrors would admit a
+    caller to ``assignments`` while still stripping their ``email``. That fails
+    closed, which is why it would be a confusing bug rather than a breach.
+    """
+    return bool(user is not None and getattr(user, "is_authenticated", False) and user.is_superuser)
+
+
 class IsWorkspaceOperator(BasePermission):
     """Install-operator gate for workspace-global infrastructure config (#712).
 
@@ -1566,7 +1586,7 @@ class IsWorkspaceOperator(BasePermission):
     message = "Only a workspace operator (superuser) may change this setting."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+        return is_workspace_operator(request.user)
 
 
 class CanAssignResource(BasePermission):

@@ -36,6 +36,7 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
     _membership_role,
     assert_project_not_archived,
+    is_workspace_operator,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, Task, TaskActivityEventType
@@ -614,10 +615,12 @@ class _WorkspaceOperatorEmailSearchFilter(filters.SearchFilter):
 def _request_is_workspace_operator(request: Request) -> bool:
     """Return True if the requesting user is a workspace operator (superuser).
 
-    Mirrors :meth:`ResourceSerializer._caller_is_workspace_operator` and
-    :class:`~trueppm_api.apps.access.permissions.IsWorkspaceOperator`. Gates email
-    visibility in search (#892) and the ``?include_deleted=true`` deactivated pool
-    (#1374).
+    A request-shaped wrapper over
+    :func:`~trueppm_api.apps.access.permissions.is_workspace_operator`, which is the
+    single definition — do not re-derive the superuser test here. This one exists
+    because a ``SearchFilter`` backend has no permission class to hang the check on.
+    Gates email visibility in search (#892) and the ``?include_deleted=true``
+    deactivated pool (#1374).
 
     This used to derive admin authority from holding ADMIN+ on any project, in
     lockstep with ``IsOrgAdmin``. That derivation is self-grantable in two requests
@@ -625,8 +628,7 @@ def _request_is_workspace_operator(request: Request) -> bool:
     caller Owner. Both surfaces it gates are org-wide disclosure, so they take the
     ADR-0213 C1 floor instead.
     """
-    user = getattr(request, "user", None)
-    return bool(user is not None and getattr(user, "is_authenticated", False) and user.is_superuser)
+    return is_workspace_operator(getattr(request, "user", None))
 
 
 class ResourceCatalogThrottle(UserRateThrottle):

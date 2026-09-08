@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from rest_framework import serializers
 
+from trueppm_api.apps.access.permissions import is_workspace_operator
 from trueppm_api.apps.resources.models import (
     ProjectResource,
     Resource,
@@ -171,11 +172,7 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
         if cached is not None:
             return cached
         request = self.context.get("request")
-        result = bool(
-            request is not None
-            and getattr(request.user, "is_authenticated", False)
-            and request.user.is_superuser
-        )
+        result = is_workspace_operator(getattr(request, "user", None))
         self._operator_cache = result
         return result
 
