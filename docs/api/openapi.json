@@ -60455,7 +60455,8 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskOwnerWriteRequest"
                         },
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "At most 100 entries. Owners are upserted, so a longer assignment can be split across several writes without any of them removing an owner named by an earlier one."
                     },
                     "blocked_reason": {
                         "type": "string",
@@ -70426,7 +70427,8 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskOwnerWriteRequest"
                         },
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "At most 100 entries. Owners are upserted, so a longer assignment can be split across several writes without any of them removing an owner named by an earlier one."
                     },
                     "blocked_reason": {
                         "type": "string",
@@ -71573,7 +71575,8 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskOwnerWriteRequest"
                         },
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "At most 100 entries. Owners are upserted, so a longer assignment can be split across several writes without any of them removing an owner named by an earlier one."
                     },
                     "blocked_reason": {
                         "type": "string",
@@ -73703,7 +73706,7 @@
                 ]
             },
             "ValidationErrorDetail": {
-                "description": "One field's validation errors. A flat field yields a list of messages. A list field or nested serializer nests one level further, as an object keyed by item index or by subfield name; a ``many=True`` serializer yields one entry per submitted item, ``{}`` where that item validated. Nesting is arbitrarily deep and the leaves are always message strings.",
+                "description": "One field's validation errors. A flat field yields a list of messages. A list field or nested serializer nests one level further, as an object keyed by item index or by subfield name; a ``many=True`` serializer yields one entry per submitted item, ``{}`` where that item validated. A constraint on the list as a whole — its length, or a value that is not a list — has no failing item to point at and keys on ``non_field_errors`` instead. Nesting is arbitrarily deep and the leaves are always message strings.",
                 "oneOf": [
                     {
                         "type": "string"

@@ -479,10 +479,16 @@ _VALIDATION_ERROR_DETAIL_REF = {"$ref": f"#/components/schemas/{VALIDATION_ERROR
 #:
 #: Four shapes reach a field key, and only the first was declared:
 #:
-#:   ``["msg", ...]``                flat field
-#:   ``{"0": ["msg"]}``              ``ListField`` — keyed by item index
-#:   ``{"sub": ["msg"]}``            nested serializer — keyed by subfield
-#:   ``[{}, {"sub": ["msg"]}]``      ``many=True`` — one entry per submitted item
+#:   ``["msg", ...]``                     flat field
+#:   ``{"0": ["msg"]}``                   ``ListField`` — keyed by item index
+#:   ``{"sub": ["msg"]}``                 nested serializer — keyed by subfield
+#:   ``[{}, {"sub": ["msg"]}]``           ``many=True`` — one entry per submitted item
+#:   ``{"non_field_errors": ["msg"]}``    a constraint on the list as a whole (#3596)
+#:
+#: The last one keys on neither an index nor a subfield: a length cap, or a value that
+#: is not a list at all, has no failing *item* to point at, so ``ListSerializer`` puts
+#: it under ``non_field_errors``. Declaring only "index or subfield name" sent an
+#: integrator looking for a ``"0"`` key that is never there.
 #:
 #: Recursive rather than an enumeration of those four, because nesting composes: a
 #: ``ListField`` inside a ``many=True`` serializer nests one level deeper than any
@@ -495,7 +501,9 @@ _VALIDATION_ERROR_DETAIL_SCHEMA = {
         "One field's validation errors. A flat field yields a list of messages. A "
         "list field or nested serializer nests one level further, as an object keyed "
         "by item index or by subfield name; a ``many=True`` serializer yields one "
-        "entry per submitted item, ``{}`` where that item validated. Nesting is "
+        "entry per submitted item, ``{}`` where that item validated. A constraint on "
+        "the list as a whole — its length, or a value that is not a list — has no "
+        "failing item to point at and keys on ``non_field_errors`` instead. Nesting is "
         "arbitrarily deep and the leaves are always message strings."
     ),
     "oneOf": [
