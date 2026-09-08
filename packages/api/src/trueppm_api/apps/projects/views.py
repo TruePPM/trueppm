@@ -242,6 +242,16 @@ from trueppm_api.apps.projects.serializers import (
     TaskWriteResponseSerializer,
     ZeroDurationNotMilestoneError,
 )
+
+# Module-level on purpose, against the lazy-import convention the rest of this file
+# follows for `services`: `@extend_schema` is evaluated at class-creation time, so the
+# burn window bounds must be importable then for the OpenAPI parameter descriptions to
+# quote the same constants the view enforces (#3566). Safe because `services` imports
+# models lazily and never imports this module.
+from trueppm_api.apps.projects.services import (
+    MAX_BURN_HORIZON_DAYS,
+    MAX_BURN_WINDOW_DAYS,
+)
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
 from trueppm_api.apps.projects.task_bulk import (
     MSG_PROGRESS_NEEDS_ANCHOR,
@@ -265,6 +275,20 @@ from trueppm_api.core.protect_conflict import describe_reference, protected_erro
 from trueppm_api.core.request_body import object_body
 
 logger = logging.getLogger(__name__)
+
+#: The three-word health vocabulary (ADR-0126). Declared once and referenced by every
+#: endpoint that publishes a band, so drf-spectacular resolves them to ONE
+#: ``HealthBandEnum`` component instead of postfixing a variant per endpoint.
+HEALTH_BAND_CHOICES: list[str] = ["on_track", "at_risk", "critical"]
+
+#: Which of :func:`compute_health_band`'s two branches decided the band.
+#:
+#: Two values, not three: ``Health.AUTO`` is "no report filed", which *is* the
+#: derived case — a third token would make one field mean two things. ``reported``
+#: is the product's own word for the manual report (the Overview header renders
+#: "Reported: Critical"), so the API token and the UI word stay one vocabulary.
+HEALTH_BAND_SOURCE_CHOICES: list[str] = ["reported", "derived"]
+
 
 # Mandated by ADR-0627 §D1.1 and asserted by `test_pin_description_is_published`.
 # `pinned` carries the OPPOSITE privacy semantics elsewhere in this same API
@@ -368,6 +392,13 @@ _SUGGESTION_NOT_FOUND_DETAIL = "Suggestion not found."
 _MEMBER_REQUIRED_DETAIL = "You must be a member of this project."
 _TASK_NO_WBS_PATH_DETAIL = "Task has no WBS path."
 _SCHEDULE_NOT_COMPUTED = "Schedule has not been computed. Run the scheduler first."
+
+# Published on every schema description whose numbers are divided by a per-project
+# capacity (#3574). Stated once so the endpoints cannot describe it differently.
+BASIS = (
+    "Capacity is the resource's figure ON THIS PROJECT: the roster's "
+    "units_override when one is set (0 included), else Resource.max_units."
+)
 _MILESTONE_NO_CHILDREN = "A milestone is a single point and cannot have children."
 _NON_EMPTY_LIST_REQUIRED = "This field is required and must be a non-empty list."
 _REORDER_TOO_MANY = "Too many entries to reorder in one request (max 2000)."
@@ -868,7 +899,8 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     They are shared org-level resources — not scoped to a single project.
 
     Read access: any authenticated user.
-    Write operations: org admin (Project Manager+ on at least one project).
+    Write operations: org admin (Project Manager+ on at least one *active* project —
+    #3569 stopped counting memberships on archived and soft-deleted projects).
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
@@ -898,6 +930,14 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
+        # Deliberately still IsOrgAdmin, though this surface meets the test stated in
+        # IsWorkspaceOperator's docstring (a calendar edit fans a CPM recompute to
+        # every bound project, including ones the actor cannot see). #3174 already
+        # decided this exact reach and chose attribution — a CALENDAR_CHANGED audit
+        # event naming the actor — over a raised gate; #3569 is a hardening fix and
+        # does not reopen a closed ADR. Tracked as #3600 and recorded as a known
+        # residual in ADR-0034's #3569 amendment. Do not read this as the
+        # derivation being right here.
         return [IsAuthenticated(), IsOrgAdmin()]
 
     def get_queryset(self) -> QuerySet[Calendar]:
@@ -1146,8 +1186,8 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     parent Calendar.server_version (so the change rides the existing calendar
     sync delta) and fans out a CPM recompute to affected projects.
 
-    Read access: any authenticated user. Writes: org admin (Project Manager+),
-    mirroring CalendarViewSet.
+    Read access: any authenticated user. Writes: org admin (Project Manager+ on at
+    least one *active* project, #3569), mirroring CalendarViewSet.
     """
 
     serializer_class = CalendarExceptionSerializer
@@ -1155,6 +1195,8 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
+        # Same deliberate exception as CalendarViewSet.get_permissions — see the note
+        # there before "fixing" this to IsWorkspaceOperator (#3174, #3569).
         return [IsAuthenticated(), IsOrgAdmin()]
 
     def get_queryset(self) -> QuerySet[CalendarException]:
@@ -2771,7 +2813,11 @@ class ProjectViewSet(
                     "{hours, task_ids, load_pct, load_band, overallocated} for the "
                     "requested window. load_band is on-track | at-risk | critical "
                     "(>100% load); each resource also carries a top-level "
-                    "overallocated flag (true if any day exceeds 100%)."
+                    "overallocated flag (true if any day exceeds 100%). Each "
+                    "resource row also carries {max_units, hours_per_day, job_role, "
+                    "calendar_id, calendar_differs_from_project}; per-day capacity "
+                    "is hours_per_day x max_units, the same denominator load_pct "
+                    "uses. " + BASIS
                 ),
             ),
             409: OpenApiResponse(
@@ -2919,7 +2965,8 @@ class ProjectViewSet(
                 description=(
                     "Per-resource task spans within the window: "
                     "{project_id, window_start, window_end, resources: "
-                    "[{id, name, email, max_units, tasks: [{assignment_id, id, "
+                    "[{id, name, email, max_units (project-effective: roster "
+                    "units_override if set, else Resource.max_units), tasks: [{assignment_id, id, "
                     "name, early_start, early_finish, scheduled_start, units, "
                     "status}]}]}. scheduled_start (ADR-0752) is the task's SPAN "
                     "start — early_start narrows toward early_finish as an "
@@ -2957,6 +3004,9 @@ class ProjectViewSet(
 
         Overallocation detection is intentionally client-side: the caller receives
         all spans and computes daily unit sums against max_units. See ADR-0031.
+        ``max_units`` is the resource's capacity **on this project** — the roster's
+        ``units_override`` when one is set, else ``Resource.max_units`` (#3574) — so
+        the client's verdict matches the heat map's and the Overview card's.
 
         Query parameters:
           start    (YYYY-MM-DD, optional) — window start; defaults to earliest
@@ -2970,9 +3020,15 @@ class ProjectViewSet(
         from django.db.models import DateField
         from django.db.models.functions import Coalesce
 
+        from trueppm_api.apps.resources.capacity import project_effective_units
         from trueppm_api.apps.resources.models import TaskResource
 
         project = self.get_object()
+
+        # This endpoint is scoped to ONE project, so the capacity it publishes is the
+        # per-project one: the roster's ``units_override`` when set, else
+        # ``Resource.max_units`` (#3574). One query for the whole roster.
+        roster_units = project_effective_units(project.pk)
 
         # --- Resolve window bounds ---
         try:
@@ -3045,7 +3101,7 @@ class ProjectViewSet(
                     "id": rid,
                     "name": resource.name,
                     "email": resource.email,
-                    "max_units": str(resource.max_units),
+                    "max_units": str(roster_units.get(rid, resource.max_units)),
                     "tasks": [],
                 }
             task = assignment.task
@@ -3118,7 +3174,10 @@ class ProjectViewSet(
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description="Week x person utilization heatmap.",
+                description=(
+                    "Week x person utilization heatmap: integer percent per ISO "
+                    "week, against hours_per_day x max_units x working days. " + BASIS
+                ),
             ),
             409: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
@@ -3206,7 +3265,9 @@ class ProjectViewSet(
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Resource KPIs over an 8-week window: avg utilization, "
-                    "over/under-allocation counts, headcount, and contractor count."
+                    "over/under-allocation counts, headcount, and contractor count. "
+                    "Utilization and the over-allocation verdict share the heatmap's "
+                    "denominator. " + BASIS
                 ),
             ),
             409: OpenApiResponse(description="Schedule has not been computed; run the scheduler."),
@@ -3298,7 +3359,7 @@ class ProjectViewSet(
                 fields={
                     "task_count": serializers.IntegerField(),
                     "health_band": serializers.ChoiceField(
-                        choices=["on_track", "at_risk", "critical"],
+                        choices=HEALTH_BAND_CHOICES,
                         help_text=(
                             "The project's health band. The manual Project.health "
                             "override when the PM has reported one (not AUTO), "
@@ -3307,6 +3368,25 @@ class ProjectViewSet(
                             "on_track. A client MUST print this value rather than "
                             "re-deriving a band from the counts — the counts alone "
                             "cannot see the override."
+                        ),
+                    ),
+                    "health_band_source": serializers.ChoiceField(
+                        choices=HEALTH_BAND_SOURCE_CHOICES,
+                        help_text=(
+                            "Which of the two branches above produced health_band. "
+                            "'reported' — a project manager set Project.health by "
+                            "hand and that report decided it; 'derived' — no report "
+                            "is filed (health is AUTO) and the counts on this "
+                            "payload decided it. A client cannot work this out for "
+                            "itself: a report that agrees with the counts is "
+                            "indistinguishable from no report at all. Use it to say "
+                            "WHERE a band came from — a surface that lists the "
+                            "at-risk and critical tasks alongside the band needs it, "
+                            "because a reported band is not explained by those rows. "
+                            "For WHO filed a 'reported' band and when, read the "
+                            "project's field history at GET /projects/{id}/history/ "
+                            "— Project.health is tracked there. This field says "
+                            "which branch ran, not who ran it."
                         ),
                     ),
                     "at_risk_count": serializers.IntegerField(),
@@ -3373,6 +3453,14 @@ class ProjectViewSet(
         counts. It is on the payload because the shell chip fetches this endpoint
         and nothing else: without it the chip could only ever see the counts
         branch, and contradicted the PM's own report (#3501).
+
+        health_band_source names which of those two branches decided it, from the
+        same call. The shell chip's popover explains the band by listing the
+        at-risk and critical tasks, so a reported band needs to say so — otherwise
+        a red "Critical" header sits above two "0 tasks" rows and reads as a
+        broken tool rather than as the PM's report (#3525). It is a server fact
+        because a client cannot infer it: a report that happens to agree with the
+        counts is indistinguishable from no report at all.
 
         P80 is the most recent persisted MonteCarloRun's p80 for this project, or
         null when no run has been recorded. Null means "no forecast exists", not
@@ -3455,17 +3543,28 @@ class ProjectViewSet(
             .first()
         )
 
+        # The band is a SERVER fact, not something the shell can work out from the
+        # two counts below it (#3501). Only the server sees the manual
+        # `Project.health` override, so a chip that re-derived a band from the
+        # counts printed "On track" over a project its own PM had reported
+        # Critical, and disagreed with the my-projects triage list about the same
+        # project. Same callable as `health_summary` — one rule, called twice
+        # (ADR-0133).
+        #
+        # `health_band_source` travels with it because a client that only has the
+        # band cannot explain it: the shell chip's popover lists the at-risk and
+        # critical tasks, so a reported Critical over a clean plan renders a red
+        # header above two "0 tasks" rows and reads as a broken tool rather than
+        # as the PM's own report (#3525).
+        health_band, health_band_source = compute_health_band(
+            project.health, at_risk_count, critical_count
+        )
+
         return Response(
             {
                 "task_count": task_count,
-                # The band is a SERVER fact, not something the shell can work out
-                # from the two counts below it (#3501). Only the server sees the
-                # manual `Project.health` override, so a chip that re-derived a
-                # band from the counts printed "On track" over a project its own
-                # PM had reported Critical, and disagreed with the my-projects
-                # triage list about the same project. Same callable as
-                # `health_summary` — one rule, called twice (ADR-0133).
-                "health_band": compute_health_band(project.health, at_risk_count, critical_count),
+                "health_band": health_band,
+                "health_band_source": health_band_source,
                 # `critical_path_count` was an exact alias of `critical_count`
                 # (same aggregate). Dropped pre-0.3 so the public status-summary
                 # contract carries the count once (#1325).
@@ -3492,9 +3591,19 @@ class ProjectViewSet(
                     # The same three values status-summary declares, and now
                     # provably so: both actions call `compute_health_band`. A bare
                     # CharField here handed a generated SDK a free-form `str` for
-                    # one endpoint and a typed enum for its twin (#3501).
-                    "health_band": serializers.ChoiceField(
-                        choices=["on_track", "at_risk", "critical"]
+                    # one endpoint and a typed enum for its twin (#3501). The
+                    # shared constants make the two declarations identical by
+                    # construction, so drf-spectacular resolves one component per
+                    # vocabulary rather than postfixing a variant per endpoint.
+                    "health_band": serializers.ChoiceField(choices=HEALTH_BAND_CHOICES),
+                    "health_band_source": serializers.ChoiceField(
+                        choices=HEALTH_BAND_SOURCE_CHOICES,
+                        help_text=(
+                            "Whether this row's health_band came from a project "
+                            "manager's manual report ('reported') or from the two "
+                            "counts beside it ('derived'). Same rule and same "
+                            "vocabulary as the single-project status summary."
+                        ),
                     ),
                     "at_risk_count": serializers.IntegerField(),
                     "critical_count": serializers.IntegerField(),
@@ -3526,7 +3635,9 @@ class ProjectViewSet(
 
         health_band comes from :func:`compute_health_band` — the same rule the
         single-project status-summary calls, so the two cannot disagree about one
-        project (#3501).
+        project (#3501). health_band_source rides along for the same reason: the
+        provenance is published on both endpoints or on neither, or the two
+        disagree one level up about whether a band is a person's call (#3525).
         """
         from django.db.models import Count, Q
 
@@ -3560,18 +3671,27 @@ class ProjectViewSet(
             .order_by("name")
         )
 
+        # `health_band_source` ships on this row too, not only on the
+        # single-project status summary: both actions call the one
+        # `compute_health_band`, and publishing provenance on one endpoint but not
+        # its twin reintroduces one level up the disagreement ADR-0133's "one rule,
+        # called twice" exists to prevent (#3525).
+        bands = [
+            (row, compute_health_band(row["health"], row["at_risk_count"], row["critical_count"]))
+            for row in rows
+        ]
+
         return Response(
             [
                 {
                     "id": str(row["id"]),
                     "name": row["name"],
-                    "health_band": compute_health_band(
-                        row["health"], row["at_risk_count"], row["critical_count"]
-                    ),
+                    "health_band": band,
+                    "health_band_source": source,
                     "at_risk_count": row["at_risk_count"],
                     "critical_count": row["critical_count"],
                 }
-                for row in rows
+                for row, (band, source) in bands
             ],
             status=status.HTTP_200_OK,
         )
@@ -4405,7 +4525,73 @@ def annotate_tasks_queryset(
     # Resource has no direct user FK, so we join through Task.assignee instead of
     # Resource.user — units allocated to any resource on a task assigned to the
     # same user contribute to that user's overallocation total.
+    #
+    # Capacity was a hardcoded 1.0, so this badge called a half-time person
+    # overallocated at 0.6 while the heat map beside it read 120% of 0.5 and the
+    # Overview card agreed with the heat map (#3574). It is now the assignee's
+    # effective capacity ON THIS PROJECT, resolved in three steps: the roster's
+    # units_override for the Resource that Resource.user links to this assignee;
+    # else that Resource's own max_units; else 1.0 for an assignee with no Resource
+    # row at all, which is the pre-#3574 behavior for exactly the population it was
+    # right for.
+    from django.db.models.functions import Coalesce
+
+    from trueppm_api.apps.resources.capacity import DEFAULT_MAX_UNITS
+    from trueppm_api.apps.resources.models import ProjectResource as _PR
+    from trueppm_api.apps.resources.models import Resource as _Res
     from trueppm_api.apps.resources.models import TaskResource as _TR
+
+    _units_field = db_models.DecimalField(max_digits=4, decimal_places=2)
+
+    # Both capacity candidates correlate against the TaskResource subquery's OWN
+    # columns (``task__project_id`` / ``task__assignee_id``), not the outer Task
+    # row, so the comparison can live in the aggregate's HAVING.
+    #
+    # Keeping it there rather than in an outer Case/When is what matters:
+    # ``Query.resolve_ref`` inlines an annotation's whole expression into a ``When``
+    # condition instead of emitting a reference to its alias, so the Case form
+    # compiled both capacity subqueries into the OUTER task queryset's SELECT list
+    # and GROUP BY key — the one this file already measures at 115 ms -> 5,753 ms
+    # under ?ordering=wbs_path, at page_size up to 500. Here they stay inside the
+    # subquery. Django still repeats the Coalesce in that subquery's own GROUP BY
+    # alongside the HAVING (it is functionally determined by the two grouped
+    # columns, so the partition is unchanged) — the win is the outer query, not a
+    # single evaluation.
+    #
+    # units_override is nullable and 0 is a legitimate value, so the roster row's
+    # own Coalesce (override -> the resource default) resolves inside its subquery
+    # and only a MISSING roster row falls through to the next candidate.
+    roster_capacity_subq = (
+        _PR.objects.filter(
+            project_id=OuterRef("task__project_id"),
+            resource__user_id=OuterRef("task__assignee_id"),
+            is_deleted=False,
+        )
+        .annotate(_cap=Coalesce("units_override", "resource__max_units"))
+        .order_by("resource__name")
+        .values("_cap")[:1]
+    )
+    # No project correlation, deliberately: ``Resource`` is an org-wide catalog
+    # (ADR-0034) and this branch answers "what is this person's own capacity" for an
+    # assignee with no roster row here. It relies on that catalog being single-tenant
+    # — if Resource ever becomes tenant-scoped this filter has no scope to inherit
+    # and must gain one.
+    #
+    # ``is_deleted=False`` here and NOT on the roster subquery above is intentional:
+    # a live roster row is an explicit per-project statement and stands on its own,
+    # while this fallback matches by user link alone and must not resurrect a retired
+    # catalog row that nobody put on this project.
+    #
+    # ``Resource.user`` is a plain FK, not a OneToOne, so one user can own several
+    # resource rows ("Ada" and "Ada (contract)"). Both subqueries tie-break by name
+    # so the answer is at least deterministic; which row *should* win is genuinely
+    # unspecified, and the roster row above is the one that resolves it when the
+    # project cares.
+    resource_capacity_subq = (
+        _Res.objects.filter(user_id=OuterRef("task__assignee_id"), is_deleted=False)
+        .order_by("name")
+        .values("max_units")[:1]
+    )
 
     overallocated_subq = (
         _TR.objects.filter(
@@ -4418,9 +4604,18 @@ def annotate_tasks_queryset(
             ],
             task__is_deleted=False,
         )
-        .values("task__assignee_id")
+        # task__project_id is grouped as well as filtered so the HAVING below may
+        # correlate against it; the filter already pins it to one value, so the
+        # partition is unchanged.
+        .values("task__assignee_id", "task__project_id")
         .annotate(total=Sum("units"))
-        .filter(total__gt=1.0)
+        .filter(
+            total__gt=Coalesce(
+                Subquery(roster_capacity_subq, output_field=_units_field),
+                Subquery(resource_capacity_subq, output_field=_units_field),
+                db_models.Value(DEFAULT_MAX_UNITS, output_field=_units_field),
+            )
+        )
         .values("total")[:1]
     )
     qs = qs.annotate(assignee_is_overallocated=Exists(overallocated_subq))
@@ -11138,8 +11333,8 @@ _HEALTH_OVERRIDE_BAND: dict[str, str] = {
 }
 
 
-def compute_health_band(health: str, at_risk_count: int, critical_count: int) -> str:
-    """The project health band: manual override first, then the task counts.
+def compute_health_band(health: str, at_risk_count: int, critical_count: int) -> tuple[str, str]:
+    """The project health band and which branch decided it.
 
     One rule, called from every surface that prints a band (ADR-0133), so the
     shell chip, the my-projects triage list and any future consumer cannot
@@ -11148,22 +11343,34 @@ def compute_health_band(health: str, at_risk_count: int, critical_count: int) ->
     float numbers do not, and a surface that silently recomputes "On track" over
     that report contradicts the person who filed it (#3501).
 
+    The *source* is returned from this same call rather than from a second helper
+    beside it, because a parallel ``compute_health_band_source()`` would be a
+    second copy of the branch this function already takes — the drift ADR-0133
+    exists to make structurally impossible. It is a server fact for the same
+    reason the band is: a client cannot infer it. A PM reporting ``at_risk`` over
+    a plan whose counts also say at-risk produces exactly the band the counts
+    would, so a client comparing the two would miss the report entirely; and a PM
+    reporting ``on_track`` over a critical plan is a disagreement the client would
+    attribute to the counts rather than to the person (#3525).
+
     Args:
         health: The raw ``Project.health`` value. ``AUTO`` means "no report".
         at_risk_count: Incomplete tasks with <= 5 working days of total float.
         critical_count: Incomplete tasks on the critical path.
 
     Returns:
-        One of ``"on_track"``, ``"at_risk"``, ``"critical"``.
+        ``(band, source)`` — band is one of ``"on_track"`` / ``"at_risk"`` /
+        ``"critical"``; source is ``"reported"`` when the manual override decided
+        it, ``"derived"`` when it fell through to the counts.
     """
     manual = _HEALTH_OVERRIDE_BAND.get(health)  # None when AUTO
     if manual is not None:
-        return manual
+        return manual, "reported"
     if critical_count > 0:
-        return "critical"
+        return "critical", "derived"
     if at_risk_count > 0:
-        return "at_risk"
-    return "on_track"
+        return "at_risk", "derived"
+    return "on_track", "derived"
 
 
 def _spi_health_band(spi: float) -> str:
@@ -11656,6 +11863,11 @@ class ProjectAttentionView(APIView):
     # Maximum items returned per severity bucket — keeps the panel scannable.
     _MAX_PER_BUCKET = 3
 
+    # Ceiling on the rows _overallocation_items pulls back to compare in Python.
+    # Distinct assignees on one project, so roster-scale in practice; the cap makes
+    # the worst case explicit now that the comparison is no longer a HAVING clause.
+    _MAX_ASSIGNEE_SCAN = 500
+
     @extend_schema(
         responses={
             200: OpenApiResponse(
@@ -11665,7 +11877,10 @@ class ProjectAttentionView(APIView):
                     "task_name, assignee_name, date, detail, link_target}]}. severity "
                     "is one of critical/warning/info; type is one of "
                     "critical_task_late, unassigned_approaching, baseline_drift, "
-                    "overallocation."
+                    "overallocation. An overallocation item is raised when a "
+                    "resource's committed units on open tasks exceed their capacity "
+                    "ON THIS PROJECT: the roster's units_override when one is set "
+                    "(0 included), else Resource.max_units."
                 ),
                 examples=[
                     OpenApiExample(
@@ -11827,22 +12042,45 @@ class ProjectAttentionView(APIView):
         return out
 
     def _overallocation_items(self, project: Project) -> list[dict[str, Any]]:
-        """Resources whose committed units exceed their capacity on open tasks."""
+        """Resources whose committed units exceed their capacity on open tasks.
+
+        Capacity is the resource's **per-project** figure — the roster's
+        ``units_override`` when one is set, else ``Resource.max_units`` (#3574).
+        Comparing against the raw default made this feed disagree with the heat map
+        and the Overview card about the same person on the same day.
+
+        The comparison is done in Python rather than as a ``HAVING`` clause because
+        the effective capacity is a per-(project, resource) lookup, not a column on
+        the aggregated row. That loses the DB-side ``LIMIT`` the old ``HAVING`` form
+        allowed, so the pre-filter carries its own cap: the set is one row per
+        resource holding an open assignment on this project — which is roster-scale
+        but NOT roster-bounded, since ``TaskResource`` does not require a roster row.
+        ``_MAX_ASSIGNEE_SCAN`` states the worst case in code rather than in prose.
+        """
+        from trueppm_api.apps.resources.capacity import project_effective_units
         from trueppm_api.apps.resources.models import Resource, TaskResource
 
-        overalloc_rows = cast(
+        roster_units = project_effective_units(project.pk)
+        totals = cast(
             "list[dict[str, Any]]",
-            (
+            list(
                 TaskResource.objects.filter(
                     task__project=project,
                     task__is_deleted=False,
                 )
                 .exclude(task__status=TaskStatus.COMPLETE)
-                .values("resource_id")
+                .values("resource_id", "resource__max_units")
                 .annotate(total=Sum("units"))
-                .filter(total__gt=db_models.F("resource__max_units"))
-            )[: self._MAX_PER_BUCKET],
+                # Deterministic order so both truncations below are stable;
+                # resource_id already determines the name, so grouping is unchanged.
+                .order_by("resource__name")[: self._MAX_ASSIGNEE_SCAN]
+            ),
         )
+        overalloc_rows = [
+            row
+            for row in totals
+            if row["total"] > roster_units.get(str(row["resource_id"]), row["resource__max_units"])
+        ][: self._MAX_PER_BUCKET]
         if not overalloc_rows:
             return []
 
@@ -15047,7 +15285,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description="Per-person and aggregate capacity for the sprint.",
+                description=(
+                    "Per-person and aggregate capacity for the sprint. Available "
+                    "hours are capacity x sprint working days x hours/day. " + BASIS
+                ),
             )
         },
     )
@@ -16076,9 +16317,12 @@ class MeSearchView(McpReadableViewMixin, APIView):
                     "sprint. Each entry carries `{project_id, project_name, sprint, "
                     "capacity_ratio, capacity_label, velocity}`, where `sprint` "
                     "holds the burndown snapshot (day N of M, points remaining, "
-                    "trend) and `velocity` the rolling forecast range. Sorted "
-                    "most-behind first. Empty array when the user has no active "
-                    "sprint work."
+                    "trend) and `velocity` the rolling forecast range. "
+                    "`capacity_ratio` / `capacity_label` measure committed hours "
+                    "against the resource's capacity ON THAT SPRINT'S PROJECT: the "
+                    "roster's units_override when one is set (0 included), else "
+                    "Resource.max_units. Sorted most-behind first. Empty array when "
+                    "the user has no active sprint work."
                 ),
             )
         },
@@ -17155,10 +17399,14 @@ class ProjectBurnView(APIView):
     derived from the project's active baseline when one exists.
 
     Query params:
-      ``chart_type`` — ``burndown`` (default) or ``burnup``
+      ``chart_type`` — ``burndown`` (default), ``burnup`` or ``combined``
       ``metric``     — ``tasks`` (default) or ``points``
       ``since``      — window start, ISO date; defaults to project start
       ``until``      — window end, ISO date; defaults to today
+
+    The window is bounded on both axes — a maximum span, and a short horizon past
+    today; see the ``since`` / ``until`` parameter descriptions for the limits. A
+    window outside either bound is a 400.
     """
 
     # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
@@ -17196,7 +17444,10 @@ class ProjectBurnView(APIView):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start date."
+                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start "
+                    f"date. The window may not exceed {MAX_BURN_WINDOW_DAYS} days: an "
+                    "explicit since that far from until is a 400, while a defaulted "
+                    f"since is clamped to until minus {MAX_BURN_WINDOW_DAYS} days."
                 ),
             ),
             OpenApiParameter(
@@ -17204,7 +17455,10 @@ class ProjectBurnView(APIView):
                 type=OpenApiTypes.DATE,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Window end, ISO 8601 YYYY-MM-DD. Defaults to today.",
+                description=(
+                    "Window end, ISO 8601 YYYY-MM-DD. Defaults to today. May not be "
+                    f"more than {MAX_BURN_HORIZON_DAYS} days in the future."
+                ),
             ),
         ],
         responses={
@@ -17212,8 +17466,12 @@ class ProjectBurnView(APIView):
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Burn series. For burndown/burnup: {chart_type, metric, since, "
-                    "until, series: [{date, actual, scope, ideal}]}. For combined: "
-                    "series rows are {date, remaining, completed, total, ideal}."
+                    "until, series: [{date, actual, scope, ideal}]}, plus a top-level "
+                    "baseline_series ([{date, planned}]) when the project has an "
+                    "active baseline. For combined: series rows are {date, remaining, "
+                    "completed, total, ideal}, and there is never a baseline_series. "
+                    "since is the window actually used, which may be later than a "
+                    "defaulted one that was clamped."
                 ),
                 examples=[
                     OpenApiExample(
@@ -17233,12 +17491,17 @@ class ProjectBurnView(APIView):
             ),
             400: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description="Invalid chart_type, metric, or date parameter.",
+                description=(
+                    "Invalid chart_type, metric, or date parameter; an until more than "
+                    f"{MAX_BURN_HORIZON_DAYS} days in the future; or an explicit since "
+                    f"putting the window over {MAX_BURN_WINDOW_DAYS} days. The body is "
+                    "{detail} and names the bound."
+                ),
             ),
         },
     )
     def get(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.projects.services import burn_series
+        from trueppm_api.apps.projects.services import burn_series, burn_series_combined
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
@@ -17257,6 +17520,49 @@ class ProjectBurnView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Horizon bound first, and before any date arithmetic on the window: a far
+        # future `until` (`9999-12-31`) overflows `_date_range_inclusive` while
+        # stepping past `date.max`, which was a 500 rather than a 400 (#3566). It
+        # has to be its own check because `since=until=9999-12-31` is a zero-day
+        # span the window cap below would happily accept.
+        max_until = timezone.localdate() + datetime.timedelta(days=MAX_BURN_HORIZON_DAYS)
+        if until > max_until:
+            return Response(
+                {
+                    "detail": (
+                        f"until may not be more than {MAX_BURN_HORIZON_DAYS} days in the "
+                        f"future (latest allowed: {max_until.isoformat()})."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Window cap. The cost of a burn read is O(days × tasks × history rows) and
+        # the body carries a row per day, so an uncapped span is an unbounded read
+        # for any project member — the sibling flow-metrics endpoint caps the same
+        # way. An *explicit* over-long span is a 400 (the caller asked for something
+        # we will not do); a *defaulted* one is clamped instead, because a project
+        # that started three years ago must not 400 on a no-parameter request. The
+        # response echoes the `since` actually used, so the clamp is discoverable in
+        # the payload — the Reports UI does not read it back yet (#3580).
+        #
+        # `if since_param:` and not `is not None`: `?since=` (empty value) resolves
+        # to the default above, so it must take the clamp branch too, or a caller
+        # that serializes an empty date field gets a 400 for a window it never asked
+        # for.
+        if (until - since).days > MAX_BURN_WINDOW_DAYS:
+            if since_param:
+                return Response(
+                    {
+                        "detail": (
+                            f"The window between since and until may not exceed "
+                            f"{MAX_BURN_WINDOW_DAYS} days."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            since = until - datetime.timedelta(days=MAX_BURN_WINDOW_DAYS)
+
         # Validate chart_type and metric before dispatching — guards both combined
         # and non-combined paths with a consistent 400 response (security-review finding).
         _VALID_CHART_TYPES = {"burndown", "burnup", "combined"}
@@ -17273,19 +17579,14 @@ class ProjectBurnView(APIView):
             )
 
         if chart_type == "combined":
-            # Merge burndown (remaining) and burnup (completed) into one series so
-            # the client gets both curves in a single request (ADR-0062).
+            # Merge remaining (burndown) and completed (burnup) into one series so
+            # the client gets both curves in a single request (ADR-0062). Both come
+            # from ONE history query and one replay — this used to call burn_series
+            # twice, paying the full O(days × tasks × history rows) cost per curve
+            # for the variant the Reports page defaults to (#3566).
             try:
-                bd = burn_series(
+                payload = burn_series_combined(
                     project_id=project.pk,
-                    chart_type="burndown",
-                    since=since,
-                    until=until,
-                    metric=metric,
-                )
-                bu = burn_series(
-                    project_id=project.pk,
-                    chart_type="burnup",
                     since=since,
                     until=until,
                     metric=metric,
@@ -17293,23 +17594,6 @@ class ProjectBurnView(APIView):
             except ValueError as exc:
                 # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-            bu_by_date = {p["date"]: p for p in bu["series"]}
-            payload = {
-                "chart_type": "combined",
-                "metric": metric,
-                "since": str(since),
-                "until": str(until),
-                "series": [
-                    {
-                        "date": p["date"],
-                        "remaining": p["actual"],
-                        "completed": bu_by_date.get(p["date"], {}).get("actual", 0),
-                        "total": p["scope"],
-                        "ideal": p["ideal"],
-                    }
-                    for p in bd["series"]
-                ],
-            }
             return Response(payload, status=status.HTTP_200_OK)
 
         try:

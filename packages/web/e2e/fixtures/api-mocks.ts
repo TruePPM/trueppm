@@ -72,6 +72,17 @@ export interface StatusSummaryFixture {
    * wants the shell chip to read a word must set this, not the counts.
    */
   health_band: 'on_track' | 'at_risk' | 'critical';
+  /**
+   * Which of the server's two branches produced `health_band` (#3525):
+   * `'reported'` = the PM set `Project.health` by hand, `'derived'` = it fell
+   * through to the counts. The shell chip's popover renders a provenance row
+   * naming the report — and a route to it — only under `'reported'`.
+   *
+   * A spec CANNOT get this by setting the band against the counts: the source is
+   * which branch ran, not whether the outcome differs. A reported band that
+   * happens to agree with the counts is still `'reported'`.
+   */
+  health_band_source: 'reported' | 'derived';
   monte_carlo_p80: string | null;
   at_risk_count: number;
   critical_count: number;
@@ -223,6 +234,11 @@ const DEFAULT_STATUS_SUMMARY: StatusSummaryFixture = {
   task_count: 0,
   critical_path_count: 0,
   health_band: 'on_track',
+  // 'derived' by default: 'reported' would put a provenance row in the popover of
+  // every spec that mounts the shell, so a spec asserting the row's ABSENCE would
+  // pass for the wrong reason and one asserting its presence would never have to
+  // ask for it.
+  health_band_source: 'derived',
   monte_carlo_p80: null,
   at_risk_count: 0,
   critical_count: 0,

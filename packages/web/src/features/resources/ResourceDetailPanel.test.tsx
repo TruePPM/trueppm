@@ -169,6 +169,43 @@ describe('ResourceDetailPanel — view/edit form', () => {
     expect(save).toBeEnabled();
   });
 
+  // #3569: the server omits `email` for callers who are neither the resource's own
+  // user nor a workspace ADMIN, which is the common case for a catalog admin. An
+  // input bound to that undefined value renders blank for a resource that *does* have
+  // an address, and saving would overwrite an address the caller never saw.
+  describe('when the server withheld email', () => {
+    const WITHHELD: OrgResource = { ...RESOURCE, email: undefined };
+
+    it('shows an explanation instead of a blank editable field', () => {
+      renderPanel(WITHHELD);
+      expect(screen.queryByRole('textbox', { name: 'Email' })).not.toBeInTheDocument();
+      expect(screen.getByText('Hidden — requires workspace Admin')).toBeInTheDocument();
+    });
+
+    it('still renders the editable field when email is genuinely empty', () => {
+      // '' means "no address on file" and must stay editable — the distinction between
+      // absent and empty is the whole point of the key being dropped rather than nulled.
+      renderPanel({ ...RESOURCE, email: '' });
+      expect(screen.getByRole('textbox', { name: 'Email' })).toBeInTheDocument();
+    });
+
+    it('omits email from the PATCH so a withheld address is not erased', async () => {
+      const user = userEvent.setup();
+      renderPanel(WITHHELD);
+      await user.clear(screen.getByRole('textbox', { name: 'Job role' }));
+      await user.type(screen.getByRole('textbox', { name: 'Job role' }), 'Staff Engineer');
+      await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/resources/res-1/', {
+          name: 'Alice Nguyen',
+          job_role: 'Staff Engineer',
+          max_units: 1,
+        }),
+      );
+    });
+  });
+
   it('re-disables Save when an edit is typed back to the original value', async () => {
     const user = userEvent.setup();
     renderPanel();
@@ -295,6 +332,24 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
     await waitFor(() => expect(onDeactivated).toHaveBeenCalledTimes(1));
     // The confirm row collapses again.
     expect(screen.getByRole('button', { name: '⚠ Deactivate' })).toBeInTheDocument();
+  });
+
+  it('surfaces a refusal when deactivate is forbidden', async () => {
+    // #3569 made 403 the expected outcome here for an ordinary catalog admin, since
+    // the buttons render for anyone who reaches the page but the endpoint now requires
+    // workspace ADMIN. Without an onError the click silently did nothing, which
+    // reads as a broken button rather than a refusal.
+    const user = userEvent.setup();
+    deleteMock.mockRejectedValue(new Error('You need workspace Admin access to perform this action.'));
+    const { onDeactivated } = renderPanel();
+
+    await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));
+    await user.click(screen.getByRole('button', { name: 'Deactivate' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'You need workspace Admin access to perform this action.',
+    );
+    expect(onDeactivated).not.toHaveBeenCalled();
   });
 
   it('renders the deactivated read-only state instead of the edit footer', () => {

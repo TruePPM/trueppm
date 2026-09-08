@@ -7,6 +7,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -135,9 +136,25 @@ class TestSkillViewSet:
         scheduler_membership: ProjectMembership,
     ) -> None:
         res = scheduler_client.post("/api/v1/skills/", {"name": "  TypeScript  "})
-        assert res.status_code in (200, 201)
+        assert res.status_code == 201
         assert res.data["normalized_name"] == "typescript"
         assert res.data["name"] == "TypeScript"
+
+    def test_create_new_skill_returns_201(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        """A skill that did not exist is an insert and must answer 201 (#3573).
+
+        Asserted as an exact status: the pair with
+        ``test_create_dedup_returns_existing`` is the whole point, and
+        ``status_code in (200, 201)`` passed on the build where every create
+        answered 200.
+        """
+        res = scheduler_client.post("/api/v1/skills/", {"name": "Rust"})
+        assert res.status_code == 201
+        assert Skill.objects.filter(normalized_name="rust").count() == 1
 
     def test_create_dedup_returns_existing(
         self,
@@ -145,10 +162,11 @@ class TestSkillViewSet:
         react_skill: Skill,
         scheduler_membership: ProjectMembership,
     ) -> None:
-        """Creating a skill with same normalised name returns the existing row."""
+        """Creating a skill with same normalised name returns the existing row with 200."""
         res = scheduler_client.post("/api/v1/skills/", {"name": "REACT"})
-        assert res.status_code in (200, 201)
+        assert res.status_code == 200
         assert res.data["id"] == str(react_skill.pk)
+        assert Skill.objects.filter(normalized_name="react").count() == 1
 
     def test_search(
         self,
@@ -488,6 +506,33 @@ class TestTaskSkillRequirementViewSet:
         assert res.status_code == 403
         assert not TaskSkillRequirement.objects.filter(task=other_task).exists()
 
+    def test_create_with_no_membership_anywhere_is_forbidden(
+        self,
+        db: object,
+        task: Task,
+        react_skill: Skill,
+    ) -> None:
+        """#3569: the caller with no ProjectMembership at all is still refused.
+
+        This viewset used to carry an ``IsOrgScheduler`` class gate that refused this
+        caller at the door, before any per-target logic ran. #3569 removed that gate as
+        redundant — every caller it admitted still had to pass
+        ``_require_scheduler_on_task`` against the target task's own project. Nothing
+        covered the cell the class gate uniquely owned, so removing it was unverified
+        in exactly one direction: a caller who is a member of *nothing*, for whom
+        ``_membership_role`` returns None rather than a role below SCHEDULER.
+        """
+        stranger = User.objects.create_user(username="no_memberships", password="pw")
+        client = APIClient()
+        client.force_authenticate(user=stranger)
+
+        res = client.post(
+            "/api/v1/task-skill-requirements/",
+            {"task": str(task.pk), "skill": str(react_skill.pk), "min_proficiency": 2},
+        )
+        assert res.status_code == 403
+        assert not TaskSkillRequirement.objects.filter(task=task).exists()
+
     def test_update_below_scheduler_on_target_project_is_forbidden(
         self,
         viewer_client: APIClient,
@@ -647,6 +692,80 @@ class TestSkillFitAnnotation:
         # exact should appear before missing
         assert fits.index("exact") < fits.index("missing")
 
+    def test_task_in_non_member_project_is_not_annotated(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        calendar: Calendar,
+        resource: Resource,
+        react_skill: Skill,
+        aws_skill: Skill,
+    ) -> None:
+        """?task= must not publish a foreign project's skill requirements (#3571).
+
+        The caller is a Viewer on project Alpha and a non-member of Beta. Passing
+        Beta's task id previously returned skill_fit plus missing_skills naming
+        every skill that task requires.
+        """
+        foreign_project = Project.objects.create(
+            name="Beta", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        foreign_task = Task.objects.create(
+            project=foreign_project,
+            name="Foreign",
+            duration=3,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 3),
+        )
+        TaskSkillRequirement.objects.create(task=foreign_task, skill=react_skill, min_proficiency=2)
+        TaskSkillRequirement.objects.create(task=foreign_task, skill=aws_skill, min_proficiency=1)
+
+        res = viewer_client.get(f"/api/v1/resources/?task={foreign_task.pk}")
+
+        assert res.status_code == 200
+        row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
+        assert "skill_fit" not in row
+        assert "missing_skills" not in row
+        body = str(res.data)
+        assert "React" not in body
+        assert "AWS" not in body
+
+    def test_task_in_member_project_is_still_annotated_for_a_viewer(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        resource: Resource,
+        task: Task,
+        react_skill: Skill,
+    ) -> None:
+        """Positive control: any membership is enough, matching TaskSkillRequirementViewSet."""
+        ResourceSkill.objects.create(resource=resource, skill=react_skill, proficiency=3)
+        TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=2)
+        res = viewer_client.get(f"/api/v1/resources/?task={task.pk}")
+        assert res.status_code == 200
+        row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
+        assert row["skill_fit"] == "exact"
+
+    def test_unknown_task_id_is_not_annotated(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+        resource: Resource,
+    ) -> None:
+        """An unknown task id annotates nothing; a malformed one keeps its 400 (#3571).
+
+        The unknown-id case must look exactly like the foreign-id case above, or
+        the parameter becomes an existence oracle for task uuids. The malformed
+        case still goes through the install-wide malformed-uuid contract in
+        ``core.exception_handlers`` — the membership gate must not swallow it.
+        """
+        res = scheduler_client.get(f"/api/v1/resources/?task={uuid4()}")
+        assert res.status_code == 200
+        assert "skill_fit" not in res.data["results"][0]
+
+        res = scheduler_client.get("/api/v1/resources/?task=not-a-uuid")
+        assert res.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # Skill mismatch warning on task-resource assignment
@@ -781,6 +900,53 @@ class TestExcludeProjectFilter:
         assert res.status_code == 200
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) not in ids
+
+    def test_non_member_project_id_is_ignored(
+        self,
+        viewer_client: APIClient,
+        viewer_membership: ProjectMembership,
+        calendar: Calendar,
+        resource: Resource,
+    ) -> None:
+        """?exclude_project= must not reveal a foreign project's roster (#3571).
+
+        The caller is a Viewer on project Alpha and a non-member of Beta. Diffing
+        the filtered list against the bare one previously named every resource on
+        Beta's roster; the filtered list must now be identical to the bare one.
+        """
+        foreign_project = Project.objects.create(
+            name="Beta", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        ProjectResource.objects.create(project=foreign_project, resource=resource)
+
+        bare = viewer_client.get("/api/v1/resources/")
+        filtered = viewer_client.get(f"/api/v1/resources/?exclude_project={foreign_project.pk}")
+
+        assert filtered.status_code == 200
+        assert str(resource.pk) in [r["id"] for r in filtered.data["results"]]
+        assert [r["id"] for r in filtered.data["results"]] == [
+            r["id"] for r in bare.data["results"]
+        ]
+
+    def test_unknown_project_id_is_ignored(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+        resource: Resource,
+    ) -> None:
+        """An unknown project id excludes nothing; a malformed one keeps its 400 (#3571).
+
+        The unknown-id case must look exactly like the foreign-id case above, or
+        the parameter becomes an existence oracle for project uuids. The malformed
+        case still goes through the install-wide malformed-uuid contract in
+        ``core.exception_handlers`` — the membership gate must not swallow it.
+        """
+        res = scheduler_client.get(f"/api/v1/resources/?exclude_project={uuid4()}")
+        assert res.status_code == 200
+        assert str(resource.pk) in [r["id"] for r in res.data["results"]]
+
+        res = scheduler_client.get("/api/v1/resources/?exclude_project=not-a-uuid")
+        assert res.status_code == 400
 
 
 # ---------------------------------------------------------------------------
