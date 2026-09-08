@@ -10416,6 +10416,18 @@ class TaskLabelView(IdempotencyMixin, APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
 
+    # The gate is the TASK, not the project, and it cannot run before `get_object`
+    # (#3441). `IsProjectMemberWriteOrOwn.has_permission` is authentication-only by
+    # design — the assignee-vs-role verdict needs the row — so `_get_task` below
+    # resolves the task project-scoped and calls `check_object_permissions`, which is
+    # where a non-member is refused. Deleting that call reopens the route, which is
+    # why it is asserted rather than merely commented.
+    role_gate_exempt = (
+        "Membership is enforced on the resolved task by check_object_permissions in "
+        "_get_task, not at the entry gate: IsProjectMemberWriteOrOwn's assignee-vs-role "
+        "verdict requires the row and cannot run before get_object."
+    )
+
     def _get_task(self, project_pk: str, task_pk: str) -> Task:
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
         # APIView does not auto-run has_object_permission — enforce the task-edit
@@ -10500,6 +10512,14 @@ class TaskCustomFieldValueView(IdempotencyMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
+
+    # Same shape as TaskLabelView: the entry gate is authentication-only because the
+    # authority verdict needs the task row (#3441).
+    role_gate_exempt = (
+        "Membership is enforced on the resolved task by check_object_permissions in "
+        "_get_task, not at the entry gate: IsProjectMemberWriteOrOwn's assignee-vs-role "
+        "verdict requires the row and cannot run before get_object."
+    )
 
     def _get_task(self, project_pk: str, task_pk: str) -> Task:
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)

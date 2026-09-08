@@ -758,6 +758,17 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
     idempotency_exempt = True
     authentication_classes: list[type] = []
     permission_classes = [AllowAny]
+
+    # There is no principal on this route to hold a membership, so the role x route
+    # matrix (#3441) cannot judge it the way it judges every other project-scoped URL.
+    # The constant-time HMAC comparison over the raw body against the project's own
+    # stored secret is what stands in for membership: possession of that secret is the
+    # authorization, and it is scoped to exactly the one project the URL names.
+    role_gate_exempt = (
+        "Unauthenticated by design: the per-project HMAC signature over the raw body "
+        "is the gate, and it authorizes exactly the project the URL names. No "
+        "principal exists on this request to hold a membership (ADR-0158, #2881)."
+    )
     # STACKED, and both are needed. The per-project bucket keys on a ``project_pk``
     # the caller picks out of the URL, so rotating it defeated the limit entirely;
     # the per-IP bucket closes that. Declaring ``throttle_classes`` here also
