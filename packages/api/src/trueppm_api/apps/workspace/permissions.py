@@ -67,6 +67,27 @@ def _workspace_membership_role(request: Request) -> int | None:
     return role
 
 
+def is_workspace_admin(user: Any) -> bool:
+    """Return True when ``user`` holds workspace ADMIN or above (#3569).
+
+    The user-keyed companion to :class:`IsWorkspaceAdminStrict`, for the two places
+    in ``apps.resources`` that gate on workspace ADMIN but cannot express a DRF
+    permission class: a serializer's ``to_representation`` (which strips ``email``)
+    and a ``SearchFilter`` backend (which narrows the searchable fields). Both must
+    answer the *same* question the permission class answers, so both delegate to
+    :func:`workspace_role_for_user` rather than re-deriving it.
+
+    Note this is deliberately **not** an ``is_superuser`` test. A superuser with no
+    membership row resolves to implicit OWNER and passes; a superuser carrying an
+    explicit MEMBER row does not, and a ``deactivated`` row revokes access outright.
+    The stored row is the authority — that is the whole point of moving off a
+    self-grantable derivation, and it is why #3569 could not keep using a raw
+    superuser check here.
+    """
+    role = workspace_role_for_user(user)
+    return role is not None and role >= WorkspaceRole.ADMIN
+
+
 class IsWorkspaceMember(BasePermission):
     """Any authenticated, non-deactivated user is a workspace member."""
 

@@ -32,11 +32,9 @@ from trueppm_api.apps.access.permissions import (
     IsOrgScheduler,
     IsProjectMember,
     IsProjectNotArchived,
-    IsWorkspaceOperator,
     ProjectScopedViewSet,
     _membership_role,
     assert_project_not_archived,
-    is_workspace_operator,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, Task, TaskActivityEventType
@@ -69,6 +67,7 @@ from trueppm_api.apps.resources.services import (
     task_is_summary,
 )
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
+from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict, is_workspace_admin
 from trueppm_api.core.protect_conflict import protected_error_response
 
 # Shared 404 detail — matches DRF's default NotFound detail so a missing or
@@ -591,44 +590,45 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
 # ---------------------------------------------------------------------------
 
 
-class _WorkspaceOperatorEmailSearchFilter(filters.SearchFilter):
-    """SearchFilter that only lets a workspace operator search the catalog by email (#892).
+class _WorkspaceAdminEmailSearchFilter(filters.SearchFilter):
+    """SearchFilter that only lets a workspace admin search the catalog by email (#892).
 
     The catalog is readable by any authenticated user, and email is stripped from
-    non-operator payloads (#891). But a static ``search_fields = ["name", "email"]``
-    still let anyone else probe email existence via ``?search=<email-substring>``
-    (a hit narrows the candidate set even though the value is never echoed). This
-    backend gates the searchable fields on the same check the serializer uses:
-    operators search name + email; everyone else searches name only.
+    payloads below workspace ADMIN (#891). But a static
+    ``search_fields = ["name", "email"]`` still let anyone else probe email existence
+    via ``?search=<email-substring>`` (a hit narrows the candidate set even though the
+    value is never echoed). This backend gates the searchable fields on the same check
+    the serializer uses: workspace admins search name + email; everyone else searches
+    name only.
 
-    Raised from the org-admin derivation to the install operator in #3569 — the
+    Raised from the org-admin derivation to the stored workspace role in #3569 — the
     org-admin check it used to call was reachable by any account that created a
     throwaway project, which made the #891 harvest control decorative.
     """
 
     def get_search_fields(self, view: object, request: Request) -> list[str]:
-        if _request_is_workspace_operator(request):
+        if _request_is_workspace_admin(request):
             return ["name", "email"]
         return ["name"]
 
 
-def _request_is_workspace_operator(request: Request) -> bool:
-    """Return True if the requesting user is a workspace operator (superuser).
+def _request_is_workspace_admin(request: Request) -> bool:
+    """Return True if the requesting user holds workspace ADMIN or above.
 
     A request-shaped wrapper over
-    :func:`~trueppm_api.apps.access.permissions.is_workspace_operator`, which is the
-    single definition — do not re-derive the superuser test here. This one exists
-    because a ``SearchFilter`` backend has no permission class to hang the check on.
-    Gates email visibility in search (#892) and the ``?include_deleted=true``
-    deactivated pool (#1374).
+    :func:`~trueppm_api.apps.workspace.permissions.is_workspace_admin`, which is the
+    single definition — do not re-derive the role test here. This one exists because
+    a ``SearchFilter`` backend has no permission class to hang the check on. Gates
+    email visibility in search (#892) and the ``?include_deleted=true`` deactivated
+    pool (#1374), matching :class:`IsWorkspaceAdminStrict` on the sibling actions.
 
     This used to derive admin authority from holding ADMIN+ on any project, in
     lockstep with ``IsOrgAdmin``. That derivation is self-grantable in two requests
-    (#3569): nothing gates ``POST /projects/`` and ``perform_create`` makes the
-    caller Owner. Both surfaces it gates are org-wide disclosure, so they take the
-    ADR-0213 C1 floor instead.
+    (#3569): nothing gates ``POST /projects/`` and ``perform_create`` makes the caller
+    Owner. ``WorkspaceMembership`` is granted only by an existing workspace admin or
+    by SSO provisioning, so it is not reachable that way.
     """
-    return is_workspace_operator(getattr(request, "user", None))
+    return is_workspace_admin(getattr(request, "user", None))
 
 
 class ResourceCatalogThrottle(UserRateThrottle):
@@ -854,7 +854,7 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                 required=False,
                 description=(
                     "When 'true', include soft-deleted (deactivated) resources. Only "
-                    "honoured for workspace operators (superusers); silently ignored "
+                    "honoured for callers holding workspace Admin or above; silently ignored "
                     "for everyone else."
                 ),
             ),
@@ -870,9 +870,10 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
       Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner
         role on at least one *active* project (#3569).
       DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:
-        IsWorkspaceOperator (superuser). Raised in #3569 — these reach across
-        every project in the install, and the org-admin derivation they used to
-        sit behind is self-grantable by creating a throwaway project.
+        IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —
+        these reach across every project in the install, and the org-admin
+        derivation they used to sit behind is self-grantable by creating a
+        throwaway project.
 
     DELETE is a soft-delete: sets is_deleted=True and enqueues a schedule
     recalculation for every project that has open TaskResource rows for the
@@ -884,7 +885,7 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
       ?task=               — annotate with skill_fit against the task's skill
                              requirements; groups results into exact/partial/missing
       ?include_deleted=true — include soft-deleted (deactivated) resources;
-                             only honoured for workspace operators (superusers)
+                             only honoured for workspace Admin or above
     """
 
     queryset = (
@@ -893,18 +894,19 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         .order_by("name")
     )
     serializer_class = ResourceSerializer
-    # Email search is gated on the install operator via the custom backend (#892,
-    # raised from org-admin in #3569): everyone else searches by name only, so they
-    # cannot probe email existence with ?search=.
-    filter_backends = [_WorkspaceOperatorEmailSearchFilter, filters.OrderingFilter]
-    search_fields = ["name", "email"]  # operators; backend narrows to ["name"] otherwise
+    # Email search is gated on the stored workspace ADMIN role via the custom backend
+    # (#892, raised from org-admin in #3569): everyone else searches by name only, so
+    # they cannot probe email existence with ?search=.
+    filter_backends = [_WorkspaceAdminEmailSearchFilter, filters.OrderingFilter]
+    search_fields = ["name", "email"]  # workspace admins; backend narrows to ["name"]
     ordering_fields = ["name"]
     # Per-user cap on the harvest-prone read path (#891, mirrors #815).
     throttle_classes = [ResourceCatalogThrottle]
 
     #: Actions that reach past the catalog's own row data — into other projects'
-    #: task names, or into the deactivated pool — and therefore take the install
-    #: operator floor rather than the self-grantable org-admin derivation (#3569).
+    #: task names, or into the deactivated pool — and therefore take the **stored**
+    #: workspace ADMIN role rather than the self-grantable org-admin derivation
+    #: (#3569).
     #:
     #: * ``assignments`` — task and project names for one person across every
     #:   project in the install (ADR-0499). Exfiltration.
@@ -912,10 +914,10 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     #:   ``roster_changed`` broadcast to every project holding an assignment,
     #:   including projects the caller cannot see. Destruction.
     #: * ``restore`` — the inverse of ``destroy``, kept on the same floor so the
-    #:   deactivation lifecycle has one principal. Splitting it would leave an org
+    #:   deactivation lifecycle has one principal. Splitting it would leave an
     #:   admin able to reactivate rows they can neither list
-    #:   (``?include_deleted=true`` is operator-only) nor deactivate.
-    _WORKSPACE_OPERATOR_ACTIONS: frozenset[str] = frozenset({"assignments", "destroy", "restore"})
+    #:   (``?include_deleted=true`` is on the same floor) nor deactivate.
+    _WORKSPACE_ADMIN_ACTIONS: frozenset[str] = frozenset({"assignments", "destroy", "restore"})
 
     def get_permissions(self) -> list[BasePermission]:
         """Split read vs write permissions.
@@ -923,15 +925,24 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         Safe HTTP methods open to any authenticated user; ordinary catalog writes
         (create, update) restricted to org admins (PM or Owner role on any *active*
         project). The deactivation lifecycle and the cross-project ``assignments``
-        view take the install-operator floor — see
-        :attr:`_WORKSPACE_OPERATOR_ACTIONS`.
+        view require workspace ADMIN — see :attr:`_WORKSPACE_ADMIN_ACTIONS`.
+
+        ``IsWorkspaceAdminStrict`` rather than ``IsWorkspaceOperator``: the defect in
+        #3569 is that org authority was read out of a *self-grantable* project role,
+        and the fix is a **stored** principal, not necessarily the install superuser.
+        ``WorkspaceMembership`` is granted only by an existing workspace admin or by
+        SSO provisioning — creating a project grants none — so ADMIN is unreachable
+        by the exploit path while staying an in-app role a workspace owner can hand
+        out. Superusers keep access through ``workspace_role_for_user``'s implicit
+        OWNER bootstrap. ``IsWorkspaceAdminStrict`` (#1724) gates ADMIN on reads as
+        well as writes, which is what ``assignments`` needs.
         """
         # `assignments` is a GET that must NOT inherit the base catalog read's open
         # IsAuthenticated gate: it carries task/project names across project
         # boundaries, so an open gate is a cross-project IDOR. It sits in the
-        # operator set rather than being special-cased here.
-        if getattr(self, "action", None) in self._WORKSPACE_OPERATOR_ACTIONS:
-            return [IsAuthenticated(), IsWorkspaceOperator()]
+        # workspace-admin set rather than being special-cased here.
+        if getattr(self, "action", None) in self._WORKSPACE_ADMIN_ACTIONS:
+            return [IsAuthenticated(), IsWorkspaceAdminStrict()]
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsOrgAdmin()]
@@ -943,16 +954,16 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
             .order_by("name")
         )
 
-        # Deactivated resources are hidden by default. A workspace operator may
-        # opt in via ?include_deleted=true to manage the deactivated pool. The param
-        # is honored only for operators (#1374, raised from org-admin in #3569):
+        # Deactivated resources are hidden by default. A workspace admin may opt in
+        # via ?include_deleted=true to manage the deactivated pool. The param is
+        # honored only at that floor (#1374, raised from org-admin in #3569):
         # anyone else passing it is silently ignored so soft-deleted resource
         # records stay hidden — defense-in-depth for the deactivated-pool contract
         # the docstring already claimed, and it keeps the pool's three verbs
         # (list/delete/restore) on one principal.
         include_deleted = self.request.query_params.get(
             "include_deleted", ""
-        ).lower() == "true" and _request_is_workspace_operator(self.request)
+        ).lower() == "true" and _request_is_workspace_admin(self.request)
         if not include_deleted:
             qs = qs.filter(is_deleted=False)
 
@@ -1032,7 +1043,7 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     def restore(self, request: Request, pk: str | None = None) -> Response:
         """Restore a soft-deleted resource back to active status.
 
-        Requires IsWorkspaceOperator (checked in get_permissions since this is a
+        Requires IsWorkspaceAdminStrict (checked in get_permissions since this is a
         write action; raised from IsOrgAdmin in #3569 so the whole deactivation
         lifecycle sits on one principal). Fetches from the unfiltered queryset so
         soft-deleted records are reachable; the standard get_object() path
@@ -1084,8 +1095,8 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         responses=ResourceAssignmentSerializer(many=True),
         description=(
             "Cross-project task assignments for one resource — the org catalog's "
-            "'what is this person working on' view (#2047). Requires a workspace "
-            "operator (superuser) because it carries task/project names across "
+            "'what is this person working on' view (#2047). Requires workspace "
+            "workspace Admin because it carries task/project names across "
             "project boundaries. "
             "Soft-deleted tasks are excluded; a deactivated resource still returns "
             "its assignments. Ordered by project then task."
@@ -1095,16 +1106,17 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     def assignments(self, request: Request, pk: str | None = None) -> Response:
         """Return every task the resource is assigned to, across all projects.
 
-        Gated on ``IsWorkspaceOperator`` in ``get_permissions`` (this GET must not
+        Gated on ``IsWorkspaceAdminStrict`` in ``get_permissions`` (this GET must not
         inherit the base catalog read's open gate — see the note there). Unlike
         ``/task-resources/?resource=`` this is NOT scoped to the caller's member
         projects: it returns the full cross-project set.
 
         ADR-0499 gated it on ``IsOrgAdmin`` and reasoned that "the RBAC gate is
         what makes that safe". It did not — that gate is self-grantable in two
-        requests (#3569), so the complete picture was readable by any account. A
-        resource manager who needs their own projects' view uses
-        ``/task-resources/?resource=``, which is membership-scoped.
+        requests (#3569), so the complete picture was readable by any account. The
+        stored workspace ADMIN role is not reachable that way. A resource manager who
+        needs their own projects' view uses ``/task-resources/?resource=``, which is
+        membership-scoped.
 
         The resource is looked up from the unfiltered manager so a deactivated
         resource's detail panel still resolves (mirrors ``restore``). Soft-deleted
