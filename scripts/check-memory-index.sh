@@ -34,7 +34,24 @@ set -euo pipefail
 
 # Budget sits below the ~24.4 KB read limit so there is room to notice before the
 # harness starts truncating. Override for a one-off check at a different threshold.
-MEMORY_MAX_BYTES="${TRUEPPM_MEMORY_MAX_BYTES:-23000}"
+#
+# Calibrated 23000 -> 23800 in #3591, and the reasoning matters more than the number.
+# 23000 fired correctly on its first real use, twenty minutes after this gate merged —
+# one new memory took the index from 22863 to 23049. The response was NOT to move the
+# threshold: a full demotion pass ran first, reviewing every single-link entry against
+# "does this hook stand alone", and it yielded 310 bytes against a ~1.4 KB shortfall.
+# 106 of the index's 138 entries are durable `type: feedback` rules, which is exactly
+# what earns index space; there was no fat to cut. So the content is at its natural
+# size and the threshold was the thing set wrong.
+#
+# Keep that order if this number is ever revisited. A floor lowered INSTEAD of looking
+# launders a regression; a floor corrected AFTER looking, with the search recorded, is
+# calibration. The two are indistinguishable in the diff and opposite in meaning.
+#
+# 23800 leaves ~1.1 KB of working headroom over the 2026-09-07 measurement (22680) and
+# ~600 B of warning room below the hard limit — the margin that actually matters, since
+# past ~24.4 KB the harness truncates and memories stop arriving with nothing failing.
+MEMORY_MAX_BYTES="${TRUEPPM_MEMORY_MAX_BYTES:-23800}"
 
 # Memory types whose whole purpose is to be reachable. `project_*` is exempt: per-issue
 # records are file-only by design (see the memory-discipline section of the global
@@ -137,7 +154,9 @@ self_test() {
 
   # 3. over budget -> exit 1  (the detection that matters)
   mkdir -p "$tmp/big"
-  head -c 24000 /dev/zero | tr '\0' 'x' > "$tmp/big/MEMORY.md"
+  # Comfortably over the default rather than clearing it by a couple of hundred bytes,
+  # so a future budget bump does not silently turn this detection case into a no-op.
+  head -c 40000 /dev/zero | tr '\0' 'x' > "$tmp/big/MEMORY.md"
   : > "$tmp/big/MEMORY-archive.md"
   t "over-budget index FAILS" "$([[ "$(rc run_check "$tmp/big" 1)" == 1 ]] && echo 0 || echo 1)"
 
