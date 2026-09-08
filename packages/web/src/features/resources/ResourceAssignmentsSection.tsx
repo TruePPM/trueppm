@@ -2,6 +2,7 @@ import { useId } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { useResourceAssignments } from '@/hooks/useResourceAssignments';
 import type { ResourceAssignment } from '@/hooks/useResourceAssignments';
 import { StatusPill, STATUS_LABEL } from '@/features/grid/ui';
@@ -10,24 +11,30 @@ import { groupAssignmentsByProject } from './groupAssignmentsByProject';
 /**
  * "Assignments" section of the org catalog ResourceDetailPanel (#2047, ADR-0499):
  * what is this person working on, across every project. Read-only projection of an
- * endpoint gated on `IsWorkspaceOperator` — the install superuser (#3569 raised it
- * from `IsOrgAdmin`, which any account self-granted by creating a project).
+ * endpoint gated on `IsWorkspaceAdminStrict` — the stored workspace ADMIN role
+ * (#3569 raised it from `IsOrgAdmin`, which any account self-granted by creating a
+ * project).
  *
  * Two gates keep it safe and quiet for the wrong audience:
- *  1. `can_access_admin_settings` — hide the section for non-admins so we rarely
- *     fire a request that would 403. This client boolean is *much broader* than
- *     the server's gate, so it is a UX gate, not the security boundary.
- *  2. a 403 backstop — the common case since #3569, because most admins are not
- *     superusers: the endpoint 403s and we render nothing rather than an error
- *     (the server gate is authoritative). Any *other* error shows an inline alert
- *     + retry. Narrowing gate 1 needs a server-computed operator flag on `/me`,
- *     which does not exist yet.
+ *  1. `workspace_role >= WORKSPACE_ADMIN_ROLE` — the *same* question the server
+ *     asks, so the section is hidden precisely when the request would 403 rather
+ *     than merely "usually". This deliberately replaced `can_access_admin_settings`,
+ *     which is `max_project_role >= ADMIN OR workspace_role >= ADMIN` and so admits
+ *     every project admin — under the earlier superuser-based gate that mismatch
+ *     guaranteed a permanently empty section for most people who could see it.
+ *     Matching the server was only possible because `workspace_role` is already
+ *     published on `/auth/me`; it is still a UX gate, not the security boundary.
+ *  2. a 403 backstop — the server gate stays authoritative, so a refusal renders
+ *     nothing rather than an error (a stale `/auth/me` or a role revoked mid-session
+ *     both land here). Any *other* error shows an inline alert + retry.
  */
 export function ResourceAssignmentsSection({ resourceId }: { resourceId: string }) {
   const { user } = useCurrentUser();
-  const canView = user?.can_access_admin_settings ?? false;
-  // Gate the whole data component so the hook only runs for admins (a non-admin
-  // never issues the request). Hooks can't be conditional, hence the split.
+  // Fail closed: a missing/loading `/auth/me` payload has no workspace_role, and -1
+  // keeps the section hidden rather than firing a request that would 403.
+  const canView = (user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE;
+  // Gate the whole data component so the hook only runs for workspace admins (nobody
+  // else issues the request). Hooks can't be conditional, hence the split.
   if (!canView) return null;
   return <AssignmentsSectionInner resourceId={resourceId} />;
 }

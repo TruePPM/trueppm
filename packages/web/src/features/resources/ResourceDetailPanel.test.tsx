@@ -170,7 +170,7 @@ describe('ResourceDetailPanel — view/edit form', () => {
   });
 
   // #3569: the server omits `email` for callers who are neither the resource's own
-  // user nor a workspace operator, which is the common case for a catalog admin. An
+  // user nor a workspace ADMIN, which is the common case for a catalog admin. An
   // input bound to that undefined value renders blank for a resource that *does* have
   // an address, and saving would overwrite an address the caller never saw.
   describe('when the server withheld email', () => {
@@ -179,7 +179,7 @@ describe('ResourceDetailPanel — view/edit form', () => {
     it('shows an explanation instead of a blank editable field', () => {
       renderPanel(WITHHELD);
       expect(screen.queryByRole('textbox', { name: 'Email' })).not.toBeInTheDocument();
-      expect(screen.getByText('Hidden — requires a workspace operator')).toBeInTheDocument();
+      expect(screen.getByText('Hidden — requires workspace Admin')).toBeInTheDocument();
     });
 
     it('still renders the editable field when email is genuinely empty', () => {
@@ -337,17 +337,17 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
   it('surfaces a refusal when deactivate is forbidden', async () => {
     // #3569 made 403 the expected outcome here for an ordinary catalog admin, since
     // the buttons render for anyone who reaches the page but the endpoint now requires
-    // a workspace operator. Without an onError the click silently did nothing, which
+    // workspace ADMIN. Without an onError the click silently did nothing, which
     // reads as a broken button rather than a refusal.
     const user = userEvent.setup();
-    deleteMock.mockRejectedValue(new Error('Only a workspace operator may change this setting.'));
+    deleteMock.mockRejectedValue(new Error('You need workspace Admin access to perform this action.'));
     const { onDeactivated } = renderPanel();
 
     await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));
     await user.click(screen.getByRole('button', { name: 'Deactivate' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Only a workspace operator may change this setting.',
+      'You need workspace Admin access to perform this action.',
     );
     expect(onDeactivated).not.toHaveBeenCalled();
   });

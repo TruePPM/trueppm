@@ -87,9 +87,9 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
     );
   }
 
-  // Both paths need onError. Since #3569 deactivate/restore require a workspace
-  // operator, but the buttons are rendered for anyone who reaches this page — so a
-  // 403 is now the expected outcome for an ordinary catalog admin. Without this the
+  // Both paths need onError. Since #3569 deactivate/restore require workspace ADMIN,
+  // but the buttons are rendered for anyone who reaches this page — so a 403 is a
+  // real outcome for a project admin who holds no workspace role. Without this the
   // click clears its pending state and nothing whatsoever happens, which reads as a
   // broken button rather than a refusal. Reuses the same saveError banner as handleSave.
   function handleDeactivate() {
@@ -98,7 +98,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
       onSuccess: onDeactivated,
       onError: (err) =>
         setSaveError(
-          err.message ?? 'Deactivate failed. Only a workspace operator may deactivate a resource.',
+          err.message ?? 'Deactivate failed. You need workspace Admin access to deactivate a resource.',
         ),
     });
     setConfirmDeactivate(false);
@@ -110,7 +110,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
       onSuccess: onRestored,
       onError: (err) =>
         setSaveError(
-          err.message ?? 'Restore failed. Only a workspace operator may restore a resource.',
+          err.message ?? 'Restore failed. You need workspace Admin access to restore a resource.',
         ),
     });
   }
@@ -158,8 +158,8 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
         </Field>
 
         {/*
-          The server omits `email` entirely unless the caller is a workspace operator
-          or the resource's own user (#891/#3569). An editable input bound to an
+          The server omits `email` entirely unless the caller holds workspace ADMIN
+          or is the resource's own user (#891/#3569). An editable input bound to an
           undefined value would render blank for a resource that *does* have an
           address, and anything typed into it would overwrite the address the caller
           was never allowed to see. So when it is withheld, say so and do not offer
@@ -171,7 +171,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
               id="resource-email"
               className="text-xs text-neutral-text-secondary h-8 flex items-center"
             >
-              Hidden — requires a workspace operator
+              Hidden — requires workspace Admin
             </p>
           ) : (
             <input

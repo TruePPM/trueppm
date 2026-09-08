@@ -88,12 +88,12 @@ async function mockResourceRoutes(
   await setupCatchAll(page);
 
   // These routes fulfill DELETE, /restore/ and ?include_deleted=true unconditionally,
-  // which since #3569 models a **workspace operator** (the install superuser) — that
-  // is now the only principal the server lets through on the deactivation lifecycle.
+  // which since #3569 models a caller holding **workspace ADMIN** — the floor the
+  // server now enforces on the deactivation lifecycle.
   // The mocks are deliberately not made gate-aware: these specs cover the catalog UI's
   // behavior, and the gate itself is covered server-side in
   // packages/api/tests/apps/resources/test_org_resources.py. Read a passing spec here
-  // as "the operator flow works", never as "any catalog admin can do this".
+  // as "the workspace-admin flow works", never as "any catalog admin can do this".
   //
   // Stateful lists so mutations are reflected in subsequent GET re-fetches.
   const deletedIds = new Set<string>();
@@ -327,13 +327,13 @@ const FIXTURE_ASSIGNMENTS = [
   },
 ];
 
-// Named for the operator, not "admin": since #3569 the assignments endpoint requires
-// IsWorkspaceOperator, so a project admin gets a 403 and the section renders nothing
-// (covered by ResourceAssignmentsSection.test.tsx). The 200 mocked below is the
-// operator's view. `/auth/me/` still sets only `can_access_admin_settings` because the
-// app has no superuser flag to set — that gap is why the section is reachable by
-// admins who will be refused, and it is tracked in the #3569 follow-ups.
-test('a workspace operator sees the Assignments section grouped by project', async ({
+// Named for the workspace admin, not "admin": since #3569 the assignments endpoint
+// requires IsWorkspaceAdminStrict, so a *project* admin holding no workspace role gets
+// a 403 and the section renders nothing (covered in
+// ResourceAssignmentsSection.test.tsx). `/auth/me/` therefore sets workspace_role: 300
+// — the client gates on the same signal the server does, so mocking only
+// can_access_admin_settings would now hide the section and this spec would fail.
+test('a workspace admin sees the Assignments section grouped by project', async ({
   page,
 }) => {
   await mockResourceRoutes(page);
@@ -353,6 +353,8 @@ test('a workspace operator sees the Assignments section grouped by project', asy
         initials: 'AD',
         email: 'admin@example.com',
         can_access_admin_settings: true,
+        // 300 = WorkspaceRole.ADMIN — what ResourceAssignmentsSection now gates on.
+        workspace_role: 300,
       },
     }),
   );

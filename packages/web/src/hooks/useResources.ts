@@ -25,10 +25,10 @@ interface ApiResource {
   server_version: number;
   name: string;
   /**
-   * Omitted entirely (not nulled) unless the caller is a workspace operator or the
+   * Omitted entirely (not nulled) unless the caller holds workspace ADMIN or is the
    * resource's own user — the server drops the key to prevent org-wide address
-   * harvest (#891, raised to the operator gate in #3569). `undefined` therefore means
-   * "you may not see this", never "this person has no address".
+   * harvest (#891, raised to the workspace-ADMIN gate in #3569). `undefined`
+   * therefore means "you may not see this", never "this person has no address".
    */
   email?: string;
   job_role: string;

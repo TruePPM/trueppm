@@ -44,16 +44,15 @@ function mapAssignment(a: ApiResourceAssignment): ResourceAssignment {
 
 /**
  * GET /api/v1/resources/{id}/assignments/ — cross-project task assignments for one
- * resource (#2047). The endpoint requires `IsWorkspaceOperator` — the installation
- * superuser (#3569 raised it from `IsOrgAdmin`, which any account self-granted by
- * creating a project). A 403 surfaces as the query's error state and the section
- * renders nothing.
+ * resource (#2047). The endpoint requires `IsWorkspaceAdminStrict` — the stored
+ * workspace ADMIN role (#3569 raised it from `IsOrgAdmin`, which any account
+ * self-granted by creating a project). A 403 surfaces as the query's error state and
+ * the section renders nothing.
  *
- * Expect 403 to be the *common* case, not an exceptional one: the upstream
- * `can_access_admin_settings` gate on the section is much broader than the server's
- * operator check, so ordinary project admins reach this hook and are refused.
- * Narrowing that gate needs a server-computed operator flag on `/me`, which does
- * not exist yet.
+ * 403 should now be rare rather than routine: `ResourceAssignmentsSection` gates on
+ * `workspace_role >= WORKSPACE_ADMIN_ROLE`, the same question the server asks, so the
+ * hook normally only runs for callers who will be allowed. It remains reachable on a
+ * stale `/auth/me` or a role revoked mid-session, which is why the backstop stays.
  */
 export function useResourceAssignments(resourceId: string | undefined) {
   return useQuery({
