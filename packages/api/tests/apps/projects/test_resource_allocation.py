@@ -615,3 +615,28 @@ class TestResourceAllocationCap:
         assert body["truncated"] is True
         assert len(body["resources"]) == 2
         assert all(len(r["tasks"]) == 2 for r in body["resources"])
+
+    def test_a_single_resource_overflowing_the_cap_yields_no_resources_at_all(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The degenerate case: every fetched row belongs to one resource.
+
+        The boundary rewind then has nothing left to keep, so the response is
+        empty with ``truncated: true``. That is deliberate and it is the honest
+        answer — returning the rows anyway would hand the client a resource with
+        part of its spans, whose ADR-0031 load verdict would be *wrong* rather
+        than merely incomplete. `resource_count` still names the denominator, so
+        the client says "Showing 0 of 1" rather than rendering an empty roster as
+        if nobody were assigned.
+        """
+        from trueppm_api.apps.projects import views as project_views
+
+        client = _auth_client(Role.SCHEDULER, project)
+        _seed_resources(project, count=1, per_resource=5)
+
+        monkeypatch.setattr(project_views, "_ALLOCATION_ASSIGNMENT_LIMIT", 3)
+        body = client.get(_url(project)).json()
+
+        assert body["truncated"] is True
+        assert body["resources"] == []
+        assert body["resource_count"] == 1
