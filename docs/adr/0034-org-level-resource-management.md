@@ -21,8 +21,8 @@
 > a known residual instead. (2) The project and program **`resource-allocation`**
 > endpoints hand-build their payload and still return `email` for resources assigned
 > to a project the caller can schedule, so the #891 harvest control is *narrowed* by
-> this amendment, not completed. Both are tracked separately; neither should be read
-> as this ADR endorsing the derivation for them.
+> this amendment, not completed. Tracked as #3600 and #3599 respectively; neither
+> should be read as this ADR endorsing the derivation for them.
 
 ## Status
 Accepted (2026-05-31) — implemented in #155

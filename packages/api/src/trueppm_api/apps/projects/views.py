@@ -904,8 +904,9 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         # every bound project, including ones the actor cannot see). #3174 already
         # decided this exact reach and chose attribution — a CALENDAR_CHANGED audit
         # event naming the actor — over a raised gate; #3569 is a hardening fix and
-        # does not reopen a closed ADR. Recorded as a known residual in ADR-0034's
-        # #3569 amendment. Do not read this as the derivation being right here.
+        # does not reopen a closed ADR. Tracked as #3600 and recorded as a known
+        # residual in ADR-0034's #3569 amendment. Do not read this as the
+        # derivation being right here.
         return [IsAuthenticated(), IsOrgAdmin()]
 
     def get_queryset(self) -> QuerySet[Calendar]:
