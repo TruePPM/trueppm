@@ -48,6 +48,7 @@ function makeMembership(overrides: Partial<ProgramMembership> = {}): ProgramMemb
     role_label: 'Project Admin',
     joined_at: '2026-01-01T00:00:00Z',
     role_changed_at: null,
+    reinstated_at: null,
     ...overrides,
   };
 }

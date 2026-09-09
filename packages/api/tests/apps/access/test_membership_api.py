@@ -542,6 +542,18 @@ def test_new_membership_backfills_joined_at_and_null_role_changed_at(
 
 
 @pytest.mark.django_db
+def test_new_membership_leaves_reinstated_at_null(
+    member_membership: ProjectMembership,
+) -> None:
+    """A fresh add is not a reinstatement — reinstated_at stays NULL (#3436).
+
+    Negative control for the revive-stamps-it tests below: if the stamp ever moved
+    into the fresh-add branch, this is what would catch it.
+    """
+    assert member_membership.reinstated_at is None
+
+
+@pytest.mark.django_db
 def test_list_includes_access_evidence_fields(
     owner_client: APIClient, project: Project, owner_membership: ProjectMembership
 ) -> None:
@@ -550,6 +562,7 @@ def test_list_includes_access_evidence_fields(
     row = next(m for m in resp.data if m["id"] == str(owner_membership.pk))
     assert row["joined_at"] is not None
     assert row["role_changed_at"] is None
+    assert row["reinstated_at"] is None
 
 
 @pytest.mark.django_db
@@ -1093,6 +1106,107 @@ def test_re_add_restores_the_team_facets_the_revocation_floored(
 
     assert resp.status_code == 201, resp.data
     assert user_facets(member_user, project.pk)["is_scrum_master"] is True
+
+
+# ---------------------------------------------------------------------------
+# #3436: reinstatement evidence — the discriminator #3410 shipped without.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_stamps_reinstated_at(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """The core assertion: reviving a revoked row stamps reinstated_at, on the
+    create response as well as the row — a machine caller reading the 201 alone
+    must be able to see the reinstatement, not only a later GET."""
+    assert member_membership.reinstated_at is None
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    assert resp.data["reinstated_at"] is not None
+    revived = ProjectMembership.objects.get(pk=member_membership.pk)
+    assert revived.reinstated_at is not None
+    assert revived.reinstated_at >= revived.joined_at
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_stamps_reinstated_at_even_at_the_same_role(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """Unlike role_changed_at, reinstated_at is unconditional on revive.
+
+    role_changed_at only stamps when the role actually differs (see the sibling
+    test above it); reinstated_at records the revive itself, independent of
+    whether the role also moved. Re-adding at the same role must still stamp it.
+    """
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    revived = ProjectMembership.objects.get(pk=member_membership.pk)
+    assert revived.role_changed_at is None
+    assert revived.reinstated_at is not None
+
+
+@pytest.mark.django_db
+def test_second_revive_advances_reinstated_at(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """A second revoke-then-re-add moves the stamp forward — it is not a first-time
+    marker, and it does not accumulate a history (there is nowhere on the row for
+    that; a durable history is the explicitly out-of-scope MEMBER_REINSTATED
+    audit event, #3436)."""
+    member_membership.soft_delete()
+    owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+    first_reinstated_at = ProjectMembership.objects.get(pk=member_membership.pk).reinstated_at
+    assert first_reinstated_at is not None
+
+    ProjectMembership.objects.get(pk=member_membership.pk).soft_delete()
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    second_reinstated_at = ProjectMembership.objects.get(pk=member_membership.pk).reinstated_at
+    assert second_reinstated_at is not None
+    assert second_reinstated_at > first_reinstated_at
+
+
+@pytest.mark.django_db
+def test_fresh_add_response_carries_null_reinstated_at(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
+) -> None:
+    """A fresh add's 201 must not be mistaken for a reinstatement (negative control
+    for the discriminator itself — the whole point of #3436 is that these two
+    reads must be distinguishable on the create response).
+
+    Workspace-admin fixture, not a shared roster: the subject here is the create
+    response shape, not target reachability (#3641), so the actor is taken out of
+    that variable exactly as the sibling reachability-agnostic tests do.
+    """
+    new_user = User.objects.create_user(username="fresh_add", password="pw")
+
+    resp = owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    assert resp.data["reinstated_at"] is None
 
 
 # ---------------------------------------------------------------------------

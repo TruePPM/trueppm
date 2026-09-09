@@ -62,6 +62,11 @@ export interface ProjectMembership {
   joined_at: string;
   /** ISO 8601 timestamp of the last role change, or null if unchanged since joining. */
   role_changed_at: string | null;
+  /** ISO 8601 timestamp this membership was last reinstated after a revoke, or null if it
+   *  has never been revoked and re-added. The discriminator for joined_at: re-adding a
+   *  revoked member keeps their original joined_at, so this is what tells "joined once,
+   *  never left" apart from "was away and came back" (#3436). */
+  reinstated_at: string | null;
   /** Count of other active (non-archived) projects this user belongs to, excluding this one (#598). */
   other_active_project_count: number;
   /** Names of those other projects, limited to ones the requesting user owns (visibility-gated). */
@@ -460,6 +465,9 @@ export interface ProgramMembership {
   joined_at: string;
   /** ISO 8601 timestamp of the last role change, or null if unchanged since joining (#878). */
   role_changed_at: string | null;
+  /** ISO 8601 timestamp this membership was last reinstated after a revoke, or null if it
+   *  has never been revoked and re-added — mirrors ProjectMembership's field (#3436). */
+  reinstated_at: string | null;
 }
 
 // ---------------------------------------------------------------------------

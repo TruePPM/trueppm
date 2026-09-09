@@ -209,8 +209,14 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
                                  evidence, but NOT proof of uninterrupted access: re-adding a
                                  previously removed member revives their original row and keeps
                                  this date, so the span may contain one or more revoked intervals
-                                 (#3410). Nothing on the row records the gap.
+                                 (#3410). Use reinstated_at as the discriminator — it is null iff
+                                 this membership has never lapsed (#3436).
     role_changed_at            — when the role last changed, or null if unchanged since joining
+    reinstated_at              — when this membership was last revived after a revoke, or null if
+                                 it has never been revoked and re-added. Stamped on every revive
+                                 (advances on a second revive rather than accumulating history) —
+                                 the durable server-side fact that lets a caller, human or machine,
+                                 tell a never-lapsed membership apart from a revived one (#3436).
     other_active_project_count — how many OTHER active (non-archived, non-deleted) projects this
                                  user belongs to, excluding the current one. A resource-load
                                  signal for the assigner (#598). The full count is shown; it is a
@@ -276,6 +282,7 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
             "role_label",
             "joined_at",
             "role_changed_at",
+            "reinstated_at",
             "other_active_project_count",
             "other_active_project_names",
         ]
@@ -288,6 +295,7 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
             "role_label",
             "joined_at",
             "role_changed_at",
+            "reinstated_at",
             "other_active_project_count",
             "other_active_project_names",
         ]
@@ -356,7 +364,8 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
     ``joined_at`` carries the same caveat as its project twin: it is the date the row
     was first created, and a revoked member who is later re-added keeps it, so the
     span may contain revoked intervals (#3410). It is not proof of uninterrupted
-    access.
+    access — ``reinstated_at`` is the discriminator (null iff never revoked and
+    re-added, #3436).
     """
 
     user_detail = _UserSummarySerializer(source="user", read_only=True)
@@ -401,6 +410,7 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
             "role_title",
             "joined_at",
             "role_changed_at",
+            "reinstated_at",
         ]
         read_only_fields = [
             "id",
@@ -411,6 +421,7 @@ class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembers
             "role_label",
             "joined_at",
             "role_changed_at",
+            "reinstated_at",
         ]
 
 

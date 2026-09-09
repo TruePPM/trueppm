@@ -146,8 +146,9 @@ class ProjectMembership(VersionedModel):
     # server_version), so these are explicit columns rather than inherited.
     # Scope of the evidence (#3410): joined_at is the *first* join. Re-adding a
     # revoked member revives their original row and keeps this date, so the span
-    # it describes may contain revoked intervals and no column records them.
-    # Do not present it as proof of uninterrupted access.
+    # it describes may contain revoked intervals — use reinstated_at below as the
+    # discriminator between "joined once, never left" and "was away and came
+    # back". Do not present joined_at alone as proof of uninterrupted access.
     # joined_at uses default=timezone.now (not auto_now_add) so the AddField
     # migration backfills existing rows non-interactively at migration time.
     joined_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -156,6 +157,18 @@ class ProjectMembership(VersionedModel):
     # partial_update and the ownership-transfer service). The UI shows the
     # "role changed" line only when this is set.
     role_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Per-project reinstatement evidence (#3436). NULL means this membership has
+    # never been revoked and re-added — a fresh add leaves it null. Stamped with
+    # timezone.now() only in _revive_revoked_membership, each time a revoked row
+    # is revived (a second revive advances it, it does not accumulate history).
+    # This is the durable server-side fact #3410 shipped without: neither model
+    # carries HistoricalRecords, deleted_version is cleared on revive, and the
+    # access app writes no AuditEvent, so before this field there was no trace of
+    # a revocation surviving past TRUEPPM_BOARD_EVENT_RETENTION_HOURS (24h
+    # default). A machine caller reading joined_at alone cannot tell a
+    # never-lapsed membership from a revived one; reinstated_at is the
+    # discriminator.
+    reinstated_at = models.DateTimeField(null=True, blank=True, editable=False)
     # Set when this membership was materialized by a workspace Group→project
     # cascade (ADR-0087 §5) rather than a direct invite. A direct grant
     # (source_group IS NULL) always wins: group reconciliation never alters or
@@ -258,7 +271,7 @@ class ProgramMembership(VersionedModel):
     # created_at/updated_at (sync uses server_version), so these are explicit.
     # The same scope caveat applies as on the project side (#3410): joined_at is
     # the first join and survives a revoke-then-re-add, so it is not proof of
-    # uninterrupted access.
+    # uninterrupted access — reinstated_at below is the discriminator.
     # joined_at uses default=timezone.now (not auto_now_add) so the AddField
     # migration backfills existing rows non-interactively at migration time.
     joined_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -266,6 +279,10 @@ class ProgramMembership(VersionedModel):
     # stamped with timezone.now() only on an actual role change (the viewset
     # partial_update and transfer_program_sponsorship).
     role_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Per-program reinstatement evidence (#3436) — mirrors ProjectMembership's
+    # field exactly. NULL means never revoked and re-added; stamped with
+    # timezone.now() each time _revive_revoked_membership revives this row.
+    reinstated_at = models.DateTimeField(null=True, blank=True, editable=False)
     # Freeform functional-role label (#565), e.g. "Product Owner" / "Tech Lead" /
     # "Scrum Master" — distinct from, and orthogonal to, the access ``role`` enum
     # above. It is purely descriptive: not enforced anywhere, it anchors the
