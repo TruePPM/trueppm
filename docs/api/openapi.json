@@ -26520,58 +26520,6 @@
                 "summary": "Retrieve history"
             }
         },
-        "/api/v1/projects/{project_pk}/history/summary/": {
-            "get": {
-                "operationId": "v1_projects_history_summary_retrieve",
-                "description": "Aggregate mutation counts for a project over a time window.\n\nGET /api/v1/projects/{project_pk}/history/summary/?window=7d\n\nSupported windows: 1d, 7d (default), 30d, 90d.\nResponse is cached in Redis for 5 minutes. Pass ``?refresh=1`` to bust\nthe cache — the UI should call this when the user hits the refresh button.\n\nThe ``generated_at`` field is an ISO-8601 timestamp the UI should display\nas \"last updated X ago\" so users know the freshness of the data.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "project_pk",
-                        "schema": {
-                            "type": "string"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "projects"
-                ],
-                "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "No response body"
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Retrieve summary"
-            }
-        },
         "/api/v1/projects/{project_pk}/import/csv/": {
             "post": {
                 "operationId": "v1_projects_import_csv_create",

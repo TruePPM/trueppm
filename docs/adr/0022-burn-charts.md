@@ -125,7 +125,11 @@ Response (extensible shape — `project_id` field supports future Enterprise agg
 - `from` / `to` default to project `start_date` and today.
 - `scope_changes` array: entries where `total` changed from the previous day.
 - Permission: project Viewer role or above.
-- Redis-cached for 5 minutes (same pattern as `ProjectHistorySummaryView`).
+- Redis-cached for 5 minutes (originally cited against `ProjectHistorySummaryView`'s
+  identical TTL; that endpoint was removed outright in #3372 as an unconsumed
+  orphan — see ADR-0011's dated Superseded note. The pattern this burn-chart
+  endpoint follows is unchanged: a 5-minute Redis TTL keyed per project, the
+  same shape `ProjectHistorySummaryView` used before its removal).
 
 ### 3. Charting library: Recharts
 

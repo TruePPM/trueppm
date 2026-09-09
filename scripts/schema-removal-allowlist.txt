@@ -196,3 +196,14 @@ schema:ProjectMembershipWrite
 schema:ProgramMembershipWrite
 schema:PatchedProjectMembershipWriteRequest
 schema:PatchedProgramMembershipWriteRequest
+
+# #3372 — ProjectHistorySummaryView removed. The oldest and longest-lived orphan
+# found (shipped 2026-03-25 in 0.1): its own docstring claimed "the UI should call
+# this when the user hits the refresh button", but a repository-wide search — web
+# (src + e2e), mobile, MCP server, docs, this app's own urls.py — found no caller.
+# Web reads /changelog/ and per-task/per-project history instead. Removed with a
+# step-3 policy exception (not a deprecation window) — see stability.md and
+# ADR-0011's dated Superseded note for the recorded decision and rationale. The
+# VALID_WINDOWS constant was confirmed unshared and removed with the view; the
+# _MAX_HISTORY_ROWS cap on the surviving list views is untouched.
+/api/v1/projects/{project_pk}/history/summary/
