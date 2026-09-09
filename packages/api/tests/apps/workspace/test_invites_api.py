@@ -730,3 +730,67 @@ def test_resend_all_requires_admin(db: object, admin: object) -> None:
     member = User.objects.create_user(username="plain2", password="pw")
     resp = _client(member).post(f"{LIST_URL}resend-all/")
     assert resp.status_code == 403
+
+
+# --- resend throttle (#3598, ADR-0149) --------------------------------------
+#
+# ``InviteResendThrottle`` declares ``scope = "invite_resend"`` as a class
+# attribute, but ``ScopedRateThrottle.allow_request`` reassigns
+# ``self.scope = getattr(view, "throttle_scope", None)`` on every call and
+# returns True (no-op) when that is falsy. Before #3598 neither resend view
+# declared ``throttle_scope``, so the class attribute was clobbered to None and
+# every request passed unthrottled — the 5/min cap in settings was dead config.
+#
+# The trap the issue calls out: asserting ``throttle.scope`` on a freshly
+# constructed ``InviteResendThrottle()`` instance reads the class attribute
+# *before* ``allow_request`` clobbers it, so that assertion passes against the
+# broken build too. Only a 429 driven through the client distinguishes a
+# working throttle from a dead one — these tests never touch ``.scope``.
+
+
+@pytest.mark.django_db
+def test_resend_sixth_request_in_a_minute_is_429(admin: object) -> None:
+    """The 6th resend within a minute is refused; the default rate is 5/min."""
+    from django.core.cache import cache
+
+    invites = [_sent_invite(admin, email=f"throttle{i}@x.io") for i in range(6)]
+    cache.clear()
+    try:
+        client = _client(admin)
+        codes = [client.post(f"{LIST_URL}{inv.pk}/resend/").status_code for inv in invites]
+        assert codes == [202, 202, 202, 202, 202, 429], codes
+    finally:
+        cache.clear()
+
+
+@pytest.mark.django_db
+def test_resend_all_sixth_request_in_a_minute_is_429(admin: object) -> None:
+    """The bulk resend-all view shares the same ``invite_resend`` bucket."""
+    from django.core.cache import cache
+
+    _sent_invite(admin, email="bulk-throttle@x.io")
+    cache.clear()
+    try:
+        client = _client(admin)
+        codes = [client.post(f"{LIST_URL}resend-all/").status_code for _ in range(6)]
+        assert codes == [202, 202, 202, 202, 202, 429], codes
+    finally:
+        cache.clear()
+
+
+@pytest.mark.django_db
+def test_resend_views_declare_throttle_scope_on_the_view(admin: object) -> None:
+    """Regression pin for the #3598 trap: the class attribute alone is a no-op.
+
+    ``ScopedRateThrottle`` reads its scope off ``view.throttle_scope``, not off a
+    ``scope`` attribute on the throttle class — a throttle that never fires would
+    still report a nonempty ``.scope`` on a freshly constructed instance, so this
+    checks the attribute that actually governs behavior.
+    """
+    from trueppm_api.apps.workspace.views import (
+        WorkspaceInviteResendAllView,
+        WorkspaceInviteResendView,
+    )
+
+    for view in (WorkspaceInviteResendView, WorkspaceInviteResendAllView):
+        assert view.throttle_scope == "invite_resend", view.__name__
