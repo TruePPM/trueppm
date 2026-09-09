@@ -979,7 +979,10 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
       Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view
         for team members and the AddToRosterCombobox picker.
       Write (POST/PATCH/PUT): IsOrgAdmin — any user with PM (ADMIN) or Owner
-        role on at least one *active* project (#3569).
+        role on at least one *active* project (#3569). ``email`` is an exception:
+        ``ResourceSerializer.validate`` rejects it below the stored workspace ADMIN
+        role (#3625) — this view-level gate alone was self-grantable and left
+        writing the field wide open even after #3569 raised reading it.
       DELETE, ``restore``, ``assignments``, and ``?include_deleted=true``:
         IsWorkspaceAdminStrict (stored workspace ADMIN role). Raised in #3569 —
         these reach across every project in the install, and the org-admin
