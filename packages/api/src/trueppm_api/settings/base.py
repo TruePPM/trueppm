@@ -1514,6 +1514,17 @@ REST_FRAMEWORK = {
         # human (or an MCP agent) exploring a handful of "what if I slip this task"
         # scenarios while blunting a scripted resource-exhaustion flood.
         "monte_carlo_whatif": _STRICT_ABUSE_RATE,
+        # Burn chart / flow metrics reads (#3581). ProjectBurnView.get and
+        # FlowMetricsView.get both reconstruct their series from HistoricalTask
+        # snapshots — the floor cost scales with project history (#3579) even
+        # though #3566 bounds the window per request. Either endpoint is reachable
+        # by any project member (down to Viewer), and both were left on the
+        # general "user" default of 1000/min before this scope existed, which is
+        # meaningful amplification against a shared database. Shared bucket
+        # between the two views (same cost class, same table) rather than a
+        # scope each. 60/min is far above what the Reports page generates —
+        # useBurnChart has a 5-minute staleTime.
+        "burn": env("TRUEPPM_THROTTLE_BURN_RATE", default=_STANDARD_RATE),
         # Bundled-sample demo loader (#2402). POST /programs/load-sample/ is the
         # most expensive single write in the API: it hard-deletes the caller's
         # prior program with the same code (memberships -> projects -> cascade)
