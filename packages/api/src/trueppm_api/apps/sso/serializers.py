@@ -422,3 +422,16 @@ class SsoTestConnectionResponseSerializer(serializers.Serializer[Any]):
     endpoints = serializers.DictField(required=False)
     error = serializers.CharField(required=False, allow_blank=True)
     detail = serializers.CharField(required=False, allow_blank=True)
+
+
+class SsoRedirectUriResponseSerializer(serializers.Serializer[Any]):
+    """Response for ``GET /workspace/sso/redirect-uri/``.
+
+    The redirect URI is derived from server config, not from any saved provider
+    row (ADR-0517 §3.5) — this lets the Add-provider panel show it *before* the
+    first provider is saved, which is required to break the setup order (#3690):
+    the operator needs this value to register the OAuth application with their
+    IdP, and the IdP only issues a client id/secret once that app exists.
+    """
+
+    redirect_uri = serializers.CharField()

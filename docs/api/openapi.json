@@ -51219,6 +51219,85 @@
                 }
             }
         },
+        "/api/v1/workspace/sso/redirect-uri/": {
+            "get": {
+                "operationId": "v1_workspace_sso_redirect_uri_retrieve",
+                "description": "``GET /workspace/sso/redirect-uri/`` — the callback URL, with no providers required.\n\nThe redirect URI is derived from server config (``_derive_redirect_uri``), not\nfrom any saved provider row — it is identical for every provider and needs\nnone of them to exist. ``SsoProviderReadSerializer.redirect_uri`` exposes the\nsame value, but only per-provider, so it is unreachable while the provider\nlist is empty. That is a genuine chicken-and-egg gap on the very first\nprovider an admin adds (#3690): registering an OAuth application with most\nIdPs (GitLab included) requires this URL up front, and the IdP only issues a\nclient id/secret once that application exists — so the admin needs the value\n*before* they have anything to save here. Same admin gate as the collection\nview: this reveals the workspace's public API base URL, which is not secret,\nbut keeping the gate uniform avoids relying on that judgment call twice.",
+                "summary": "Get the SSO redirect URI (identical for every provider)",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SsoRedirectUriResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials or sign-in configuration. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/workspace/transfer-ownership/": {
             "post": {
                 "operationId": "v1_workspace_transfer_ownership_create",
@@ -68403,6 +68482,18 @@
                         "type": "boolean"
                     }
                 }
+            },
+            "SsoRedirectUriResponse": {
+                "type": "object",
+                "description": "Response for ``GET /workspace/sso/redirect-uri/``.\n\nThe redirect URI is derived from server config, not from any saved provider\nrow (ADR-0517 §3.5) — this lets the Add-provider panel show it *before* the\nfirst provider is saved, which is required to break the setup order (#3690):\nthe operator needs this value to register the OAuth application with their\nIdP, and the IdP only issues a client id/secret once that app exists.",
+                "properties": {
+                    "redirect_uri": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "redirect_uri"
+                ]
             },
             "SsoTestConnectionResponse": {
                 "type": "object",
