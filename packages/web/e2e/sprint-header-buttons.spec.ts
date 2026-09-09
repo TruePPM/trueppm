@@ -149,6 +149,20 @@ async function setupCommon(page: import('@playwright/test').Page) {
   // a common shape for non-paginated endpoints; paginated consumers fail
   // gracefully on `.results === undefined`.
   await page.route('**/api/v1/**', (r) => r.fulfill(json([])));
+  await page.route('**/api/v1/me/work/', (r) =>
+    r.fulfill(
+      json({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        active_sprints: [],
+        due_today_count: 0,
+        server_version_high_water: 0,
+        retro_action_items: [],
+      }),
+    ),
+  );
 
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
   await page.route('**/api/v1/auth/me/', (r) =>

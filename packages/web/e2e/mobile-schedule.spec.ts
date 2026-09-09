@@ -200,7 +200,20 @@ async function gotoMobileSchedule(
     r.fulfill({ status: 204, contentType: 'application/json', body: '' }),
   );
   await page.route('**/api/v1/projects/*/visit/', (r) => r.fulfill(json({ ok: true })));
-  await page.route('**/api/v1/me/work/**', (r) => r.fulfill(json({ tasks: [] })));
+  await page.route('**/api/v1/me/work/**', (r) =>
+    r.fulfill(
+      json({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        active_sprints: [],
+        due_today_count: 0,
+        server_version_high_water: 0,
+        retro_action_items: [],
+      }),
+    ),
+  );
   await page.route('**/api/v1/me/notifications/**', (r) => r.fulfill(json(page0)));
   // Global chrome the mobile shell reads — unmocked these 401 and trip the
   // session-expired modal (`fixed inset-0 z-100`), which then eats every tap.
