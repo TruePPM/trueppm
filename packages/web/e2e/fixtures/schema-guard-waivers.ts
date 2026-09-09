@@ -12,9 +12,10 @@
  * it removes is the **silence**: before this file existed, a mock the server
  * could never produce generated no signal anywhere in the pipeline. The first
  * measured pass found 346 such lines across 104 operations, all of them green;
- * #3440 corrected four field families, and these 101 operations are what is
- * left. (#3650 closed the cluster-(b) entry below by fixing the schema
- * rather than waiving the mock.)
+ * #3440 corrected four field families, and these 102 operations are what is
+ * left. (#3650 closed the cluster-(b) entry below by fixing the schema rather
+ * than waiving the mock, and opened one narrower property-level entry — cluster
+ * (g) — for a client field #1753 has not yet shipped on this endpoint.)
  *
  * ## Shape
  *
@@ -36,7 +37,7 @@
  *   in one of the two full suite passes and not the other, so a property-level
  *   ledger built from either would red a spec nobody touched, nondeterministically,
  *   on a loaded runner — the exact failure shape this tree spends the most time
- *   chasing. `'*'` costs enforcement on the other properties of these 101
+ *   chasing. `'*'` costs enforcement on the other properties of these 102
  *   operations and buys a ledger that does not flake. Use the property-level
  *   form for anything added from here, where you know the one line you mean.
  * · Every reason names the issue that removes it. A waiver with no issue is a
@@ -87,6 +88,13 @@
  * `finish_date`, `skill_fit`) and enum values the server cannot emit. Four
  * families were fixed in #3440 itself; the rest are ~10 investigations, each of
  * which may surface a component reading a field that does not exist.
+ *
+ * **(g) TEST AHEAD OF SERVER — a client field the endpoint has not shipped yet**
+ * (#1753). The client reads `is_phase` on My Work rows for the once-#1753-ships
+ * behavior; `MeWorkTaskSerializer` does not emit it today. Distinct from (f): the
+ * field is real and shipped elsewhere (`TaskSerializer`), just not on this one
+ * endpoint yet, so this is not an invented field — it is a mock dated to land
+ * before the server does.
  */
 export interface SchemaGuardWaiver {
   /** Why this drift is still served, and the issue whose closure removes it. */
@@ -142,6 +150,19 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
       '<root>:type.',
     allow: ['*'],
+  },
+  // ---------------------------------------------------------------------------
+  // (g) TEST AHEAD OF SERVER - a client field not yet emitted by this endpoint - 1 operation
+  // ---------------------------------------------------------------------------
+  'GET /api/v1/me/work/': {
+    reason:
+      'TEST-AHEAD-OF-SERVER (#1753): MyWorkTaskRow/QuickLogTime/MyWorkPage read a client-side ' +
+      '`is_phase` on My Work rows in anticipation of #1753, which has landed `is_phase` on ' +
+      'TaskSerializer but not yet on MeWorkTaskSerializer. schedule-add-phase.spec.ts seeds it to ' +
+      'cover the once-#1753-ships behavior; the real /me/work/ cannot produce it today (a phase ' +
+      'cannot be assigned, so it would never reach this endpoint regardless). Remove once #1753 ' +
+      'adds the field server-side. Observed: results[].is_phase:unknown-property.',
+    allow: ['results[].is_phase:unknown-property'],
   },
   // ---------------------------------------------------------------------------
   // (c) SCHEMA WRONG - a genuinely nullable field is declared non-nullable - 12 operations
