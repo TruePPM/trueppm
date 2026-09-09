@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
   useSsoProviders,
+  useSsoRedirectUri,
   useCreateSsoProvider,
   useUpdateSsoProvider,
   useDeleteSsoProvider,
@@ -81,6 +82,53 @@ describe('useSsoProviders', () => {
   it('surfaces the error without retrying', async () => {
     getMock.mockRejectedValueOnce(new Error('forbidden'));
     const { result } = renderHook(() => useSsoProviders(), {
+      wrapper: makeWrapper(freshClient('queries')),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(getMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useSsoRedirectUri
+// ---------------------------------------------------------------------------
+
+describe('useSsoRedirectUri', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('GETs the dedicated endpoint and unwraps the redirect_uri field', async () => {
+    getMock.mockResolvedValueOnce({
+      data: { redirect_uri: 'https://app.example.com/api/v1/auth/oidc/callback/' },
+    });
+    const { result } = renderHook(() => useSsoRedirectUri(), {
+      wrapper: makeWrapper(freshClient('queries')),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(getMock).toHaveBeenCalledWith('/workspace/sso/redirect-uri/');
+    expect(result.current.data).toBe('https://app.example.com/api/v1/auth/oidc/callback/');
+  });
+
+  it('resolves independently of the provider collection — no providers required (#3690)', async () => {
+    // Only the redirect-uri endpoint is mocked; useSsoProviders is never
+    // called by this hook, which is the whole point: the value must be
+    // reachable before any provider has been saved.
+    getMock.mockResolvedValueOnce({
+      data: { redirect_uri: 'https://app.example.com/api/v1/auth/oidc/callback/' },
+    });
+    const { result } = renderHook(() => useSsoRedirectUri(), {
+      wrapper: makeWrapper(freshClient('queries')),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the error without retrying', async () => {
+    getMock.mockRejectedValueOnce(new Error('forbidden'));
+    const { result } = renderHook(() => useSsoRedirectUri(), {
       wrapper: makeWrapper(freshClient('queries')),
     });
 

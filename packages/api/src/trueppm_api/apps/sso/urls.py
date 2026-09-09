@@ -16,6 +16,7 @@ from trueppm_api.apps.sso.views import (
     OIDCLoginView,
     SsoProviderCollectionView,
     SsoProviderDetailView,
+    SsoRedirectUriView,
     SsoTestConnectionView,
 )
 
@@ -23,6 +24,11 @@ urlpatterns = [
     path("auth/oidc/discover/", OIDCDiscoverView.as_view(), name="oidc-discover"),
     path("auth/oidc/login/", OIDCLoginView.as_view(), name="oidc-login"),
     path("auth/oidc/callback/", OIDCCallbackView.as_view(), name="oidc-callback"),
+    path(
+        "workspace/sso/redirect-uri/",
+        SsoRedirectUriView.as_view(),
+        name="sso-redirect-uri",
+    ),
     path(
         "workspace/sso/providers/",
         SsoProviderCollectionView.as_view(),

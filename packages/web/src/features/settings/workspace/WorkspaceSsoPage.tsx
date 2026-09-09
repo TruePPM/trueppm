@@ -17,7 +17,12 @@
  */
 
 import { useState } from 'react';
-import { useSsoProviders, useDeleteSsoProvider, type SsoProvider } from '@/hooks/useSso';
+import {
+  useSsoProviders,
+  useSsoRedirectUri,
+  useDeleteSsoProvider,
+  type SsoProvider,
+} from '@/hooks/useSso';
 import { docsUrl } from '@/lib/docsUrl';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
 import { ConfirmDialog } from '../components/integrations/WebhooksManager';
@@ -127,6 +132,7 @@ function removeDialogBody(provider: SsoProvider): string {
 
 export function WorkspaceSsoPage() {
   const { data: providers, isLoading, isError, refetch } = useSsoProviders();
+  const { data: redirectUri } = useSsoRedirectUri();
   const del = useDeleteSsoProvider();
 
   const [panel, setPanel] = useState<PanelState>(null);
@@ -171,9 +177,10 @@ export function WorkspaceSsoPage() {
 
   const enabledCount = providers.filter((p) => p.enabled).length;
   const live = enabledCount > 0;
-  // The redirect URI is identical for every provider (callback path unchanged);
-  // reuse any configured provider's value to preview it while adding the next.
-  const sharedRedirectUri = providers[0]?.redirect_uri ?? '';
+  // The redirect URI is identical for every provider and server-derived —
+  // fetched independently of the provider list so it is available even before
+  // the first provider is saved (#3690).
+  const sharedRedirectUri = redirectUri ?? '';
 
   return (
     <div>

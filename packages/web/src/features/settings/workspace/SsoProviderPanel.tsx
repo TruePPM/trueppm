@@ -157,7 +157,11 @@ function ClientSecretField({
 interface SsoProviderPanelProps {
   mode: 'add' | 'edit';
   existing?: SsoProvider;
-  /** redirect_uri shared by every provider (from any configured one), for Add preview. */
+  /**
+   * The server-derived redirect_uri, identical for every provider — fetched
+   * independently of the provider list, so it is populated even on the very
+   * first Add before any provider has been saved (#3690).
+   */
   sharedRedirectUri: string;
   onClose: () => void;
 }
@@ -714,9 +718,7 @@ export function SsoProviderPanel({
               <CopyButton value={redirectUri} />
             </div>
           ) : (
-            <span className="text-[12px] text-neutral-text-secondary">
-              Shown here after you add the first provider.
-            </span>
+            <span className="text-[12px] text-neutral-text-secondary">Loading…</span>
           )}
         </FieldRow>
         <FieldRow label="Scopes" hint="Fixed in the open-source core.">

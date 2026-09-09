@@ -48,6 +48,7 @@ from trueppm_api.apps.sso.serializers import (
     SsoDiscoverResponseSerializer,
     SsoProviderReadSerializer,
     SsoProviderWriteSerializer,
+    SsoRedirectUriResponseSerializer,
     SsoTestConnectionResponseSerializer,
 )
 from trueppm_api.apps.workspace.models import AuditEventType, Workspace
@@ -568,6 +569,33 @@ def _is_duplicate_slug(exc: IntegrityError) -> bool:
     if constraint:
         return bool(constraint == _SLUG_UNIQUE_CONSTRAINT)
     return _SLUG_UNIQUE_CONSTRAINT in str(exc)
+
+
+class SsoRedirectUriView(APIView):
+    """``GET /workspace/sso/redirect-uri/`` — the callback URL, with no providers required.
+
+    The redirect URI is derived from server config (``_derive_redirect_uri``), not
+    from any saved provider row — it is identical for every provider and needs
+    none of them to exist. ``SsoProviderReadSerializer.redirect_uri`` exposes the
+    same value, but only per-provider, so it is unreachable while the provider
+    list is empty. That is a genuine chicken-and-egg gap on the very first
+    provider an admin adds (#3690): registering an OAuth application with most
+    IdPs (GitLab included) requires this URL up front, and the IdP only issues a
+    client id/secret once that application exists — so the admin needs the value
+    *before* they have anything to save here. Same admin gate as the collection
+    view: this reveals the workspace's public API base URL, which is not secret,
+    but keeping the gate uniform avoids relying on that judgment call twice.
+    """
+
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsWorkspaceAdminStrict]
+
+    @extend_schema(
+        summary="Get the SSO redirect URI (identical for every provider)",
+        responses={200: SsoRedirectUriResponseSerializer},
+        tags=["workspace"],
+    )
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response({"redirect_uri": _derive_redirect_uri(request)})
 
 
 class SsoProviderCollectionView(IdempotencyMixin, APIView):
