@@ -94,7 +94,11 @@ export function MobilePullSheet({
             </button>
           </p>
           {showDetail && (
-            <PullEffectList projectName={selected?.name ?? null} className="mt-1.5" />
+            <PullEffectList
+              projectName={selected?.name ?? null}
+              projectMethodology={selected?.methodology}
+              className="mt-1.5"
+            />
           )}
         </div>
 

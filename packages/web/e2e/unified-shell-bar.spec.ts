@@ -34,7 +34,6 @@ const FIXTURE_PROJECTS = [
 // word is chosen by `health_band` since #3501, not by the counts.
 const STATUS_SUMMARY = {
   task_count: 12,
-  critical_path_count: 0,
   health_band: 'on_track' as const,
   monte_carlo_p80: '2026-09-07',
   at_risk_count: 0,

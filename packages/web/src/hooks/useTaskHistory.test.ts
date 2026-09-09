@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
@@ -41,6 +41,16 @@ const getMock = vi.hoisted(() =>
 
 vi.mock('@/api/client', () => ({ apiClient: { get: getMock } }));
 
+/**
+ * Flush mount effects plus one macrotask, so an "issued no request" assertion
+ * cannot pass merely by running before the fetch would have started.
+ */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 function makeWrapper(qc: QueryClient) {
   function Wrapper({ children }: { children: ReactNode }) {
     return createElement(QueryClientProvider, { client: qc }, children);
@@ -63,6 +73,62 @@ describe('useTaskHistory', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
+    expect(getMock).toHaveBeenCalledWith('/projects/proj-1/tasks/task-1/history/', {
+      params: { page: 1, include: INCLUDE },
+    });
+  });
+
+  // #3656 — TaskFormModal mounts in create mode with no task, so the id it
+  // hands this hook is absent. Before the `enabled` guard that interpolated
+  // into the path as an empty segment and the client requested
+  // `/projects/proj-1/tasks//history/`, a route that does not exist. The e2e
+  // mock glob `**/tasks/*/history/**` matches the empty segment, so nothing in
+  // the suite complained — only a unit assertion on the absence of the request
+  // catches it.
+  describe.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+  ])('with an absent task id (%s)', (_label, taskId: string | null | undefined) => {
+    it('issues no request at all', async () => {
+      const { result } = renderHook(() => useTaskHistory('proj-1', taskId), {
+        wrapper: makeWrapper(qc),
+      });
+
+      // Let every mount effect and the query observer's own subscription run.
+      // Without this the assertion could pass simply by outrunning the fetch,
+      // which would make it vacuous — on the unguarded hook the request is
+      // issued from the mount effect and is visible after one macrotask.
+      await settle();
+
+      expect(getMock).not.toHaveBeenCalled();
+      // `idle` is the fetchStatus of a disabled query; a firing one is
+      // `fetching`. Asserting it pins the mechanism, not just the symptom.
+      expect(result.current.fetchStatus).toBe('idle');
+    });
+  });
+
+  it('issues no request when the project id is absent', async () => {
+    renderHook(() => useTaskHistory(undefined, 'task-1'), { wrapper: makeWrapper(qc) });
+
+    await settle();
+
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('starts fetching once an absent task id resolves to a real one', async () => {
+    const { result, rerender } = renderHook(
+      ({ taskId }: { taskId: string | null }) => useTaskHistory('proj-1', taskId),
+      { wrapper: makeWrapper(qc), initialProps: { taskId: null as string | null } },
+    );
+
+    await settle();
+    expect(getMock).not.toHaveBeenCalled();
+
+    rerender({ taskId: 'task-1' });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getMock).toHaveBeenCalledTimes(1);
     expect(getMock).toHaveBeenCalledWith('/projects/proj-1/tasks/task-1/history/', {
       params: { page: 1, include: INCLUDE },
     });

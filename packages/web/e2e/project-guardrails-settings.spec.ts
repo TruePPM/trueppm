@@ -30,7 +30,7 @@ const FIXTURE_PROJECT = {
   description: '',
   start_date: '2026-03-02',
   calendar: 'cal-default',
-  estimation_mode: 'OPEN',
+  estimation_mode: 'open',
   agile_features: true,
   methodology: 'AGILE',
   code: 'ATLAS',

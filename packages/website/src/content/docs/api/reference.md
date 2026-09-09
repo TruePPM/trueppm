@@ -1733,6 +1733,26 @@ Every surface that validates a task through this serializer inherits the cap:
 | `POST /api/v1/projects/{id}/tasks/bulk/` | `207` with the row in `rejected[]`, `code: "invalid"` and the same sentence in `message`. Bounded at 100 owners **per operation** on top of the endpoint's own 500-operation cap |
 | Offline-sync push (`POST /api/v1/projects/{id}/sync/`) | a pushed task row carrying more than 100 `owners` is refused like any other row the task serializer rejects |
 
+**The per-operation/per-row cap is not the only bound on these two batch surfaces.**
+`POST /api/v1/projects/{id}/tasks/bulk/` builds one task serializer per operation — up to
+500 of them — so the 100-per-row cap alone still let one request compose
+500 × 100 = 50,000 owner entries. Both batch surfaces also enforce a **batch-wide**
+budget, summed across every operation/row in the request, independent of the per-row
+cap:
+
+| Surface | Batch-wide cap | Refusal shape |
+|---------|-----------------|----------------|
+| `POST /api/v1/projects/{id}/tasks/bulk/` | 500 owner entries total across `operations` | Whole-request `400` before any operation applies — never a partial `207`, because the budget is spent across the batch and there is no single operation to blame |
+| Offline-sync push (`POST /api/v1/projects/{id}/sync/`) | 500 owner entries total across the `created`/`updated` buckets | Whole-request `400` before the write transaction opens, alongside the existing row-count cap |
+
+A batch under both the per-row and the batch-wide cap on either endpoint also fires only
+**one** `tasks_bulk_mutated` WebSocket event for the whole request — an inline `owners`
+write no longer fires its own `assignment_*` event on `POST /api/v1/projects/{id}/tasks/bulk/`
+or the offline-sync push, because each endpoint's own `tasks_bulk_mutated` already covers
+every task id its batch touched. Only the single-task REST write
+(`POST /api/v1/tasks/`, `PATCH /api/v1/tasks/{id}/`) still fires `assignment_*` per changed
+assignment — it has no coarser event of its own to fall back on.
+
 Semantics worth pinning down:
 
 - **Write-only.** The read projection is the nested `assignments` array on the task.

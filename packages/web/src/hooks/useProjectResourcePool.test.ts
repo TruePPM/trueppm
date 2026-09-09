@@ -47,7 +47,8 @@ interface WireProjectResource {
   resource_detail: {
     id: string;
     name: string;
-    email: string;
+    /** Omitted entirely (not nulled) below workspace ADMIN — see #3647. */
+    email?: string;
     job_role: string;
     max_units: string;
     calendar: string | null;
@@ -193,6 +194,36 @@ describe('useProjectResourcePool', () => {
         proficiency: 3,
       },
     ]);
+  });
+
+  it('maps a resource_detail with no email key to undefined without throwing (#3647)', async () => {
+    // resource_detail nests the same catalog serializer as GET /api/v1/resources/,
+    // which omits the `email` key entirely (not null) below workspace ADMIN — the
+    // regression #3647 fixes: this hook's `ApiResourceDetail.email` used to be a
+    // required `string`, silently lying about what the server actually returns.
+    const resourceDetailWithoutEmail: WireProjectResource['resource_detail'] = {
+      id: 'r1',
+      name: 'Alice',
+      job_role: 'Engineer',
+      max_units: '1.00',
+      calendar: null,
+      skills: [],
+    };
+    getMock.mockResolvedValueOnce({
+      data: {
+        count: 1,
+        next: null,
+        previous: null,
+        results: [wire({ resource_detail: resourceDetailWithoutEmail })],
+      },
+    });
+    const { result } = renderHook(() => useProjectResourcePool('p1'), {
+      wrapper: makeWrapper(makeQC()),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.[0].resource.email).toBeUndefined();
+    expect('email' in (result.current.data?.[0].resource ?? {})).toBe(true);
   });
 
   it('stays disabled and issues no request when the project id is empty', () => {

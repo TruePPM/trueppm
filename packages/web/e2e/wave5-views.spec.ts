@@ -112,7 +112,7 @@ async function setup(page: import('@playwright/test').Page) {
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
   await page.route('**/api/v1/projects/*/status-summary/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ task_count: 4, critical_path_count: 1, health_band: 'critical', monte_carlo_p80: null, at_risk_count: 0, critical_count: 1, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null }) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ task_count: 4, health_band: 'critical', monte_carlo_p80: null, at_risk_count: 0, critical_count: 1, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null }) }),
   );
   await page.route('**/api/v1/tasks/**', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_TASKS) }),

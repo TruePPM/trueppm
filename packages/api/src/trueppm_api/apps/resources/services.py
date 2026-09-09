@@ -403,7 +403,16 @@ def apply_task_owners(
             deliberately emits one bulk ``tasks_bulk_mutated`` per project instead of one
             event per row, and both event families funnel to the same
             ``scheduleInvalidate('tasks')`` on the client, so the per-assignment events
-            would be pure duplicate load. Never pass ``False`` from a user-facing write.
+            would be pure duplicate load. ``TaskSerializer`` (#3643) applies the same
+            reasoning to both batch write paths, via
+            ``TaskSerializer._owners_broadcast_enabled()``: ``POST /tasks/bulk/``
+            (``task_bulk._register_bulk_commit_hooks``) and the mobile sync upload
+            (``sync.views.ProjectSyncView._apply_and_record``, coalesced for #809) each
+            fire one ``tasks_bulk_mutated`` per request unconditionally covering every
+            id the batch touched, so both pass ``False`` here. Do **not** generalize
+            this to the plain single-row REST create/PATCH (``TaskViewSet``) — that
+            path has no coarser event of its own, so ``assignment_*`` is the only
+            WebSocket signal a connected client gets from it.
 
     Returns:
         The ``TaskResource`` rows written, in input order.

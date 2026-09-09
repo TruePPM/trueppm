@@ -28,6 +28,13 @@ interface TagInputProps {
   /** Existing program tags, offered as combobox suggestions. */
   suggestions?: string[];
   id?: string;
+  /**
+   * Id of a hint element describing what these tags are and become (#3644).
+   * The combobox carries its own `aria-label` ("Add a tag"), so the hint has to
+   * arrive as a *description* — appending it to the name would make every
+   * keystroke re-announce a sentence.
+   */
+  describedBy?: string;
 }
 
 type Row = { kind: 'tag'; value: string } | { kind: 'create'; value: string };
@@ -130,7 +137,13 @@ function handleTextEditKey(
   }
 }
 
-export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps) {
+export function TagInput({
+  tags,
+  onChange,
+  suggestions = [],
+  id,
+  describedBy,
+}: TagInputProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -252,6 +265,7 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
         onKeyDown={handleKeyDown}
         placeholder={tags.length === 0 ? 'Type to add or search…' : ''}
         aria-label="Add a tag"
+        aria-describedby={describedBy}
         className="min-w-[80px] flex-1 bg-transparent px-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
       />
 

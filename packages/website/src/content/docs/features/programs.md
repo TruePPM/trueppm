@@ -178,9 +178,12 @@ would be rejected when you submit.
   grooming. Each item moves through a lifecycle: **proposed → pulled →
   archived**. Pulling an item creates a linked project task in the chosen project
   and marks the backlog item as pulled; the task carries over the item's title,
-  description, story points, tags (as project labels), priority rank, and type
-  (each type maps to its Task equivalent — `chore` becomes tech debt, `feature`
-  becomes a plain task). Because the rank carries, items pulled from the same
+  description, story points, priority rank, and type (each type maps to its Task
+  equivalent — `chore` becomes tech debt, `feature` becomes a plain task).
+  Backlog tags are program-scoped free text, and pulling *converts* them rather
+  than copying them: each tag matches an existing project
+  [label](/features/labels/) case-insensitively, or creates one, clamped to 50
+  characters. Because the rank carries, items pulled from the same
   pool keep their relative intake order in the project; an unranked item stays
   unranked and sorts last. Requires at least Team Member role on both the
   program and the target project.
@@ -211,6 +214,28 @@ would be rejected when you submit.
   in the first word — a Program Manager and a Project Manager hold the same rank,
   each in its own container.
 - **Settings** — deeper program configuration (see below).
+
+:::note[Ships in 0.4 — backlog vocabulary and pull destination]
+The backlog will follow the program's
+[methodology preset](/features/methodology-preset/) instead of assuming an agile
+team. On a **Waterfall** program the estimate field will read **Estimate** and a
+new item will start as a **Task**; on **Agile** and **Hybrid** it will read
+**Story points** and start as a **Story**. The full type list is offered either
+way — only the label and the starting default move, so an item already typed
+`story` keeps that type if the program later switches preset.
+
+Where a pulled task lands depends on the **target project's** methodology, not
+the program's: a Hybrid program can hold a Waterfall project. The pull itself is
+unchanged — it always creates an undated task in the project backlog and never
+assigns a sprint. On an Agile or Hybrid project that task appears in the product
+backlog, as it does today. On a **Waterfall** project, where Backlog and Sprints
+are hidden, it will surface on **Schedule** in the **Unscheduled** tray instead;
+dragging it onto the timeline gives it dates and moves it out of the backlog
+state in one step. The pull confirmation will name whichever destination applies,
+and the target picker will show each candidate project's methodology before you
+commit — there is no un-pull action, so a pull is corrected by deleting the task
+it created.
+:::
 
 In the sidebar, a searchable **program picker** scopes the project list to one
 program (or "All programs"). In the all-programs scope, projects are grouped

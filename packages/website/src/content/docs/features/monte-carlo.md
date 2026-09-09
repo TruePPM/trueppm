@@ -625,7 +625,7 @@ of the distribution:
   or program that the importer owns, never modify an existing task.
 
   :::note[Ships in 0.4]
-  Two behaviors below are **not** in `v0.3.0-alpha.3`, the latest release:
+  One behavior below is **not** in `v0.3.0-alpha.3`, the latest release:
 
   - **No-op re-writes no longer revoke an approval.** Re-sending an estimate's
     identical value (for example, tabbing through the field without changing it)
@@ -633,12 +633,11 @@ of the distribution:
     genuine value change downgrades `accepted` back to `pending`. In 0.3, any
     PATCH carrying a three-point field flips an approved estimate back to
     `pending` even when the value sent is identical to what is already stored.
-  - **Withdrawing an approval deliberately.** A Resource Manager or above can
-    withdraw an approval on purpose: `POST /api/v1/tasks/{id}/withdraw-approval/`
-    moves an `accepted` estimate back to `pending`, the symmetric counterpart to
-    `approve-estimates`. It requires the same role and is a no-op if the estimate
-    is not currently accepted. In 0.3 there is no such action — the only way back
-    to `pending` is the no-op-rewrite behavior above, before it was fixed.
+
+  There is deliberately no server-side way to withdraw an approval once
+  granted. A Scheduler who approves an estimate in error has no undo today —
+  correcting a mistaken approval means editing the estimate's value so the
+  change (not a no-op re-write) downgrades it back to `pending`.
   :::
 - **Who may write an estimate at all** — this is set by the project's estimation
   mode, and it is enforced on the server, not just in the browser. In **Open**

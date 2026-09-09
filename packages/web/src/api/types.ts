@@ -7,12 +7,31 @@
 // (paths/components) shape and break the build — do not run it blindly. When the
 // API schema changes, update the affected interfaces here by hand.
 // Committed to version control so CI can typecheck without a running API.
+//
+// THIS FILE IS STILL UNGATED (#2633). Nothing compares these interfaces to
+// docs/api/openapi.json, so `tsc --strict` passing over them is evidence that
+// they agree with their own consumers and with the vitest fixtures written from
+// the same assumption — not that they agree with the server. #2633 is the live
+// receipt: six user-id fields are typed `string` against integer AutoField PKs.
+//
+// What DID change: the Playwright mock layer is now bound to the schema at test
+// time (#3440, packages/web/e2e/fixtures/schema-guard.ts). So a payload shape
+// that reaches an e2e spec is checked; an interface in this file is not. When
+// you edit one here, check it against docs/api/openapi.json by hand.
 
 export type {};
 
 /**
- * DRF PageNumberPagination envelope — all list endpoints return this shape.
- * The API uses PAGE_SIZE=50 globally (settings/base.py).
+ * DRF PageNumberPagination envelope. The API uses PAGE_SIZE=50 globally
+ * (settings/base.py).
+ *
+ * NOT every list endpoint returns it, despite what this comment used to claim.
+ * Five nested list endpoints override `list()` and return a bare array —
+ * `/projects/{id}/members/`, `/programs/{id}/members/`, both `mention-groups/`
+ * routes and `/projects/{id}/phases/`. `useCurrentUserRole` and
+ * `useProjectMembers` are written against the array and are correct; the
+ * published schema is the artifact that is wrong there, tracked in #3649.
+ * Reach for this type because you checked the endpoint, not by default.
  */
 export interface PaginatedResponse<T> {
   count: number;
