@@ -83,7 +83,7 @@ class PokerSessionSerializer(serializers.Serializer[Any]):
     task = serializers.SerializerMethodField()
     state = serializers.ChoiceField(choices=PokerSessionState.choices)
     committed_points = serializers.IntegerField(allow_null=True)
-    started_by = _MentionAuthorMiniSerializer(read_only=True)
+    started_by = _MentionAuthorMiniSerializer(read_only=True, allow_null=True)
     started_at = serializers.DateTimeField()
     my_vote = serializers.SerializerMethodField()
     vote_count = serializers.SerializerMethodField()
