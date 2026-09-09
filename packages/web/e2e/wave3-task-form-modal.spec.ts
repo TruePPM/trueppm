@@ -124,7 +124,7 @@ async function setup(page: import('@playwright/test').Page, options: SetupOption
       status: 200, contentType: 'application/json',
       body: JSON.stringify({
         id: FIXTURE_PROJECT_ID, name: 'Task Modal Project', description: '',
-        start_date: '2026-04-01', calendar: 'default', estimation_mode: 'OPEN',
+        start_date: '2026-04-01', calendar: 'default', estimation_mode: 'open',
         agile_features: agileFeatures,
         methodology: effectiveMethodology, effective_methodology: effectiveMethodology,
         board_cadence: boardCadence, code: '', health: 'AUTO',
@@ -160,7 +160,7 @@ async function setup(page: import('@playwright/test').Page, options: SetupOption
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({
-        task_count: tasks.length, critical_path_count: 0, health_band: 'on_track', monte_carlo_p80: null,
+        task_count: tasks.length, health_band: 'on_track', monte_carlo_p80: null,
         at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
         last_saved: null, recalculated_at: null,
       }),

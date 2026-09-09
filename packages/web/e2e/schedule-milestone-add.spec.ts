@@ -98,7 +98,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 0, critical_path_count: 0, health_band: 'on_track', monte_carlo_p80: null,
+        task_count: 0, health_band: 'on_track', monte_carlo_p80: null,
         at_risk_count: 0, critical_count: 0, at_risk_tasks: [],
         critical_tasks: [], last_saved: null, recalculated_at: null,
       }),
@@ -242,6 +242,39 @@ test.describe('Schedule "+ Milestone" dialog', () => {
     await expect(dialog.getByLabel('Milestone name *')).toBeVisible();
     await expect(dialog.getByLabel('Date')).toBeVisible();
     await expect(dialog.getByLabel(/Duration/)).toHaveCount(0);
+  });
+
+  // #3656 — the create-mode modal has no task, and the task-history hook used
+  // to interpolate that absent id straight into the path, requesting
+  // `/projects/<id>/tasks//history/`: a route that does not exist, so a 404 on
+  // every open. Nothing in this suite noticed because the history mock glob
+  // (`**/tasks/*/history/**`) matches the empty segment happily and answers it.
+  // So assert on the REQUEST, not on the panel: a spec that only checks the
+  // dialog renders cannot catch a regression here.
+  //
+  // The assertion is deliberately "no task-history request AT ALL", not "no
+  // request with an empty segment". A guard that swaps the empty id for a
+  // `null`/`undefined` placeholder produces `/tasks/null/history/` — equally
+  // 404, equally wasted — and an empty-segment regex would wave it through.
+  // In create mode there is no task, so any history request is wrong.
+  test('opening the create dialog issues no task-history request', async ({ page }) => {
+    const historyRequests: string[] = [];
+    page.on('request', (req) => {
+      if (/\/tasks\/[^/]*\/history\/?$/.test(new URL(req.url()).pathname)) {
+        historyRequests.push(req.url());
+      }
+    });
+
+    await page.getByRole('button', { name: 'Add new milestone (Cmd+M)' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New milestone' });
+    await expect(dialog).toBeVisible();
+    // The offending request was issued from the modal's mount effect, so it
+    // lands within milliseconds of the dialog appearing. Give it a generous
+    // window anyway — an absence assertion that outruns the thing it denies
+    // would pass on the broken build and prove nothing.
+    await page.waitForTimeout(1_000);
+
+    expect(historyRequests).toEqual([]);
   });
 
   test('Esc closes the milestone dialog without creating anything', async ({ page }) => {

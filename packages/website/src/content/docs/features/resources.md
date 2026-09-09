@@ -254,13 +254,15 @@ starts being flagged at 90%. An assignee with no linked resource still uses 100%
 ## What a resource manager can do today
 
 1. Maintain the Workspace resource catalog (name, role, capacity, calendar). Email
-   addresses can be **set**, but from 0.4 the **catalog** endpoints will not return
+   addresses can be **set**, but from 0.4 anywhere the resource serializer renders a
+   resource — the Workspace catalog **and** a project's roster (`resource_detail` on
+   `GET /api/v1/project-resources/` expands the same serializer) — will not return
    them to anyone except a workspace Admin and the person the resource
-   represents — the catalog is readable by every signed-in user, so echoing every
-   address would make it an org-wide address book. Note this covers the catalog
-   endpoints only. The project and program **resource-allocation** views and the
-   project **seed export** build their responses separately and still include
-   `email` for resources attached to a project you administer.
+   represents. Both surfaces are readable by every signed-in user with access to the
+   project or the catalog, so echoing every address would make either one an
+   org-wide address book. The project and program **resource-allocation** views and
+   the project **seed export** build their responses separately from that serializer
+   and still include `email` for resources attached to a project you administer.
 2. Maintain the Workspace skill catalog and tag resources with proficiency.
 3. Build per-project rosters with role and capacity overrides.
 4. Assign resources to tasks at fractional capacity.
@@ -321,7 +323,7 @@ rather than a project role:
 | Surface | Why |
 | --- | --- |
 | `DELETE /api/v1/resources/{id}/` and `POST .../restore/` | Soft-deletes a shared record and recalculates every project the person is assigned to. |
-| `email` on catalog rows, and `?search=` by email | The catalog is readable by every signed-in user; a project role would make it an org-wide address book. |
+| `email` on catalog rows, on a project roster's expanded resource detail (`GET /api/v1/project-resources/`), and `?search=` by email | The catalog and project rosters are readable by every signed-in user with access; a project role would make either one an org-wide address book. |
 | `?include_deleted=true` on the catalog | Enumerates the deactivated pool. |
 | `GET /api/v1/resources/{id}/assignments/` | Returns task and project names for one person across every project in the installation. |
 

@@ -5715,13 +5715,15 @@ class TaskViewSet(
                 IsProjectPlanAuthor(),
                 IsProjectNotArchived(),
             ]
-        # ADR-0766 (#2597): withdraw_approval shares approve_estimates's gate —
-        # whoever can grant a SUGGEST_APPROVE approval can revoke it. Both must be
-        # named here because this override replaces the @action's inline
-        # permission_classes entirely (see the ADR-0217 note on `split` below); an
-        # action absent from this if-chain falls through to the generic
-        # IsProjectMember branch, which would let a Viewer call it.
-        if self.action in ("approve_estimates", "withdraw_approval"):
+        # ADR-0766 (#2597): approve_estimates is gated to whoever can grant a
+        # SUGGEST_APPROVE approval. Named here because this override replaces the
+        # @action's inline permission_classes entirely (see the ADR-0217 note on
+        # `split` below); an action absent from this if-chain falls through to the
+        # generic IsProjectMember branch, which would let a Viewer call it.
+        # `withdraw_approval` shared this same branch until #3371 removed the
+        # action (no client consumer, never shipped) — approval revocation is
+        # one-way until a UI asks for undo; see ADR-0766's amended note.
+        if self.action == "approve_estimates":
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         # ADR-0105: splitting a story restructures the backlog → can_manage_backlog
         # (Admin+), the same gate as auto-rank / epic management. The custom
@@ -6743,58 +6745,6 @@ class TaskViewSet(
             return Response(serializer.data)
 
         task.estimate_status = EstimateStatus.ACCEPTED
-        task.save(update_fields=["estimate_status"])
-
-        project_id = str(task.project_id)
-        task_id = str(task.pk)
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
-        )
-
-        serializer = self.get_serializer(task)
-        return Response(serializer.data)
-
-    @extend_schema(
-        summary="Withdraw an approved three-point estimate back to pending",
-        responses={
-            200: TaskSerializer,
-            400: OpenApiResponse(description="Project estimation_mode is not suggest_approve."),
-        },
-    )
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="withdraw-approval",
-        permission_classes=[IsAuthenticated, IsProjectScheduler, IsProjectNotArchived],
-    )
-    def withdraw_approval(self, request: Request, **kwargs: Any) -> Response:
-        """Revoke an accepted three-point estimate back to pending (ADR-0766, #2597).
-
-        Symmetric counterpart to approve_estimates: lets a Scheduler undo an approval
-        given in error without having to trigger a PERT-field no-op write to force
-        the downgrade — that no-op path was the accidental-revocation bug this same
-        issue closes. Only meaningful when estimation_mode is SUGGEST_APPROVE.
-        Idempotent — calling on a task that is not currently accepted (already
-        pending, or ungoverned/null) is a no-op (200, no DB write, no broadcast).
-
-        Permission: IsProjectScheduler+ (Resource Manager and above) — same gate as
-        approve_estimates; whoever can grant the approval can withdraw it.
-        """
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
-        task: Task = self.get_object()
-        project: Project = task.project
-
-        if project.estimation_mode != EstimationMode.SUGGEST_APPROVE:
-            detail = "withdraw-approval is only available when estimation_mode is suggest_approve."
-            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Idempotent: not currently accepted — no write, no broadcast.
-        if task.estimate_status != EstimateStatus.ACCEPTED:
-            serializer = self.get_serializer(task)
-            return Response(serializer.data)
-
-        task.estimate_status = EstimateStatus.PENDING
         task.save(update_fields=["estimate_status"])
 
         project_id = str(task.project_id)
@@ -10401,6 +10351,61 @@ class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
         )
 
 
+def _member_scoped_task_or_404(request: Request, project_pk: str, task_pk: str) -> Task:
+    """Resolve a task inside a project the caller is an active member of.
+
+    **Membership belongs in the lookup, not only in the permission check (#3657).**
+    Resolving project-scoped-but-not-membership-scoped and *then* calling
+    ``check_object_permissions`` answers **403** for a task that really exists in
+    that project and **404** for one that does not — which makes the pair an
+    existence oracle: an authenticated stranger holding both uuids learns whether
+    the task id is real. Folding membership into the queryset collapses both cases
+    to 404, matching what #3129 chose for ``ProjectCommitView`` and what
+    ``CanLogTime``'s docstring states as the convention. A Viewer *is* a member, so
+    their task still resolves here and the object check then yields the honest 403 —
+    the role refusal is preserved, only the non-member disclosure is closed.
+
+    The membership join cannot fan out: ``uniq_project_membership_project_user`` is
+    unconditional, so a ``(project, user)`` pair has at most one row and
+    ``get_object_or_404`` can never see a duplicate. **This is why there is no
+    ``.distinct()`` here** — it is not an oversight but a dependency: if that
+    constraint ever gains a ``condition=Q(is_deleted=False)`` (so a user could hold
+    more than one row per project, live + revoked), this join starts fanning out and
+    ``get_object_or_404`` raises an unhandled ``MultipleObjectsReturned`` (a 500)
+    instead of resolving cleanly. ``ProjectCommitView.post`` shares the same
+    dependency on the same constraint.
+
+    Args:
+        request: The current request; its user supplies the membership scope.
+        project_pk: The project id from the URL.
+        task_pk: The task id from the URL.
+
+    Returns:
+        The resolved :class:`Task`.
+
+    Raises:
+        Http404: The task does not exist, is soft-deleted, sits in another (or a
+            soft-deleted) project, or the caller holds no live membership on it.
+        NotAuthenticated: Defensive only — ``IsAuthenticated`` has already run.
+    """
+    # `IsAuthenticated` has already run, so this is a real user. Narrow once here:
+    # `request.user` is typed `User | AnonymousUser` and `memberships__user` will
+    # not accept an AnonymousUser. Mirrors `ProjectCommitView.post`'s guard shape.
+    user = request.user if request.user.is_authenticated else None
+    if user is None:  # pragma: no cover — IsAuthenticated makes this unreachable
+        raise NotAuthenticated
+    return get_object_or_404(
+        Task.objects.filter(
+            pk=task_pk,
+            project_id=project_pk,
+            is_deleted=False,
+            project__is_deleted=False,
+            project__memberships__user=user,
+            project__memberships__is_deleted=False,
+        )
+    )
+
+
 class TaskLabelView(IdempotencyMixin, APIView):
     """Idempotent attach/detach of a label to a task (ADR-0400 §D4).
 
@@ -10416,12 +10421,33 @@ class TaskLabelView(IdempotencyMixin, APIView):
     same ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a
     Member may label their own editable tasks; a Viewer cannot. Label writes stay
     human-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).
+
+    Refusal posture (#3657): a non-member gets **404** whether or not the task id is
+    real — the lookup is membership-scoped, so existence is never leaked. A member who
+    lacks write authority on the task (Viewer, or a Member on someone else's task) gets
+    **403**, because their task resolves and only the role check refuses them.
     """
 
     permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
 
+    # The gate is the TASK, not the project, and it cannot run before `get_object`
+    # (#3441). `IsProjectMemberWriteOrOwn.has_permission` is authentication-only by
+    # design — the assignee-vs-role verdict needs the row — so `_get_task` below
+    # resolves the task project-scoped and calls `check_object_permissions`, which is
+    # where a non-member is refused. Deleting that call reopens the route, which is
+    # why it is asserted rather than merely commented.
+    role_gate_exempt = (
+        "Membership is enforced on the resolved task by check_object_permissions in "
+        "_get_task, not at the entry gate: IsProjectMemberWriteOrOwn's assignee-vs-role "
+        "verdict requires the row and cannot run before get_object."
+    )
+
     def _get_task(self, project_pk: str, task_pk: str) -> Task:
-        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+        # Membership-scoped so a non-member sees 404 for a real task id and 404 for a
+        # fake one — no existence oracle (#3657). The object check below is kept as the
+        # *role* gate (ADR-0184's additive doctrine): a Viewer resolves the task and is
+        # then refused 403, which is a fact about them, not about the task.
+        task = _member_scoped_task_or_404(self.request, project_pk, task_pk)
         # APIView does not auto-run has_object_permission — enforce the task-edit
         # verdict (assignee-own vs project-write) explicitly.
         self.check_object_permissions(self.request, task)
@@ -10456,7 +10482,17 @@ class TaskLabelView(IdempotencyMixin, APIView):
             name="TaskLabelAttachRequest",
             fields={"label_id": serializers.UUIDField()},
         ),
-        responses={200: TaskLabelChipSerializer(many=True)},
+        responses={
+            200: TaskLabelChipSerializer(many=True),
+            403: OpenApiResponse(
+                description="Caller is a project member but lacks write authority on this "
+                "task (Viewer, or a Member on someone else's task)."
+            ),
+            404: OpenApiResponse(
+                description="No such task, or the caller is not a member of its project — "
+                "the two are deliberately indistinguishable (#3657)."
+            ),
+        },
     )
     def post(self, request: Request, project_pk: str, task_pk: str) -> Response:
         task = self._get_task(project_pk, task_pk)
@@ -10476,7 +10512,17 @@ class TaskLabelView(IdempotencyMixin, APIView):
 
     @extend_schema(
         summary="Detach a label from a task",
-        responses={204: OpenApiResponse(description="Detached (idempotent)")},
+        responses={
+            204: OpenApiResponse(description="Detached (idempotent)"),
+            403: OpenApiResponse(
+                description="Caller is a project member but lacks write authority on this "
+                "task (Viewer, or a Member on someone else's task)."
+            ),
+            404: OpenApiResponse(
+                description="No such task, or the caller is not a member of its project — "
+                "the two are deliberately indistinguishable (#3657)."
+            ),
+        },
     )
     def delete(self, request: Request, project_pk: str, task_pk: str, label_id: str) -> Response:
         task = self._get_task(project_pk, task_pk)
@@ -10501,12 +10547,27 @@ class TaskCustomFieldValueView(IdempotencyMixin, APIView):
     the field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no
     MCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on
     the Task payload is already agent-reachable now.
+
+    Refusal posture (#3657): a non-member gets **404** whether or not the task id is
+    real — the lookup is membership-scoped, so existence is never leaked. A member who
+    lacks write authority on the task (Viewer, or a Member on someone else's task) gets
+    **403**, because their task resolves and only the role check refuses them.
     """
 
     permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
 
+    # Same shape as TaskLabelView: the entry gate is authentication-only because the
+    # authority verdict needs the task row (#3441).
+    role_gate_exempt = (
+        "Membership is enforced on the resolved task by check_object_permissions in "
+        "_get_task, not at the entry gate: IsProjectMemberWriteOrOwn's assignee-vs-role "
+        "verdict requires the row and cannot run before get_object."
+    )
+
     def _get_task(self, project_pk: str, task_pk: str) -> Task:
-        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+        # Membership-scoped so a non-member sees 404 for a real task id and 404 for a
+        # fake one — no existence oracle (#3657), exactly like TaskLabelView.
+        task = _member_scoped_task_or_404(self.request, project_pk, task_pk)
         # APIView does not auto-run has_object_permission — enforce the task-edit verdict
         # (assignee-own vs project-write) explicitly, exactly like TaskLabelView.
         self.check_object_permissions(self.request, task)
@@ -10540,7 +10601,17 @@ class TaskCustomFieldValueView(IdempotencyMixin, APIView):
             name="TaskCustomFieldValueWriteRequest",
             fields={"value": serializers.JSONField()},
         ),
-        responses={200: OpenApiResponse(description="Value set (idempotent)")},
+        responses={
+            200: OpenApiResponse(description="Value set (idempotent)"),
+            403: OpenApiResponse(
+                description="Caller is a project member but lacks write authority on this "
+                "task (Viewer, or a Member on someone else's task)."
+            ),
+            404: OpenApiResponse(
+                description="No such task, or the caller is not a member of its project — "
+                "the two are deliberately indistinguishable (#3657)."
+            ),
+        },
     )
     def put(self, request: Request, project_pk: str, task_pk: str, field_id: str) -> Response:
         from trueppm_api.apps.projects.custom_field_values import (
@@ -10581,7 +10652,17 @@ class TaskCustomFieldValueView(IdempotencyMixin, APIView):
 
     @extend_schema(
         summary="Clear a task's custom-field value",
-        responses={204: OpenApiResponse(description="Cleared (idempotent)")},
+        responses={
+            204: OpenApiResponse(description="Cleared (idempotent)"),
+            403: OpenApiResponse(
+                description="Caller is a project member but lacks write authority on this "
+                "task (Viewer, or a Member on someone else's task)."
+            ),
+            404: OpenApiResponse(
+                description="No such task, or the caller is not a member of its project — "
+                "the two are deliberately indistinguishable (#3657)."
+            ),
+        },
     )
     def delete(self, request: Request, project_pk: str, task_pk: str, field_id: str) -> Response:
         task = self._get_task(project_pk, task_pk)

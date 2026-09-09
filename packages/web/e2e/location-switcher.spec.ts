@@ -93,7 +93,6 @@ async function setupBothProjects(page: Page, projects: ProjectFixture[]) {
     route.fulfill(
       json({
         task_count: 0,
-        critical_path_count: 0,
         health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,

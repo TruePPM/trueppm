@@ -68,9 +68,6 @@ test.beforeEach(async ({ page }) => {
         id: 'e2e-user',
         email: 'e2e@trueppm.local',
         username: 'e2e',
-        first_name: 'E2E',
-        last_name: 'User',
-        is_active: true,
       }),
     }),
   );
