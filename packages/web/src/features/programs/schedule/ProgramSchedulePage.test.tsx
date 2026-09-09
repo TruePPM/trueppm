@@ -156,8 +156,8 @@ const GOLDEN: ProgramSchedule = {
   start_date: '2026-03-02',
   finish_date: '2026-05-01',
   projects: [
-    { id: 'proj-a', name: 'Helios Platform', accessible: true },
-    { id: 'proj-b', name: 'Helios Mobile', accessible: true },
+    { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 10 },
+    { id: 'proj-b', name: 'Helios Mobile', accessible: true, duration: 8 },
   ],
   tasks: [
     {
@@ -174,6 +174,7 @@ const GOLDEN: ProgramSchedule = {
       late_finish: '2026-03-13',
       total_float_days: 0,
       is_critical: true,
+      duration: 10,
     },
   ],
   links: [],
@@ -414,7 +415,10 @@ describe('ProgramSchedulePage', () => {
   it('uses the singular noun when the program has exactly one project', () => {
     useProgramSchedule.mockReturnValue(
       queryResult({
-        data: { ...GOLDEN, projects: [{ id: 'proj-a', name: 'Helios Platform', accessible: true }] },
+        data: {
+          ...GOLDEN,
+          projects: [{ id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 10 }],
+        },
       }),
     );
     renderPage();

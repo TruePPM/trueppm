@@ -18,6 +18,13 @@ export interface ProgramScheduleLane {
   name: string;
   /** Whether the requester may read this member project's tasks in full. */
   accessible: boolean;
+  /**
+   * Working days across the lane's own rolled-up span (`[min early_start, max
+   * early_finish]` of every task in the project), per that project's composed
+   * calendar (#3597) — matches `_apply_cpm_results`'/`summary_working_day_durations`'
+   * (#3530) working-day convention. 0 when the project has no scheduled task.
+   */
+  duration: number;
 }
 
 /** A task the requester can read in full. Discriminated by `is_external: false`. */
@@ -35,6 +42,12 @@ export interface ProgramScheduleFullTask {
   late_finish: string | null;
   total_float_days: number | null;
   is_critical: boolean;
+  /**
+   * Working days (#3597) — the task's own estimate, read straight off the row
+   * rather than derived from `early_start`/`early_finish`, so it equals what the
+   * project schedule shows for the same task (render-don't-derive, ADR-0115).
+   */
+  duration: number;
 }
 
 /**
