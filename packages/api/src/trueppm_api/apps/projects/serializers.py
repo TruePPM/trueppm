@@ -6085,7 +6085,9 @@ class TaskCreateSerializer(TaskSerializer):
     # ltree: drf-spectacular cannot resolve the field type, so declaring it here keeps
     # these schema-only components from re-emitting the resolution error once each.
     wbs_path = serializers.CharField(
-        read_only=True, help_text="Server-derived WBS path (ADR-0743). Never client-writable."
+        read_only=True,
+        allow_null=True,
+        help_text="Server-derived WBS path (ADR-0743). Never client-writable.",
     )
 
     class Meta(TaskSerializer.Meta):
@@ -6125,7 +6127,9 @@ class TaskWriteResponseSerializer(TaskSerializer):
     # ltree: drf-spectacular cannot resolve the field type, so declaring it here keeps
     # these schema-only components from re-emitting the resolution error once each.
     wbs_path = serializers.CharField(
-        read_only=True, help_text="Server-derived WBS path (ADR-0743). Never client-writable."
+        read_only=True,
+        allow_null=True,
+        help_text="Server-derived WBS path (ADR-0743). Never client-writable.",
     )
 
     class Meta(TaskSerializer.Meta):
@@ -10599,7 +10603,7 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
     """
 
     uploaded_by = _MentionAuthorMiniSerializer(read_only=True)
-    deleted_by = _MentionAuthorMiniSerializer(read_only=True)
+    deleted_by = _MentionAuthorMiniSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = TaskAttachment
@@ -10754,7 +10758,7 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
     """
 
     author = _MentionAuthorMiniSerializer(read_only=True)
-    deleted_by = _MentionAuthorMiniSerializer(read_only=True)
+    deleted_by = _MentionAuthorMiniSerializer(read_only=True, allow_null=True)
     acknowledged_count = serializers.SerializerMethodField()
     reaction_count = serializers.SerializerMethodField()
     has_my_acknowledgement = serializers.SerializerMethodField()
@@ -10901,7 +10905,7 @@ class TaskNoteSerializer(serializers.ModelSerializer[TaskNote]):
     """
 
     author = _MentionAuthorMiniSerializer(read_only=True)
-    deleted_by = _MentionAuthorMiniSerializer(read_only=True)
+    deleted_by = _MentionAuthorMiniSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = TaskNote
