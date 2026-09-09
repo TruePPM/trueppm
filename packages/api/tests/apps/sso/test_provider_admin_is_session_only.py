@@ -372,11 +372,11 @@ def test_a_session_can_still_configure_sso(admin: Any) -> None:
 # 4 — the guard is declared statically, which is what the tripwires read
 # ---------------------------------------------------------------------------
 
-_SSO_ADMIN_PREFIX = "workspace/sso/providers"
+_SSO_ADMIN_PREFIX = "workspace/sso/"
 
 
 def _sso_admin_view_classes() -> list[type]:
-    """Every view class serving a route under ``workspace/sso/providers``.
+    """Every view class serving a route under ``workspace/sso/`` (providers + redirect-uri).
 
     Derived from ``get_resolver()`` so a route added later is covered the day it is
     added, rather than the day somebody remembers to extend a literal list.
@@ -440,8 +440,8 @@ def test_every_sso_admin_view_declares_the_guard_class_level() -> None:
     from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
 
     view_classes = _sso_admin_view_classes()
-    assert len(view_classes) >= 3, (
-        f"expected at least the three SSO admin views, resolved {len(view_classes)} — "
+    assert len(view_classes) >= 4, (
+        f"expected at least the four SSO admin views, resolved {len(view_classes)} — "
         "the resolver walk is probably broken rather than the surface having shrunk"
     )
 

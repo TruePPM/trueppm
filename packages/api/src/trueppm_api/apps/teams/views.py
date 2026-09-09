@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -27,7 +28,7 @@ from trueppm_api.apps.teams.serializers import (
     TeamMembershipWriteSerializer,
     TeamSerializer,
 )
-from trueppm_api.apps.teams.services import FACET_FIELDS
+from trueppm_api.apps.teams.services import FACET_FIELDS, live_project_membership_exists
 
 
 class TeamViewSet(viewsets.GenericViewSet[Team]):
@@ -37,8 +38,28 @@ class TeamViewSet(viewsets.GenericViewSet[Team]):
     serializer_class = TeamSerializer
 
     def get_queryset(self) -> QuerySet[Team]:
+        # `member_count` must not count a `TeamMembership` row whose user's
+        # `ProjectMembership` on this project has been revoked (#3511) — the
+        # ADR-0078 §F mirror only ever *creates* team rows (no `post_delete`
+        # receiver, no FK a cascade could travel), so a revoked project member's
+        # team row survives with `is_deleted=False` exactly like the facet and
+        # voter-roster seams `live_project_membership_exists()` already floors
+        # (#3386/#3387/#3334). A correlated `Subquery` (not a `Count(filter=...)`
+        # on the annotated queryset itself) because the liveness `Exists` needs
+        # `TeamMembership`'s own fields (`team__project_id`, `user_id`) in scope,
+        # which a same-level aggregate filter cannot see.
+        live_member_counts = (
+            TeamMembership.objects.filter(team=OuterRef("pk"), is_deleted=False)
+            .filter(live_project_membership_exists())
+            .order_by()
+            .values("team")
+            .annotate(cnt=Count("pk"))
+            .values("cnt")
+        )
         qs = Team.objects.filter(is_deleted=False).annotate(
-            member_count_annotated=Count("memberships", filter=Q(memberships__is_deleted=False))
+            member_count_annotated=Coalesce(
+                Subquery(live_member_counts, output_field=IntegerField()), 0
+            )
         )
         project_pk = self.kwargs.get("project_pk")
         if project_pk is not None:
@@ -82,9 +103,18 @@ class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMember
             raise NotFound("Team not found.") from err
 
     def get_queryset(self) -> QuerySet[TeamMembership]:
+        # Same floor as the facet/voter seams (#3386/#3387/#3334, and the
+        # `member_count` fix above, #3511): a `TeamMembership` row can be
+        # `is_deleted=False` while the user's `ProjectMembership` on this
+        # project has been revoked, because nothing cascades the revoke onto
+        # the mirrored team row. This queryset also backs `get_object()` for
+        # `partial_update`, so a revoked member's facets/role can no longer be
+        # edited through this endpoint either — there is no legitimate reason
+        # to write to a membership row for someone who has lost project access.
         return (
             TeamMembership.objects.select_related("user", "team")
             .filter(team_id=self.kwargs["team_pk"], is_deleted=False)
+            .filter(live_project_membership_exists())
             .order_by("user__username")
         )
 
@@ -121,6 +151,11 @@ class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMember
             # Reassign each facet being turned ON: clear it from the current holder
             # so the team ends with at most one. Locking the holders avoids a race
             # where two concurrent assignments both believe they cleared the prior.
+            # Deliberately NOT floored on `live_project_membership_exists()` (unlike
+            # get_queryset() above, #3511): the singleton invariant must hold across
+            # every `is_deleted=False` row, including a revoked-but-still-live-row
+            # ghost holder, or a stale facet survives on a row this endpoint can no
+            # longer even see and resurfaces the moment the member is reinstated.
             for facet in FACET_FIELDS:
                 if data.get(facet) is True:
                     holders = (

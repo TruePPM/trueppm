@@ -142,6 +142,30 @@ document. A few things differ:
   only members of that GitHub organization to sign in. When set, membership is
   checked on every sign-in and the check fails closed.
 
+### GitLab specifics
+
+GitLab is a regular OIDC provider (see [Provider types](#provider-types)), so
+the general flow above applies — a few things are specific to it:
+
+- **Instance URL** — for GitLab.com use `https://gitlab.com`; for a
+  self-managed instance use its own base URL (e.g.
+  `https://gitlab.example.com`). TruePPM appends the standard OIDC discovery
+  path itself.
+- **Register the application in GitLab first.** In GitLab, go to your user,
+  group, or Admin Area **Applications** page and create an application with
+  the **Redirect URI** shown in step 4 above and the **`openid`**, `profile`,
+  and `email` scopes checked — GitLab only returns an ID token (required for
+  OIDC sign-in) when `openid` is selected. GitLab then issues the **Client ID**
+  and **Client secret** you paste into steps 3–4. The redirect URI is known
+  before you save anything here (it does not depend on a saved provider), so
+  you can register the GitLab application first and come back to finish this
+  form afterward.
+- **Self-managed GitLab on a private network** — if your GitLab instance is
+  not publicly reachable (e.g. an internal `gitlab.internal` host), TruePPM's
+  outbound SSRF guard blocks discovery to it by default; see [Running the
+  identity provider inside your cluster](#running-the-identity-provider-inside-your-cluster)
+  to allow-list it.
+
 ## How users sign in
 
 On the sign-in screen, each **enabled** provider shows its own **Continue with

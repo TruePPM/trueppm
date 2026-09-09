@@ -348,9 +348,9 @@ describe('SsoProviderPanel — credentials & policy controls', () => {
     expect(await screen.findByText('Copied')).toBeInTheDocument();
   });
 
-  it('shows a deferred-redirect note when no redirect URI is known yet', () => {
+  it('shows a loading placeholder while the redirect URI is still in flight', () => {
     renderPanel({ sharedRedirectUri: '' });
-    expect(screen.getByText(/Shown here after you add the first provider/)).toBeInTheDocument();
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
     expect(screen.queryByLabelText('Redirect URI (read-only)')).not.toBeInTheDocument();
   });
 

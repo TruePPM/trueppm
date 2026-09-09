@@ -81,7 +81,9 @@ export interface SsoTestResult {
 }
 
 const PROVIDERS_KEY = ['workspace-sso-providers'] as const;
+const REDIRECT_URI_KEY = ['workspace-sso-redirect-uri'] as const;
 const COLLECTION = '/workspace/sso/providers/';
+const REDIRECT_URI = '/workspace/sso/redirect-uri/';
 const item = (slug: string) => `${COLLECTION}${encodeURIComponent(slug)}/`;
 
 /** GET the configured provider collection (IsWorkspaceAdminStrict). */
@@ -91,6 +93,27 @@ export function useSsoProviders() {
     queryFn: async () => {
       const res = await apiClient.get<SsoProvider[]>(COLLECTION);
       return res.data;
+    },
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+/**
+ * GET the callback URL, independent of whether any provider exists yet (#3690).
+ *
+ * Identical for every provider (`SsoProvider.redirect_uri` exposes the same
+ * value), but that field is only reachable once a provider is saved — a
+ * genuine chicken-and-egg gap for the *first* provider an admin adds, since
+ * most IdPs (GitLab included) require this URL to register the OAuth
+ * application before they will issue a client id/secret to save here.
+ */
+export function useSsoRedirectUri() {
+  return useQuery<string, Error>({
+    queryKey: REDIRECT_URI_KEY,
+    queryFn: async () => {
+      const res = await apiClient.get<{ redirect_uri: string }>(REDIRECT_URI);
+      return res.data.redirect_uri;
     },
     staleTime: 5 * 60 * 1000,
     retry: false,

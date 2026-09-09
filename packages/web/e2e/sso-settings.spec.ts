@@ -100,6 +100,15 @@ async function setup(page: Page, providers: unknown[]) {
   await page.route('**/api/v1/workspace/sso/providers/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(providers) }),
   );
+  // Object-shaped (not a list) — served independently of the provider
+  // collection so the redirect URI is known before any provider exists (#3690).
+  await page.route('**/api/v1/workspace/sso/redirect-uri/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ redirect_uri: 'https://app.truescope.io/api/v1/auth/oidc/callback/' }),
+    }),
+  );
 }
 
 test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
@@ -117,6 +126,13 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
     await expect(page.getByLabel('Base URL')).toBeVisible();
     await expect(page.getByLabel('Realm')).toBeVisible();
     await expect(page.getByLabel('Client ID', { exact: true })).toBeVisible();
+    // The redirect URI must be known BEFORE any provider is saved — most IdPs
+    // (GitLab included) require it to register the OAuth application, which is
+    // the only way to obtain the client id/secret this form also asks for
+    // (#3690's chicken-and-egg gap).
+    await expect(page.getByLabel('Redirect URI (read-only)')).toHaveValue(
+      'https://app.truescope.io/api/v1/auth/oidc/callback/',
+    );
   });
 
   test('configured: live status and a provider row', async ({ page }) => {

@@ -28,10 +28,12 @@ const KEYCLOAK: SsoProvider = {
 };
 
 let providersData: SsoProvider[] = [];
+let redirectUriData: string | undefined = 'https://app.acme.io/api/v1/auth/oidc/callback/';
 const deleteMutate = vi.fn(() => Promise.resolve());
 
 vi.mock('@/hooks/useSso', () => ({
   useSsoProviders: () => ({ data: providersData, isLoading: false, isError: false }),
+  useSsoRedirectUri: () => ({ data: redirectUriData, isLoading: false, isError: false }),
   useDeleteSsoProvider: () => ({ mutateAsync: deleteMutate, isPending: false }),
   useCreateSsoProvider: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateSsoProvider: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -45,6 +47,7 @@ vi.mock('@/hooks/useEdition', () => ({
 describe('WorkspaceSsoPage', () => {
   beforeEach(() => {
     providersData = [];
+    redirectUriData = 'https://app.acme.io/api/v1/auth/oidc/callback/';
     deleteMutate.mockClear();
   });
 
@@ -64,6 +67,18 @@ describe('WorkspaceSsoPage', () => {
     expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
     expect(screen.getByLabelText('Realm')).toBeInTheDocument();
     expect(screen.getByLabelText('Client ID')).toBeInTheDocument();
+  });
+
+  it('shows the redirect URI on the very first Add, before any provider is saved (#3690)', async () => {
+    // Zero providers configured — `providers[0]?.redirect_uri` would previously
+    // be undefined here, which is exactly the chicken-and-egg gap #3690 fixed by
+    // fetching the value from its own endpoint instead of the provider list.
+    render(<WorkspaceSsoPage />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    const uri = screen.getByLabelText('Redirect URI (read-only)');
+    expect(uri).toHaveValue('https://app.acme.io/api/v1/auth/oidc/callback/');
   });
 
   it('composes the resolved issuer live as derived fields are filled', async () => {
