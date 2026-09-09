@@ -8,6 +8,7 @@ the ``show_on_card`` opt-in flag, and the ride-``Task.server_version`` sync beha
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
 import pytest
@@ -436,6 +437,9 @@ def test_put_typed_write_400_contract(
 
 @pytest.mark.django_db
 def test_viewer_cannot_write_value(viewer_client, project, task):
+    # Stays 403 after #3657 made the lookup membership-scoped, and that is the point:
+    # a Viewer IS a member, so their task resolves and only the role check refuses
+    # them. The 404 collapse is for callers with no membership at all.
     field = _field(project, "Client", CustomFieldType.TEXT)
     resp = viewer_client.put(_value_url(project, task, field), {"value": "x"}, format="json")
     assert resp.status_code == 403
@@ -457,6 +461,139 @@ def test_field_from_another_project_is_404(member_client, project, other_project
     )
     assert resp.status_code == 404
     assert not TaskCustomFieldValue.objects.filter(field=foreign_field).exists()
+
+
+@pytest.mark.django_db
+def test_non_member_cannot_distinguish_a_real_task_from_a_fake_one(project, task):
+    """The two refusals must be byte-identical, not merely both 4xx (#3657).
+
+    Asserting ``== 404`` twice would still pass if the bodies differed, and a body that
+    differs is an oracle just as much as a status that does. So the whole observable
+    response is compared between a task id that exists in this project and one that
+    does not.
+    """
+    stranger = User.objects.create_user(username="cf-stranger", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=stranger)
+    field = _field(project, "Client", CustomFieldType.TEXT)
+    fake_url = f"/api/v1/projects/{project.pk}/tasks/{uuid.uuid4()}/field-values/{field.pk}/"
+
+    r_real = client.put(_value_url(project, task, field), {"value": "x"}, format="json")
+    r_fake = client.put(fake_url, {"value": "x"}, format="json")
+
+    assert r_real.status_code == 404, r_real.content
+    assert (r_real.status_code, r_real.content, r_real["Content-Type"]) == (
+        r_fake.status_code,
+        r_fake.content,
+        r_fake["Content-Type"],
+    )
+    assert not TaskCustomFieldValue.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
+def test_non_member_clear_is_404_for_real_and_fake_task_alike(project, task):
+    """DELETE shares ``_get_task`` but is a second call site — assert it too.
+
+    A new refusal shape only fails the call sites a test covers, so every method that
+    routes through the changed helper is asserted rather than just the one the fix was
+    written against.
+    """
+    field = _field(project, "Client", CustomFieldType.TEXT)
+    TaskCustomFieldValue.objects.create(task=task, field=field, value_text="keep me")
+    stranger = User.objects.create_user(username="cf-stranger-del", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=stranger)
+    fake_url = f"/api/v1/projects/{project.pk}/tasks/{uuid.uuid4()}/field-values/{field.pk}/"
+
+    r_real = client.delete(_value_url(project, task, field))
+    r_fake = client.delete(fake_url)
+
+    assert r_real.status_code == 404, r_real.content
+    assert (r_real.status_code, r_real.content) == (r_fake.status_code, r_fake.content)
+    assert TaskCustomFieldValue.objects.filter(task=task, field=field).exists()
+
+
+@pytest.mark.django_db
+def test_revoked_member_is_treated_as_a_non_member(member_client, member_user, project, task):
+    """A soft-deleted membership must not resolve the task (the #3411 defect class).
+
+    ``uniq_project_membership_project_user`` is unconditional, so revoking leaves the
+    row in place with ``is_deleted=True``. A membership join that omits the soft-delete
+    floor would still match it and hand a revoked user their old access.
+    """
+    field = _field(project, "Client", CustomFieldType.TEXT)
+    ProjectMembership.objects.filter(project=project, user=member_user).update(is_deleted=True)
+
+    resp = member_client.put(_value_url(project, task, field), {"value": "x"}, format="json")
+
+    assert resp.status_code == 404, resp.content
+    assert not TaskCustomFieldValue.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
+def test_task_from_another_project_is_404_even_for_a_member_of_the_url_project(
+    member_client, member_user, project, other_project
+):
+    """Asserts the ``project_id=project_pk`` clause specifically (security-review #3657).
+
+    The membership join alone would pass this: the caller IS a live member of
+    ``other_project``. Only the project-scoping term rejects a real task id borrowed
+    from a project other than the one named in the URL — the cross-project IDOR guard
+    the pre-#3657 code already had and the rewrite must not have dropped.
+    """
+    ProjectMembership.objects.create(project=other_project, user=member_user, role=Role.MEMBER)
+    foreign_task = Task.objects.create(
+        project=other_project, name="Other project's task", wbs_path="1", assignee=member_user
+    )
+    field = _field(project, "Client", CustomFieldType.TEXT)
+
+    resp = member_client.put(
+        f"/api/v1/projects/{project.pk}/tasks/{foreign_task.pk}/field-values/{field.pk}/",
+        {"value": "x"},
+        format="json",
+    )
+
+    assert resp.status_code == 404, resp.content
+    assert not TaskCustomFieldValue.objects.filter(task=foreign_task).exists()
+
+
+@pytest.mark.django_db
+def test_member_cannot_write_value_on_someone_elses_task(member_client, project):
+    """A live member still gets 403, not 404, when the task simply isn't theirs.
+
+    Distinguishes the role refusal from the membership refusal #3657 changed: an
+    unassigned task resolves fine through the membership-scoped lookup (the caller IS
+    a member of this project), so `IsProjectMemberWriteOrOwn` is what refuses them —
+    the field-values analog of `test_member_cannot_attach_to_unassigned_task` in
+    `test_labels.py`.
+    """
+    unassigned = Task.objects.create(project=project, name="Not mine", wbs_path="1")
+    field = _field(project, "Client", CustomFieldType.TEXT)
+
+    resp = member_client.put(_value_url(project, unassigned, field), {"value": "x"}, format="json")
+
+    assert resp.status_code == 403, resp.content
+    assert not TaskCustomFieldValue.objects.filter(task=unassigned).exists()
+
+
+@pytest.mark.django_db
+def test_trashed_project_is_404_for_a_still_live_member(member_client, project, task):
+    """A behavior change worth naming explicitly (regression-check #3657).
+
+    ``VersionedModel.soft_delete()`` does not cascade to memberships — they survive a
+    trashed project by design — and ``IsProjectNotArchived`` checks *archived*, not
+    *deleted*. So before this fix a member of a **trashed** project could still write a
+    field value (the old lookup had no ``project__is_deleted`` term); the
+    membership-scoped helper adds one, and that same member now gets 404. Intentional,
+    and asserted here rather than left as an untested side effect of the rewrite.
+    """
+    field = _field(project, "Client", CustomFieldType.TEXT)
+    project.soft_delete()
+
+    resp = member_client.put(_value_url(project, task, field), {"value": "x"}, format="json")
+
+    assert resp.status_code == 404, resp.content
+    assert not TaskCustomFieldValue.objects.filter(task=task).exists()
 
 
 # ---------------------------------------------------------------------------

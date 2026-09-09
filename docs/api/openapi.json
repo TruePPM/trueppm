@@ -33563,7 +33563,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/field-values/{field_id}/": {
             "put": {
                 "operationId": "v1_projects_tasks_field_values_update",
-                "description": "Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).\n\n``PUT`` upserts the typed value for ``field_id`` on the task; ``DELETE`` clears it.\nEach bumps ``Task.server_version`` only when the value actually changed, so the\ntask's flat ``custom_fields`` map re-syncs (ADR-0400 ride-the-parent pattern) and a\n``task_updated`` board event fires; an idempotent repeat is a no-op that neither\nchurns the version nor re-broadcasts — mirroring ``TaskLabelView``.\n\nSetting a value **is a task edit**, so it is gated by ``IsProjectMemberWriteOrOwn``\n(a Member may edit their own tasks; a Viewer cannot) — deliberately distinct from\nthe field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no\nMCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on\nthe Task payload is already agent-reachable now.",
+                "description": "Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).\n\n``PUT`` upserts the typed value for ``field_id`` on the task; ``DELETE`` clears it.\nEach bumps ``Task.server_version`` only when the value actually changed, so the\ntask's flat ``custom_fields`` map re-syncs (ADR-0400 ride-the-parent pattern) and a\n``task_updated`` board event fires; an idempotent repeat is a no-op that neither\nchurns the version nor re-broadcasts — mirroring ``TaskLabelView``.\n\nSetting a value **is a task edit**, so it is gated by ``IsProjectMemberWriteOrOwn``\n(a Member may edit their own tasks; a Viewer cannot) — deliberately distinct from\nthe field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no\nMCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on\nthe Task payload is already agent-reachable now.\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
                 "summary": "Set a task's custom-field value",
                 "parameters": [
                     {
@@ -33629,6 +33629,12 @@
                     "200": {
                         "description": "Value set (idempotent)"
                     },
+                    "403": {
+                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
+                    },
+                    "404": {
+                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -33682,7 +33688,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_tasks_field_values_destroy",
-                "description": "Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).\n\n``PUT`` upserts the typed value for ``field_id`` on the task; ``DELETE`` clears it.\nEach bumps ``Task.server_version`` only when the value actually changed, so the\ntask's flat ``custom_fields`` map re-syncs (ADR-0400 ride-the-parent pattern) and a\n``task_updated`` board event fires; an idempotent repeat is a no-op that neither\nchurns the version nor re-broadcasts — mirroring ``TaskLabelView``.\n\nSetting a value **is a task edit**, so it is gated by ``IsProjectMemberWriteOrOwn``\n(a Member may edit their own tasks; a Viewer cannot) — deliberately distinct from\nthe field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no\nMCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on\nthe Task payload is already agent-reachable now.",
+                "description": "Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).\n\n``PUT`` upserts the typed value for ``field_id`` on the task; ``DELETE`` clears it.\nEach bumps ``Task.server_version`` only when the value actually changed, so the\ntask's flat ``custom_fields`` map re-syncs (ADR-0400 ride-the-parent pattern) and a\n``task_updated`` board event fires; an idempotent repeat is a no-op that neither\nchurns the version nor re-broadcasts — mirroring ``TaskLabelView``.\n\nSetting a value **is a task edit**, so it is gated by ``IsProjectMemberWriteOrOwn``\n(a Member may edit their own tasks; a Viewer cannot) — deliberately distinct from\nthe field *definition* CRUD, which stays Scheduler+. Writes are **human-only** (no\nMCP token write path) until the 0.6 agent-write surface (ADR-0186); the read map on\nthe Task payload is already agent-reachable now.\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
                 "summary": "Clear a task's custom-field value",
                 "parameters": [
                     {
@@ -33727,6 +33733,12 @@
                 "responses": {
                     "204": {
                         "description": "Cleared (idempotent)"
+                    },
+                    "403": {
+                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
+                    },
+                    "404": {
+                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -33843,7 +33855,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/labels/": {
             "post": {
                 "operationId": "v1_projects_tasks_labels_create",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
                 "summary": "Attach a label to a task",
                 "parameters": [
                     {
@@ -33910,6 +33922,12 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
+                    },
+                    "404": {
+                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -33964,7 +33982,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_tasks_labels_destroy",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
                 "summary": "Detach a label from a task",
                 "parameters": [
                     {
@@ -34002,6 +34020,12 @@
                     "204": {
                         "description": "Detached (idempotent)"
                     },
+                    "403": {
+                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
+                    },
+                    "404": {
+                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -34024,7 +34048,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/": {
             "post": {
                 "operationId": "v1_projects_tasks_labels_create_2",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
                 "summary": "Attach a label to a task",
                 "parameters": [
                     {
@@ -34100,6 +34124,12 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
+                    },
+                    "404": {
+                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -34153,7 +34183,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_tasks_labels_destroy_2",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
                 "summary": "Detach a label from a task",
                 "parameters": [
                     {
@@ -34198,6 +34228,12 @@
                 "responses": {
                     "204": {
                         "description": "Detached (idempotent)"
+                    },
+                    "403": {
+                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
+                    },
+                    "404": {
+                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
