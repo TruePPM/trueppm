@@ -141,6 +141,26 @@ def workspace_admin_client(workspace_admin_user: object) -> APIClient:
 
 
 @pytest.fixture
+def admin_and_workspace_admin_client(
+    admin_user: object, admin_membership: ProjectMembership
+) -> APIClient:
+    """A caller with BOTH project ADMIN (passes the base ``IsOrgAdmin`` catalog-write
+    gate) and stored workspace ADMIN (passes the #3625 ``email`` write floor).
+
+    ``workspace_admin_user`` deliberately holds no project membership (it exists to
+    prove the stored role is not self-grantable), so it cannot reach ordinary
+    catalog create/update at all — it 403s on the base gate before the email check
+    is ever reached. This fixture is the realistic shape of a caller who can
+    actually exercise the #3625 gate on a write: an org admin whom a workspace
+    owner has *also* promoted to workspace ADMIN.
+    """
+    _grant_workspace_role(admin_user, WorkspaceRole.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=admin_user)
+    return c
+
+
+@pytest.fixture
 def anon_client(db: object) -> APIClient:
     # db fixture required: Django middleware touches the DB before DRF
     # permission checks reject the request.
@@ -186,9 +206,13 @@ class TestResourceRead:
 
 class TestResourceWrite:
     def test_admin_can_create(self, admin_client: APIClient) -> None:
+        # No ``email`` here: an org-admin-derived caller (project ADMIN, not
+        # workspace ADMIN) is below the #3625 write floor for that field — see
+        # TestResourceEmailWriteGate for that behavior. This test covers ordinary
+        # catalog creation.
         res = admin_client.post(
             "/api/v1/resources/",
-            {"name": "Bob", "email": "bob@example.com", "max_units": "0.50"},
+            {"name": "Bob", "max_units": "0.50"},
             format="json",
         )
         assert res.status_code == 201
@@ -209,25 +233,6 @@ class TestResourceWrite:
             format="json",
         )
         assert res.status_code == 401
-
-    def test_org_admin_create_response_omits_email(self, admin_client: APIClient) -> None:
-        """#3569 consequence: an org admin may *write* email but never reads one back.
-
-        ``to_representation`` strips ``email`` for every non-operator caller, and a
-        write response goes through the same serializer. This is deliberate — a
-        write echo that returned the field would be a read path around the harvest
-        control (POST/PATCH a row, read the response). The admin's own input is not
-        secret to them, but the endpoint cannot tell an echo from a read.
-        """
-        res = admin_client.post(
-            "/api/v1/resources/",
-            {"name": "Echo", "email": "echo@example.com", "max_units": "1.00"},
-            format="json",
-        )
-        assert res.status_code == 201
-        assert "email" not in res.data
-        # The value was still persisted — this is a response gate, not a write gate.
-        assert Resource.objects.get(name="Echo").email == "echo@example.com"
 
     def test_operator_can_create_with_blank_email(self, operator_client: APIClient) -> None:
         """A blank email is accepted and serialized as "" (#2127 conformance fix)."""
@@ -566,6 +571,113 @@ class TestResourceEmailGate:
 
 
 # ---------------------------------------------------------------------------
+# Email write gate (#3625) — writing email must not be easier than reading it
+# ---------------------------------------------------------------------------
+
+
+class TestResourceEmailWriteGate:
+    """A caller below workspace ADMIN must not be able to *write* ``email`` either.
+
+    #3569 raised the read floor for ``email`` to the stored workspace ADMIN role,
+    but left writing it on ``IsOrgAdmin`` (self-grantable — see
+    ``TestOrgAuthorityIsNotSelfGrantable`` for the exploit path). A fresh account
+    could overwrite any catalog row's email in two requests while being unable to
+    read the value it replaced. ``ResourceSerializer.validate`` closes that: it
+    rejects any write that includes ``email`` from a caller below workspace ADMIN,
+    mirroring ``to_representation``'s read-side strip via the same
+    ``_caller_is_workspace_admin`` check.
+    """
+
+    def test_admin_cannot_set_email_on_create(self, admin_client: APIClient) -> None:
+        """Project ADMIN (org-admin derivation) is below the write floor for email."""
+        res = admin_client.post(
+            "/api/v1/resources/",
+            {"name": "Mallory", "email": "mallory@example.com", "max_units": "1.00"},
+            format="json",
+        )
+        assert res.status_code == 400
+        assert "email" in res.data
+        assert not Resource.objects.filter(name="Mallory").exists()
+
+    def test_admin_cannot_patch_email(self, admin_client: APIClient, resource: Resource) -> None:
+        """Same floor on update: an existing row's email cannot be overwritten either."""
+        res = admin_client.patch(
+            f"/api/v1/resources/{resource.pk}/",
+            {"email": "attacker@example.com"},
+            format="json",
+        )
+        assert res.status_code == 400
+        assert "email" in res.data
+        resource.refresh_from_db()
+        assert resource.email == "alice@example.com"
+
+    def test_member_cannot_set_email_on_create(self, member_client: APIClient) -> None:
+        """A plain member is refused at the view permission layer before the
+        serializer is even reached (IsOrgAdmin gates create at all) — the write
+        floor for email is strictly narrower than the ordinary create floor, so
+        this must fail too, just earlier."""
+        res = member_client.post(
+            "/api/v1/resources/",
+            {"name": "Trent", "email": "trent@example.com", "max_units": "1.00"},
+            format="json",
+        )
+        assert res.status_code == 403
+        assert not Resource.objects.filter(name="Trent").exists()
+
+    def test_admin_can_still_patch_other_fields(
+        self, admin_client: APIClient, resource: Resource
+    ) -> None:
+        """The write gate is scoped to ``email`` alone — ordinary catalog curation
+        (name, job role, capacity, calendar) stays on the project-derived gate
+        (ADR-0034), per the issue's stated scope."""
+        res = admin_client.patch(
+            f"/api/v1/resources/{resource.pk}/",
+            {"job_role": "Carpenter", "max_units": "0.75"},
+            format="json",
+        )
+        assert res.status_code == 200
+        resource.refresh_from_db()
+        assert resource.job_role == "Carpenter"
+        assert resource.email == "alice@example.com"
+
+    def test_workspace_admin_can_set_email_on_create(
+        self, admin_and_workspace_admin_client: APIClient
+    ) -> None:
+        """The stored workspace ADMIN role — the read floor's own principal — may
+        still set email on create."""
+        res = admin_and_workspace_admin_client.post(
+            "/api/v1/resources/",
+            {"name": "Alice Two", "email": "alice2@example.com", "max_units": "1.00"},
+            format="json",
+        )
+        assert res.status_code == 201
+        assert Resource.objects.get(name="Alice Two").email == "alice2@example.com"
+
+    def test_workspace_admin_can_patch_email(
+        self, admin_and_workspace_admin_client: APIClient, resource: Resource
+    ) -> None:
+        res = admin_and_workspace_admin_client.patch(
+            f"/api/v1/resources/{resource.pk}/",
+            {"email": "alice_new@example.com"},
+            format="json",
+        )
+        assert res.status_code == 200
+        resource.refresh_from_db()
+        assert resource.email == "alice_new@example.com"
+
+    def test_operator_can_patch_email(self, operator_client: APIClient, resource: Resource) -> None:
+        """Superuser bootstrap (#3569's implicit OWNER path) also clears the write floor."""
+        res = operator_client.patch(
+            f"/api/v1/resources/{resource.pk}/",
+            {"email": "alice_ops@example.com"},
+            format="json",
+        )
+        assert res.status_code == 200
+        resource.refresh_from_db()
+        assert resource.email == "alice_ops@example.com"
+
+
+# ---------------------------------------------------------------------------
 # Atomicity regression tests for ResourceViewSet.perform_destroy (R3)
 # ---------------------------------------------------------------------------
 
@@ -865,9 +977,14 @@ class TestOrgAuthorityIgnoresDeadProjects:
 
     @staticmethod
     def _create_resource(client: APIClient, name: str) -> Any:
+        # No ``email`` in the payload: this helper exercises the org-admin
+        # *catalog-write* derivation itself (#3569), not the narrower #3625
+        # ``email`` write floor — a project-derived admin is below that floor
+        # regardless of live/archived/dead project status, so including it here
+        # would make every 201 assertion below fail on an unrelated gate.
         return client.post(
             "/api/v1/resources/",
-            {"name": name, "email": f"{name.lower()}@example.com", "max_units": "1.00"},
+            {"name": name, "max_units": "1.00"},
             format="json",
         )
 
