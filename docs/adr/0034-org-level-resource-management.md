@@ -51,6 +51,21 @@
 > was reachable through the same self-grantable project/program Admin path. It now
 > withholds `email` unless the requester holds workspace Admin+, matching this
 > amendment's invariant rather than re-arguing it.
+>
+> **Amended 2026-09-08 (#3647) — "Creating and editing catalog rows is unchanged"
+> above is true of the catalog and silent on a fifth surface that changed with it.**
+> `ProjectResourceSerializer.resource_detail` (`apps/resources/serializers.py`) nests
+> `ResourceSerializer` to expand the project roster, so the #3569 email-exposure gate
+> on `ResourceSerializer.to_representation` also strips `email` from
+> `GET /api/v1/project-resources/` — a project-scoped roster read, previously visible
+> to any project ADMIN+, now workspace-Admin-only like the catalog. This was not a
+> deliberate decision revisited here; it is the same code path as the catalog gate,
+> reached through nesting the #3569 amendment did not enumerate. No further gate
+> change follows from this — it only names what already shipped with #3569. The
+> invariant stated two paragraphs above already covered this correctly ("holds for
+> `ResourceSerializer` and for nothing else yet"); the surface-list framing elsewhere
+> (this ADR's "Creating and editing catalog rows is unchanged" and the #3569
+> changelog fragment) did not.
 
 ## Status
 Accepted (2026-05-31) — implemented in #155
