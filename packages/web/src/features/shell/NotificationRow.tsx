@@ -155,7 +155,9 @@ export function NotificationRow({ notification, onNavigate }: Props) {
           <span className="text-sm font-medium text-neutral-text-primary">{title}</span>
           <span className="text-xs text-neutral-text-secondary tppm-mono ml-auto">{ts}</span>
         </div>
-        <p className="text-xs text-neutral-text-secondary truncate">{preview}</p>
+        <p className="text-xs text-neutral-text-secondary line-clamp-2" title={preview}>
+          {preview}
+        </p>
       </button>
       <div className="flex items-center gap-1 mt-1 flex-wrap">
         <button type="button" onClick={handleMarkRead} disabled={busy} className={actionBtn}>

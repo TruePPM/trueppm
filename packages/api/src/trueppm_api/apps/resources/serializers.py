@@ -150,7 +150,10 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
     single low-privilege account paginate the catalog to harvest the whole org's
     email list. ``to_representation`` strips ``email`` for every caller below
     workspace ADMIN, while still letting the caller see their own email (is_me) so
-    self-view is unaffected.
+    self-view is unaffected. ``validate`` mirrors the same floor on the write side
+    (#3625): setting ``email`` below workspace ADMIN is rejected outright, closing
+    the asymmetry where a fresh account could overwrite an address it could not
+    read back.
     """
 
     skills = ResourceSkillSerializer(many=True, read_only=True)
@@ -242,6 +245,32 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
             return data
         data.pop("email", None)
         return data
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject writing ``email`` below workspace ADMIN (#3625).
+
+        #3569 raised *reading* ``email`` to the stored workspace ADMIN role (see
+        ``to_representation`` above), but left *writing* it on ``IsOrgAdmin`` —
+        ``ResourceViewSet.get_permissions`` falls through to that for
+        create/update, and the org-admin derivation is self-grantable: project
+        creation is ungated and ``perform_create`` makes the caller Owner. That let
+        a fresh account overwrite any catalog row's email in two requests while
+        being unable to read the value it replaced — silent corruption, self-view
+        spoofing via ``get_is_me``'s legacy email fallback, and "My Work"
+        attribution transfer via ``_filter_tasks_mine``
+        (``trueppm_api.apps.projects.views``).
+
+        Reuses ``_caller_is_workspace_admin`` — the same check ``to_representation``
+        gates on — so the read and write floors for this field cannot drift apart
+        again. Deliberately no ``is_me`` carve-out here (unlike the read side):
+        that fallback is exactly the mechanism this gate closes for a writer below
+        ADMIN, so exempting a caller's own address would reopen it.
+        """
+        if "email" in attrs and not self._caller_is_workspace_admin():
+            raise serializers.ValidationError(
+                {"email": "Only a workspace admin may set a resource's email address."}
+            )
+        return attrs
 
 
 class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):

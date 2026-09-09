@@ -196,7 +196,7 @@ export function NotificationPanel({ onClose }: Props) {
       <div
         role="radiogroup"
         aria-label="Filter by category"
-        className="flex gap-1 px-3 py-2 border-b border-neutral-border overflow-x-auto"
+        className="flex flex-wrap gap-1 px-3 py-2 border-b border-neutral-border"
       >
         {CATEGORY_FILTERS.map((c) => {
           const active = category === c.value;
