@@ -32,6 +32,7 @@ from django.db import IntegrityError
 from django.http import HttpResponse, HttpResponseRedirect
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -50,7 +51,10 @@ from trueppm_api.apps.sso.serializers import (
     SsoTestConnectionResponseSerializer,
 )
 from trueppm_api.apps.workspace.models import AuditEventType, Workspace
-from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
+from trueppm_api.apps.workspace.permissions import (
+    IsWorkspaceAdminStrict,
+    _workspace_membership_role,
+)
 from trueppm_api.core.auth_views import (
     _apply_remember,
     _cookie_seconds,
@@ -338,6 +342,37 @@ class OIDCCallbackView(APIView):
 # ``permission_classes`` — a runtime-only guard is invisible to both.
 
 
+def _refuse_default_role_at_or_above_actor(
+    request: Request, validated_data: dict[str, Any]
+) -> None:
+    """Refuse writing a ``default_role`` equal to or higher than the actor's own (#3626).
+
+    Mirrors the actor-ceiling ``>=`` comparison
+    ``workspace.views._apply_member_role_change`` and ``WorkspaceInviteListView.post``
+    apply to member-role grants and invites, so the same peer/self-duplication
+    invariant holds on the third path that can mint a role: SSO auto-provisioning.
+    Without this, a workspace ADMIN could set ``default_role=ADMIN`` (already the
+    ceiling ``_ALLOWED_DEFAULT_ROLES`` permits) and self-service-provision a peer
+    ADMIN account through a second IdP identity — a grant the member-PATCH and
+    invite paths both refuse outright.
+
+    Only checked when the client actually sent ``default_role`` — a partial
+    ``PUT`` that touches unrelated fields must not fail on a value it never
+    submitted, matching every other field-conditional branch in
+    ``SsoProviderDetailView.put``. ``resolve_user``'s auto-create branch is
+    intentionally left alone: the ceiling belongs at this write gate on the
+    policy, not at sign-in time, so an existing over-privileged policy keeps
+    provisioning at its stored role until an OWNER edits it down.
+    """
+    if "default_role" not in validated_data:
+        return
+    actor_role = _workspace_membership_role(request)
+    if actor_role is not None and validated_data["default_role"] >= actor_role:
+        raise PermissionDenied(
+            "You cannot set default_role to a role equal to or higher than your own."
+        )
+
+
 def _policy_or_none(slug: str) -> SsoProviderPolicy | None:
     return (
         SsoProviderPolicy.objects.select_related("social_app")
@@ -599,6 +634,7 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = SsoProviderWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        _refuse_default_role_at_or_above_actor(request, serializer.validated_data)
         try:
             policy = serializer.save()
         except IntegrityError as exc:
@@ -699,6 +735,7 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
         before = _provider_snapshot(policy)
         serializer = SsoProviderWriteSerializer(policy, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        _refuse_default_role_at_or_above_actor(request, serializer.validated_data)
         # Read the rotation flag from ``validated_data`` rather than from the raw body:
         # a blank/absent value never validates (the field is allow_blank=False), so this
         # is true exactly when a real secret was supplied. DRF's ``save()`` passes a

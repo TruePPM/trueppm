@@ -17722,6 +17722,17 @@ class FlowMetricsView(APIView):
     # nothing. Declared per view because `pk` means something else on other routes.
     project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # #3581: same computed-on-read replay shape as ProjectBurnView.get — one
+    # windowed HistoricalTask query (MAX_FLOW_WINDOW_DAYS-capped) diffed in Python,
+    # reachable by any project member. Shares the "burn" scope rather than minting
+    # a sibling one: both are the same cost class against the same table, so one
+    # shared per-account budget is the honest bound (a caller alternating between
+    # /burn/ and /flow-metrics/ to double their allowance is exactly what a shared
+    # scope prevents). forecast-snapshots is NOT wired here — see the MR
+    # description: it is a plain paginated ListAPIView read against the indexed,
+    # persisted ProjectForecastSnapshot table, not a HistoricalTask replay.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "burn"
 
     @extend_schema(
         parameters=[
@@ -17826,6 +17837,18 @@ class ProjectBurnView(APIView):
     # nothing. Declared per view because `pk` means something else on other routes.
     project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # #3581: the window cap (#3566) bounds cost *per request*, not the request
+    # *rate* — the floor cost still scales with project history (#3579), and any
+    # project member (including a Viewer) can issue this read. Without a scoped
+    # throttle it fell through to the general "user" default of 1000/min, which is
+    # meaningful amplification against a shared database. Declared directly on the
+    # class (not via a custom Throttle subclass, unlike the FBV-only
+    # MonteCarloRunThrottle/TelemetryTestThrottle pattern): ScopedRateThrottle reads
+    # ``view.throttle_scope`` at request time, and a CBV can carry that attribute
+    # natively — a bare ``scope = "burn"`` on ScopedRateThrottle itself would NOT
+    # be read (it re-resolves from the view), so throttle_scope must live here.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "burn"
 
     @extend_schema(
         parameters=[

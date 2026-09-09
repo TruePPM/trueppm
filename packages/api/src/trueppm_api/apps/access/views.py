@@ -103,12 +103,15 @@ def _revive_revoked_membership(
     cannot see whether a human meant the role to change, whereas this endpoint was
     handed one explicitly.
 
-    Known limitation (#3410): once revived, the row is indistinguishable from a
-    membership that never lapsed. ``deleted_version`` is cleared, neither model
-    carries ``HistoricalRecords``, and ``joined_at`` still reports the original
-    join date — so the access-evidence surface (#590/#878) cannot show the gap. A
-    dedicated reinstatement fact is #3436; until it lands, do not read
-    ``joined_at`` as proof of uninterrupted access.
+    ``reinstated_at`` is stamped unconditionally with ``timezone.now()`` on every
+    revive (#3436) — unlike ``role_changed_at`` it does not compare against the
+    prior state, because a revive is itself the fact being recorded, regardless of
+    whether the role also changed. This is what closes the #3410 known limitation:
+    ``deleted_version`` is still cleared and ``joined_at`` still reports the
+    original join date, but ``reinstated_at`` now gives a caller — human or
+    machine — a durable server-side discriminator between "joined once, never
+    left" and "was away and came back", without needing ``HistoricalRecords`` or
+    an ``AuditEvent`` that this app does not write.
 
     The save draws a fresh ``sync_seq`` (ADR-0686), which is what makes the row
     re-materialize on the next delta pull: the sync endpoint splits rows into
@@ -118,6 +121,7 @@ def _revive_revoked_membership(
     """
     membership.is_deleted = False
     membership.deleted_version = None
+    membership.reinstated_at = timezone.now()
     if new_role != membership.role:
         membership.role = new_role
         membership.role_changed_at = timezone.now()
