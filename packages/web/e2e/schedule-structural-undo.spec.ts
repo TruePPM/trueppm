@@ -351,4 +351,42 @@ test.describe('Schedule outline — structural undo (#2974)', () => {
     const panel = page.getByRole('dialog', { name: 'Structural changes this session' });
     await expect(panel.getByText(/cannot be undone/i)).toBeVisible();
   });
+
+  test('the trail panel opens fully inside the viewport, at every toolbar width (#3663)', async ({
+    page,
+  }) => {
+    // The horizontal twin of the #2974 assertion. `toBeVisible()` is a box-and-opacity
+    // question, so it passed on a 380px panel whose left ~50px were clipped away by
+    // ScheduleView's `overflow-hidden` wrapper — the trail sits in the toolbar's LEFT
+    // group, and `right-0` grew the panel leftward past that edge. Reading the box is
+    // the only assertion that can see it.
+    //
+    // The viewport is load-bearing and 800 is not arbitrary. What decides the clip is
+    // the width of everything LEFT of the trail, and at 1000px this fixture's left
+    // group happens to measure 380.03px against a 380px panel — it clears the edge by
+    // three hundredths of a pixel, so the assertion passes on the UNFIXED component and
+    // guards nothing. Narrow enough for the fit ladder to compact the trail and the
+    // trigger moves ~130px inside the edge, which is the composition a user with the
+    // default display options (`structureButtons: false`, `pinMilestone: false`) gets
+    // at any width. Verified in both directions: this fails on the pre-#3663 panel.
+    const store = await setupStructuralStore(page);
+    await page.setViewportSize({ width: 800, height: 800 });
+    await page.goto(BASE_URL);
+    await outlineReady(page);
+
+    await indentSurvey(page, store);
+    await openTrail(page);
+
+    const panel = page.getByRole('dialog', { name: 'Structural changes this session' });
+    const box = await panel.boundingBox();
+    const viewport = page.viewportSize();
+    if (!box || !viewport) throw new Error('the open trail panel has no box to measure');
+
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    // Not merely on-screen: the whole panel is painted, so no text is cut off.
+    expect(box.width).toBeGreaterThanOrEqual(300);
+  });
 });

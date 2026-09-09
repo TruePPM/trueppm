@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CloseIcon, UndoIcon } from '@/components/Icons';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { newestUndoableEntry, useTrailStore } from './trailStore';
+
+/** Panel width, and the design cap on its height. Both are the hook's inputs. */
+const TRAIL_WIDTH = 380;
+const TRAIL_MAX_HEIGHT = 320;
 
 /**
  * "N changes this session" — the record behind the outline's structural
@@ -44,8 +50,38 @@ export function SessionTrail({
 }: SessionTrailProps = {}) {
   const entries = useTrailStore((s) => s.entries);
   const [open, setOpen] = useState(false);
-  const popRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Portal + clamp, per web rule 260. The panel USED to be an in-flow
+  // `absolute right-0 w-[380px]`, which grows LEFTWARD from the trigger — and the
+  // trail sits in the toolbar's left group, ~330px from the edge of ScheduleView's
+  // `overflow-hidden` wrapper. The first ~50px of every line was painted nowhere,
+  // and `toBeVisible()` passes on that box exactly as it did on the off-screen
+  // one #2974 fixed (#3663). `align: 'right'` keeps the intended right-edge
+  // alignment; the hook's clamp is what makes it safe at every rung of the fit
+  // ladder, in both directions.
+  const { triggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >({
+    open,
+    width: TRAIL_WIDTH,
+    estimatedHeight: TRAIL_MAX_HEIGHT,
+    align: 'right',
+    gap: 8,
+  });
+
+  // Portaling moved the panel out of the toolbar and onto the end of `<body>`, so
+  // it is no longer the trigger's DOM neighbour and Tab from the trigger now walks
+  // into the rest of the toolbar instead of into the record. Moving focus into the
+  // dialog on open is what keeps its Close and Undo reachable — the same obligation
+  // web rule 260 states for a portaled `role="menu"`, which a portaled dialog
+  // inherits for the same reason. Escape and Close return it to the trigger below.
+  // The panel carries the standard focus ring rather than bare `outline-none`: it is
+  // programmatically focused, so without one a keyboard user is told nothing about
+  // where focus landed.
+  useEffect(() => {
+    if (!open) return;
+    popoverRef.current?.focus();
+  }, [open, popoverRef]);
 
   // Escape closes and returns focus to the trigger — the same pattern the board
   // overflow menu and the card peek use.
@@ -68,7 +104,7 @@ export function SessionTrail({
   const undoable = onUndo ? newestUndoableEntry(entries) : null;
 
   return (
-    <div className="relative shrink-0">
+    <div className="shrink-0">
       <button
         ref={triggerRef}
         type="button"
@@ -100,95 +136,105 @@ export function SessionTrail({
         {compact ? (
           <UndoIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
         ) : (
-          <span aria-hidden="true">
-            {count === 1 ? 'change' : 'changes'} this session
-          </span>
+          <span aria-hidden="true">{count === 1 ? 'change' : 'changes'} this session</span>
         )}
       </button>
 
-      {open && (
-        <div
-          ref={popRef}
-          role="dialog"
-          aria-label="Structural changes this session"
-          // Opens DOWNWARD. `bottom-full` assumes the trigger sits near the bottom of
-          // the viewport; this one lives in the Schedule toolbar at y≈74, so the
-          // popover rendered at y≈-126 — entirely off-screen. That was survivable
-          // while the panel was a record with nothing to click, and is not now that
-          // it carries the Undo control: the button was visible to `toBeVisible`,
-          // outside the viewport, and unclickable (#2974).
-          className="absolute top-full right-0 mt-2 w-[380px] max-h-[320px] overflow-y-auto z-50
-            rounded-card border border-neutral-border bg-neutral-surface-raised shadow-popover"
-        >
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-border">
-            <span className="text-xs font-semibold text-neutral-text-primary flex-1">
-              This session
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                triggerRef.current?.focus();
-              }}
-              aria-label="Close"
-              className="text-neutral-text-secondary hover:text-neutral-text-primary
+      {open &&
+        popoverStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            role="dialog"
+            tabIndex={-1}
+            aria-label="Structural changes this session"
+            // The hook's `maxHeight` is the real gap to the viewport edge the panel
+            // opened toward (rule 351). The 320px cap is a design decision about how
+            // much record to show at once, so the panel takes whichever is tighter —
+            // an inline style would otherwise silently beat a `max-h-` class.
+            style={{
+              ...popoverStyle,
+              maxHeight: Math.min(
+                TRAIL_MAX_HEIGHT,
+                typeof popoverStyle.maxHeight === 'number'
+                  ? popoverStyle.maxHeight
+                  : TRAIL_MAX_HEIGHT,
+              ),
+            }}
+            className="overflow-y-auto z-50 rounded-card border border-neutral-border
+              bg-neutral-surface-raised shadow-popover
+              focus:outline-none focus:ring-2 focus:ring-brand-primary"
+          >
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-border">
+              <span className="text-xs font-semibold text-neutral-text-primary flex-1">
+                This session
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  triggerRef.current?.focus();
+                }}
+                aria-label="Close"
+                className="text-neutral-text-secondary hover:text-neutral-text-primary
                 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset rounded-control"
-            >
-              <CloseIcon className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
+              >
+                <CloseIcon className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
 
-          <ol className="py-1">
-            {newestFirst.map((entry) => (
-              <li key={entry.id} className="flex items-start gap-2 px-3 py-1.5 text-xs">
-                <span className="tppm-mono text-neutral-text-secondary shrink-0 tabular-nums">
-                  {entry.at.toTimeString().slice(0, 5)}
-                </span>
-                <span
-                  className={
-                    entry.undone
-                      ? 'flex-1 text-neutral-text-secondary line-through'
-                      : 'flex-1 text-neutral-text-primary'
-                  }
-                >
-                  {entry.text}
-                </span>
-                {undoable?.id === entry.id && entry.operationId && (
-                  <button
-                    type="button"
-                    disabled={undoPending}
-                    onClick={() => onUndo?.(entry.id, entry.operationId as string)}
-                    // The accessible name carries the act, not just "Undo" — a row of
-                    // identical "Undo" buttons tells a screen-reader user nothing about
-                    // which one they are on (ux-review §6.1). Only one is ever rendered,
-                    // but the name has to survive that changing.
-                    aria-label={`Undo: ${entry.text}`}
-                    className="shrink-0 h-6 px-2 rounded-control border border-neutral-border
+            <ol className="py-1">
+              {newestFirst.map((entry) => (
+                <li key={entry.id} className="flex items-start gap-2 px-3 py-1.5 text-xs">
+                  <span className="tppm-mono text-neutral-text-secondary shrink-0 tabular-nums">
+                    {entry.at.toTimeString().slice(0, 5)}
+                  </span>
+                  <span
+                    className={
+                      entry.undone
+                        ? 'flex-1 text-neutral-text-secondary line-through'
+                        : 'flex-1 text-neutral-text-primary'
+                    }
+                  >
+                    {entry.text}
+                  </span>
+                  {undoable?.id === entry.id && entry.operationId && (
+                    <button
+                      type="button"
+                      disabled={undoPending}
+                      onClick={() => onUndo?.(entry.id, entry.operationId as string)}
+                      // The accessible name carries the act, not just "Undo" — a row of
+                      // identical "Undo" buttons tells a screen-reader user nothing about
+                      // which one they are on (ux-review §6.1). Only one is ever rendered,
+                      // but the name has to survive that changing.
+                      aria-label={`Undo: ${entry.text}`}
+                      className="shrink-0 h-6 px-2 rounded-control border border-neutral-border
                       text-xs font-medium text-neutral-text-secondary
                       hover:text-neutral-text-primary hover:border-brand-primary
                       disabled:opacity-50 disabled:cursor-not-allowed
                       focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-                  >
-                    Undo
-                  </button>
-                )}
-              </li>
-            ))}
-          </ol>
+                    >
+                      Undo
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ol>
 
-          {/*
+            {/*
             Names the boundary rather than the capability. #2974 is explicit that
             advertising ⌘Z for an act that cannot be reversed is worse than advertising
             nothing, so this says which acts are outside it instead of implying they are
             inside.
           */}
-          <p className="px-3 py-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
-            {onUndo
-              ? 'Undo reverses moves, indents, grouping and reordering — one step at a time, newest first. Duplicating a row and turning one into a milestone cannot be undone; a deleted row offers Undo on its own confirmation.'
-              : 'A record of what changed, not a way to reverse it — a deleted row offers Undo on its own confirmation for a few seconds.'}
-          </p>
-        </div>
-      )}
+            <p className="px-3 py-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
+              {onUndo
+                ? 'Undo reverses moves, indents, grouping and reordering — one step at a time, newest first. Duplicating a row and turning one into a milestone cannot be undone; a deleted row offers Undo on its own confirmation.'
+                : 'A record of what changed, not a way to reverse it — a deleted row offers Undo on its own confirmation for a few seconds.'}
+            </p>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
