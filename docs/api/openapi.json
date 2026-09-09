@@ -68382,7 +68382,8 @@
                         "type": "boolean"
                     },
                     "default_role": {
-                        "type": "integer"
+                        "type": "integer",
+                        "description": "Workspace role auto-created members are granted. Must be Member (100) or Admin (300) — SSO auto-create can never mint an Owner. Also capped to a role strictly below the acting user's own workspace role: an Admin may set this to Member but not Admin, matching the ceiling on member-role grants and invites. Only an Owner can set it to Admin (#3626)."
                     },
                     "allow_password_signin": {
                         "type": "boolean"

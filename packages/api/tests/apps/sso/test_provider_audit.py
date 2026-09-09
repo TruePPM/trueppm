@@ -137,8 +137,15 @@ def test_a_duplicate_slug_conflict_writes_no_row(admin: Any) -> None:
 
 
 @pytest.mark.django_db
-def test_update_records_before_and_after_for_each_changed_field(admin: Any) -> None:
-    client = _create(admin)
+def test_update_records_before_and_after_for_each_changed_field(owner: Any) -> None:
+    """Raising ``default_role`` to ADMIN needs an OWNER actor (#3626).
+
+    The actor-ceiling check refuses an ADMIN setting ``default_role`` at or above
+    its own role (see ``tests/apps/sso/test_provider_api.py`` for that refusal), so
+    this diff-shape test — which exercises raising the field to ADMIN — now runs as
+    OWNER, the only principal the ceiling permits to make that change.
+    """
+    client = _create(owner)
 
     resp = client.put(
         DETAIL,

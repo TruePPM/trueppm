@@ -114,7 +114,11 @@ holding a token cannot list, add, edit, delete, or test a provider; it receives
 6. **Auto-create members** *(optional)* — when on, a user signing in for the
    first time from an allowed domain is created as a member at the **default
    role** you choose (Member or Admin; SSO can never grant Owner). Leave it off to
-   require that accounts be invited first.
+   require that accounts be invited first. You can only set the default role to a
+   role **below your own**: an Admin can set it to Member but not Admin, and only
+   an Owner can set it to Admin — the same ceiling that applies when changing an
+   existing member's role or sending an invite, so SSO auto-provisioning cannot be
+   used to create a peer administrator.
 7. **Enable this provider** — turn it on once the configuration is complete, then
    save. A provider cannot be enabled until it is fully configured.
 
@@ -214,6 +218,13 @@ every existing sign-in would silently stop working).
   recorded as `sso_account_linked` — with the provider, issuer, subject, and the role the
   account holds. This is the moment an account that already had a password gains a second
   way in, and it is now visible.
+- Setting **Auto-create members**' default role to Admin requires an **Owner** — an
+  Admin saving a provider is refused if they try to set the default role to Admin (or
+  anything at or above their own role), the same ceiling enforced when changing an
+  existing member's role or sending an invite. Without it, an Admin could set the
+  default role to Admin and sign in through a second identity at that provider to
+  provision a peer administrator — a self-duplication the member-role and invite paths
+  already refuse.
 - The provider create, update, and delete endpoints are rate-limited to 20 requests per
   minute. Reading the provider list is not.
 - The OIDC login flow is protected against login-CSRF / session fixation with a

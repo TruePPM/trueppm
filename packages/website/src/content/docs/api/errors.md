@@ -457,6 +457,14 @@ A `403` here can also come from the workspace-Admin gate when a signed-in
 non-admin calls it. That one carries `detail` alone, with no `refusal` envelope —
 which is how the two are told apart.
 
+`POST`/`PUT …/providers/` (or `…/providers/{slug}/`) also answers a bare `403` — no
+`code`, no `refusal` envelope — when `default_role` in the body is at or above the
+caller's own workspace role: `{"detail": "You cannot set default_role to a role
+equal to or higher than your own."}`. This is the same shape as the not-an-Admin
+refusal above, so a client cannot tell the two apart from the status code alone —
+only an Owner can set `default_role` to Admin, matching the ceiling on changing an
+existing member's role and on sending an invite.
+
 ## Warning codes are not errors
 
 A few `code` values appear on **successful** `2xx` responses, inside a `warnings`
