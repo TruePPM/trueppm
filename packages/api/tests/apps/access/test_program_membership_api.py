@@ -7,8 +7,12 @@ Covers: list (membership gate), create (Owner only, no over-assign), update
 
 from __future__ import annotations
 
+import threading
+from typing import Any
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connections
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import (
@@ -756,6 +760,11 @@ def test_insert_race_answers_409_not_500(program: Program, owner: object, member
     Real condition, not a stubbed exception — a live row is present and the lookup
     is blinded to it, so the INSERT raises a genuine IntegrityError and the
     savepoint is what keeps the transaction usable afterwards.
+
+    Blinding *every* ``select_for_update()`` call (as this used to) now also
+    blinds the actor-row lock `create` added for #3438, which would misread the
+    owner as not a member. Excluding only ``member``'s row keeps the actor
+    lookup real while still hiding the racing row from the combined lock.
     """
     from unittest.mock import patch
 
@@ -764,7 +773,9 @@ def test_insert_race_answers_409_not_500(program: Program, owner: object, member
     with patch.object(
         ProgramMembership.objects,
         "select_for_update",
-        return_value=ProgramMembership.objects.none(),
+        side_effect=lambda *args, **kwargs: ProgramMembership.objects.exclude(
+            user=member
+        ).select_for_update(*args, **kwargs),
     ):
         resp = _client(owner).post(
             _members_url(program), {"user": str(member.pk), "role": Role.VIEWER}, format="json"
@@ -1109,3 +1120,90 @@ def test_below_admin_reassignment_attempt_is_a_403_not_a_400(
     assert resp.status_code == 403, resp.data
     target.refresh_from_db()
     assert target.user_id != victim.pk
+
+
+# ---------------------------------------------------------------------------
+# #3438: create() reads the actor's role under the same lock discipline as
+# partial_update, closing the TOCTOU window a concurrent demotion opened.
+# See the project-side twin (test_membership_api.py) for the full rationale.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_create_role_check_serializes_against_concurrent_actor_demotion() -> None:
+    """A second, genuinely separate connection holds the actor's row locked.
+
+    Needs ``transaction=True``: a genuinely separate connection only sees rows
+    the test has actually committed.
+    """
+    owner = User.objects.create_user(username="prog-conc-owner", password="pw")
+    program = create_program(
+        name="Concurrency", description="", methodology=Methodology.HYBRID, created_by=owner
+    )
+    owner_membership = ProgramMembership.objects.get(program=program, user=owner)
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=owner, role=WorkspaceRole.ADMIN
+    )
+    new_user = _make_user("prog-conc-new")
+
+    table = ProgramMembership._meta.db_table
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+
+    def _hold_lock_then_demote() -> None:
+        other = connections.create_connection("default")
+        try:
+            with other.cursor() as cursor:
+                cursor.execute("BEGIN")
+                cursor.execute(
+                    f"SELECT id FROM {table} WHERE id = %s FOR UPDATE",
+                    [str(owner_membership.pk)],
+                )
+                lock_acquired.set()
+                release_lock.wait(timeout=5)
+                cursor.execute(
+                    f"UPDATE {table} SET role = %s WHERE id = %s",
+                    [int(Role.ADMIN), str(owner_membership.pk)],
+                )
+                cursor.execute("COMMIT")
+        finally:
+            other.close()
+
+    holder = threading.Thread(target=_hold_lock_then_demote)
+    holder.start()
+    try:
+        assert lock_acquired.wait(timeout=5), "the competing connection never acquired its lock"
+
+        result: dict[str, Any] = {}
+
+        def _create() -> None:
+            try:
+                result["resp"] = _client(owner).post(
+                    _members_url(program),
+                    {"user": str(new_user.pk), "role": Role.ADMIN},
+                    format="json",
+                )
+            finally:
+                # This thread opened its own DB connection (Django connections are
+                # thread-local); close it explicitly rather than leaving it for
+                # test-database teardown to trip over.
+                connections.close_all()
+
+        creator = threading.Thread(target=_create)
+        creator.start()
+        try:
+            creator.join(timeout=1)
+            assert creator.is_alive(), "create() did not block on the actor's locked row"
+        finally:
+            release_lock.set()
+            creator.join(timeout=5)
+    finally:
+        holder.join(timeout=5)
+
+    resp = result["resp"]
+    # Refused: create() re-read the actor's row after the demotion committed,
+    # and ADMIN is below the OWNER floor create() re-verifies under lock.
+    assert resp.status_code == 403, resp.data
+    assert not ProgramMembership.objects.filter(program=program, user=new_user).exists()
+    owner_membership.refresh_from_db()
+    assert owner_membership.role == Role.ADMIN
