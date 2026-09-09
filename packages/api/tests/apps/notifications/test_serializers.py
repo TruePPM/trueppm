@@ -139,3 +139,71 @@ class TestNotificationSerializerSnippet:
         n = Notification.objects.create(recipient=alice, mention=mention, project=project)
         data = NotificationSerializer(n).data
         assert data["task_id"] == str(task.pk)
+
+
+# ---------------------------------------------------------------------------
+# NotificationSerializer.to_representation — subject/body/project redaction (#3510)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestNotificationSerializerRevokedMemberRedaction:
+    """A revoked member's notifications must stop naming the project/task.
+
+    Extends the #514 snippet gate to the three other fields that can carry a
+    project or task name — subject, body, and the project FK itself — which
+    were previously served unredacted regardless of current membership.
+    """
+
+    def test_subject_body_project_shown_to_current_member(
+        self, alice: object, project: Project, task: Task
+    ) -> None:
+        n = Notification.objects.create(
+            recipient=alice,
+            event_type="task.assigned",
+            subject=f'Assigned: "{task.name}"',
+            body=f'You were assigned "{task.name}" on {project.name}.',
+            project=project,
+            task=task,
+        )
+        data = NotificationSerializer(n, context={"member_project_ids": {project.id}}).data
+        assert data["subject"] == f'Assigned: "{task.name}"'
+        assert data["body"] == f'You were assigned "{task.name}" on {project.name}.'
+        assert data["project"] == project.id
+
+    def test_subject_body_project_redacted_for_revoked_member(
+        self, alice: object, project: Project, task: Task
+    ) -> None:
+        # Recipient is no longer a member of the source project — the
+        # membership context supplies an empty set, mirroring a revoked row.
+        n = Notification.objects.create(
+            recipient=alice,
+            event_type="task.assigned",
+            subject=f'Assigned: "{task.name}"',
+            body=f'You were assigned "{task.name}" on {project.name}.',
+            project=project,
+            task=task,
+        )
+        data = NotificationSerializer(n, context={"member_project_ids": set()}).data
+        assert data["subject"] == ""
+        assert data["body"] == ""
+        assert data["project"] is None
+        # The row itself is still delivered — the recipient still sees they
+        # were notified; only the content that names the project/task is gone.
+        assert data["id"] == str(n.id)
+        assert data["event_type"] == "task.assigned"
+
+    def test_null_project_digest_row_is_never_redacted(self, alice: object) -> None:
+        # ADR-0663 account-scoped digest rows have no single owning project —
+        # there is no project boundary to check, so they are always visible.
+        n = Notification.objects.create(
+            recipient=alice,
+            event_type="milestone.forecast_shifted",
+            subject="Weekly digest",
+            body="Some digest content naming several projects.",
+            project=None,
+        )
+        data = NotificationSerializer(n, context={"member_project_ids": set()}).data
+        assert data["subject"] == "Weekly digest"
+        assert data["body"] == "Some digest content naming several projects."
+        assert data["project"] is None

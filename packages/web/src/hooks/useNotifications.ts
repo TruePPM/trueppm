@@ -60,7 +60,15 @@ export interface NotificationRow {
   event_type: string;
   subject: string;
   body: string;
-  project: string;
+  /**
+   * `null` for an ADR-0663 account-scoped digest row (spans the recipient's
+   * whole membership set, no single owning project) and, since #3510, for any
+   * row whose content was redacted because the recipient is no longer a
+   * current member of the source project — `subject`/`body` are blanked to
+   * `""` at the same time. Callers that build a `/projects/${project}/...`
+   * route must guard on this (see `NotificationRow.handleNavigate`).
+   */
+  project: string | null;
   is_read: boolean;
   is_archived: boolean;
   /** ISO datetime a snoozed row reappears at, or null when not snoozed (ADR-0216 §1). */

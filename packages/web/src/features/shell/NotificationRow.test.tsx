@@ -139,6 +139,29 @@ describe('NotificationRow', () => {
     expect(navigateMock).toHaveBeenCalledWith('/');
   });
 
+  it('routes a redacted or account-scoped digest row (project: null) to the app root, not /projects/null (#3510)', () => {
+    // Since #3510, `project` is null both for an ADR-0663 digest row and for any
+    // row whose content was redacted because the recipient is no longer a
+    // current project member. Neither case has a valid /projects/:id route.
+    // subject/body are also blank on a redacted row, so the click target has no
+    // text to query by — it is the first (only unlabeled-by-text) button in the
+    // row, ahead of the named Mark read / Archive / Snooze action buttons.
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'task.assigned',
+          subject: '',
+          body: '',
+          project: null,
+          task_id: null,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getAllByRole('button')[0]);
+    expect(navigateMock).toHaveBeenCalledWith('/');
+  });
+
   it('does not crash when a row omits event_type (older mention mocks)', () => {
     // Some notification payloads (and hand-written e2e mocks) omit event_type for
     // mention rows; the ceiling-proposal routing must short-circuit on the falsy

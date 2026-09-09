@@ -218,6 +218,182 @@ class TestNotificationUpdate:
 
 
 # ---------------------------------------------------------------------------
+# NotificationViewSet — revoked-member content redaction (#3510)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestNotificationRevokedMemberRedaction:
+    """A member removed from a project must stop seeing that project/task named
+    in their own notification history — subject/body/project, not just snippet.
+    """
+
+    @pytest.fixture
+    def alice_event_notification(self, alice: object, project: Project, task: Task) -> Notification:
+        return Notification.objects.create(
+            recipient=alice,
+            event_type="task.assigned",
+            subject=f'Assigned: "{task.name}"',
+            body=f'You were assigned "{task.name}" on {project.name}.',
+            project=project,
+            task=task,
+        )
+
+    @pytest.fixture
+    def bob_event_notification(self, bob: object, project: Project, task: Task) -> Notification:
+        return Notification.objects.create(
+            recipient=bob,
+            event_type="task.assigned",
+            subject=f'Assigned: "{task.name}"',
+            body=f'You were assigned "{task.name}" on {project.name}.',
+            project=project,
+            task=task,
+        )
+
+    def test_list_redacts_content_after_membership_revoked(
+        self,
+        alice_client: APIClient,
+        alice: object,
+        project: Project,
+        memberships: dict[str, ProjectMembership],
+        alice_event_notification: Notification,
+    ) -> None:
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        r = alice_client.get("/api/v1/me/notifications/")
+        assert r.status_code == 200
+        row = next(n for n in r.data["results"] if n["id"] == str(alice_event_notification.id))
+        assert row["subject"] == ""
+        assert row["body"] == ""
+        assert row["project"] is None
+        # The row itself is still delivered — revoking membership does not erase
+        # the fact that a notification was sent, only the project/task it named.
+        assert row["event_type"] == "task.assigned"
+
+    def test_retrieve_redacts_content_after_membership_revoked(
+        self,
+        alice_client: APIClient,
+        alice: object,
+        project: Project,
+        memberships: dict[str, ProjectMembership],
+        alice_event_notification: Notification,
+    ) -> None:
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        r = alice_client.get(f"/api/v1/me/notifications/{alice_event_notification.pk}/")
+        assert r.status_code == 200
+        assert r.data["subject"] == ""
+        assert r.data["body"] == ""
+        assert r.data["project"] is None
+
+    def test_patch_response_redacts_content_after_membership_revoked(
+        self,
+        alice_client: APIClient,
+        alice: object,
+        project: Project,
+        memberships: dict[str, ProjectMembership],
+        alice_event_notification: Notification,
+    ) -> None:
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        r = alice_client.patch(
+            f"/api/v1/me/notifications/{alice_event_notification.pk}/",
+            {"is_read": True},
+            format="json",
+        )
+        assert r.status_code == 200
+        assert r.data["is_read"] is True
+        assert r.data["subject"] == ""
+        assert r.data["body"] == ""
+        assert r.data["project"] is None
+
+    def test_snooze_response_redacts_content_after_membership_revoked(
+        self,
+        alice_client: APIClient,
+        alice: object,
+        project: Project,
+        memberships: dict[str, ProjectMembership],
+        alice_event_notification: Notification,
+    ) -> None:
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        r = alice_client.post(
+            f"/api/v1/me/notifications/{alice_event_notification.pk}/snooze/",
+            {"preset": "1h"},
+            format="json",
+        )
+        assert r.status_code == 200
+        assert r.data["snoozed_until"] is not None
+        assert r.data["subject"] == ""
+        assert r.data["body"] == ""
+        assert r.data["project"] is None
+
+    def test_idempotency_key_replay_does_not_bypass_redaction(
+        self,
+        alice_client: APIClient,
+        alice: object,
+        project: Project,
+        memberships: dict[str, ProjectMembership],
+        alice_event_notification: Notification,
+    ) -> None:
+        # Security review on #3510: IdempotencyMixin's replay path returns a
+        # PAST response body verbatim, bypassing to_representation entirely. If
+        # alice still had access when she first read this row, a client-chosen
+        # Idempotency-Key would let her replay that unredacted response forever
+        # — a complete, self-service defeat of the redaction this MR adds.
+        # NotificationViewSet is now `idempotency_exempt = True`, so the header
+        # is a no-op and every request re-runs the view (and re-redacts).
+        key = "11111111-2222-3333-4444-555555555555"
+        first = alice_client.patch(
+            f"/api/v1/me/notifications/{alice_event_notification.pk}/",
+            {"is_read": True},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=key,
+        )
+        assert first.status_code == 200
+        assert first.data["subject"] != ""  # still a live member — unredacted
+
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        # Same key, same body — if idempotency replay were live this would
+        # return the FIRST (unredacted) response verbatim instead of re-running.
+        second = alice_client.patch(
+            f"/api/v1/me/notifications/{alice_event_notification.pk}/",
+            {"is_read": True},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=key,
+        )
+        assert second.status_code == 200
+        assert "Idempotent-Replay" not in second
+        assert second.data["subject"] == ""
+        assert second.data["body"] == ""
+        assert second.data["project"] is None
+
+    def test_paired_control_live_member_notifications_unchanged(
+        self,
+        bob_client: APIClient,
+        bob: object,
+        project: Project,
+        memberships: dict[str, ProjectMembership],
+        alice: object,
+        alice_event_notification: Notification,
+        bob_event_notification: Notification,
+    ) -> None:
+        # Revoke alice (a different member) — bob's own membership and his own
+        # notification content must be completely unaffected.
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        r = bob_client.get("/api/v1/me/notifications/")
+        assert r.status_code == 200
+        row = next(n for n in r.data["results"] if n["id"] == str(bob_event_notification.id))
+        assert row["subject"] == f'Assigned: "{bob_event_notification.task.name}"'
+        assert row["body"] == (
+            f'You were assigned "{bob_event_notification.task.name}" on {project.name}.'
+        )
+        assert row["project"] == project.id
+
+
+# ---------------------------------------------------------------------------
 # NotificationPreferenceViewSet
 # ---------------------------------------------------------------------------
 

@@ -73,7 +73,15 @@ export function NotificationRow({ notification, onNavigate }: Props) {
     if (!notification.is_read) {
       update.mutate({ id: notification.id, is_read: true });
     }
-    if (isEvent && notification.event_type === 'project.deleted') {
+    if (!notification.project) {
+      // No project to link to: either an ADR-0663 account-scoped digest row, or
+      // (since #3510) a row whose subject/body/project were redacted because
+      // the recipient is no longer a current member of the source project.
+      // Every other branch below builds a `/projects/${notification.project}/...`
+      // path, which would resolve to the literal string "null" — send the
+      // recipient to the app root instead, same as the project.deleted case.
+      void navigate('/');
+    } else if (isEvent && notification.event_type === 'project.deleted') {
       // The project this row is about was just soft-deleted (issue 1115), so its
       // board/schedule routes 404 (the project queryset filters is_deleted=False).
       // Send the member to the app root instead — their remaining projects and the
