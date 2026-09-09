@@ -196,7 +196,7 @@ async function setup(
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([{ id: 'mem-self', role: opts.role, user_id: 'e2e-user' }]),
+          body: JSON.stringify([{ id: 'mem-self', role: opts.role, user: 'e2e-user' }]),
         });
       }
       return route.fulfill({

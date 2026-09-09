@@ -154,7 +154,7 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ id: 'mem-priya', role: 100, user_id: FIXTURE_USER.id }]),
+        body: JSON.stringify([{ id: 'mem-priya', role: 100, user: FIXTURE_USER.id }]),
       });
     }
     return route.fulfill({

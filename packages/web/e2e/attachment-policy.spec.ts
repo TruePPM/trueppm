@@ -102,7 +102,7 @@ async function boot(page: Page, projectOverride: Record<string, unknown> = {}): 
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ id: 'mem-self', role: 300, user_id: FIXTURE_USER.id }]),
+      body: JSON.stringify([{ id: 'mem-self', role: 300, user: FIXTURE_USER.id }]),
     }),
   );
 }
@@ -227,7 +227,7 @@ test.describe('Attachment policy — disabled drawer state', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ id: 'mem-self', role: 300, user_id: FIXTURE_USER.id }]),
+        body: JSON.stringify([{ id: 'mem-self', role: 300, user: FIXTURE_USER.id }]),
       }),
     );
     // The task's attachment list — one existing file that must still render.
