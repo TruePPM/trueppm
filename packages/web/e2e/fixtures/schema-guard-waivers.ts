@@ -12,8 +12,9 @@
  * it removes is the **silence**: before this file existed, a mock the server
  * could never produce generated no signal anywhere in the pipeline. The first
  * measured pass found 346 such lines across 104 operations, all of them green;
- * #3440 corrected four field families, and these 102 operations are what is
- * left.
+ * #3440 corrected four field families, and these 101 operations are what is
+ * left. (#3650 closed the cluster-(b) entry below by fixing the schema
+ * rather than waiving the mock.)
  *
  * ## Shape
  *
@@ -35,7 +36,7 @@
  *   in one of the two full suite passes and not the other, so a property-level
  *   ledger built from either would red a spec nobody touched, nondeterministically,
  *   on a loaded runner — the exact failure shape this tree spends the most time
- *   chasing. `'*'` costs enforcement on the other properties of these 102
+ *   chasing. `'*'` costs enforcement on the other properties of these 101
  *   operations and buys a ledger that does not flake. Use the property-level
  *   form for anything added from here, where you know the one line you mean.
  * · Every reason names the issue that removes it. A waiver with no issue is a
@@ -56,8 +57,11 @@
  * the *server*; only the published contract is wrong, so "fixing" the mock would
  * make it wrong.
  *
- * **(b) SCHEMA WRONG — an under-declared response** (#3650). `GET /me/work/`
- * hand-adds five real top-level keys the declared schema does not model.
+ * **(b) SCHEMA WRONG — an under-declared response** (#3650, CLOSED). `GET
+ * /me/work/` hand-added five real top-level keys the declared schema did not
+ * model. Fixed by declaring the real envelope (`MeWorkListPage`) instead of
+ * waiving the mock — no entry remains below. Left here so the cluster
+ * lettering in the rest of this header stays stable.
  *
  * **(c) SCHEMA WRONG — nullability** (#3651). Fields that are genuinely null at
  * runtime whose serializer declares no `allow_null`, so the published schema
@@ -137,18 +141,6 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
       'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
       '<root>:type.',
-    allow: ['*'],
-  },
-  // ---------------------------------------------------------------------------
-  // (b) SCHEMA WRONG - the schema under-declares a hand-built response - 1 operations
-  // ---------------------------------------------------------------------------
-  'GET /api/v1/me/work/': {
-    reason:
-      'SCHEMA-WRONG (#3650): MeWorkView.list() hand-adds five top-level keys that the declared ' +
-      'PaginatedMeWorkTaskList does not model. The extra keys the mock sends are real server fields. ' +
-      'Observed: due_today_count:unknown-property, active_sprints:unknown-property, ' +
-      'server_version_high_water:unknown-property, <root>:type, retro_action_items:unknown-property, ' +
-      '+5 more.',
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------

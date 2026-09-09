@@ -798,6 +798,54 @@ def test_me_search_declares_pagination_envelope(schema: dict) -> None:
     assert {"count", "next", "previous"} <= set(props)
 
 
+def test_me_work_declares_all_hand_added_top_level_keys(schema: dict) -> None:
+    """GET /me/work/ must declare every key MeWorkView.list() actually returns (#3650).
+
+    ``MeWorkView.list()`` hand-adds five keys on top of the base
+    ``{count, next, previous, results}`` pagination envelope: ``active_sprints``,
+    ``due_today_count``, ``server_version_high_water``, ``retro_action_items``, and
+    the first-page-only ``signals``/``external_items``/``external_sources``. Before
+    #3650 the ``@extend_schema`` override decorated ``list()`` — a ``ListModelMixin``
+    method a bare ``ListAPIView.get()`` only delegates to internally — so
+    drf-spectacular never saw it and fell back to auto-inferring the envelope from
+    ``serializer_class`` + ``pagination_class`` alone, publishing only
+    ``PaginatedMeWorkTaskList`` (``count``/``next``/``previous``/``results``).
+
+    The expected set below is read off ``MeWorkView.list()``'s own ``Response(...)``
+    payloads (both the paginated and unpaginated branches), not off the schema —
+    so this fails again if the schema ever drifts back to the auto-inferred shape.
+    """
+    sch = _response_2xx_schema(schema, "/api/v1/me/work/", "get")
+    ref = sch.get("$ref", "")
+    assert ref, "GET /me/work/ 200 must be a named object-envelope component (#3650)."
+    component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+    props = component["properties"]
+
+    expected_top_level_keys = {
+        "count",
+        "next",
+        "previous",
+        "results",
+        "active_sprints",
+        "due_today_count",
+        "server_version_high_water",
+        "retro_action_items",
+        "signals",
+        "external_items",
+        "external_sources",
+    }
+    missing = expected_top_level_keys - set(props)
+    assert not missing, f"GET /me/work/ schema is missing top-level keys: {missing} (#3650)."
+
+    # signals/external_items/external_sources are first-page-only (absent on later
+    # pages) — they must not be `required`, or a page-2 response fails conformance.
+    required = set(component.get("required", []))
+    first_page_only = {"signals", "external_items", "external_sources"}
+    assert not (first_page_only & required), (
+        f"first-page-only keys must not be required: {first_page_only & required} (#3650)."
+    )
+
+
 def test_duration_events_response_is_event_not_task(schema: dict) -> None:
     """duration-events returns TaskDurationChangeEvent rows, not a Task (#2127)."""
     sch = _response_2xx_schema(schema, "/api/v1/tasks/{id}/duration-events/", "get")
