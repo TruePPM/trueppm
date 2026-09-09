@@ -115,6 +115,10 @@ def test_schedule_computes_program_true_critical_path(calendar: Calendar) -> Non
     assert cross[0]["successor_id"] == str(b1.pk)
     # Both projects are accessible lanes, neither task redacted.
     assert a["is_external"] is False and b["is_external"] is False
+    # Full tasks carry their own working-day duration (#3597) — the estimate,
+    # not a derivation from the merged CPM dates.
+    assert a["duration"] == 5
+    assert b["duration"] == 2
 
 
 @pytest.mark.django_db
@@ -134,6 +138,7 @@ def test_schedule_redacts_inaccessible_project_tasks(calendar: Calendar) -> None
     a, b = tasks[str(a1.pk)], tasks[str(b1.pk)]
     assert a["is_external"] is False
     assert "late_start" in a and "total_float_days" in a
+    assert "duration" in a
 
     # B is redacted: card shape only.
     assert b["is_external"] is True
@@ -143,6 +148,9 @@ def test_schedule_redacts_inaccessible_project_tasks(calendar: Calendar) -> None
     assert "late_start" not in b
     assert "total_float_days" not in b
     assert "wbs_path" not in b
+    # No server duration for a redacted card (#3597) — mirrors
+    # ExternalTaskCardSerializer's field set, which has none either.
+    assert "duration" not in b
     # But the program-true forecast IS visible (the point of the card).
     assert b["early_start"] is not None
     assert b["is_critical"] is True
@@ -202,6 +210,8 @@ def test_schedule_empty_program_returns_lanes_no_tasks(calendar: Calendar) -> No
     assert resp.data["links"] == []
     assert resp.data["critical_path"] == []
     assert len(resp.data["projects"]) == 1
+    # No scheduled task → lane duration falls back to 0 (#3597).
+    assert resp.data["projects"][0]["duration"] == 0
 
 
 @pytest.mark.django_db
@@ -334,3 +344,80 @@ def test_gather_background_path_reraises_raw_scheduler_error(calendar: Calendar)
 
     with pytest.raises(InvalidScheduleInput):
         gather_program_schedule(program, enforce_max=False)
+
+
+@pytest.mark.django_db
+def test_schedule_task_duration_is_working_days_not_calendar_span(calendar: Calendar) -> None:
+    """A task's `duration` on the program schedule (#3597) must be its
+    working-day estimate — matching what the project schedule shows for the same
+    task — never the raw calendar-day span between its CPM dates.
+
+    Before #3597 the endpoint emitted no `duration` field at all and the client
+    derived one from `early_start`/`early_finish` as an inclusive CALENDAR-day
+    count. A task whose span crosses a weekend is exactly where the two units
+    disagree: this task is a 5-working-day estimate starting on a Thursday, so
+    the engine finishes it the following Wednesday — 5 working days, but 7
+    calendar days inclusive (Thu..Wed spans a Sat/Sun the estimate never
+    counted). This test fails on the pre-#3597 build because `duration` is
+    simply absent from the response.
+    """
+    program = Program.objects.create(name="GA Launch")
+    thursday = date(2026, 3, 5)  # A Thursday (START, 2026-03-02, is the Monday before it).
+    proj = Project.objects.create(
+        name="Security", start_date=thursday, calendar=calendar, program=program
+    )
+    task = Task.objects.create(project=proj, name="Sign-off", duration=5)
+    user = User.objects.create_user(username="pm", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+    assert resp.status_code == 200, resp.data
+
+    row = _by_id(resp.data)[str(task.pk)]
+    assert row["early_start"] == thursday
+    # Thu, Fri, Mon, Tue, Wed — 5 working days, skipping the weekend.
+    assert row["early_finish"] == date(2026, 3, 11)
+    assert row["duration"] == 5
+
+
+@pytest.mark.django_db
+def test_schedule_lane_duration_is_working_days_across_its_span(calendar: Calendar) -> None:
+    """A project lane's rolled-up `duration` (#3597) must be the working-day span
+    across all of its own tasks, not an inclusive calendar-day count.
+
+    Two back-to-back tasks in one project: a 3-day task starting Thursday (Thu,
+    Fri, Mon — the CPM engine schedules the third day past the weekend), then a
+    2-day task immediately following (Tue, Wed). The lane's span is
+    Thu 2026-03-05..Wed 2026-03-11 — 5 working days, but 7 calendar days
+    inclusive (the same disagreement as the leaf-task case, one level up).
+    """
+    program = Program.objects.create(name="GA Launch")
+    thursday = date(2026, 3, 5)
+    proj = Project.objects.create(
+        name="Security", start_date=thursday, calendar=calendar, program=program
+    )
+    t1 = Task.objects.create(project=proj, name="Draft", duration=3)
+    t2 = Task.objects.create(project=proj, name="Sign-off", duration=2)
+    Dependency.objects.create(
+        predecessor=t1,
+        successor=t2,
+        dep_type="FS",
+        lag=0,
+        pending_acceptance=False,
+        accepted_by=None,
+        accepted_at=timezone.now(),
+    )
+    user = User.objects.create_user(username="pm", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+    assert resp.status_code == 200, resp.data
+
+    tasks = _by_id(resp.data)
+    assert tasks[str(t1.pk)]["early_start"] == thursday
+    assert tasks[str(t2.pk)]["early_finish"] == date(2026, 3, 11)
+
+    lanes = {lane["id"]: lane for lane in resp.data["projects"]}
+    assert lanes[str(proj.pk)]["duration"] == 5

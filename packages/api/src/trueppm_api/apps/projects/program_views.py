@@ -2663,10 +2663,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description=(
-                    "Merged program schedule computed on read: project lanes, "
-                    "tasks (full for projects the caller can read, redacted "
-                    "ExternalTaskCard shape otherwise), leaf-level links flagged "
-                    "cross-project, and the program-true critical path."
+                    "Merged program schedule computed on read: project lanes "
+                    "(each with its own rolled-up working-day duration, #3597), "
+                    "tasks (full — including each task's own working-day "
+                    "duration — for projects the caller can read, redacted "
+                    "ExternalTaskCard shape otherwise, with no duration field), "
+                    "leaf-level links flagged cross-project, and the "
+                    "program-true critical path."
                 ),
             )
         },

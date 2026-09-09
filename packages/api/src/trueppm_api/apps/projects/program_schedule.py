@@ -487,6 +487,61 @@ def gather_program_schedule(
     )
 
 
+def _lane_working_day_durations(graph: ProgramScheduleGraph) -> dict[str, int]:
+    """Working-day span of each member project's lane box (#3597).
+
+    A lane box is the synthetic per-project rollup the #1118 program-schedule
+    view draws under each project — the client's ``laneSummaryTask`` spans it
+    over ``[min(early_start), max(early_finish)]`` across every task in that
+    project. Before #3597 that box's *displayed* duration was a raw inclusive
+    calendar-day count derived client-side (the same unit mistake #3530 fixed
+    for summary rows): correct here means the same working-day count, against
+    that project's own composed calendar, that ``summary_working_day_durations``
+    (#3530) already computes for a single project's WBS summary rows — a lane
+    is the same rollup shape, one level up, over the *whole* project rather
+    than one WBS subtree.
+
+    Spans every task in the lane (full or ADR-0120 D5 externally-redacted) —
+    the rollup box is drawn regardless of the caller's own per-project
+    visibility, matching the pre-#3597 client computation exactly.
+
+    Args:
+        graph: The merged program graph from :func:`gather_program_schedule`.
+            ``result_map``/``calendars`` are empty on the no-schedulable-work
+            path, so this returns ``{}`` and every lane falls back to 0.
+
+    Returns:
+        ``{project_id: working_day_duration}``, omitting any project with no
+        scheduled leaf task or no composed calendar.
+    """
+    from trueppm_scheduler.engine import _WorkingDayCounter
+
+    ranges: dict[str, tuple[Any, Any]] = {}
+    for tid, sched in graph.result_map.items():
+        db_task = graph.db_task_by_id.get(tid)
+        if db_task is None or sched.early_start is None or sched.early_finish is None:
+            continue
+        project_key = str(db_task.project_id)
+        lo, hi = ranges.get(project_key, (sched.early_start, sched.early_finish))
+        ranges[project_key] = (min(lo, sched.early_start), max(hi, sched.early_finish))
+
+    durations: dict[str, int] = {}
+    for project_key, (lo, hi) in ranges.items():
+        cal = graph.calendars.get(project_key)
+        if cal is None:
+            continue
+        counter = _WorkingDayCounter.build(lo, hi, cal)
+        # Same half-open-plus-conditional-finish correction as
+        # `summary_working_day_durations` (#3530): `between` counts
+        # `[lo, hi)`, and the finish day is added back only when it is itself
+        # a working day.
+        working = counter.between(lo, hi)
+        if cal.is_working_day(hi):
+            working += 1
+        durations[project_key] = max(1, working)
+    return durations
+
+
 def program_has_accepted_cross_edges(program_id: Any) -> bool:
     """Whether ``program_id`` has ≥1 accepted cross-project dependency (ADR-0120 D3).
 
@@ -529,10 +584,12 @@ def compute_program_schedule(
 
     Returns:
         A JSON-serializable dict: ``program_id``, ``start_date``, ``finish_date``,
-        ``projects`` (lane metadata with per-project ``accessible``), ``tasks``
-        (full or redacted, discriminated by ``is_external``), ``links`` (leaf-level
-        edges with ``is_cross_project``), ``critical_path`` (program-true task-id
-        order), and ``cross_project_edge_count``.
+        ``projects`` (lane metadata with per-project ``accessible`` and the lane's
+        rolled-up ``duration`` in working days, #3597), ``tasks`` (full — including
+        each task's own working-day ``duration`` — or redacted, discriminated by
+        ``is_external``), ``links`` (leaf-level edges with ``is_cross_project``),
+        ``critical_path`` (program-true task-id order), and
+        ``cross_project_edge_count``.
 
     Raises:
         ProgramScheduleTooLarge: When the merged leaf-task count exceeds the guard.
@@ -550,13 +607,17 @@ def compute_program_schedule(
     # Lane metadata is independent of whether the program has any schedulable
     # work, so build it from the member set and return it even on the empty path.
     # Project has no accent color (only Program/Task do), so lane colors are
-    # assigned client-side by the #1118 Gantt; the lane metadata carries identity
-    # and the per-project access flag only.
+    # assigned client-side by the #1118 Gantt; the lane metadata carries identity,
+    # the per-project access flag, and the lane's own rolled-up duration.
+    lane_durations = _lane_working_day_durations(graph)
     lanes = [
         {
             "id": str(p.id),
             "name": p.name,
             "accessible": bool(can_access_project(p.id)),
+            # Working days across the lane's own rolled-up span (#3597) — 0 for a
+            # project with no scheduled task, matching the pre-fix client fallback.
+            "duration": lane_durations.get(str(p.id), 0),
         }
         for p in graph.member_projects
     ]
@@ -630,6 +691,17 @@ def _task_payload(
     ADR-0120 D5 ExternalTaskCard shape (title + CPM dates only). The CPM values
     come from the *merged* result, so a redacted card still shows program-true
     early dates and criticality, never the stale per-project numbers.
+
+    ``duration`` (full branch only, #3597) is read straight off the ``Task`` row,
+    not derived from the merged dates: a leaf task's ``duration`` is its own
+    working-day estimate, an *input* to CPM rather than an output of it, so it is
+    identical whether the row was last scheduled by its own project's
+    single-project pass or by this merged one — reading it here is the same value
+    the project schedule shows for "the same task" (the #3597 acceptance bar),
+    with nothing to recompute. Summary/WBS-parent tasks never reach this
+    function — ``gather_program_schedule`` excludes them from the merged leaf set
+    (docstring on ``ProgramScheduleGraph.result_map``) — so there is no working-day
+    rollup to do here the way ``_apply_cpm_results`` does for a summary row.
     """
     project = project_by_id.get(db_task.project_id)
     if can_access_project(db_task.project_id):
@@ -647,13 +719,18 @@ def _task_payload(
             "late_finish": sched_task.late_finish,
             "total_float_days": sched_task.total_float.days,
             "is_critical": sched_task.is_critical,
+            "duration": db_task.duration,
         }
     # Redacted — mirrors ExternalTaskCardSerializer's field set exactly so the two
     # cross-project read surfaces stay in lockstep. The text key here is ``title``
     # (NOT ``name`` as in the full branch above) deliberately: that is the
     # ExternalTaskCard contract D5 already ships. Do not "align" the two branches
     # to a single key — the client discriminates the redacted shape by it, and the
-    # divergence is the contract, not an oversight.
+    # divergence is the contract, not an oversight. ``duration`` is deliberately
+    # NOT added here: ExternalTaskCardSerializer has no such field, and D5's own
+    # withholding list is scoped to non-schedule facts (description, assignee,
+    # status, points) — widening it is a redaction-policy decision this fix does
+    # not make. The redacted card keeps its pre-#3597 client-derived approximation.
     return {
         "id": tid,
         "title": db_task.name,
