@@ -583,7 +583,9 @@ export function TaskFormModal({
     hasResolved: predsHaveResolved,
     error: predsError,
   } = useTaskDependencies(task?.id ?? null);
-  const taskHistory = useTaskHistory(projectId, task?.id ?? '');
+  // `null`, not `''`, in create mode — the hook gates its fetch on a real id
+  // (#3656), and `''` reads as "a task whose id is empty" rather than "no task".
+  const taskHistory = useTaskHistory(projectId, task?.id ?? null);
 
   const queryClient = useQueryClient();
 
