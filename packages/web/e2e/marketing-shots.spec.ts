@@ -139,7 +139,6 @@ const OVERVIEW = {
 
 const STATUS_SUMMARY = {
   task_count: 14,
-  critical_path_count: 7,
   health_band: 'critical' as const,
   monte_carlo_p80: '2026-09-18',
   at_risk_count: 2,

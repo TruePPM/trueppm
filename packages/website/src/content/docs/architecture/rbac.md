@@ -192,6 +192,65 @@ takes the opposite approach and hides existence behind an empty queryset, and
 reconciling the two conventions is an API-visible decision rather than something to
 settle inside a resolver fix.
 
+### The role dimension: a checked-in refusal matrix
+
+Both invariants above are **binary** — access is enforced by *some* path, the archived
+contract is kept on *some* path. Neither asks which of the five roles gets in, and that
+is the larger dimension: an endpoint can be correctly gated to members and still admit a
+Viewer to a write.
+
+`tests/apps/access/test_role_route_matrix.py` closes that gap by enumerating it. For
+every `(method, route, action)` the URL resolver serves, it instantiates the view, binds
+the action, calls `get_permissions()` — the permissions the view *really* applies, not
+the ones its class attribute lists, because many viewsets hand-roll that method — and
+runs each returned permission's `has_permission` for seven callers. The seven verdicts
+become a seven-character mask, and every mask is checked in to
+`role_route_matrix.txt` beside the test:
+
+```
+# anon  non-member  Viewer  Member  Scheduler  Admin  Owner
+--+++++  GET api/v1/projects/<project_pk>/task-runs/::list
+-----++  DELETE api/v1/projects/<project_pk>/phases/<pk>/::destroy
+------+  PATCH api/v1/projects/<uuid:project_pk>/members/<uuid:pk>/::partial_update
+```
+
+`+` means the caller gets past the entry gate. `-` means they are refused — by a
+permission class, by the *authenticator* (a view that accepts only a project API token
+sees an anonymous request from every human caller and reads `-------`), or because the
+route is scoped to something the fixture does not grant, such as a team or a workspace
+role. So `-------` is not a claim that a route is maximally locked down; it is a claim
+that these seven callers do not get in. A route with
+no line **fails** — absence is the defect, so it cannot be the default-pass — and a route
+whose mask *changes* fails with both masks in the message. That second case is the one
+that matters: a `-` becoming `+` is a role gate that stopped firing, and it is invisible
+to a test suite written one role at a time, because the author's own account still works.
+
+Three properties are asserted on top of the file, each with an opt-out that has to be a
+sentence somebody wrote:
+
+- **No project- or program-scoped route is reachable anonymously.** Unlike the
+  non-member column, there is no object-level check that can rescue an anonymous
+  request, so a `+` here is a finding on its face.
+- **A route whose project kwarg resolves must refuse a non-member.** Scoped to routes
+  where the resolver has a live project id in hand — "the check could not run" is not
+  available as an explanation there.
+- **The role bands are upward-closed.** If a route admits Member it must admit
+  Scheduler, Admin and Owner. An inversion is either a deliberate facet rule (the
+  task-authoring endpoints, where the resource-management band is read-only on task
+  content) or a reversed comparison.
+
+A view opts out of the first two with `role_gate_exempt = "<reason>"`, which lives on the
+view for the same reason `archived_write_exempt` does — a reason in a list keeps passing
+after the code it excuses has been rewritten into something else.
+
+**Read the scope honestly.** This oracle covers the *entry* gate, `has_permission`, which
+is the one layer whose verdict is a property of the route and the role alone. It says
+nothing about `has_object_permission`, about role checks written into a view body, or
+about what a serializer chooses to emit. Two of those are where several past findings
+actually lived, and they are covered by the invariants above and by ordinary tests — not
+by a green run here. What a green run does claim, across the whole enumerated surface, is
+that nobody's entry-gate verdict changed.
+
 ## The shared predicate: one rule, enforced and declared from the same place
 
 `can_user_edit_task(request, task, method)` is the authoritative "may this user

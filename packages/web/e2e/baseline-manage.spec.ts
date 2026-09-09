@@ -77,7 +77,7 @@ async function gotoSchedule(page: Page, { role, baselines }: GotoOpts) {
         description: '',
         start_date: '2026-01-01',
         calendar: 'default',
-        estimation_mode: 'OPEN',
+        estimation_mode: 'open',
         agile_features: false,
         methodology: 'WATERFALL',
         code: '',
@@ -116,7 +116,6 @@ async function gotoSchedule(page: Page, { role, baselines }: GotoOpts) {
       contentType: 'application/json',
       body: JSON.stringify({
         task_count: 0,
-        critical_path_count: 0,
         health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,
@@ -189,7 +188,7 @@ test.beforeEach(async ({ page }) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' }),
+      body: JSON.stringify({ id: 'u1', email: 'pm@example.com'}),
     }),
   );
 });

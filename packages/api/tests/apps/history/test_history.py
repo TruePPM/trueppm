@@ -6,7 +6,8 @@ Covers:
 - Purge task boundary conditions
 - Task history API: permissions, diff correctness, CPM fields absent, empty-diff omission
 - Project history API
-- Summary API: window validation, permission, cache bust
+- The removed history-summary route now 404s (#3372); ``/changelog/`` and task/project
+  history are unaffected by its removal
 """
 
 from __future__ import annotations
@@ -676,86 +677,53 @@ class TestProjectHistoryAPI:
 
 
 # ---------------------------------------------------------------------------
-# History summary API
+# History summary API — removed (#3372)
 # ---------------------------------------------------------------------------
+#
+# ``GET /api/v1/projects/{pk}/history/summary/?window=7d`` (ProjectHistorySummaryView)
+# shipped 2026-03-25 in 0.1 with a docstring claiming "the UI should call this when
+# the user hits the refresh button" — but nothing ever did. A repository-wide search
+# (web src + e2e, mobile, MCP server, docs, this app's own urls.py) found no caller.
+# It was removed outright rather than deprecated: see ADR-0011's dated Superseded
+# note and stability.md step 3 for the recorded decision and rationale. The tests
+# that used to cover it (window validation, ``by_field`` keying, cache-bust via
+# ``?refresh=1``) are gone with the view; what remains below proves the removal
+# itself and that it left the surviving history surfaces untouched.
 
 
 @pytest.mark.django_db
-class TestHistorySummaryAPI:
-    def test_returns_summary(
+class TestHistorySummaryRemoved:
+    def test_summary_route_now_404s(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """The removed route answers a plain 404, not a 403 or a stale 200.
+
+        A caller that branches on 403 (permission denied) vs. 404 (not found) must
+        see the latter — the endpoint no longer exists at all, for any role.
+        """
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d")
+        assert r.status_code == 404
+
+    def test_changelog_and_task_history_unaffected_by_summary_removal(
         self,
         owner_client: APIClient,
         project: Project,
         task: Task,
         owner_membership: ProjectMembership,
     ) -> None:
+        """The summary view shared a module with, but no code with, the surfaces
+        web actually consumes — its removal must not touch either."""
         task.name = "Changed"
         task.save()
-        r = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d")
-        assert r.status_code == 200
-        assert "total_mutations" in r.data
-        assert "by_object_type" in r.data
-        assert "generated_at" in r.data
-        # History rows are capped per object type (#821); the flag tells the client
-        # whether the summary is complete. A handful of rows is well under the cap.
-        assert r.data["count_truncated"] is False
-
-    def test_by_field_is_keyed_by_field_name_like_the_diffs(
-        self,
-        owner_client: APIClient,
-        owner: object,
-        project: Project,
-        task: Task,
-        owner_membership: ProjectMembership,
-    ) -> None:
-        """``by_field`` speaks the same vocabulary as every diff row (#3435).
-
-        The summary used to count by column (``assignee_id``) while the drawer
-        keyed by field name — a client could not join the two. One policy, one
-        key: the field name, so the client label map applies to the summary too.
-        """
-        task.assignee = owner  # type: ignore[assignment]
-        task.sprint_rank = 3  # noise: hidden from diffs, so not counted either
-        task.save()
-        r = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d")
-        counted = {row["field"] for row in r.data["by_field"]}
-        assert "assignee" in counted
-        assert "assignee_id" not in counted
-        assert "sprint_rank" not in counted
-
-    def test_invalid_window_returns_400(
-        self,
-        owner_client: APIClient,
-        project: Project,
-        owner_membership: ProjectMembership,
-    ) -> None:
-        r = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=bad")
-        assert r.status_code == 400
-
-    def test_non_member_gets_403(self, outsider_client: APIClient, project: Project) -> None:
-        r = outsider_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d")
-        assert r.status_code == 403
-
-    def test_cache_bust_with_refresh_param(
-        self,
-        owner_client: APIClient,
-        project: Project,
-        task: Task,
-        owner_membership: ProjectMembership,
-    ) -> None:
-        """?refresh=1 should bypass cache and return a fresh generated_at."""
-        r1 = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d")
-        task.name = "Another change"
-        task.save()
-        r2 = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d&refresh=1")
-        assert r2.status_code == 200
-        # ?refresh=1 must recompute, not serve the cached payload. A regressed
-        # refresh returns the *identical* cached response, whose generated_at equals
-        # r1's — so `>=` would silently pass. Assert a strictly newer timestamp AND
-        # that total_mutations grew by the interleaved task.save (the cached copy
-        # was computed before it), which proves the recompute actually happened.
-        assert r2.data["generated_at"] > r1.data["generated_at"]
-        assert r2.data["total_mutations"] > r1.data["total_mutations"]
+        changelog = owner_client.get(f"/api/v1/projects/{project.pk}/changelog/")
+        assert changelog.status_code == 200
+        task_history = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        assert task_history.status_code == 200
+        project_history = owner_client.get(f"/api/v1/projects/{project.pk}/history/")
+        assert project_history.status_code == 200
 
 
 # ---------------------------------------------------------------------------

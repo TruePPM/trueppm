@@ -36,6 +36,7 @@ function makeProps(over: Partial<DetailViewProps> = {}): DetailViewProps {
     item: makeItem(),
     tagSuggestions: ['rf', 'urgent'],
     estimationScale: 'fibonacci',
+    methodology: 'HYBRID',
     canEdit: true,
     canDelete: true,
     onClose: vi.fn(),

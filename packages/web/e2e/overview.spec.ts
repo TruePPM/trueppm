@@ -100,9 +100,6 @@ async function setupRoutes(page: import('@playwright/test').Page) {
         id: 'e2e-user',
         email: 'e2e@trueppm.local',
         username: 'e2e',
-        first_name: 'E2E',
-        last_name: 'User',
-        is_active: true,
       }),
     }),
   );
@@ -210,7 +207,6 @@ async function setupRoutes(page: import('@playwright/test').Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         task_count: 0,
-        critical_path_count: 0,
         health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,
@@ -527,9 +523,6 @@ test.describe('Project overview page', () => {
           id: 'e2e-user',
           email: 'e2e@trueppm.local',
           username: 'e2e',
-          first_name: 'E2E',
-          last_name: 'User',
-          is_active: true,
         }),
       }),
     );

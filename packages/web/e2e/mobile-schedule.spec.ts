@@ -118,7 +118,7 @@ async function gotoMobileSchedule(
         description: '',
         start_date: '2026-01-01',
         calendar: 'default',
-        estimation_mode: 'OPEN',
+        estimation_mode: 'open',
         agile_features: false,
         methodology: 'HYBRID',
         effective_methodology: 'HYBRID',
@@ -151,7 +151,6 @@ async function gotoMobileSchedule(
     r.fulfill(
       json({
         task_count: tasks.length,
-        critical_path_count: 1,
         health_band: 'critical',
         monte_carlo_p80: null,
         at_risk_count: 0,
@@ -188,7 +187,7 @@ async function gotoMobileSchedule(
   await page.route('**/api/v1/ws/ticket/', (r) => r.fulfill(json({ ticket: 'e2e', expires_in: 30 })));
   await page.route('**/api/v1/auth/token/refresh/', (r) => r.fulfill(json({ access: 'e2e-token' })));
   await page.route('**/api/v1/auth/me/', (r) =>
-    r.fulfill(json({ id: 'u1', email: 'e2e@example.com', first_name: 'E', last_name: '2E', is_staff: false })),
+    r.fulfill(json({ id: 'u1', email: 'e2e@example.com'})),
   );
   await page.route('**/api/v1/workspace/', (r) =>
     r.fulfill(json({ id: 'w1', name: 'E2E', public_sharing_enabled: false })),

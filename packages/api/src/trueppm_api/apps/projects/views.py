@@ -5715,13 +5715,15 @@ class TaskViewSet(
                 IsProjectPlanAuthor(),
                 IsProjectNotArchived(),
             ]
-        # ADR-0766 (#2597): withdraw_approval shares approve_estimates's gate —
-        # whoever can grant a SUGGEST_APPROVE approval can revoke it. Both must be
-        # named here because this override replaces the @action's inline
-        # permission_classes entirely (see the ADR-0217 note on `split` below); an
-        # action absent from this if-chain falls through to the generic
-        # IsProjectMember branch, which would let a Viewer call it.
-        if self.action in ("approve_estimates", "withdraw_approval"):
+        # ADR-0766 (#2597): approve_estimates is gated to whoever can grant a
+        # SUGGEST_APPROVE approval. Named here because this override replaces the
+        # @action's inline permission_classes entirely (see the ADR-0217 note on
+        # `split` below); an action absent from this if-chain falls through to the
+        # generic IsProjectMember branch, which would let a Viewer call it.
+        # `withdraw_approval` shared this same branch until #3371 removed the
+        # action (no client consumer, never shipped) — approval revocation is
+        # one-way until a UI asks for undo; see ADR-0766's amended note.
+        if self.action == "approve_estimates":
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         # ADR-0105: splitting a story restructures the backlog → can_manage_backlog
         # (Admin+), the same gate as auto-rank / epic management. The custom
@@ -6743,58 +6745,6 @@ class TaskViewSet(
             return Response(serializer.data)
 
         task.estimate_status = EstimateStatus.ACCEPTED
-        task.save(update_fields=["estimate_status"])
-
-        project_id = str(task.project_id)
-        task_id = str(task.pk)
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
-        )
-
-        serializer = self.get_serializer(task)
-        return Response(serializer.data)
-
-    @extend_schema(
-        summary="Withdraw an approved three-point estimate back to pending",
-        responses={
-            200: TaskSerializer,
-            400: OpenApiResponse(description="Project estimation_mode is not suggest_approve."),
-        },
-    )
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="withdraw-approval",
-        permission_classes=[IsAuthenticated, IsProjectScheduler, IsProjectNotArchived],
-    )
-    def withdraw_approval(self, request: Request, **kwargs: Any) -> Response:
-        """Revoke an accepted three-point estimate back to pending (ADR-0766, #2597).
-
-        Symmetric counterpart to approve_estimates: lets a Scheduler undo an approval
-        given in error without having to trigger a PERT-field no-op write to force
-        the downgrade — that no-op path was the accidental-revocation bug this same
-        issue closes. Only meaningful when estimation_mode is SUGGEST_APPROVE.
-        Idempotent — calling on a task that is not currently accepted (already
-        pending, or ungoverned/null) is a no-op (200, no DB write, no broadcast).
-
-        Permission: IsProjectScheduler+ (Resource Manager and above) — same gate as
-        approve_estimates; whoever can grant the approval can withdraw it.
-        """
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
-        task: Task = self.get_object()
-        project: Project = task.project
-
-        if project.estimation_mode != EstimationMode.SUGGEST_APPROVE:
-            detail = "withdraw-approval is only available when estimation_mode is suggest_approve."
-            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Idempotent: not currently accepted — no write, no broadcast.
-        if task.estimate_status != EstimateStatus.ACCEPTED:
-            serializer = self.get_serializer(task)
-            return Response(serializer.data)
-
-        task.estimate_status = EstimateStatus.PENDING
         task.save(update_fields=["estimate_status"])
 
         project_id = str(task.project_id)
@@ -10480,6 +10430,18 @@ class TaskLabelView(IdempotencyMixin, APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
 
+    # The gate is the TASK, not the project, and it cannot run before `get_object`
+    # (#3441). `IsProjectMemberWriteOrOwn.has_permission` is authentication-only by
+    # design — the assignee-vs-role verdict needs the row — so `_get_task` below
+    # resolves the task project-scoped and calls `check_object_permissions`, which is
+    # where a non-member is refused. Deleting that call reopens the route, which is
+    # why it is asserted rather than merely commented.
+    role_gate_exempt = (
+        "Membership is enforced on the resolved task by check_object_permissions in "
+        "_get_task, not at the entry gate: IsProjectMemberWriteOrOwn's assignee-vs-role "
+        "verdict requires the row and cannot run before get_object."
+    )
+
     def _get_task(self, project_pk: str, task_pk: str) -> Task:
         # Membership-scoped so a non-member sees 404 for a real task id and 404 for a
         # fake one — no existence oracle (#3657). The object check below is kept as the
@@ -10593,6 +10555,14 @@ class TaskCustomFieldValueView(IdempotencyMixin, APIView):
     """
 
     permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
+
+    # Same shape as TaskLabelView: the entry gate is authentication-only because the
+    # authority verdict needs the task row (#3441).
+    role_gate_exempt = (
+        "Membership is enforced on the resolved task by check_object_permissions in "
+        "_get_task, not at the entry gate: IsProjectMemberWriteOrOwn's assignee-vs-role "
+        "verdict requires the row and cannot run before get_object."
+    )
 
     def _get_task(self, project_pk: str, task_pk: str) -> Task:
         # Membership-scoped so a non-member sees 404 for a real task id and 404 for a

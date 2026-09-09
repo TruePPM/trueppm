@@ -68,8 +68,18 @@ const ACTIVITY_INCLUDE = 'comments,time,attachments,schedule,risks';
  *
  * Merged, paginated activity feed for a single task. Uses infinite query so the
  * Activity tab can append pages without losing scroll position.
+ *
+ * `taskId` is nullable because TaskFormModal mounts in create mode with no task
+ * yet. Without the `enabled` guard that empty id interpolated straight into the
+ * path and the client requested `/projects/{id}/tasks//history/` — a route that
+ * does not exist, so a guaranteed 404 on every create-modal open (#3656). Gate
+ * on both ids: either one absent yields a malformed path, never a useful one.
  */
-export function useTaskHistory(projectId: string, taskId: string) {
+export function useTaskHistory(
+  projectId: string | null | undefined,
+  taskId: string | null | undefined,
+) {
+  const enabled = Boolean(projectId) && Boolean(taskId);
   return useInfiniteQuery({
     // 'merged' scopes the cache to the include-shape so a legacy-shaped page
     // (from an older client build) can never bleed into this consumer.
@@ -81,6 +91,7 @@ export function useTaskHistory(projectId: string, taskId: string) {
       );
       return res.data;
     },
+    enabled,
     initialPageParam: 1,
     getNextPageParam: (lastPage, _pages, lastPageParam) =>
       lastPage.next ? lastPageParam + 1 : undefined,

@@ -75,7 +75,7 @@ async function setup(page: import('@playwright/test').Page) {
     projects: FIXTURE_PROJECTS,
     projectId: FIXTURE_PROJECT_ID,
     tasks: FIXTURE_TASKS,
-    statusSummary: { task_count: 2, critical_count: 1, critical_path_count: 1 },
+    statusSummary: { task_count: 2, critical_count: 1},
   });
 }
 

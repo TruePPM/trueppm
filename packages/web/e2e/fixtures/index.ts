@@ -21,5 +21,22 @@ export {
   type StatusSummaryFixture,
   type BoardColumnConfig,
 } from './api-mocks';
+export {
+  installSchemaGuard,
+  validateBody,
+  enforcedViolations,
+  unwaivedViolations,
+  decodeFulfillBody,
+  type Violation,
+  type ViolationRule,
+} from './schema-guard';
+export type { SchemaGuardWaiver } from './schema-guard-waivers';
+export {
+  resolveResponseSchema,
+  allOperationKeys,
+  isFreeForm,
+  deref,
+  type SchemaNode,
+} from './openapi-schema';
 export { useFullToolbar, FULL_TOOLBAR_VIEWPORT } from './toolbar-width';
 export { modeChip, toggleAuthorMode, openScheduleCheatsheet } from './schedule-mode';

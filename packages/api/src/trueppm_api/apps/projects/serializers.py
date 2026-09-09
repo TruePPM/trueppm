@@ -113,8 +113,10 @@ from trueppm_api.apps.projects.sprint_cadence import (
     render_sprint_name,
 )
 from trueppm_api.apps.projects.task_bulk import (
+    MSG_TOO_MANY_OWNERS_IN_BATCH,
     TASK_BULK_MAX_DEPENDENCIES,
     TASK_BULK_MAX_OPERATIONS,
+    TASK_BULK_MAX_OWNERS,
 )
 from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.resources.services import (
@@ -5573,13 +5575,21 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         transaction, so a row composed with an ``@ana`` token can never commit carrying
         no owner — the failure that would look saved and silently contribute zero
         capacity (ADR-0774 §2).
+
+        #3643: ``broadcast`` is suppressed when the context says so — see
+        ``_owners_broadcast_enabled``.
         """
         owners = validated_data.pop("owners", None)
         project = validated_data.get("project")
         candidate = validated_data.get("planned_start")
         instance = super().create(validated_data)
         if owners:
-            apply_task_owners(instance, owners, actor=self._request_user())
+            apply_task_owners(
+                instance,
+                owners,
+                actor=self._request_user(),
+                broadcast=self._owners_broadcast_enabled(),
+            )
         if project is not None and candidate is not None:
             from trueppm_api.apps.projects.services import shift_project_start_if_needed
 
@@ -5643,8 +5653,39 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         updated = super().update(instance, validated_data)
         if owners:
-            apply_task_owners(updated, owners, actor=self._request_user())
+            apply_task_owners(
+                updated,
+                owners,
+                actor=self._request_user(),
+                broadcast=self._owners_broadcast_enabled(),
+            )
         return updated
+
+    def _owners_broadcast_enabled(self) -> bool:
+        """Whether an inline ``owners`` write should fire its own board broadcast.
+
+        ``True`` for the plain REST create/PATCH (``TaskViewSet``): that path applies
+        exactly one row per request and has no coarser event of its own covering the
+        assignment change, so ``assignment_*`` is the only WebSocket signal a
+        connected client gets for it. Its context never sets
+        ``suppress_owner_broadcast``, so this stays the default.
+
+        ``False`` for both batch callers — ``TaskBulkView``
+        (``task_bulk._row_serializer_context``) and the mobile sync upload
+        (``sync.upload.apply_task_changes``) — via ``suppress_owner_broadcast`` in the
+        context (#3643). Both endpoints already coalesce every row they touch into ONE
+        ``tasks_bulk_mutated`` broadcast per request (``task_bulk._register_bulk_commit_hooks``
+        and ``sync.views.ProjectSyncView._apply_and_record`` respectively — the latter
+        added for #809, to stop a per-row broadcast from overflowing the channel-layer
+        inbox under a reconnect storm), unconditionally covering any row an ``owners``
+        write applied to. A per-entry ``assignment_*`` broadcast on top of either
+        coarse event is pure duplicate load — the same reasoning
+        ``apply_task_owners``'s own docstring documents for the recurring-occurrence
+        sweep. Read from the context rather than a constructor argument because
+        ``TaskSerializer`` is instantiated identically by every caller; only the
+        context differs.
+        """
+        return not self.context.get("suppress_owner_broadcast", False)
 
     def _apply_project_start_shift(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """#867 auto-shift: pull the project start back to an earlier planned_start.
@@ -6304,6 +6345,29 @@ class TaskBulkSerializer(serializers.Serializer[Any]):
                 if task_id in ids_seen:
                     raise serializers.ValidationError(f"Duplicate id {task_id} in operations list.")
                 ids_seen.add(task_id)
+
+        # Batch-wide ``owners`` budget (#3643). ``MAX_TASK_OWNERS_PER_WRITE`` bounds a
+        # single row at 100, but this endpoint builds one ``TaskSerializer`` per
+        # operation — up to ``TASK_BULK_MAX_OPERATIONS`` of them — so the per-row cap
+        # alone still lets 500 rows x 100 owners compose 50,000 entries in one
+        # request. Summed here, at the whole-request 400 stage, rather than as a
+        # per-row rejection: like the duplicate-id check above, there is no
+        # principled subset of *rows* to blame for a budget that is spent across all
+        # of them. `op.get("data")` is still the raw, not-yet-deeply-validated
+        # per-row payload at this point (`TaskBulkItemSerializer.data` is a bare
+        # `DictField`), so a non-list `owners` counts as zero here and is left for
+        # `TaskSerializer`'s own field validation to reject with the proper message.
+        total_owners = sum(
+            len(owners)
+            for op in ops
+            if isinstance(owners := (op.get("data") or {}).get("owners"), list)
+        )
+        if total_owners > TASK_BULK_MAX_OWNERS:
+            raise serializers.ValidationError(
+                MSG_TOO_MANY_OWNERS_IN_BATCH.format(
+                    actual=total_owners, max_length=TASK_BULK_MAX_OWNERS
+                )
+            )
         return ops
 
 

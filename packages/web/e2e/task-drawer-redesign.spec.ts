@@ -165,7 +165,8 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        id: 1,
+        // MeSerializer.id is a UUIDField — a string, never an integer (#3440).
+        id: 'e2e-user',
         username: 'e2e',
         email: 'e2e@example.com',
         workspace_role: opts.role ?? 300,
@@ -221,7 +222,7 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
         description: '',
         start_date: '2026-01-01',
         calendar: 'default',
-        estimation_mode: 'OPEN',
+        estimation_mode: 'open',
         agile_features: false,
         methodology: 'WATERFALL',
         code: '',
@@ -278,7 +279,6 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
       contentType: 'application/json',
       body: JSON.stringify({
         task_count: 0,
-        critical_path_count: 0,
         health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,
