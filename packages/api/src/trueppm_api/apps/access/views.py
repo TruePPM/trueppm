@@ -62,7 +62,11 @@ from trueppm_api.apps.access.serializers import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
-from trueppm_api.core.openapi import ownership_refusal_403, state_refusal_400
+from trueppm_api.core.openapi import (
+    ownership_refusal_403,
+    state_refusal_400,
+    suppress_list_pagination,
+)
 from trueppm_api.core.request_body import object_body
 
 _PK = str | uuid.UUID
@@ -279,6 +283,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
     # Actions
     # -----------------------------------------------------------------------
 
+    @extend_schema(responses={200: ProjectMembershipReadSerializer(many=True)})
+    # This handler returns a bare array, but ProjectMembershipViewSet inherits the
+    # default pagination class, so the auto-schema would otherwise declare a
+    # Paginated...List envelope the real body violates (#3649). Opt out so the
+    # schema matches the response.
+    @suppress_list_pagination
     def list(self, request: Request, **kwargs: object) -> Response:
         project = self._get_project_or_404()
         # has_permission only checks authentication; enforce membership explicitly
@@ -637,6 +647,12 @@ class UserDefinedMentionGroupViewSet(
 
     # -- lifecycle (Admin+) --------------------------------------------------
 
+    @extend_schema(responses={200: UserDefinedMentionGroupReadSerializer(many=True)})
+    # This handler returns a bare array, but UserDefinedMentionGroupViewSet inherits
+    # the default pagination class, so the auto-schema would otherwise declare a
+    # Paginated...List envelope the real body violates (#3649). Opt out so the
+    # schema matches the response.
+    @suppress_list_pagination
     def list(self, request: Request, **kwargs: object) -> Response:
         self._get_project_or_404()
         serializer = UserDefinedMentionGroupReadSerializer(
@@ -918,6 +934,12 @@ class ProgramUserDefinedMentionGroupViewSet(
 
     # -- lifecycle (Owner) ---------------------------------------------------
 
+    @extend_schema(responses={200: ProgramUserDefinedMentionGroupReadSerializer(many=True)})
+    # This handler returns a bare array, but ProgramUserDefinedMentionGroupViewSet
+    # inherits the default pagination class, so the auto-schema would otherwise
+    # declare a Paginated...List envelope the real body violates (#3649). Opt out
+    # so the schema matches the response.
+    @suppress_list_pagination
     def list(self, request: Request, **kwargs: object) -> Response:
         self._get_program_or_404()
         serializer = ProgramUserDefinedMentionGroupReadSerializer(
@@ -1302,6 +1324,12 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
     # Actions
     # -----------------------------------------------------------------------
 
+    @extend_schema(responses={200: ProgramMembershipReadSerializer(many=True)})
+    # This handler returns a bare array, but ProgramMembershipViewSet inherits the
+    # default pagination class, so the auto-schema would otherwise declare a
+    # Paginated...List envelope the real body violates (#3649). Opt out so the
+    # schema matches the response.
+    @suppress_list_pagination
     def list(self, request: Request, **kwargs: object) -> Response:
         program = self._get_program_or_404()
         # has_permission only checks authentication + membership-at-program-pk

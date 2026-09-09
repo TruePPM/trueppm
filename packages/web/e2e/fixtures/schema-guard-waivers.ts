@@ -97,48 +97,11 @@ export interface SchemaGuardWaiver {
 
 export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> = {
   // ---------------------------------------------------------------------------
-  // (a) SCHEMA WRONG - a hand-written list() returns a bare array - 5 operations
+  // (a) SCHEMA WRONG - a hand-written list() returns a bare array - 0 operations
+  // Fixed in #3649: the five list() overrides now carry @extend_schema(responses=
+  // {200: <Serializer>(many=True)}) + @suppress_list_pagination, so the published
+  // schema matches the bare array each already returned.
   // ---------------------------------------------------------------------------
-  'GET /api/v1/programs/{program_pk}/members/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/mention-groups/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/members/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/mention-groups/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/phases/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
   // ---------------------------------------------------------------------------
   // (b) SCHEMA WRONG - the schema under-declares a hand-built response - 1 operations
   // ---------------------------------------------------------------------------

@@ -13982,15 +13982,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "program_pk",
                         "schema": {
@@ -14028,7 +14019,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedProgramMembershipReadList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProgramMembershipRead"
+                                    }
                                 }
                             }
                         },
@@ -14425,15 +14419,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "program_pk",
                         "schema": {
@@ -14471,7 +14456,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedProgramUserDefinedMentionGroupReadList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
+                                    }
                                 }
                             }
                         },
@@ -27728,15 +27716,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -27774,7 +27753,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedProjectMembershipReadList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProjectMembershipRead"
+                                    }
                                 }
                             }
                         },
@@ -28171,15 +28153,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -28217,7 +28190,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedUserDefinedMentionGroupReadList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
+                                    }
                                 }
                             }
                         },
@@ -28999,15 +28975,6 @@
                         }
                     },
                     {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -29045,7 +29012,10 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedPhaseList"
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Phase"
+                                    }
                                 }
                             }
                         },
@@ -57338,37 +57308,6 @@
                     }
                 }
             },
-            "PaginatedPhaseList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/Phase"
-                        }
-                    }
-                }
-            },
             "PaginatedProgramExportJobList": {
                 "type": "object",
                 "required": [
@@ -57458,68 +57397,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Program"
-                        }
-                    }
-                }
-            },
-            "PaginatedProgramMembershipReadList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ProgramMembershipRead"
-                        }
-                    }
-                }
-            },
-            "PaginatedProgramUserDefinedMentionGroupReadList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
                         }
                     }
                 }
@@ -57644,37 +57521,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Project"
-                        }
-                    }
-                }
-            },
-            "PaginatedProjectMembershipReadList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ProjectMembershipRead"
                         }
                     }
                 }
@@ -58388,37 +58234,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/TemplateApplication"
-                        }
-                    }
-                }
-            },
-            "PaginatedUserDefinedMentionGroupReadList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
                         }
                     }
                 }
