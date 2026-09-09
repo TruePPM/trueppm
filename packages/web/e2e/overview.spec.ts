@@ -544,7 +544,16 @@ test.describe('Project overview page', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ tasks: [] }),
+        body: JSON.stringify({
+          count: 0,
+          next: null,
+          previous: null,
+          results: [],
+          active_sprints: [],
+          due_today_count: 0,
+          server_version_high_water: 0,
+          retro_action_items: [],
+        }),
       }),
     );
     await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>

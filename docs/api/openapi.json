@@ -8205,7 +8205,7 @@
         "/api/v1/me/work/": {
             "get": {
                 "operationId": "v1_me_work_list",
-                "description": "``GET /api/v1/me/work/`` — contributor's flat task list across all projects.\n\nReturns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks,\neach tagged with a server-computed ``group`` bucket (today / this_sprint /\nupcoming, #484/ADR-0122) and pre-sorted so the buckets are contiguous.\nDeliberately flat — no CPM fields, no WBS hierarchy, no phase tree. The\ncontributor (Priya persona) reads this as a personal to-do list; PM-level\nconcepts (critical path, float, schedule variance) are intentionally absent.\n\n**RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is\nhard-scoped to ``assignee=request.user`` *and* re-checks project membership\nvia ``project__memberships``. There is no ``?user=`` escape hatch — a PM-role\nor admin caller gets a 200 with their *own* assigned tasks (which may be\nempty). The endpoint cannot be used as a manager surveillance surface.\n\nStatus updates flow through the existing ``PATCH /api/v1/tasks/{id}/`` path,\nnot through this endpoint. Clients should send ``X-Source: my_work`` on the\nPATCH so the webhook payload carries the originating surface.\n\nResponse shape::\n\n    {\n        \"results\": [{ ...flat task fields... }],\n        \"next\": \"<cursor>\" | null,\n        \"previous\": \"<cursor>\" | null,\n        \"active_sprints\": [{ ...minimal sprint card... }],\n        \"due_today_count\": 3,\n        \"server_version_high_water\": 12345,\n        \"signals\": { ...cross-program focus-card aggregates, #1236... },\n        \"external_items\": [{ ...read-only Jira/etc. item, #1422... }],\n        \"external_sources\": [{ ...connected-source freshness + last-pull\n                               outcome, #1422/#2925... }]\n    }\n\n``external_items`` / ``external_sources`` (#1422, ADR-0097 §4) surface the\nuser's read-only external work items (their assigned Jira issues) alongside\nnative tasks in one feed. Like ``signals``, both are first-page-only side\nblocks (the bounded ≤500 personal cache is not paginated with ``results``)\nand always present on page 1 (possibly empty). An external item is never a\nTask — it carries no schedule/board/write fields.\n\nEach ``external_sources`` row carries ``last_sync`` (#2925) — the last pull's\n``{at, ok, reason, fetched, stored, total_available, truncated}``, ``null``\nbefore the first pull completes. ``truncated`` means the source had more than\nthe pull carried, so ``external_items`` is the first ``stored`` of the user's\nassigned work rather than all of it; ``total_available`` is the provider's own\ncount when it reported one and ``null`` when it did not — ``null`` is\n*unknown*, never zero, so it must not be rendered as a denominator.\n\n``signals`` (#1236, ADR-0221) rolls up per-user cross-program aggregates for\nthe focus cards — schedule health / SPI, a Monte-Carlo P80 ship-date forecast,\na real sprint burndown series, and the caller's own load-vs-capacity for the\nlead sprint (``utilization``, #1912) — over the user's own member projects.\nEach sub-key appears only when a real server-side computation backs it (rule\n120: no fabrication), and only on the first page. See\n``services.me_work_signals``.",
+                "description": "Schema-bearing GET handler.\n\ndrf-spectacular resolves an ``@extend_schema`` override off the\nHTTP-verb method (``get``) — ``getattr(view, method.lower())`` — not\noff ``action`` (ViewSet-only) and not off the ``ListModelMixin.list``\nmixin method a plain ``ListAPIView.get`` merely delegates to\ninternally. Decorating ``list()`` instead of ``get()`` is exactly how\nthis endpoint's response schema silently fell back to the\nauto-inferred ``{count, next, previous, results}`` envelope — the\nunder-declaration #3650 found (191 e2e schema-guard failures on the\nfive real hand-added keys). This override exists so the decorator has\nsomewhere real to attach; it does nothing ``ListAPIView.get`` did not\nalready do.",
                 "parameters": [
                     {
                         "name": "limit",
@@ -8266,7 +8266,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedMeWorkTaskList"
+                                    "$ref": "#/components/schemas/MeWorkListPage"
                                 }
                             }
                         },
@@ -55960,6 +55960,448 @@
                     "velocity"
                 ]
             },
+            "MeWorkActiveSprint": {
+                "type": "object",
+                "description": "Minimal active-sprint card for the My Work group header.\n\nInlined into the ``/me/work/`` response so the page mount needs one\nround trip on mobile. Burndown, velocity, and capacity ratios live on\nthe richer ``/me/active-sprints/`` endpoint — this view only carries\nwhat the section header needs (name, project, days remaining, count).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "days_remaining": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "days_remaining",
+                    "finish_date",
+                    "id",
+                    "name",
+                    "project_id",
+                    "project_name",
+                    "task_count"
+                ]
+            },
+            "MeWorkBurndownSnapshot": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "remaining_points": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "date",
+                    "remaining_points"
+                ]
+            },
+            "MeWorkExternalItem": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "source_type": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "external_status": {
+                        "type": "string"
+                    },
+                    "status_category": {
+                        "type": "string"
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "url": {
+                        "type": "string"
+                    },
+                    "synced_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "due_date",
+                    "external_status",
+                    "id",
+                    "key",
+                    "source_type",
+                    "status_category",
+                    "synced_at",
+                    "title",
+                    "url"
+                ]
+            },
+            "MeWorkExternalSource": {
+                "type": "object",
+                "properties": {
+                    "source_type": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "site_url": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "last_synced_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "last_sync": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeWorkExternalSourceLastSync"
+                            }
+                        ],
+                        "nullable": true,
+                        "description": "Null before the first pull completes (#2925)."
+                    }
+                },
+                "required": [
+                    "label",
+                    "last_synced_at",
+                    "site_url",
+                    "source_type",
+                    "status"
+                ]
+            },
+            "MeWorkExternalSourceLastSync": {
+                "type": "object",
+                "properties": {
+                    "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "ok": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "fetched": {
+                        "type": "integer"
+                    },
+                    "stored": {
+                        "type": "integer"
+                    },
+                    "total_available": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "at",
+                    "fetched",
+                    "ok",
+                    "reason",
+                    "stored",
+                    "total_available",
+                    "truncated"
+                ]
+            },
+            "MeWorkForecastSignal": {
+                "type": "object",
+                "properties": {
+                    "p80_finish": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "project_name": {
+                        "type": "string"
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "p80_finish",
+                    "project_id",
+                    "project_name"
+                ]
+            },
+            "MeWorkListPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MeWorkTask"
+                        }
+                    },
+                    "active_sprints": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MeWorkActiveSprint"
+                        }
+                    },
+                    "due_today_count": {
+                        "type": "integer",
+                        "description": "Count of the caller's own non-BACKLOG, non-COMPLETE tasks due today — drives the sidebar My Work badge."
+                    },
+                    "server_version_high_water": {
+                        "type": "integer",
+                        "description": "Largest server_version in the caller's currently-visible task set. Offline/mobile clients persist this and pass it back as ?since= on the next delta sync pull."
+                    },
+                    "retro_action_items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MeWorkRetroActionItem"
+                        },
+                        "description": "ADR-0071 §4c. See MeWorkView._me_work_retro_action_items."
+                    },
+                    "signals": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeWorkSignals"
+                            }
+                        ],
+                        "description": "Cross-program focus-card aggregates (#1236, ADR-0221). Always present on the first page (an empty object when nothing is backable) and absent on later pages. Each sub-key appears only when a real server-side computation backs it (rule 120: no fabrication)."
+                    },
+                    "external_items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MeWorkExternalItem"
+                        },
+                        "description": "Read-only external work items (Jira etc., #1422, ADR-0097 §4) surfaced alongside native tasks. First-page-only — always present (possibly empty) on page 1, absent on later pages."
+                    },
+                    "external_sources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MeWorkExternalSource"
+                        },
+                        "description": "Per-connected-source freshness + last-pull outcome (#1422, #2925). First-page-only — always present (possibly empty) on page 1, absent on later pages."
+                    }
+                },
+                "required": [
+                    "active_sprints",
+                    "count",
+                    "due_today_count",
+                    "next",
+                    "previous",
+                    "results",
+                    "retro_action_items",
+                    "server_version_high_water"
+                ]
+            },
+            "MeWorkRetroActionItem": {
+                "type": "object",
+                "properties": {
+                    "suggestion_state": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SuggestionStateEnum"
+                            }
+                        ],
+                        "description": "'suggested' — a PENDING TaskSuggestedAssignee addressed to the caller. 'owned' — a RetroActionItem whose promoted Task the caller owns and has not completed.\n\n* `suggested` - suggested\n* `owned` - owned"
+                    },
+                    "suggestion_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Null for an 'owned' row — only suggestions have one."
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_status": {
+                        "type": "string"
+                    },
+                    "task_short_id": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "from_retro_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "from_sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "from_sprint_short_id": {
+                        "type": "string"
+                    },
+                    "suggested_by_id": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Null for an 'owned' row."
+                    },
+                    "suggested_by_username": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "age_days": {
+                        "type": "integer"
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "age_days",
+                    "from_retro_id",
+                    "from_sprint_id",
+                    "from_sprint_short_id",
+                    "reason",
+                    "story_points",
+                    "suggested_by_id",
+                    "suggested_by_username",
+                    "suggestion_id",
+                    "suggestion_state",
+                    "task_id",
+                    "task_short_id",
+                    "task_status",
+                    "text"
+                ]
+            },
+            "MeWorkScheduleHealthSignal": {
+                "type": "object",
+                "properties": {
+                    "band": {
+                        "type": "string"
+                    },
+                    "project_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "band",
+                    "project_count"
+                ]
+            },
+            "MeWorkSignals": {
+                "type": "object",
+                "properties": {
+                    "schedule_health": {
+                        "$ref": "#/components/schemas/MeWorkScheduleHealthSignal"
+                    },
+                    "forecast": {
+                        "$ref": "#/components/schemas/MeWorkForecastSignal"
+                    },
+                    "sprint_burndown": {
+                        "$ref": "#/components/schemas/MeWorkSprintBurndownSignal"
+                    },
+                    "utilization": {
+                        "$ref": "#/components/schemas/MeWorkUtilizationSignal"
+                    }
+                }
+            },
+            "MeWorkSprintBurndownSignal": {
+                "type": "object",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "sprint_name": {
+                        "type": "string"
+                    },
+                    "committed_points": {
+                        "type": "integer"
+                    },
+                    "series": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MeWorkBurndownSnapshot"
+                        }
+                    },
+                    "burn_status": {
+                        "type": "string"
+                    },
+                    "trend_points": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "projected_finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "burn_status",
+                    "committed_points",
+                    "projected_finish_date",
+                    "series",
+                    "sprint_id",
+                    "sprint_name",
+                    "trend_points"
+                ]
+            },
             "MeWorkTask": {
                 "type": "object",
                 "description": "Flat, contributor-facing task row for ``GET /me/work/``.\n\nDeliberately omits every CPM field (``early_start``, ``late_finish``,\n``total_float``, ``wbs_path``, ``phase_id``) so the response carries no\nproject-management vocabulary into a contributor's surface. ``is_critical``\nis the one CPM-derived signal exposed — but as a single boolean the UI\nrenders as an icon with a plain-English tooltip (\"delays here delay the\nproject end date\"), not as the words \"critical path\".\n\n``due`` follows the ADR-0065 cascade:\n    actual_finish → planned_start → early_finish → sprint.finish_date.\n``due_source`` labels which step of the cascade produced the date so the\nUI can render \"Due May 30 (planned)\" vs \"Ends with Sprint 12\" — pure dates\nwithout their provenance erode contributor trust within a sprint.",
@@ -56111,6 +56553,45 @@
                     "status",
                     "story_points",
                     "url"
+                ]
+            },
+            "MeWorkUtilizationSignal": {
+                "type": "object",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "sprint_name": {
+                        "type": "string"
+                    },
+                    "committed_hours": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "available_hours": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "ratio": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "is_over": {
+                        "type": "boolean"
+                    },
+                    "label": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "available_hours",
+                    "committed_hours",
+                    "is_over",
+                    "label",
+                    "ratio",
+                    "sprint_id",
+                    "sprint_name"
                 ]
             },
             "Mention": {
@@ -57214,37 +57695,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Label"
-                        }
-                    }
-                }
-            },
-            "PaginatedMeWorkTaskList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/MeWorkTask"
                         }
                     }
                 }
@@ -68436,6 +68886,14 @@
                 ],
                 "type": "string",
                 "description": "* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
+            },
+            "SuggestionStateEnum": {
+                "enum": [
+                    "suggested",
+                    "owned"
+                ],
+                "type": "string",
+                "description": "* `suggested` - suggested\n* `owned` - owned"
             },
             "SyncPullResponse": {
                 "type": "object",

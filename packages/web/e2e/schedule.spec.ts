@@ -160,7 +160,20 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) }),
   );
   await page.route('**/api/v1/me/work/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        active_sprints: [],
+        due_today_count: 0,
+        server_version_high_water: 0,
+        retro_action_items: [],
+      }),
+    }),
   );
   await page.route('**/api/v1/me/notifications/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
