@@ -412,6 +412,60 @@ def test_approve_estimates_forbidden_for_unauthenticated(
     assert resp.status_code == 401
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "role,expected_status",
+    [
+        (Role.OWNER, 200),
+        (Role.ADMIN, 200),
+        (Role.SCHEDULER, 200),
+        (Role.MEMBER, 403),
+        (Role.VIEWER, 403),
+    ],
+)
+def test_approve_estimates_gates_identically_for_all_five_roles(
+    suggest_project: Project, role: Role, expected_status: int
+) -> None:
+    """`approve-estimates`'s gate is unchanged by #3371's removal of `withdraw_approval`.
+
+    `_rbac_permissions()`'s ``if self.action == "approve_estimates"`` branch used to
+    read ``if self.action in ("approve_estimates", "withdraw_approval")`` — narrowing
+    a shared tuple to a single string is exactly the kind of one-character edit that
+    can silently widen or narrow the *other* member's gate if the branch is
+    restructured carelessly. This test pins Resource Manager-or-above (Owner, Admin,
+    Scheduler) as 200 and everyone below (Member, Viewer) as 403 for every role in
+    the RBAC model, not just the two the pre-existing tests happened to cover.
+    """
+    u = _make_user(f"role-parity-{role.name.lower()}")
+    _make_membership(suggest_project, u, role)
+    task = Task.objects.create(project=suggest_project, name="T-role-parity", duration=3)
+
+    resp = _client(u).post(f"/api/v1/tasks/{task.pk}/approve-estimates/")
+    assert resp.status_code == expected_status, resp.data
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_route_removed(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    """#3371: the action is deleted, not merely re-gated — the route itself is gone.
+
+    Decision recorded in ADR-0766's amended note and changelog.d/3371.changed.md:
+    `withdraw_approval` had no client consumer and never shipped, so it is removed
+    rather than wired up. Approval is one-way until a UI asks for undo. A former
+    Scheduler-gated caller now gets DRF's plain "no such route" 404, not a 403 —
+    there is no permission check left to deny, because the action does not exist.
+    """
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(update_fields=["estimate_status"])
+
+    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp.status_code == 404
+    suggest_task.refresh_from_db()
+    # No route means no write — the estimate stays accepted.
+    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
+
+
 # ---------------------------------------------------------------------------
 # MC gate: pending estimates excluded from Monte Carlo input
 # ---------------------------------------------------------------------------
@@ -818,158 +872,6 @@ def test_mc_band_unchanged_after_noop_pert_patch_on_accepted_task(
     # Still accepted, so the triple reaches the sampler and the band stays open.
     assert date.fromisoformat(mc_resp.data["p95"]) > date.fromisoformat(mc_resp.data["p50"])
     assert mc_resp.data["forecast_diagnostic"]["reason"] is None
-
-
-# ---------------------------------------------------------------------------
-# ADR-0766 (#2597): withdraw-approval — the Scheduler's symmetric un-approve door
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.django_db
-def test_scheduler_can_withdraw_approval(
-    suggest_project: Project, suggest_task: Task, sa_scheduler: object
-) -> None:
-    suggest_task.optimistic_duration = 3
-    suggest_task.most_likely_duration = 5
-    suggest_task.pessimistic_duration = 8
-    suggest_task.estimate_status = EstimateStatus.ACCEPTED
-    suggest_task.save(
-        update_fields=[
-            "optimistic_duration",
-            "most_likely_duration",
-            "pessimistic_duration",
-            "estimate_status",
-        ]
-    )
-
-    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-    assert resp.status_code == 200, resp.data
-    suggest_task.refresh_from_db()
-    assert suggest_task.estimate_status == EstimateStatus.PENDING
-    assert resp.data["estimate_status"] == EstimateStatus.PENDING
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_idempotent_when_already_pending(
-    suggest_project: Project, suggest_task: Task, sa_scheduler: object
-) -> None:
-    suggest_task.estimate_status = EstimateStatus.PENDING
-    suggest_task.save(update_fields=["estimate_status"])
-
-    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-    assert resp.status_code == 200
-    suggest_task.refresh_from_db()
-    assert suggest_task.estimate_status == EstimateStatus.PENDING
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_idempotent_when_null(
-    suggest_project: Project, suggest_task: Task, sa_scheduler: object
-) -> None:
-    assert suggest_task.estimate_status is None
-    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-    assert resp.status_code == 200
-    suggest_task.refresh_from_db()
-    assert suggest_task.estimate_status is None
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_returns_400_for_open_mode(
-    project: Project, task: Task, scheduler: object
-) -> None:
-    c = _client(scheduler)
-    resp = c.post(f"/api/v1/tasks/{task.pk}/withdraw-approval/")
-    assert resp.status_code == 400
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_forbidden_for_contributor(
-    suggest_project: Project, suggest_task: Task, sa_contributor: object
-) -> None:
-    suggest_task.estimate_status = EstimateStatus.ACCEPTED
-    suggest_task.save(update_fields=["estimate_status"])
-
-    resp = _client(sa_contributor).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-    assert resp.status_code == 403
-    suggest_task.refresh_from_db()
-    # Unauthorized call must not have written anything.
-    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_forbidden_for_viewer(
-    suggest_project: Project, sa_contributor: object
-) -> None:
-    u = _make_user("sa_viewer_withdraw")
-    _make_membership(suggest_project, u, Role.VIEWER)
-    task = Task.objects.create(
-        project=suggest_project, name="T3", duration=3, estimate_status=EstimateStatus.ACCEPTED
-    )
-    resp = _client(u).post(f"/api/v1/tasks/{task.pk}/withdraw-approval/")
-    assert resp.status_code == 403
-    task.refresh_from_db()
-    assert task.estimate_status == EstimateStatus.ACCEPTED
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_forbidden_for_unauthenticated(
-    suggest_project: Project, suggest_task: Task
-) -> None:
-    c = APIClient()
-    resp = c.post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-    assert resp.status_code == 401
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_forbidden_on_archived_project(
-    suggest_project: Project, suggest_task: Task, sa_scheduler: object
-) -> None:
-    """IsProjectNotArchived blocks the action the same as approve_estimates."""
-    suggest_task.estimate_status = EstimateStatus.ACCEPTED
-    suggest_task.save(update_fields=["estimate_status"])
-    suggest_project.is_archived = True
-    suggest_project.save(update_fields=["is_archived"])
-
-    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-    assert resp.status_code == 403
-    suggest_task.refresh_from_db()
-    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
-
-
-@pytest.mark.django_db
-def test_withdraw_approval_records_status_change_in_history(
-    suggest_project: Project, suggest_task: Task, sa_scheduler: object
-) -> None:
-    suggest_task.estimate_status = EstimateStatus.ACCEPTED
-    suggest_task.save(update_fields=["estimate_status"])
-
-    _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-
-    statuses = list(
-        suggest_task.history.order_by("-history_date").values_list("estimate_status", flat=True)
-    )
-    assert EstimateStatus.PENDING in statuses
-    assert EstimateStatus.ACCEPTED in statuses
-
-
-@pytest.mark.django_db
-def test_withdraw_then_reapprove_round_trip(
-    suggest_project: Project, suggest_task: Task, sa_scheduler: object
-) -> None:
-    """A Scheduler can withdraw their own approval and re-grant it later."""
-    suggest_task.estimate_status = EstimateStatus.ACCEPTED
-    suggest_task.save(update_fields=["estimate_status"])
-
-    c = _client(sa_scheduler)
-    resp1 = c.post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
-    assert resp1.status_code == 200
-    suggest_task.refresh_from_db()
-    assert suggest_task.estimate_status == EstimateStatus.PENDING
-
-    resp2 = c.post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
-    assert resp2.status_code == 200
-    suggest_task.refresh_from_db()
-    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
 
 
 # ---------------------------------------------------------------------------

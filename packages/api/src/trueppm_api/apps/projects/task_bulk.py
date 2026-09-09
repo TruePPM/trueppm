@@ -127,6 +127,35 @@ TASK_BULK_MAX_OPERATIONS = 500
 #: sharing one budget would make the edge count silently eat the row count.
 TASK_BULK_MAX_DEPENDENCIES = 500
 
+#: Maximum inline ``owners`` entries summed across an ENTIRE batch (#3643).
+#:
+#: ``MAX_TASK_OWNERS_PER_WRITE`` (serializers.py, #3596) caps ``owners`` at 100 per
+#: ``TaskSerializer`` instance, but ``TaskBulkView`` builds one serializer per
+#: operation — up to ``TASK_BULK_MAX_OPERATIONS`` of them — so the per-row cap alone
+#: still lets one request compose 500 x 100 = 50,000 owner entries, each minting a
+#: ``TaskActivityEvent`` and (absent the ``broadcast=False`` fix below) a post-commit
+#: ``broadcast_board_event``. That is a ~34x reduction from uncapped, not a closure,
+#: and the same order of magnitude the per-row cap was filed to remove.
+#:
+#: Bounded batch-wide rather than per row, mirroring ``TASK_BULK_MAX_DEPENDENCIES``:
+#: ``dependencies`` is the other nested collection on this endpoint whose budget
+#: could otherwise multiply against ``operations``, and it is capped once for the
+#: whole request rather than once per edge-bearing row. 500 matches
+#: ``TASK_BULK_MAX_OPERATIONS`` and ``TASK_BULK_MAX_DEPENDENCIES`` — a batch naming
+#: more distinct owner assignments than it has rows, or an edge for every row, is
+#: already at the outer edge of what a paste-many legitimately produces.
+TASK_BULK_MAX_OWNERS = 500
+
+#: Emitted verbatim when a batch's summed ``owners`` entries exceed the cap. Mirrors
+#: ``MSG_TOO_MANY_OWNERS`` (serializers.py) but states the batch-wide framing so a
+#: caller who already reads the per-row message is not confused by the difference.
+MSG_TOO_MANY_OWNERS_IN_BATCH = (
+    "This batch names {actual} owner entries across its operations, more than the "
+    "batch-wide limit of {max_length}. Split the paste into smaller batches, or send "
+    "fewer owners per row — owners are upserted, so a later write never removes an "
+    "owner named by an earlier one."
+)
+
 
 @dataclasses.dataclass
 class BulkOutcome:
@@ -246,7 +275,25 @@ class BulkContext:
 
 
 def _row_serializer_context(ctx: BulkContext) -> dict[str, Any]:
-    return {"request": ctx.request, "caller_role": ctx.caller_role}
+    """Context every per-row ``TaskSerializer``/``DependencySerializer`` shares.
+
+    ``suppress_owner_broadcast`` (#3643): this endpoint already fires one coarse
+    ``tasks_bulk_mutated`` covering every id the batch touched
+    (``_register_bulk_commit_hooks``), unconditionally including every row an
+    ``owners`` write applies to — ``_apply_create``/``_apply_update`` add the row's
+    id to ``created_ids``/``updated_ids`` regardless of whether it also carried
+    ``owners``. A per-entry ``assignment_*`` broadcast from ``apply_task_owners``
+    would be pure duplicate load on top of that: both event families funnel to the
+    same ``scheduleInvalidate('tasks')`` client-side. Always ``True`` here, not
+    conditional — every caller of this helper is inside the batch transaction that
+    makes the coarse event true, so there is no branch where the per-entry event
+    would be the only signal reaching a client.
+    """
+    return {
+        "request": ctx.request,
+        "caller_role": ctx.caller_role,
+        "suppress_owner_broadcast": True,
+    }
 
 
 def _first_leaf_message(node: Any) -> str:

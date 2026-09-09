@@ -34,6 +34,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskType,
 )
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
@@ -585,6 +586,76 @@ def test_batch_too_large_rejected(admin_client: APIClient, project: Project, set
     assert not SyncBatch.objects.exists()
 
 
+# ---------------------------------------------------------------------------
+# Batch-wide owners budget (#3643) — the per-row ``MAX_TASK_OWNERS_PER_WRITE``
+# cap (serializers.py, #3596) alone still lets DEFAULT_MAX_BATCH_ROWS rows of
+# 100 owners each compose 50,000 entries in one push, same shape as the batch
+# task-write endpoint.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ana(project: Project) -> Resource:
+    """A resource ON the project roster — the only kind ``owners`` accepts."""
+    r = Resource.objects.create(name="Ana Rivera", email="ana@example.com")
+    ProjectResource.objects.create(project=project, resource=r)
+    return r
+
+
+@pytest.mark.django_db
+def test_batch_owners_budget_rejected(
+    admin_client: APIClient, project: Project, settings: Any
+) -> None:
+    """Two rows of 3 owners each sums to 6, over a 5-entry batch-wide budget.
+
+    Checked in ``_validate_and_extract_tasks`` up front, alongside the row-count
+    cap above — rejected before the write transaction opens, so nothing partially
+    applies.
+    """
+    settings.TRUEPPM_SYNC_BATCH_MAX_OWNERS = 5
+    resource_id = str(uuid.uuid4())
+    owners = [{"resource": resource_id, "units": "0.5"}] * 3
+    rows = [
+        {"id": str(uuid.uuid4()), "name": "T0", "owners": owners},
+        {"id": str(uuid.uuid4()), "name": "T1", "owners": owners},
+    ]
+    resp = admin_client.post(_url(project), _payload(created=rows), format="json")
+    assert resp.status_code == 400
+    assert not Task.objects.exists()
+    assert not SyncBatch.objects.exists()
+    message = str(resp.data)
+    assert "6" in message
+    assert "5" in message
+
+
+@pytest.mark.django_db
+def test_batch_owners_budget_accepted_at_the_cap(
+    admin_client: APIClient, project: Project, settings: Any, ana: Resource
+) -> None:
+    """Exactly the batch-wide owners budget, summed across rows, is accepted.
+
+    An off-by-one here is a shipped 400 on legitimate work, so the at-cap payload
+    gets its own test rather than being inferred from the over-cap one.
+    """
+    settings.TRUEPPM_SYNC_BATCH_MAX_OWNERS = 3
+    rows = [
+        {
+            "id": str(uuid.uuid4()),
+            "name": "T0",
+            "owners": [{"resource": str(ana.pk), "units": "0.5"}],
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "name": "T1",
+            "owners": [{"resource": str(ana.pk), "units": "0.25"}] * 2,
+        },
+    ]
+    resp = admin_client.post(_url(project), _payload(created=rows), format="json")
+    assert resp.status_code == 200, resp.data
+    assert Task.objects.filter(project=project).count() == 2
+    assert TaskResource.objects.filter(resource=ana).count() == 2
+
+
 @pytest.mark.django_db
 def test_batch_id_isolated_per_project(
     admin_client: APIClient, project: Project, user: Any
@@ -743,6 +814,48 @@ def test_bulk_upload_coalesces_into_single_broadcast(
     _project_id, event_type, payload = mock_bcast.call_args.args
     assert event_type == "tasks_bulk_mutated"
     assert sorted(payload["task_ids"]) == sorted(ids)
+
+
+@pytest.mark.django_db
+def test_owners_write_in_upload_batch_does_not_broadcast_per_entry(
+    admin_client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: object,
+    ana: Resource,
+) -> None:
+    """#3643: the #809 coalesced ``tasks_bulk_mutated`` already covers an owners row.
+
+    ``_apply_and_record`` fires exactly one ``tasks_bulk_mutated`` per upload,
+    unconditionally covering every task id ``applied.events`` names — which already
+    includes any row an inline ``owners`` write applied to. A per-entry
+    ``assignment_created`` broadcast on top of that would be pure duplicate load, the
+    same reasoning that applies to ``POST /tasks/bulk/``.
+    """
+    task_id = str(uuid.uuid4())
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        resp = admin_client.post(
+            _url(project),
+            _payload(
+                created=[
+                    {
+                        "id": task_id,
+                        "name": "Owned",
+                        "owners": [{"resource": str(ana.pk), "units": "0.5"}],
+                    }
+                ]
+            ),
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    assert TaskResource.objects.filter(task_id=task_id, resource=ana).exists()
+
+    event_types = {call.args[1] for call in mock_bcast.call_args_list}
+    assert "tasks_bulk_mutated" in event_types
+    assert "assignment_created" not in event_types
 
 
 @pytest.mark.django_db

@@ -7,7 +7,8 @@ import { InviteForm } from './InviteForm';
 import type { UserSearchResult } from '@/api/types';
 
 type AddMemberOptions = { onSuccess?: () => void };
-const mockAddMember = vi.fn<(vars: { user: string; role: number }, opts: AddMemberOptions) => void>();
+const mockAddMember =
+  vi.fn<(vars: { user: string; role: number }, opts: AddMemberOptions) => void>();
 let mockSearchResults: UserSearchResult[] = [];
 let mockIsFetching = false;
 let mockAddError: unknown = null;
@@ -150,6 +151,36 @@ describe('InviteForm', () => {
   it('renders no error text at all when the mutation has not failed', () => {
     render();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it("surfaces the server's own message when the target is refused (#3641)", () => {
+    // A 400 keyed on `user` means the server refused this target. "Try again" is
+    // wrong advice — replaying is refused identically — and the server's message
+    // names the remedy, so it must reach the user verbatim.
+    mockAddError = {
+      isAxiosError: true,
+      response: {
+        status: 400,
+        data: { user: ['No such user, or not someone you can add. Ask a workspace admin.'] },
+      },
+    };
+    render();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/not someone you can add/i);
+    expect(screen.queryByText(/please try again/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it('still prefers the duplicate-membership copy on a 409 body', () => {
+    // The 409 body is `{detail: …}`, which carries no `user` key — so the refusal
+    // branch must not swallow the conflict case.
+    mockAddError = {
+      isAxiosError: true,
+      response: { status: 409, data: { detail: 'User is already a member of this project.' } },
+    };
+    render();
+    expect(screen.getByRole('alert')).toHaveTextContent(/already a member/i);
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
 
   // ---------------------------------------------------------------------------

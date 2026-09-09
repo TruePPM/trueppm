@@ -138,14 +138,15 @@ def test_every_inline_action_permission_actually_applies() -> None:
 
 @pytest.mark.django_db
 def test_the_known_inline_declarations_are_still_discovered() -> None:
-    """Pin the three known instances by name.
+    """Pin the two known instances by name.
 
     Without this, deleting the inline kwargs would make the test above pass over an
-    empty list — technically true, and no longer guarding anything.
+    empty list — technically true, and no longer guarding anything. `withdraw_approval`
+    was a third instance until #3371 removed the action (no client consumer, never
+    shipped); approval is one-way until a UI asks for undo.
     """
     discovered = {(name, action) for name, _cls, action, _declared in _inline_permission_actions()}
     assert {
         ("TaskViewSet", "approve_estimates"),
         ("TaskViewSet", "split"),
-        ("TaskViewSet", "withdraw_approval"),
     } <= discovered

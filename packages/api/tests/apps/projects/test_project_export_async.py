@@ -178,6 +178,79 @@ def test_run_export_builds_and_stores_archive(populated_project: Project, owner:
     assert any(n.startswith("attachments/") and n.endswith("plan.txt") for n in names)
 
 
+def _seed_json_from_archive(job: ProjectExportJob) -> dict[str, Any]:
+    import json
+
+    from django.core.files.storage import default_storage
+
+    job.refresh_from_db()
+    with default_storage.open(job.file_path, "rb") as fh:
+        raw = fh.read()
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
+        return json.loads(tar.extractfile("seed.json").read())  # type: ignore[union-attr]
+
+
+def test_run_export_withholds_email_for_requester_without_workspace_admin(
+    populated_project: Project, owner: Any
+) -> None:
+    """The async bundle is reachable through the same self-grantable IsProjectAdmin
+    gate as the sync GET export (#3627) — it must redact identically."""
+    from trueppm_api.apps.resources.models import ProjectResource, Resource
+
+    resource = Resource.objects.create(name="Dana", email="dana@example.com", max_units=1.0)
+    ProjectResource.objects.create(project=populated_project, resource=resource)
+
+    job = ProjectExportJob.objects.create(project=populated_project, requested_by=owner)
+    _run_export(job)
+    job.refresh_from_db()
+    assert job.status == ExportJobStatus.SUCCESS
+
+    seed = _seed_json_from_archive(job)
+    assert all(r.get("email") is None for r in seed.get("resources", []))
+
+
+def test_run_export_includes_email_for_workspace_admin_requester(
+    populated_project: Project, owner: Any
+) -> None:
+    from trueppm_api.apps.resources.models import ProjectResource, Resource
+    from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
+
+    resource = Resource.objects.create(name="Dana", email="dana@example.com", max_units=1.0)
+    ProjectResource.objects.create(project=populated_project, resource=resource)
+    ws = Workspace.objects.first() or Workspace.objects.create()
+    WorkspaceMembership.objects.create(workspace=ws, user=owner, role=WorkspaceRole.ADMIN)
+
+    job = ProjectExportJob.objects.create(project=populated_project, requested_by=owner)
+    _run_export(job)
+    job.refresh_from_db()
+    assert job.status == ExportJobStatus.SUCCESS
+
+    seed = _seed_json_from_archive(job)
+    assert "dana@example.com" in [r.get("email") for r in seed.get("resources", [])]
+
+
+def test_run_export_redacts_when_requester_account_is_gone(
+    populated_project: Project, owner: Any
+) -> None:
+    """``requested_by`` can go NULL (``on_delete=SET_NULL``) if the requesting
+    account is deleted between enqueue and build. That must not fall back to
+    trusted/unredacted (#3627) — see exporter._NO_HTTP_CALLER."""
+    from trueppm_api.apps.resources.models import ProjectResource, Resource
+
+    resource = Resource.objects.create(name="Dana", email="dana@example.com", max_units=1.0)
+    ProjectResource.objects.create(project=populated_project, resource=resource)
+
+    job = ProjectExportJob.objects.create(project=populated_project, requested_by=owner)
+    owner.delete()  # SET_NULL fires: job.requested_by_id becomes NULL
+    _run_export(job)
+    job.refresh_from_db()
+    assert job.status == ExportJobStatus.SUCCESS
+    assert job.requested_by_id is None
+
+    seed = _seed_json_from_archive(job)
+    assert all(r.get("email") is None for r in seed.get("resources", []))
+
+
 def test_run_export_unknown_job_is_noop() -> None:
     from trueppm_api.apps.projects.tasks import run_project_export
 
