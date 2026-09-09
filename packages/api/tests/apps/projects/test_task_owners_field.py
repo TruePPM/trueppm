@@ -35,6 +35,7 @@ from trueppm_api.apps.projects.serializers import (
     MAX_TASK_OWNERS_PER_WRITE,
     MSG_TOO_MANY_OWNERS,
 )
+from trueppm_api.apps.projects.task_bulk import TASK_BULK_MAX_OWNERS
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
@@ -608,6 +609,110 @@ def test_duplicate_entries_under_the_cap_still_replay_into_the_audit_trail(
         task=task, event_type=TaskActivityEventType.ASSIGNEE_UNITS_CHANGED
     )
     assert delta.detail["units"] == {"from": "1.00", "to": "0.50"}
+
+
+# ---------------------------------------------------------------------------
+# Batch-wide owners budget (#3643) — the per-row cap alone still lets
+# TASK_BULK_MAX_OPERATIONS rows of MAX_TASK_OWNERS_PER_WRITE owners each compose
+# 50,000 entries in one POST /tasks/bulk/ request.
+# ---------------------------------------------------------------------------
+
+
+def _owners_op(name: str, resource: Resource, count: int) -> dict[str, Any]:
+    """One ``create`` operation carrying ``count`` owner entries, all under the per-row cap."""
+    return {
+        "op": "create",
+        "data": {
+            "name": name,
+            "duration": 1,
+            "owners": [{"resource": str(resource.pk), "units": "0.1"} for _ in range(count)],
+        },
+    }
+
+
+@pytest.mark.django_db
+def test_bulk_batch_wide_owners_budget_rejects_one_over(
+    client: APIClient, project: Project, ana: Resource
+) -> None:
+    """Five rows at the 100-per-row cap plus one more owner sums to 501 — over budget.
+
+    This is a whole-request 400, not a per-row rejection (mirrors the duplicate-id
+    check `validate_operations` already makes): the budget is spent across the batch,
+    not by any one row, so there is no principled row to blame — and rejecting the
+    request as a whole means nothing partially applies before the caller sees the 400.
+    """
+    ops = [_owners_op(f"Row {i}", ana, MAX_TASK_OWNERS_PER_WRITE) for i in range(5)]
+    ops.append(_owners_op("Row 5", ana, 1))  # 5*100 + 1 = 501 > TASK_BULK_MAX_OWNERS (500)
+
+    res = client.post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/",
+        {"operations": ops},
+        format="json",
+    )
+
+    assert res.status_code == 400, res.data
+    assert Task.objects.filter(project=project).count() == 0
+    assert TaskResource.objects.filter(resource=ana).count() == 0
+    message = str(res.data)
+    assert str(TASK_BULK_MAX_OWNERS) in message
+    assert "501" in message
+
+
+@pytest.mark.django_db
+def test_bulk_batch_wide_owners_budget_accepts_at_the_cap(
+    client: APIClient, project: Project, ana: Resource
+) -> None:
+    """Exactly TASK_BULK_MAX_OWNERS summed across the batch is accepted — pin the boundary.
+
+    An off-by-one here is a shipped 400 on legitimate work (a large but real paste-many
+    naming owners on every row), so the at-cap payload gets its own test rather than
+    being inferred from the over-cap one.
+    """
+    ops = [_owners_op(f"Row {i}", ana, MAX_TASK_OWNERS_PER_WRITE) for i in range(5)]
+    assert sum(len(op["data"]["owners"]) for op in ops) == TASK_BULK_MAX_OWNERS
+
+    res = client.post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/",
+        {"operations": ops},
+        format="json",
+    )
+
+    assert res.status_code == 207, res.data
+    assert res.data["rejected"] == []
+    assert len(res.data["applied"]) == 5
+    # Every row upserts the same resource, so it collapses to one TaskResource row
+    # per task — 5 tasks, not 500.
+    assert TaskResource.objects.filter(resource=ana).count() == 5
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bulk_owners_write_does_not_broadcast_per_entry(
+    client: APIClient, project: Project, ana: Resource
+) -> None:
+    """``TaskBulkView`` already fires one ``tasks_bulk_mutated`` covering every touched row.
+
+    A per-entry ``assignment_created`` broadcast on top of that is pure duplicate load —
+    both event families invalidate the same ``['tasks', projectId]`` client cache key
+    (``useProjectWebSocket``'s own module doc: "assignment_* → invalidate tasks",
+    "tasks_bulk_mutated → invalidate tasks"). This is the fix's other half: the batch-wide
+    cap above bounds the entry count, this removes the per-entry fanout entirely on the
+    path that already has a coarser event covering it.
+    """
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast:
+        res = client.post(
+            f"/api/v1/projects/{project.pk}/tasks/bulk/",
+            {"operations": [_owners_op("Row", ana, 3)]},
+            format="json",
+        )
+    assert res.status_code == 207, res.data
+    assert res.data["rejected"] == []
+
+    event_types = {
+        call.args[1] if len(call.args) > 1 else call.kwargs.get("event_type")
+        for call in bcast.call_args_list
+    }
+    assert "tasks_bulk_mutated" in event_types
+    assert "assignment_created" not in event_types
 
 
 # ---------------------------------------------------------------------------
