@@ -58,9 +58,9 @@ endpoint and no MCP tool for it, so the one scope where a confidence date matter
 most is the scope that cannot produce one.
 
 The engine restriction that made this impossible lifts in 0.4
-([#1385](https://gitlab.com/trueppm/trueppm/-/issues/1385) — `monte_carlo()` will
-honor per-task calendars, see [ADR-0672](/architecture/decisions/)). What remains
-after that is the API surface, which is why this entry is separate.
+([#1385](https://gitlab.com/trueppm/trueppm/-/issues/1385) <!-- known-issues-ack:closed -->
+— `monte_carlo()` will honor per-task calendars, see [ADR-0672](/architecture/decisions/)).
+What remains after that is the API surface, which is why this entry is separate.
 
 - **Impact:** a program manager gets a deterministic finish date with no band around
   it. Ask for a what-if at program scope over MCP and the tool cannot answer.
@@ -93,10 +93,13 @@ relationship for a human to read; it does not reach the engine.
   (nothing records which risk it was for, so it is never removed when the risk
   closes) and uncorrelated (one risk affecting five tasks becomes five independent
   spreads, which understates the tail rather than overstating it).
-- **Fix planned for 0.5** — [#2556](https://gitlab.com/trueppm/trueppm/-/issues/2556)
-  makes risks first-class simulation inputs, with one shared draw per risk per
-  iteration across every task it touches. See
-  [ADR-0711](/architecture/decisions/).
+- **Fix planned for 0.5**, per [ADR-0711](/architecture/decisions/): risks become
+  first-class simulation inputs, with one shared draw per risk per iteration across
+  every task it touches. The design closed as
+  [#2556](https://gitlab.com/trueppm/trueppm/-/issues/2556) <!-- known-issues-ack:closed -->
+  (that issue tracked the ADR, not the build — verified against `main` for #3628:
+  `engine.py` still has no `RiskDriver` concept). **The implementation has no open
+  tracking issue as of this writing**; filing one is follow-up from #3628.
 - **Cost impact is a separate axis and lands later.** ADR-0711 treats schedule and
   cost as the two axes a simulation can answer. Only schedule is in scope for 0.5:
   TruePPM has no cost data model yet, and resource costs are a 1.0 item
@@ -176,9 +179,9 @@ roughly seventy dialogs, drawers, and popovers, 44px touch targets on the board 
 schedule surfaces, contrast fixes in both light and dark themes, live-region
 announcements for route changes and async writes, and keyboard operability on the Gantt,
 board, and outline — is already merged to `main` and lands with the 0.4 beta. The axe
-gate itself is [#1685](https://gitlab.com/trueppm/trueppm/-/issues/1685) and
-[#2202](https://gitlab.com/trueppm/trueppm/-/issues/2202); the remediation ran across the
-release rather than under one tracking issue.
+gate itself is [#1685](https://gitlab.com/trueppm/trueppm/-/issues/1685) <!-- known-issues-ack:closed -->
+and [#2202](https://gitlab.com/trueppm/trueppm/-/issues/2202) <!-- known-issues-ack:closed -->;
+the remediation ran across the release rather than under one tracking issue.
 
 What that gate does **not** prove:
 
@@ -224,38 +227,6 @@ not get it, and today no view except the Board can save a filter by name.
 | [#2443](https://gitlab.com/trueppm/trueppm/-/issues/2443) | Filter state does not survive a view switch, and the vocabulary differs per view | 0.5 |
 | [#2446](https://gitlab.com/trueppm/trueppm/-/issues/2446) | My Work has no project filter, so a PM running several projects gets one undifferentiated list | 0.5 |
 
-## Schedule editing and export
-
-The Schedule is the surface an evaluator reaches first. These are open against the 0.4
-milestone at the time of writing: each is either fixed before the tag comes off, or it
-moves to 0.5. The issue is the authority on which happened, not this page.
-
-### Drag-to-link between tasks is hard to discover
-
-Dragging from one task bar to another to create a dependency works, but its only
-rest-state cue is an invisible 8–12px hotspot at the bar's right edge plus a cursor
-change. The one text hint lives in the Schedule legend, which is collapsed by default
-and hidden entirely below 1024px.
-
-- **Impact:** an evaluator who has not been told the interaction exists is unlikely to
-  find it, and may conclude dependencies can only be created from the task drawer.
-- **Workaround:** create dependencies from the task drawer's **Dependencies** tab, or
-  right-click a row and use the predecessor/successor picker — both are fully
-  supported paths, not fallbacks.
-- **Tracked on** [#2702](https://gitlab.com/trueppm/trueppm/-/issues/2702).
-
-### The PDF export is only in the overflow menu, and disappears on a narrow screen
-
-The client-ready PDF's single entry point is the **Project actions** (···) overflow
-menu on the Schedule, which is hidden below the `md` breakpoint.
-
-- **Impact:** a weekly steering-pack export is three interactions deep, and on a
-  narrow window or a tablet there is no path to it at all.
-- **Workaround:** widen the window to at least the `md` breakpoint and use **Project
-  actions → Export schedule as PDF…**. The export itself is unaffected — this is the
-  route to it, not the artifact.
-- **Tracked on** [#2703](https://gitlab.com/trueppm/trueppm/-/issues/2703).
-
 ## Baselines
 
 ### Baseline comparison is a table, not a Gantt overlay — planned for 0.5
@@ -269,33 +240,10 @@ overlay on the Gantt is deliberately not in this release** —
   slip drawn against the plan on the timeline, which is the reading most people expect
   from the word "baseline".
 - **Workaround:** none — use the drawer's comparison table.
-- **Fix planned for 0.5.** The Schedule legend still renders a "Planned baseline"
-  swatch with no matching draw call behind it; that stray swatch is
-  [#2696](https://gitlab.com/trueppm/trueppm/-/issues/2696).
-
-## Time capture
-
-### A submitted week looks locked but can still be edited
-
-Submitting a timesheet week is a **marker**, not a lock —
-[ADR-0224](/architecture/decisions/) specifies the 0.4 state machine as "no approver,
-no lock, no return", and approval lands with #100 at 0.5. The timesheet grid, however,
-renders a submitted week's cells inert and names **Reopen week** as the remedy, which
-reads as a formal lock.
-
-**Nothing is being circumvented and this is not a permissions defect** — there is no
-lock to bypass. The gap is that the grid claims one, so the two surfaces disagree about
-what submission means.
-
-- **Impact:** a submitted week can still be edited from My Work, which the grid implies
-  is closed. Someone correcting an entry that way is not doing anything wrong, but they
-  will reasonably think they found a hole.
-- **Workaround:** treat submission as "marked submitted", not "frozen". If your process
-  needs a week to stop changing after submission, that control arrives with timesheet
-  approval at 0.5.
-- **Tracked on** [#2701](https://gitlab.com/trueppm/trueppm/-/issues/2701) — the fix is
-  to the grid's language, deliberately **not** a server-side lock, which would pre-empt
-  an accepted design decision.
+- **Fix planned for 0.5**, per ADR-0376's own Consequences section (above). The
+  legend previously carried a stray "Planned baseline" swatch with no matching draw
+  call behind it — that was [#2696](https://gitlab.com/trueppm/trueppm/-/issues/2696) <!-- known-issues-ack:closed -->
+  (closed, fixed): the legend no longer renders it.
 
 ## Resource management and capacity
 
@@ -339,10 +287,8 @@ settings yet.
   `PATCH /api/v1/programs/{id}/`), and the instance-wide kill switch is the
   `TRUEPPM_MCP_ENABLED` environment variable (which is enforced first, ahead of every
   other check).
-- **Tracked on** [#2688](https://gitlab.com/trueppm/trueppm/-/issues/2688) (this
-  documentation correction) and
-  [#2700](https://gitlab.com/trueppm/trueppm/-/issues/2700) (building the workspace-
-  and program-scope settings sections).
+- **Tracked on** [#2700](https://gitlab.com/trueppm/trueppm/-/issues/2700) (building
+  the workspace- and program-scope settings sections).
 
 ### A computed answer does not name the engine that produced it
 
@@ -361,9 +307,9 @@ version* produced the number, inline on the answer itself.
   on the action's timestamp.
 - **Tracked on** [#2642](https://gitlab.com/trueppm/trueppm/-/issues/2642), currently
   sequenced for 0.5. The related refusal-transparency gap closed with
-  [#2689](https://gitlab.com/trueppm/trueppm/-/issues/2689): a refused agent request
-  now carries its `refusal` envelope — verdict, reason and constraint — to the MCP
-  client, per [ADR-0809](/architecture/decisions/).
+  [#2689](https://gitlab.com/trueppm/trueppm/-/issues/2689) <!-- known-issues-ack:closed -->:
+  a refused agent request now carries its `refusal` envelope — verdict, reason and
+  constraint — to the MCP client, per [ADR-0809](/architecture/decisions/).
 
 ## Data import
 
