@@ -12,10 +12,14 @@
  * it removes is the **silence**: before this file existed, a mock the server
  * could never produce generated no signal anywhere in the pipeline. The first
  * measured pass found 346 such lines across 104 operations, all of them green;
- * #3440 corrected four field families, and these 102 operations are what is
- * left. (#3650 closed the cluster-(b) entry below by fixing the schema rather
- * than waiving the mock, and opened one narrower property-level entry — cluster
- * (g) — for a client field #1753 has not yet shipped on this endpoint.)
+ * #3440 corrected four field families, #3649 closed the cluster-(a)
+ * list-vs-envelope entries below — that wildcard was also silently covering
+ * two `/members/` operations' unrelated #2633 user-id drift, which needed its
+ * own narrower cluster-(e) entry once uncovered — #3651 corrected 11 more
+ * (nullability), and #3650 closed the cluster-(b) entry by fixing the schema
+ * rather than waiving the mock, opening one narrower property-level entry —
+ * cluster (g) — for a client field #1753 has not yet shipped on this
+ * endpoint. These 89 operations are what is left.
  *
  * ## Shape
  *
@@ -37,7 +41,7 @@
  *   in one of the two full suite passes and not the other, so a property-level
  *   ledger built from either would red a spec nobody touched, nondeterministically,
  *   on a loaded runner — the exact failure shape this tree spends the most time
- *   chasing. `'*'` costs enforcement on the other properties of these 102
+ *   chasing. `'*'` costs enforcement on the other properties of these 89
  *   operations and buys a ledger that does not flake. Use the property-level
  *   form for anything added from here, where you know the one line you mean.
  * · Every reason names the issue that removes it. A waiver with no issue is a
@@ -64,10 +68,15 @@
  * waiving the mock — no entry remains below. Left here so the cluster
  * lettering in the rest of this header stays stable.
  *
- * **(c) SCHEMA WRONG — nullability** (#3651). Fields that are genuinely null at
- * runtime whose serializer declares no `allow_null`, so the published schema
- * types them non-nullable. This is the shape that crashes a *correctly written*
- * generated client.
+ * **(c) MOCK WRONG — an invented null** (#3654, folded in from #3651). #3651
+ * fixed the 11 fields here that were genuinely null at runtime but declared
+ * with no `allow_null` (`deleted_by` on comments/notes/attachments,
+ * `started_by` on poker, `mention` on notifications) — the shape that crashes
+ * a *correctly written* generated client — by adding `allow_null` to the
+ * serializer and regenerating the schema. One entry remains for the opposite
+ * reason: `Project.code` is `blank=True, default=""`, never `null=True`, so
+ * the trash view's `code` can never be `None`; the mock's `code: null` is
+ * invented, and the schema is already correct.
  *
  * **(d) SPEC CATCH-ALL** (#3653). Fourteen specs register their own
  * `**\/api/v1/**` returning `[]` or a `{count,next,previous,results}` envelope
@@ -109,48 +118,11 @@ export interface SchemaGuardWaiver {
 
 export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> = {
   // ---------------------------------------------------------------------------
-  // (a) SCHEMA WRONG - a hand-written list() returns a bare array - 5 operations
+  // (a) SCHEMA WRONG - a hand-written list() returns a bare array - 0 operations
+  // Fixed in #3649: the five list() overrides now carry @extend_schema(responses=
+  // {200: <Serializer>(many=True)}) + @suppress_list_pagination, so the published
+  // schema matches the bare array each already returned.
   // ---------------------------------------------------------------------------
-  'GET /api/v1/programs/{program_pk}/members/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/mention-groups/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/members/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/mention-groups/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/phases/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
   // ---------------------------------------------------------------------------
   // (g) TEST AHEAD OF SERVER - a client field not yet emitted by this endpoint - 1 operation
   // ---------------------------------------------------------------------------
@@ -165,90 +137,21 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
     allow: ['results[].is_phase:unknown-property'],
   },
   // ---------------------------------------------------------------------------
-  // (c) SCHEMA WRONG - a genuinely nullable field is declared non-nullable - 12 operations
+  // (c) MOCK WRONG - the fixture sends a null the server can never produce - 1 operation
   // ---------------------------------------------------------------------------
+  // #3651 fixed the 11 genuinely-nullable fields this cluster previously held
+  // (deleted_by on comments/notes/attachments, started_by on poker, mention on
+  // notifications) by adding allow_null to their serializers and regenerating
+  // the schema. This one is different: Project.code is `blank=True,
+  // default=""` — never `null=True` — so `p.code` in the trash view's
+  // hand-built response is always a string. The mock's `code: null` is an
+  // invented value the server cannot send; "fixing" the schema to allow_null
+  // would make it wrong. Recategorized from SCHEMA-WRONG to MOCK-WRONG.
   'GET /api/v1/projects/trash/': {
     reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      '[].code:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'results[].deleted_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'results[].deleted_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/tasks/{task_pk}/notes/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'results[].deleted_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'GET /api/v1/sprints/{sprint_pk}/poker/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      '[].started_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'deleted_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'POST /api/v1/poker/{id}/commit/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'started_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'POST /api/v1/poker/{id}/reveal/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'started_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'POST /api/v1/poker/{id}/vote/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'started_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'deleted_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'deleted_by:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/tasks/{task_pk}/notes/': {
-    reason:
-      'SCHEMA-WRONG (#3651): the field is genuinely null at runtime, but the serializer declares no ' +
-      'allow_null, so drf-spectacular published it as non-nullable. Observed: ' +
-      'deleted_by:null-on-non-nullable.',
+      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
+      "Project.code is blank=True/default=\"\", never null=True, so the view's p.code is always a " +
+      'string; the schema is correct as declared. Observed: [].code:null-on-non-nullable.',
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------
@@ -300,8 +203,8 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
       'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
       'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type, results[].mention:null-on-non-nullable, results[].snippet:null-on-non-nullable, ' +
-      'results[].recipient:type, results[].mention.scope:enum.',
+      '<root>:type, results[].snippet:null-on-non-nullable, results[].recipient:type, ' +
+      'results[].mention.scope:enum.',
     allow: ['*'],
   },
   'GET /api/v1/programs/': {
@@ -459,8 +362,8 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
       'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
       'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'assignees:unknown-property, wbs_path:null-on-non-nullable, project_id:unknown-property, ' +
-      'project_name:unknown-property, program_id:unknown-property, +16 more.',
+      'assignees:unknown-property, project_id:unknown-property, ' +
+      'project_name:unknown-property, program_id:unknown-property, +15 more.',
     allow: ['*'],
   },
   'POST /api/v1/projects/{id}/visit/': {
@@ -482,7 +385,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------
-  // (e) #2633 - user ids are integers server-side, strings in types.ts - 11 operations
+  // (e) #2633 - user ids are integers server-side, strings in types.ts - 14 operations
   // ---------------------------------------------------------------------------
   'GET /api/v1/projects/{id}/': {
     reason:
@@ -563,6 +466,32 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
       'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
       'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
+    allow: ['*'],
+  },
+  // #3649 narrowed the cluster-(a) wildcard on these two `/members/` operations to
+  // just its pagination-envelope claim, which surfaced this pre-existing #2633
+  // drift underneath it — it was never fixed, only hidden by the broader waiver.
+  'GET /api/v1/projects/{project_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
+      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
+      'half of #2633 and outside the denominator #3440 bound. Observed: [].user:type, ' +
+      '[].user_detail.id:type.',
+    allow: ['*'],
+  },
+  'GET /api/v1/programs/{program_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
+      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
+      'half of #2633 and outside the denominator #3440 bound. Observed: [].user:type, ' +
+      '[].user_detail.id:type.',
+    allow: ['*'],
+  },
+  'GET /api/v1/projects/{project_pk}/mention-groups/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
+      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
+      'half of #2633 and outside the denominator #3440 bound. Observed: [].members[].id:type.',
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------
@@ -698,8 +627,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
     reason:
       'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
       'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: recipient:type, mention.scope:enum, ' +
-      'mention:null-on-non-nullable.',
+      'field the server does not send. Observed: recipient:type, mention.scope:enum.',
     allow: ['*'],
   },
   'PATCH /api/v1/projects/{id}/tasks/classification/': {
@@ -879,7 +807,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
       'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
       'field the server does not send. Observed: assignees:unknown-property, ' +
-      'wbs_path:null-on-non-nullable, parent:unknown-property.',
+      'parent:unknown-property.',
     allow: ['*'],
   },
   'POST /api/v1/tasks/{id}/restore/': {

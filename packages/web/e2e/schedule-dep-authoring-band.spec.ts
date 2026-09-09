@@ -204,7 +204,7 @@ test.describe('Schedule — the dependency band is not the task-content band (#3
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([
-          { id: 'mem-band', role, role_label: 'Band Reader', user_id: 'e2e-user' },
+          { id: 'mem-band', role, role_label: 'Band Reader', user: 'e2e-user' },
         ]),
       });
     });

@@ -752,6 +752,39 @@ def test_task_external_link_summary_is_object(schema: dict) -> None:
     assert set(prop.get("properties", {})) >= {"count", "worst_status"}
 
 
+def test_nullable_response_fields_declared_nullable(schema: dict) -> None:
+    """Fields genuinely null at runtime must declare `nullable: true` (#3651).
+
+    Each was flagged by the e2e schema guard (#3440) as null-on-non-nullable
+    against a real fixture payload, and each was verified against the model
+    before the fix: a `null=True` FK backs deleted_by/started_by/mention, and
+    `refusal_detail` (a SerializerMethodField) returns None for an allowed or
+    constraint-less-refused action. `wbs_path` is `LtreeField(null=True)`.
+    """
+    comps = schema["components"]["schemas"]
+    assert comps["Notification"]["properties"]["mention"].get("nullable") is True
+    for comp in ("TaskAttachment", "TaskComment", "TaskNote"):
+        assert comps[comp]["properties"]["deleted_by"].get("nullable") is True, comp
+    assert comps["PokerSession"]["properties"]["started_by"].get("nullable") is True
+    assert comps["AgentAction"]["properties"]["refusal_detail"].get("nullable") is True
+    assert comps["TaskWriteResponse"]["properties"]["wbs_path"].get("nullable") is True
+
+
+def test_fields_verified_never_null_stay_non_nullable(schema: dict) -> None:
+    """Counter-examples #3651 verified are never null must NOT gain `allow_null` (#3651).
+
+    `snippet` falls back to `""` and can never be None. `refusal_reason`
+    (`AgentAction`) and `code` (the Trash list's hand-built response) are both
+    `CharField(blank=True, default="")` with no `null=True` on the model — the
+    e2e fixture's `null` for these is an invented value the server can never
+    send (tracked as MOCK-WRONG, #3654), not a schema gap.
+    """
+    comps = schema["components"]["schemas"]
+    assert comps["Notification"]["properties"]["snippet"].get("nullable") is not True
+    assert comps["AgentAction"]["properties"]["refusal_reason"].get("nullable") is not True
+    assert comps["TrashProjectList"]["properties"]["code"].get("nullable") is not True
+
+
 def test_resource_email_has_no_email_format(schema: dict) -> None:
     """Resource.email is blank-able; a "" response must not fail `format: email` (#2127)."""
     prop = schema["components"]["schemas"]["Resource"]["properties"]["email"]

@@ -137,7 +137,7 @@ async function mockShell(page: Page): Promise<void> {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ id: 'm1', role: 300, user_id: 'e2e-user' }]),
+        body: JSON.stringify([{ id: 'm1', role: 300, user: 'e2e-user' }]),
       });
     }
     return r.fulfill({

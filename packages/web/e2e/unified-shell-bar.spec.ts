@@ -59,7 +59,7 @@ async function setupFullCluster(page: import('@playwright/test').Page) {
     projects: FIXTURE_PROJECTS,
     projectId: PROJECT_ID,
     statusSummary: STATUS_SUMMARY,
-    members: [{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }],
+    members: [{ id: 'mem-admin', role: 300, user: 'e2e-user' }],
   });
 }
 
@@ -344,7 +344,7 @@ test.describe('context-bar status cluster overflow (#2533)', () => {
       projects: [{ ...FIXTURE_PROJECTS[0], name: LONG_PROJECT }],
       projectId: PROJECT_ID,
       statusSummary: STATUS_SUMMARY,
-      members: [{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }],
+      members: [{ id: 'mem-admin', role: 300, user: 'e2e-user' }],
     });
     // A single program renders the static identity row — the uncapped branch.
     await page.route('**/api/v1/programs/**', (route) =>

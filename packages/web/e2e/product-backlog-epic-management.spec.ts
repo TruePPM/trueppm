@@ -133,7 +133,7 @@ async function setup(
   // it so `role` actually drives useCurrentUserRole → canManageBacklog (the "+ Add epic" gate).
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/members/**`, (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
-    return route.fulfill(json([{ id: 'mem', role, user_id: 'me' }]));
+    return route.fulfill(json([{ id: 'mem', role, user: 'me' }]));
   });
   await page.route('**/api/v1/projects/*/product-backlog/', (route) =>
     route.fulfill(json(groomingPayload({ canDelete }))),

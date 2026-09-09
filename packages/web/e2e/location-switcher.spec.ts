@@ -110,7 +110,7 @@ async function setupBothProjects(page: Page, projects: ProjectFixture[]) {
   await page.route('**/api/v1/projects/*/members/**', (route) => {
     const url = new URL(route.request().url());
     if (url.searchParams.get('self') === 'true') {
-      return route.fulfill(json([{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }]));
+      return route.fulfill(json([{ id: 'mem-admin', role: 300, user: 'e2e-user' }]));
     }
     return route.fulfill(json([{ id: 'mem-admin', role: 300 }]));
   });

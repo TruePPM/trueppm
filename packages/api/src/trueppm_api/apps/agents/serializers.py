@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from trueppm_api.apps.agents.models import AgentAction, AgentActionRefusalDetail
@@ -55,6 +56,7 @@ class AgentActionSerializer(serializers.ModelSerializer[AgentAction]):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(AgentActionRefusalDetailSerializer(allow_null=True))
     def get_refusal_detail(self, obj: AgentAction) -> dict[str, object] | None:
         # Reverse OneToOne: absent for allowed actions (and constraint-less refusals).
         # Accessing a missing reverse o2o raises, so catch rather than getattr-default.

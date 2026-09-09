@@ -558,7 +558,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
               id: 'mem-self',
               role: selfRole,
               role_label: SELF_ROLE_LABEL[selfRole] ?? 'Project Manager',
-              user_id: user.id,
+              user: user.id,
             },
           ]),
         );
