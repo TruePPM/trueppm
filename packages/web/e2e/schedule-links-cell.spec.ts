@@ -93,7 +93,7 @@ async function setRole(page: Page, role: number) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ id: 'mem-self', role, role_label: 'Test', user_id: 'e2e-user' }]),
+      body: JSON.stringify([{ id: 'mem-self', role, role_label: 'Test', user: 'e2e-user' }]),
     }),
   );
 }

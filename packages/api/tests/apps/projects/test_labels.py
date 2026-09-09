@@ -8,6 +8,7 @@ and the sync-delta wiring (labels collection + label_ids on the task payload).
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from typing import Any
 from unittest.mock import patch
@@ -388,6 +389,9 @@ class TestLabelAssignment:
         label: Label,
         memberships: None,
     ) -> None:
+        # Stays 403 after #3657 made the lookup membership-scoped, and that is the
+        # point: a Viewer IS a member, so their task resolves and only the role check
+        # refuses them. The 404 collapse is for callers with no membership at all.
         r = viewer_client.post(
             self._attach_url(project, member_task),
             {"label_id": str(label.pk)},
@@ -410,6 +414,153 @@ class TestLabelAssignment:
             format="json",
         )
         assert r.status_code == 403
+
+    def test_non_member_cannot_distinguish_a_real_task_from_a_fake_one(
+        self,
+        project: Project,
+        member_task: Task,
+        label: Label,
+        memberships: None,
+    ) -> None:
+        """The two refusals must be byte-identical, not merely both 4xx (#3657).
+
+        Asserting ``== 404`` twice would still pass if the bodies differed, and a body
+        that differs is an oracle just as much as a status that does. So the whole
+        observable response — status, rendered content, and content type — is compared
+        between an id that exists in this project and one that does not.
+        """
+        stranger = User.objects.create_user(username="stranger", password="pw")
+        client = _client(stranger)
+        real = self._attach_url(project, member_task)
+        fake = f"/api/v1/projects/{project.pk}/tasks/{uuid.uuid4()}/labels/"
+
+        with _no_broadcast():
+            r_real = client.post(real, {"label_id": str(label.pk)}, format="json")
+            r_fake = client.post(fake, {"label_id": str(label.pk)}, format="json")
+
+        assert r_real.status_code == 404, r_real.content
+        assert (r_real.status_code, r_real.content, r_real["Content-Type"]) == (
+            r_fake.status_code,
+            r_fake.content,
+            r_fake["Content-Type"],
+        )
+        # The refusal is also a real refusal, not just an indistinguishable one.
+        assert not TaskLabel.objects.filter(task=member_task, label=label).exists()
+
+    def test_non_member_detach_is_404_for_real_and_fake_task_alike(
+        self,
+        project: Project,
+        member_task: Task,
+        label: Label,
+        memberships: None,
+    ) -> None:
+        """DELETE shares ``_get_task`` but not the POST body path — assert it too.
+
+        A new refusal shape only fails the call sites a test covers; the detach route
+        is a second call site of the same helper and would otherwise go unasserted.
+        """
+        TaskLabel.objects.create(task=member_task, label=label)
+        stranger = User.objects.create_user(username="stranger-del", password="pw")
+        client = _client(stranger)
+
+        with _no_broadcast():
+            r_real = client.delete(f"{self._attach_url(project, member_task)}{label.pk}/")
+            r_fake = client.delete(
+                f"/api/v1/projects/{project.pk}/tasks/{uuid.uuid4()}/labels/{label.pk}/"
+            )
+
+        assert r_real.status_code == 404, r_real.content
+        assert (r_real.status_code, r_real.content) == (r_fake.status_code, r_fake.content)
+        assert TaskLabel.objects.filter(task=member_task, label=label).exists()
+
+    def test_revoked_member_is_treated_as_a_non_member(
+        self,
+        member_client: APIClient,
+        member_user: object,
+        project: Project,
+        member_task: Task,
+        label: Label,
+        memberships: None,
+    ) -> None:
+        """A soft-deleted membership must not resolve the task (the #3411 defect class).
+
+        ``uniq_project_membership_project_user`` is unconditional, so revoking leaves the
+        row in place with ``is_deleted=True``. A membership join that omits the
+        soft-delete floor would still match it and hand a revoked user their old access.
+        """
+        ProjectMembership.objects.filter(project=project, user=member_user).update(is_deleted=True)
+
+        with _no_broadcast():
+            r = member_client.post(
+                self._attach_url(project, member_task),
+                {"label_id": str(label.pk)},
+                format="json",
+            )
+
+        assert r.status_code == 404, r.content
+        assert not TaskLabel.objects.filter(task=member_task, label=label).exists()
+
+    def test_task_from_another_project_is_404_even_for_a_member_of_the_url_project(
+        self,
+        member_client: APIClient,
+        member_user: object,
+        project: Project,
+        label: Label,
+        memberships: None,
+        calendar: Calendar,
+    ) -> None:
+        """Asserts the ``project_id=project_pk`` clause specifically (security-review #3657).
+
+        The membership join alone would pass this: the caller IS a live member of
+        ``other``. Only the project-scoping term rejects a real task id borrowed from a
+        project other than the one named in the URL — the cross-project IDOR guard the
+        pre-#3657 code already had and the rewrite must not have dropped.
+        """
+        other = Project.objects.create(name="Beta", start_date=date(2026, 4, 1), calendar=calendar)
+        ProjectMembership.objects.create(project=other, user=member_user, role=Role.MEMBER)
+        foreign_task = Task.objects.create(
+            project=other, name="Beta's task", duration=3, assignee=member_user
+        )
+
+        with _no_broadcast():
+            r = member_client.post(
+                f"/api/v1/projects/{project.pk}/tasks/{foreign_task.pk}/labels/",
+                {"label_id": str(label.pk)},
+                format="json",
+            )
+
+        assert r.status_code == 404, r.content
+        assert not TaskLabel.objects.filter(task=foreign_task, label=label).exists()
+
+    def test_trashed_project_is_404_for_a_still_live_member(
+        self,
+        member_client: APIClient,
+        project: Project,
+        member_task: Task,
+        label: Label,
+        memberships: None,
+    ) -> None:
+        """A behavior change worth naming explicitly (regression-check #3657).
+
+        ``VersionedModel.soft_delete()`` does not cascade to memberships — they
+        survive a trashed project by design — and ``IsProjectNotArchived`` checks
+        *archived*, not *deleted*. So before this fix a member of a **trashed**
+        project could still write a label (the old lookup had no
+        ``project__is_deleted`` term); the membership-scoped helper adds one, and
+        that same member now gets 404. Intentional, and asserted here rather than
+        left as an untested side effect of the rewrite.
+        """
+        project.soft_delete()
+
+        with _no_broadcast():
+            r = member_client.post(
+                self._attach_url(project, member_task),
+                {"label_id": str(label.pk)},
+                format="json",
+            )
+
+        assert r.status_code == 404, r.content
+        assert not TaskLabel.objects.filter(task=member_task, label=label).exists()
 
     def test_attach_broadcasts_task_updated_labels(
         self,

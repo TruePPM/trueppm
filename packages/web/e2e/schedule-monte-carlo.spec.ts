@@ -306,7 +306,7 @@ async function gotoScheduleWithMC(
   // (many=True), from which useCurrentUserRole reads res.data[0].role. The old
   // /projects/{id}/role/ mock hit a nonexistent endpoint, so the bar rendered
   // role-less; this mocks the real endpoint with a row carrying `role`.
-  const membership = [{ id: 'mem-self', role, user_id: 'u1' }];
+  const membership = [{ id: 'mem-self', role, user: 'u1' }];
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({

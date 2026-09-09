@@ -400,6 +400,16 @@ tracked follow-up.
 8. **Dead-letter / failure handling:** synchronous request/response — validation → `400`,
    permission/agent-token → `403`, cross-project/IDOR → `404`. No async failure surface.
 
+   > **Erratum (2026-09-08, #3657):** the `403` above was never a permission-role result
+   > alone — the task lookup was project-scoped but not membership-scoped, so a
+   > non-member holding both uuids got `403` for a task that exists and `404` for one
+   > that does not, an existence oracle. #3657 folded membership into the lookup: a
+   > non-member now gets `404` in both cases; a member who lacks write authority
+   > (Viewer, or a Member on someone else's task) still gets `403`. This point-in-time
+   > record is left as written rather than rewritten — see
+   > [Errors and status codes](/api/errors/#403--refused-by-policy) for the current
+   > behavior.
+
 ## Blocking questions — resolved (2026-07-18, orchestrator)
 
 1. **Definition-sync fold-in — DEFERRED.** The `ProjectCustomField` → `VersionedModel`

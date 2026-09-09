@@ -39,7 +39,8 @@ interface ApiMissingSkill {
 interface ApiResource {
   id: string;
   name: string;
-  email: string;
+  /** Omitted entirely (not nulled) below workspace ADMIN — see #3661. */
+  email?: string;
   job_role: string;
   max_units: string;
   calendar: string | null;
@@ -344,6 +345,22 @@ describe('ResourceSearchCombobox — skill-fit mode', () => {
     expect(screen.getByText('Partial fit')).toBeInTheDocument();
     expect(screen.getByText('No skill match')).toBeInTheDocument();
     expect(screen.getAllByRole('option')).toHaveLength(3);
+  });
+
+  it('renders every option when the server withheld email (#3661)', async () => {
+    // The catalog serializer pops `email` entirely for every caller below
+    // workspace ADMIN, which is what most callers are. The picker must render
+    // the row regardless — it never displays an address — so this is the
+    // negative control for the widened `ApiResourceSkillFit.email` type.
+    mockResources(graded.map(({ email: _withheld, ...withoutEmail }) => withoutEmail));
+    renderCombobox({ taskId: 'task-1' });
+
+    await screen.findByRole('option', { name: /Alice/ });
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('Alice'),
+      expect.stringContaining('Bob'),
+      expect.stringContaining('Cara'),
+    ]);
   });
 
   it('omits a group header when that bucket is empty', async () => {

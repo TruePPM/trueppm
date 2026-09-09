@@ -5,7 +5,7 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * Project Settings → Template divergence (#2971, epic #2743).
  *
  * The spec that carries the issue is `every role reads the same page` — it drives
- * the real UI as a **Viewer** (role 0, the lowest) and asserts the full digest is
+ * the real UI as a **Viewer** (role 1, the lowest) and asserts the full digest is
  * on screen. A report about a team's decisions that the team cannot read is
  * surveillance with better typography, so the failure this locks out is not a 403;
  * it is a *narrower page* for the people the report is about.
@@ -163,11 +163,11 @@ const URL = `/projects/${PROJECT_ID}/settings#template-divergence`;
 
 test.describe('Project Settings → Template divergence', () => {
   test('a Viewer reads the whole digest — the same page as everyone else', async ({ page }) => {
-    // Role 0 on purpose. If a later change gates any part of this report above
-    // Viewer, the counts below stop being on screen and this fails — which is the
-    // only automated thing standing between the feature and the asymmetry the
-    // issue exists to forbid.
-    await setup(page, { role: 0 });
+    // ROLE_VIEWER (1) on purpose. If a later change gates any part of this report
+    // above Viewer, the counts below stop being on screen and this fails — which
+    // is the only automated thing standing between the feature and the asymmetry
+    // the issue exists to forbid.
+    await setup(page, { role: 1 });
     await page.goto(URL);
 
     await expect(page.getByRole('heading', { name: 'Template divergence' })).toBeVisible();
@@ -205,7 +205,7 @@ test.describe('Project Settings → Template divergence', () => {
     // project role — so every Viewer, Member and Scheduler was bounced to
     // `/me/settings/notifications` before the page mounted. The endpoint answering
     // a Viewer with 200 proved nothing while no route rendered it.
-    await setup(page, { role: 0 });
+    await setup(page, { role: 1 });
     await page.goto(URL);
 
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings`));
@@ -213,7 +213,7 @@ test.describe('Project Settings → Template divergence', () => {
   });
 
   test('a Viewer gets the reduced rail — only what they can act on', async ({ page }) => {
-    await setup(page, { role: 0 });
+    await setup(page, { role: 1 });
     await page.goto(URL);
 
     const nav = page.getByRole('navigation', { name: 'Settings sections' });
@@ -227,7 +227,7 @@ test.describe('Project Settings → Template divergence', () => {
   });
 
   test('the rail carries its own row, so the report is findable', async ({ page }) => {
-    await setup(page, { role: 0 });
+    await setup(page, { role: 1 });
     await page.goto(URL);
 
     await expect(
@@ -246,7 +246,7 @@ test.describe('Project Settings → Template divergence', () => {
 
   test('a deleted template still names itself in the provenance line', async ({ page }) => {
     await setup(page, {
-      role: 0,
+      role: 1,
       digest: { ...ADOPTED, template: null, template_available: false },
     });
     await page.goto(URL);
@@ -259,7 +259,7 @@ test.describe('Project Settings → Template divergence', () => {
   });
 
   test('a failed read reports itself as failed, not as "nothing to report"', async ({ page }) => {
-    await setup(page, { role: 0, digestStatus: 500 });
+    await setup(page, { role: 1, digestStatus: 500 });
     await page.goto(URL);
 
     await expect(

@@ -122,7 +122,7 @@ async function setupCommon(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) => {
     const url = new URL(r.request().url());
     if (url.searchParams.get('self') === 'true') {
-      return r.fulfill(json([{ id: 'mem-1', role: 300, user_id: 'e2e-user' }]));
+      return r.fulfill(json([{ id: 'mem-1', role: 300, user: 'e2e-user' }]));
     }
     return r.fulfill(json([{ id: 'mem-1', role: 300 }]));
   });

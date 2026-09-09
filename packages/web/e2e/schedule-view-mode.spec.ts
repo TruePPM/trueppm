@@ -261,7 +261,7 @@ test.describe('Grid ↔ Timeline — a viewer gets absence on BOTH surfaces (#29
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([
-          { id: 'mem-viewer', role: 1, role_label: 'Viewer', user_id: 'e2e-user' },
+          { id: 'mem-viewer', role: 1, role_label: 'Viewer', user: 'e2e-user' },
         ]),
       }),
     );
