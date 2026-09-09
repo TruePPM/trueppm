@@ -253,16 +253,21 @@ starts being flagged at 90%. An assignee with no linked resource still uses 100%
 
 ## What a resource manager can do today
 
-1. Maintain the Workspace resource catalog (name, role, capacity, calendar). Email
-   addresses can be **set**, but from 0.4 anywhere the resource serializer renders a
-   resource — the Workspace catalog **and** a project's roster (`resource_detail` on
-   `GET /api/v1/project-resources/` expands the same serializer) — will not return
-   them to anyone except a workspace Admin and the person the resource
-   represents. Both surfaces are readable by every signed-in user with access to the
-   project or the catalog, so echoing every address would make either one an
-   org-wide address book. The project and program **resource-allocation** views and
-   the project **seed export** build their responses separately from that serializer
-   and still include `email` for resources attached to a project you administer.
+1. Maintain the Workspace resource catalog (name, role, capacity, calendar). From
+   0.4, email addresses can be **set only by a workspace Admin** — an ordinary
+   Project Manager or Project Admin can still create and edit a catalog row, but a
+   write that includes `email` is rejected unless the caller holds the workspace
+   Admin role, the same floor that already governs reading it back. Anywhere the
+   resource serializer renders a resource — the Workspace catalog **and** a
+   project's roster (`resource_detail` on `GET /api/v1/project-resources/` expands
+   the same serializer) — email is not returned to anyone except a workspace Admin
+   and the person the resource represents. Both surfaces are readable by every
+   signed-in user with access to the project or the catalog, so echoing every
+   address, or letting any project creator overwrite one, would make either one an
+   org-wide address book with no read protection at all. The project and program
+   **resource-allocation** views and the project **seed export** build their
+   responses separately from that serializer and still include `email` for
+   resources attached to a project you administer.
 2. Maintain the Workspace skill catalog and tag resources with proficiency.
 3. Build per-project rosters with role and capacity overrides.
 4. Assign resources to tasks at fractional capacity.
@@ -294,7 +299,10 @@ Admin** role on at least one **active** project; editing the skill catalog, rost
 and task assignments requires the **Resource Manager** role or above on at least one
 **active** project. Roles held on an archived or deleted project will stop counting
 in 0.4 — an archived project is declared read-only, so it no longer confers authority
-anywhere else either.
+anywhere else either. Setting `email` on a create or edit is the one exception:
+regardless of project role, it requires the workspace Admin role — a Project Manager
+or Project Admin without it gets a `400` if the request includes `email` at all, on
+both the Workspace catalog and any create/edit that carries the field.
 
 `POST /api/v1/skills/` de-duplicates on the case-insensitive normalized name, so
 posting a name that already exists is not an error. Telling the two apart from the
@@ -323,7 +331,7 @@ rather than a project role:
 | Surface | Why |
 | --- | --- |
 | `DELETE /api/v1/resources/{id}/` and `POST .../restore/` | Soft-deletes a shared record and recalculates every project the person is assigned to. |
-| `email` on catalog rows, on a project roster's expanded resource detail (`GET /api/v1/project-resources/`), and `?search=` by email | The catalog and project rosters are readable by every signed-in user with access; a project role would make either one an org-wide address book. |
+| `email` on catalog rows, on a project roster's expanded resource detail (`GET /api/v1/project-resources/`), `?search=` by email, and *writing* `email` on a catalog create or edit | The catalog and project rosters are readable by every signed-in user with access; a project role would make either one an org-wide address book, whether by reading it off every row or by overwriting one to redirect who it belongs to. |
 | `?include_deleted=true` on the catalog | Enumerates the deactivated pool. |
 | `GET /api/v1/resources/{id}/assignments/` | Returns task and project names for one person across every project in the installation. |
 
