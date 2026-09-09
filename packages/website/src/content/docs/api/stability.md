@@ -64,8 +64,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the seven Breaking changes taken so far all
-bypassed it deliberately, and all seven are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the eight Breaking changes taken so far all
+bypassed it deliberately, and all eight are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -232,6 +232,30 @@ deprecation window rather than being removed outright:
    A client reading `resources[].email` from either endpoint should read the resource catalog
    (`GET /api/v1/resources/`) instead, where the field is gated. Nothing else about either
    response changes.
+
+   **Bypassed an eighth time, in 0.4 (#3641).** `user` stops being accepted in the
+   request body of `PATCH /api/v1/projects/{id}/members/{mid}/` and
+   `PATCH /api/v1/programs/{id}/members/{mid}/`; a body carrying it is answered `400`
+   where it previously reassigned the membership row and answered `200`. Removing a
+   field and changing an existing status code are both **Breaking** by the table
+   above. The two `PatchedProject/ProgramMembershipWriteRequest` component schemas are
+   also renamed to `…UpdateRequest`, which renames the generated model classes in an
+   SDK built from this schema.
+
+   The reasoning: the field was an address-disclosure door. `POST /api/v1/projects/`
+   is ungated and makes its caller an Owner, and a membership write answers with the
+   target account's email address — so an unbounded `user` let any signed-in account
+   read every address on the installation, one request per account. Reassigning a live
+   row was the same disclosure a second way, and it silently rewrote who held access
+   while keeping the row's `joined_at` access evidence. This is deliberately the
+   inverse of the `group_by=project` decision below, which kept a useless enum value
+   accepted for its window rather than start answering `400`: a value with no effect
+   can wait out a deprecation window, and an open disclosure door cannot.
+
+   A client that PATCHed `user` was reassigning a membership. Remove the member and add
+   the other account instead — two requests, and the second is subject to the same
+   target bound as any other add. `role` (and `role_title` on the program route) are
+   unchanged, and the response body is unchanged on both routes.
 
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for

@@ -169,3 +169,30 @@ schema:TaskScopeRollup
 # that trade is deliberate: approval stays one-way until a UI asks for undo.
 # `approve-estimates` is unchanged and unaffected.
 /api/v1/tasks/{id}/withdraw-approval/
+
+# #3641 — membership write serializers split, and `user` removed from both PATCH
+# bodies. Two classes of removal here, and they are not the same thing:
+#
+#   ProjectMembershipWrite / ProgramMembershipWrite were phantom RESPONSE
+#   components, the #2127/#2515/#2583 class. All four membership write actions
+#   have always returned `*MembershipReadSerializer(instance).data`; the schema
+#   declared the write serializer because the actions carried no
+#   @extend_schema(responses=…). They now declare ProjectMembershipRead /
+#   ProgramMembershipRead, which is what the endpoints actually send — so these
+#   two components described a response no endpoint has ever returned. Their
+#   *Request twins (…WriteRequest) are unchanged and still describe the POST body.
+#
+#   PatchedProject/ProgramMembershipWriteRequest is a DELIBERATE BREAKING
+#   REMOVAL, replaced by PatchedProject/ProgramMembershipUpdateRequest: `user` is
+#   no longer accepted on either PATCH route, so the update body is genuinely a
+#   different shape and an SDK generated here loses the field and gets a renamed
+#   model class. A membership write answers with the target account's email
+#   address, and reassigning a live row onto an arbitrary account was one of the
+#   two doors onto an install-wide address harvest; the other is the POST target,
+#   narrowed in the same change. It lands inside the pre-0.9 window stability.md
+#   allows and is recorded as the seventh policy exception in that page's step 3.
+#   No path is removed and no response body changes.
+schema:ProjectMembershipWrite
+schema:ProgramMembershipWrite
+schema:PatchedProjectMembershipWriteRequest
+schema:PatchedProgramMembershipWriteRequest
