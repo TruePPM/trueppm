@@ -219,14 +219,32 @@ class NotificationViewSet(
     serializer_class = NotificationSerializer
     permission_classes: list[type[BasePermission]] = [IsAuthenticated]
     lookup_field = "pk"
+    # Opted out of Idempotency-Key replay (#3510, security review). An
+    # ``IdempotencyMixin`` replay returns the ORIGINAL response body verbatim
+    # (IdempotencyKey.response_body), bypassing ``NotificationSerializer.
+    # to_representation`` — and with it, the #3510 subject/body/project
+    # redaction — entirely. A member could PATCH or snooze a notification
+    # while still current (capturing the unredacted row under a self-chosen
+    # key), then replay that same key after being removed from the project to
+    # read the cached, unredacted content back out — a complete, self-service
+    # defeat of the read-time redaction this viewset exists to enforce. Both
+    # mutations this viewset exposes are already naturally idempotent at the
+    # application level without the header (PATCH is_read/is_archived is a
+    # no-op on repeat, and snooze is explicitly documented as idempotent — it
+    # just overwrites the timestamp), so the header buys no real double-submit
+    # protection here to weigh against that risk.
+    idempotency_exempt = True
 
     def get_serializer_context(self) -> dict[str, Any]:
         """Precompute the recipient's member-project set once per response.
 
-        NotificationSerializer.get_snippet redacts the body for a recipient who
-        is not a current member of the mention's source project (#514 — program
-        mentions can reach sibling-project members). Resolving the membership set
-        here keeps the inbox list at one query instead of one per row.
+        Backs ``NotificationSerializer._recipient_can_see_project``, which redacts
+        ``snippet`` (#514 — program mentions can reach sibling-project members)
+        and, since #3510, ``subject``/``body``/``project`` as well, for a
+        recipient who is not a current member of the notification's project —
+        including one who has since been removed from it. Resolving the
+        membership set here keeps the inbox list at one query instead of one per
+        row.
         """
         context: dict[str, Any] = dict(super().get_serializer_context())
         user = self.request.user

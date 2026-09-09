@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
+from trueppm_api.apps.teams.services import live_project_membership_exists
 
 User = get_user_model()
 
@@ -40,7 +41,17 @@ class TeamSerializer(serializers.ModelSerializer[Team]):
         annotated = getattr(obj, "member_count_annotated", None)
         if annotated is not None:
             return int(annotated)
-        return obj.memberships.filter(is_deleted=False).count()
+        # Unreachable from any route today (TeamViewSet.list() always sets the
+        # annotation above), but flooring here too (#3511) means a future caller
+        # that serializes a bare Team instance can't silently reintroduce the
+        # revoked-member-counts-toward-the-total defect this fallback used to
+        # carry — the same floor as TeamViewSet.get_queryset() and the facet /
+        # voter-roster seams in services.py, restated once rather than per caller.
+        return (
+            obj.memberships.filter(is_deleted=False)
+            .filter(live_project_membership_exists())
+            .count()
+        )
 
 
 class TeamMembershipReadSerializer(serializers.ModelSerializer[TeamMembership]):

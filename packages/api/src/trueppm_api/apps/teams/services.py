@@ -30,7 +30,7 @@ FACET_FIELDS = ("is_scrum_master", "is_product_owner")
 _NO_FACETS = {"is_scrum_master": False, "is_product_owner": False}
 
 
-def _live_project_membership_exists() -> Exists:
+def live_project_membership_exists() -> Exists:
     """``Exists`` subquery: the ``TeamMembership`` row's user still has live project access.
 
     Correlated on ``team__project_id`` rather than on a caller-supplied project id so
@@ -42,6 +42,13 @@ def _live_project_membership_exists() -> Exists:
     The soft-delete predicate itself comes from :meth:`ProjectMembership.live` rather
     than being restated here (#3411), so this ``Exists`` and the direct membership reads
     on the read paths cannot drift apart about what "live" means.
+
+    Public (no leading underscore) since #3511: the same predicate floors the team
+    roster list and the team member-count annotation in
+    :mod:`trueppm_api.apps.teams.views`, not just the service-layer seams below —
+    a revoked ``ProjectMembership`` leaves the mirrored ``TeamMembership`` row
+    live for the same reason in every case (no ``post_delete`` receiver, no FK a
+    cascade could travel), so the roster read must not restate the predicate.
     """
     return Exists(
         ProjectMembership.live().filter(
@@ -186,7 +193,7 @@ def user_facets(
         is_deleted=False,
     )
     if live_project_members_only:
-        queryset = queryset.filter(_live_project_membership_exists())
+        queryset = queryset.filter(live_project_membership_exists())
 
     membership = queryset.values("is_scrum_master", "is_product_owner").first()
     if membership is None:
@@ -261,7 +268,7 @@ def team_member_user_ids(project_id: Any, *, live_project_members_only: bool = T
         is_deleted=False,
     )
     if live_project_members_only:
-        queryset = queryset.filter(_live_project_membership_exists())
+        queryset = queryset.filter(live_project_membership_exists())
     return set(queryset.values_list("user_id", flat=True))
 
 
@@ -423,5 +430,5 @@ def is_team_member(
         is_deleted=False,
     )
     if live_project_members_only:
-        queryset = queryset.filter(_live_project_membership_exists())
+        queryset = queryset.filter(live_project_membership_exists())
     return queryset.exists()
