@@ -939,6 +939,13 @@ class InviteResendThrottle(ScopedRateThrottle):
 
     Scoped per-admin via ``invite_resend`` (5/min). The bulk resend-all endpoint
     is one request → one bucket hit, so it cannot be looped to exceed the cap.
+
+    ``ScopedRateThrottle`` normally reassigns ``self.scope = getattr(view,
+    self.scope_attr, None)`` on every ``allow_request`` and returns ``True`` when
+    that is falsy — so a ``scope`` class attribute declared here alone is silently
+    overwritten and the throttle becomes a no-op (#3598). Both views below
+    therefore also set ``throttle_scope`` (mirrors ``_SsoProviderWriteThrottle``,
+    #3552).
     """
 
     scope = "invite_resend"
@@ -955,6 +962,9 @@ class WorkspaceInviteResendView(IdempotencyMixin, APIView):
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
     throttle_classes = [InviteResendThrottle]
+    # ScopedRateThrottle reads the scope off the VIEW, not the throttle class — see
+    # InviteResendThrottle's docstring (#3598).
+    throttle_scope = "invite_resend"
 
     @extend_schema(
         request=None,
@@ -988,6 +998,9 @@ class WorkspaceInviteResendAllView(IdempotencyMixin, APIView):
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
     throttle_classes = [InviteResendThrottle]
+    # ScopedRateThrottle reads the scope off the VIEW, not the throttle class — see
+    # InviteResendThrottle's docstring (#3598).
+    throttle_scope = "invite_resend"
 
     @extend_schema(
         request=None,
