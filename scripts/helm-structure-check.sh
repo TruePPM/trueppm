@@ -1279,14 +1279,21 @@ cp_detect=$((cp_live_f * cp_live_p))
 [ "$cp_ready_i" -lt "$cp_live_i" ] \
   || fail "celery worker readiness initialDelaySeconds (${cp_ready_i}) is not earlier than liveness (${cp_live_i}) — the split is not being used to let readiness answer sooner (#3230)"
 
-# N+5.d — but readiness must not get CHEAPER by probing more often. An exec probe
-#         runs inside the container it measures, so each one forks a Django import
-#         into the worker's own CPU budget and competes with the MainProcess that
-#         has to answer the ping. Shortening the period makes that worse, not
-#         better (#3218). Two forks a minute across both probes is the pre-#3230
-#         load and the ceiling.
-[ "$cp_ready_p" -ge 60 ] && [ "$cp_live_p" -ge 60 ] \
-  || fail "celery probe periods (liveness ${cp_live_p}s / readiness ${cp_ready_p}s) drop below 60s — an exec probe forks a Django import into the cgroup it is measuring, so a shorter period starves the process that must answer it (#3218, #3230)"
+# N+5.d — liveness must not get CHEAPER by probing more often. It is still
+#         `celery inspect ping`, an exec probe that runs INSIDE the container it
+#         measures, so each one forks a Django import into the worker's own CPU
+#         budget and competes with the MainProcess that has to answer the ping.
+#         Shortening the period makes that worse, not better (#3218).
+#
+#         Readiness is EXEMPT from this floor since #3346: it no longer runs
+#         `inspect ping` at all — it stats a heartbeat file a Celery signal
+#         handler touches on its own ~2s timer (trueppm_api.core.worker_heartbeat),
+#         which costs nothing proportional to load. That is what let its default
+#         period drop from the pre-#3346 60s to 15s (see N+5.i for the mechanism
+#         assertion) — a stuck worker is now caught in dozens of seconds instead
+#         of up to a minute.
+[ "$cp_live_p" -ge 60 ] \
+  || fail "celery worker liveness period ${cp_live_p}s drops below 60s — inspect ping still forks a Django import into the cgroup it is measuring (#3218, #3230)"
 
 # N+5.e — kubelet's own timeout must SCALE with the celery ping budget. It was
 #         hardcoded at --timeout +5, and that fixed 5s has to absorb the sh fork,
@@ -1327,16 +1334,48 @@ for f in initialDelaySeconds:45 periodSeconds:90 failureThreshold:7; do
   done
 done
 
-# N+5.g — the master switch still removes BOTH probes. Both runtime drills pass
-#         `--set probes.worker.enabled=false`; if the per-probe `enabled` shadowed
-#         it, helm:install and helm:netpol would regain the probe that #3218
-#         proved cannot succeed on kind-in-dind, and both would go bimodal again.
+# N+5.g — the master switch still removes ALL THREE probes (startup added by
+#         #3346). Both runtime drills disable at least the liveness ping (see
+#         CELERY_PROBE_OVERRIDES in helm-install-drill.sh/helm-netpol-drill.sh);
+#         if a per-probe `enabled` shadowed the master switch, an override meant
+#         to remove one probe could silently leave another rendered.
 cp_off="$(helm template trueppm "$CHART" --set image.tag=latest \
   --set probes.worker.enabled=false \
   --show-only templates/celery-worker/deployment.yaml)"
 [ "$(cp_get "$cp_off" liveness initialDelaySeconds)" = "null" ] \
   && [ "$(cp_get "$cp_off" readiness initialDelaySeconds)" = "null" ] \
-  || fail "probes.worker.enabled=false still rendered a celery probe — the drills' override no longer removes them (#3218, #3230)"
+  && [ "$(cp_get "$cp_off" startup initialDelaySeconds)" = "null" ] \
+  || fail "probes.worker.enabled=false still rendered a celery probe — the drills' override no longer removes them (#3218, #3230, #3346)"
+
+# N+5.i — the worker's readiness and startup probes must be the heartbeat-file
+#         mechanism, NOT `celery inspect ping` (#3236, #3346). This is the
+#         assertion that pins the actual fix: #3236 showed a worker with 0
+#         restarts, processing jobs throughout, that never once answered
+#         `inspect ping` under kind-in-dind contention — an exec probe that
+#         forks Django/Celery into the container it measures can starve under
+#         load and fail a worker doing exactly the work it exists to do.
+cp_ready_cmd="$(echo "$cp_worker" | yq '.spec.template.spec.containers[0].readinessProbe.exec.command[-1]')"
+cp_startup_cmd="$(echo "$cp_worker" | yq '.spec.template.spec.containers[0].startupProbe.exec.command[-1]')"
+case "$cp_ready_cmd" in
+  *"inspect ping"*) fail "celery worker readiness still execs 'inspect ping' — #3236's false-fail mechanism is unfixed: $cp_ready_cmd" ;;
+  *find*newermt*) ;;
+  *) fail "celery worker readiness command does not look like the heartbeat-file freshness check (#3346): $cp_ready_cmd" ;;
+esac
+case "$cp_startup_cmd" in
+  *"inspect ping"*) fail "celery worker startup still execs 'inspect ping' (#3346): $cp_startup_cmd" ;;
+  *"test -e"*) ;;
+  *) fail "celery worker startup command does not look like the heartbeat-file existence check (#3346): $cp_startup_cmd" ;;
+esac
+echo "$cp_worker" | grep -q "TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE" \
+  || fail "celery-worker container does not export TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE — the app's signal handler and the chart's exec probes could disagree on the heartbeat file path (#3346)"
+
+# N+5.j — the worker's liveness probe must still be `inspect ping` (#3346 left
+#         it unchanged on purpose — see N+5.d).
+cp_live_cmd="$(echo "$cp_worker" | yq '.spec.template.spec.containers[0].livenessProbe.exec.command[-1]')"
+case "$cp_live_cmd" in
+  *"inspect ping"*) ;;
+  *) fail "celery worker liveness no longer execs 'inspect ping' — #3346 only intended to replace the READINESS mechanism: $cp_live_cmd" ;;
+esac
 
 # N+5.h — beat renders a livenessProbe ONLY. It is a pinned singleton behind no
 #         Service, so a readiness probe would gate nothing while still forking a
@@ -1373,4 +1412,4 @@ echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api 
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"
 echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"
-echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace) and readiness ${cp_ready_i}/${cp_ready_p} are tuned apart; kubelet timeout scales with the ping budget; flat keys still drive both probes; beat is liveness-only"
+echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"

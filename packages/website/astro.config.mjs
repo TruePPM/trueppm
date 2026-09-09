@@ -319,6 +319,7 @@ export default defineConfig({
             { slug: "administration/networking" },
             { slug: "administration/sizing" },
             { slug: "administration/helm-values" },
+            { slug: "administration/probes" },
             { slug: "administration/configuration" },
             { slug: "administration/admin-password" },
             { slug: "administration/rbac" },

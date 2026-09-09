@@ -17,11 +17,13 @@ Each of the five operator-facing components reports one of four statuses:
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from celery.schedules import crontab
 from django.conf import settings
+from django.db.migrations.loader import MigrationLoader
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -36,14 +38,22 @@ from trueppm_api.apps.scheduling.models import (
 )
 from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
 
-if TYPE_CHECKING:  # annotation only — the probes import Django's migration
-    from django.db.migrations.loader import MigrationLoader  # machinery lazily.
-
 logger = logging.getLogger(__name__)
 
 # Latch so the DB-ahead override warning is logged once per process rather than
 # on every kubelet readiness call. See ``_warn_db_ahead_override_once``.
 _db_ahead_override_warned = False
+
+# Process-wide cache of the on-disk migration scan (#2820). Populated once by
+# ``_cached_load_disk`` (patched onto ``MigrationLoader.load_disk`` at import
+# time by ``_install_cached_load_disk``) and reused by every later ``/readyz``
+# call in this process — see that function for why disk state never needs a
+# second scan. A lock, not a bare check, because a readiness probe can race a
+# request thread under an ASGI worker with more than one concurrent request;
+# the cost of losing the race is redoing one disk scan, never a wrong answer,
+# so the lock only needs to cover the read-modify-write of the cache itself.
+_disk_migration_cache: tuple[dict[Any, Any], set[str], set[str]] | None = None
+_disk_migration_cache_lock = threading.Lock()
 
 # First conclusive migration state this process observed, latched at the first
 # readiness probe. It is what tells a rolled-back pod (booted into "ahead") apart
@@ -585,6 +595,77 @@ def _has_migrations_unknown_to_image(loader: MigrationLoader) -> bool:
     return any(
         key not in known for key in loader.applied_migrations if key[0] in loader.migrated_apps
     )
+
+
+def _cached_load_disk(loader: MigrationLoader, _original: Any) -> None:
+    """Populate ``loader`` from a process-wide cache instead of rescanning disk.
+
+    The real ``MigrationLoader.load_disk()`` walks every installed app's
+    migrations package and ``import_module()``s each migration file — genuine
+    disk I/O and code loading that reflects this image's own migration files,
+    which cannot change for the life of a running process (the image is
+    immutable). Before this, ``_probe_migrations`` rebuilt a full
+    ``MigrationExecutor`` — and therefore a full disk scan — on every call, so
+    kubelet's default 10 s readiness period turned into a complete
+    migration-graph rebuild every 10 seconds, for every Ready pod, forever
+    (#2820): pure waste on the hot path of a probe that is supposed to be cheap.
+
+    Only ``disk_migrations``/``unmigrated_apps``/``migrated_apps`` — the three
+    attributes ``load_disk()`` sets — are cached. Every caller still gets a
+    fresh ``applied_migrations`` read from the database and a freshly rebuilt
+    graph (``build_graph()`` runs its full node/edge/replacement logic on every
+    call): that is the part that legitimately changes mid-rollout, and it is
+    one indexed query plus in-memory graph construction, not a filesystem scan.
+
+    Every caller gets its own **copy** of the cached containers, never the
+    cached objects themselves. ``build_graph()``'s replacement handling only
+    reads ``disk_migrations``, but test code that deliberately edits a loader's
+    ``disk_migrations`` to simulate a squash (see
+    ``TestUnknownAppliedMigrationDetection`` in ``test_readyz.py``) does not —
+    and handing out the same dict/set objects to every loader would let one
+    caller's edit permanently corrupt every other loader in the process for
+    the rest of its life. The ``Migration`` objects the copies point to are
+    still shared (they are immutable once constructed), so this stays cheap.
+    """
+    global _disk_migration_cache
+    with _disk_migration_cache_lock:
+        if _disk_migration_cache is None:
+            _original(loader)
+            _disk_migration_cache = (
+                dict(loader.disk_migrations),
+                set(loader.unmigrated_apps),
+                set(loader.migrated_apps),
+            )
+        # Always hand out fresh copies — including right after populating the
+        # cache above, so the loader that did the real scan is not itself the
+        # object every later caller shares (see the copy note above).
+        cached_disk, cached_unmigrated, cached_migrated = _disk_migration_cache
+        loader.disk_migrations = dict(cached_disk)
+        loader.unmigrated_apps = set(cached_unmigrated)
+        loader.migrated_apps = set(cached_migrated)
+
+
+def _install_cached_load_disk() -> None:
+    """Patch ``MigrationLoader.load_disk`` process-wide, once (#2820).
+
+    Patched at the ``MigrationLoader`` class itself, rather than by swapping in
+    a loader subclass, so every existing call site — including
+    ``MigrationExecutor.__init__``, which hard-codes ``MigrationLoader(self.
+    connection)`` with no constructor hook to inject a different loader class —
+    picks up the cache with no other code change. ``_probe_migrations`` below
+    is therefore unchanged from before #2820 except for this patch's effect,
+    which keeps ``unittest.mock.patch("...migrations.executor.MigrationExecutor",
+    ...)`` in the test suite patching the same name this module calls.
+    """
+    original = MigrationLoader.load_disk
+
+    def patched(self: MigrationLoader) -> None:
+        _cached_load_disk(self, original)
+
+    MigrationLoader.load_disk = patched  # type: ignore[method-assign]
+
+
+_install_cached_load_disk()
 
 
 def _probe_migrations() -> str:

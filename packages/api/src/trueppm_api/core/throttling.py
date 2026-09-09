@@ -16,6 +16,14 @@ resolve that tension: they are the standard DRF anon/user throttles with a
 single override — ``get_cache_key`` returns ``None`` (which DRF treats as "do
 not throttle this request") for the probe paths — so the global default can be
 turned on without ever rate-limiting a k8s probe.
+
+``/api/v1/readyz`` is deliberately **not** in that exempt set (#2820, #3346).
+Unlike ``/health/`` and ``/edition/`` it is not free — every call does a real
+database and cache round-trip — so a full exemption meant an unauthenticated
+caller who reached the pod IP directly (the probe path bypasses the Ingress)
+could drive unbounded database load with no rate limit at all. It gets its own
+scoped throttle instead (``ReadyzRateThrottle`` below), generous enough that no
+documented probe configuration comes close to tripping it.
 """
 
 from __future__ import annotations
@@ -39,13 +47,17 @@ if TYPE_CHECKING:
     # is never needed at runtime.
     from rest_framework.views import APIView
 
-# Kubernetes liveness/readiness and edition-discovery probes. These are
-# unauthenticated and hit on a tight orchestrator loop, so the general default
+# Kubernetes liveness and edition-discovery probes. Free to answer (no DB/cache
+# round-trip) and hit on a tight orchestrator loop, so the general default
 # throttle must never count them (returning None from get_cache_key skips
 # throttling for the request). Stored trailing-slash-normalized so the check is
 # robust whether or not the request path carries the trailing slash.
+#
+# ``/api/v1/readyz`` is NOT here — see ``ReadyzRateThrottle`` below (#2820,
+# #3346): unlike these two it does real dependency round-trips, so it gets its
+# own bounded scope instead of a blanket exemption.
 _PROBE_EXEMPT_PATHS = frozenset(
-    path.rstrip("/") for path in ("/api/v1/health/", "/api/v1/readyz", "/api/v1/edition/")
+    path.rstrip("/") for path in ("/api/v1/health/", "/api/v1/edition/")
 )
 
 
@@ -223,3 +235,31 @@ class ProbeExemptUserRateThrottle(UserRateThrottle):
         if _is_probe_path(request):
             return None
         return super().get_cache_key(request, view)
+
+
+class ReadyzRateThrottle(AnonRateThrottle):
+    """Dedicated, generous rate limit for the unauthenticated ``/readyz`` probe.
+
+    (#2820, #3346) ``/readyz`` must stay unauthenticated — kubelet carries no
+    credential — but it is not free the way ``/health/`` and ``/edition/`` are:
+    every call does a bounded database round-trip, a cache round-trip, and a
+    migration-state check. Before this it was fully exempt from the shared
+    throttle (see ``_PROBE_EXEMPT_PATHS``), which meant an unauthenticated
+    caller who reached the pod IP directly — the probe path bypasses the
+    Ingress entirely — could drive unbounded database load with no rate limit
+    of any kind.
+
+    A dedicated ``"readyz"`` scope rather than the shared ``"anon"`` bucket, on
+    purpose: kubelet's readiness/startup probes hit the pod IP directly from
+    the node, not through the Ingress, so their source IP is the node's, not an
+    end user's. Sharing "anon" would let a legitimate probe loop compete with
+    real anonymous traffic in both directions — draining the budget a genuine
+    anonymous client needs, or (with a generous enough rate to avoid that)
+    giving an attacker room under the anon scope they would not otherwise have.
+    The rate itself (``DEFAULT_THROTTLE_RATES["readyz"]``) is picked to clear
+    every documented probe configuration with room to spare — see
+    administration/probes.md for the numbers it assumes — while still bounding
+    an outright flood.
+    """
+
+    scope = "readyz"

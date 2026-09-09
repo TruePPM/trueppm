@@ -15,3 +15,11 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 
 # Auto-discover tasks in all installed apps.
 app.autodiscover_tasks()
+
+# Registers the worker_ready/heartbeat_sent/worker_shutting_down signal handlers
+# that back the Helm chart's worker startup/readiness probes (#3346). Import
+# for its side effect only: the module connects Celery signal handlers at
+# import time and none of its names are used here. Harmless to import in the
+# `beat` process too — beat runs no worker consumer, so worker_ready and
+# heartbeat_sent never fire there.
+from trueppm_api.core import worker_heartbeat  # noqa: E402,F401

@@ -266,6 +266,14 @@ change made in a second browser appears in the first without a refresh.
 **What you see.** Schedules do not recalculate, imports sit at "queued",
 notification email never arrives. Reads all work.
 
+:::tip
+If `kubectl get pods` or `docker compose ps` already shows the worker as
+Ready/`(healthy)` and this is still happening, read
+[Startup, Readiness, and Liveness Probes → celery worker](/administration/probes/#celery-worker)
+first — from 0.4 onward "Ready" means the worker's heartbeat file is fresh, which is
+a different (and stronger) claim than "a process is running."
+:::
+
 **Likely causes, in order.**
 
 1. **The worker is down or crash-looping.** Nothing consumes the queue.
@@ -417,6 +425,10 @@ reaches `Running`.
 **What you see.** `docker compose ps` shows `api (unhealthy)`, or Kubernetes
 restarts the API pod on its liveness probe — yet the application serves correctly
 in the browser.
+
+For what each probe actually checks (and the reverse case — a pod that stays
+Ready/`(healthy)` while genuinely not serving), see
+[Startup, Readiness, and Liveness Probes](/administration/probes/).
 
 **Likely cause: `ALLOWED_HOSTS`.** The health check reaches the API on
 `localhost` / the pod IP, so Django sees `Host: localhost` (or `Host: 10.x.x.x`).
