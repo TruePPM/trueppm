@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # two must agree, since the chart's exec probe reads exactly this path inside
 # the container. /tmp is the worker container's only writable mount
 # (readOnlyRootFilesystem is on; see celery-worker/deployment.yaml).
-_DEFAULT_HEARTBEAT_FILE = "/tmp/trueppm-celery-worker-heartbeat"
+_DEFAULT_HEARTBEAT_FILE = "/tmp/trueppm-celery-worker-heartbeat"  # nosec B108
 
 
 def heartbeat_file() -> Path:
