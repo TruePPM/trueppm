@@ -2545,6 +2545,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `external_sync` | 20/min | Manual external-connection pull trigger |
 | `monte_carlo` | 10/min | Synchronous Monte Carlo run |
 | `monte_carlo_whatif` | 6/min | Monte Carlo what-if (two CPM + two MC passes per call) |
+| `burn` | 60/min (`TRUEPPM_THROTTLE_BURN_RATE`) | Burn chart + flow metrics reads (shared bucket — both replay `HistoricalTask`) |
 | `sample_load` | 6/min (`TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE`) | Bundled-sample demo loader |
 | `seed_import` | 6/min (`TRUEPPM_THROTTLE_SEED_IMPORT_RATE`) | Caller-supplied program seed import |
 | `seed_validate` | 20/min (`TRUEPPM_THROTTLE_SEED_VALIDATE_RATE`) | Seed import dry run |
