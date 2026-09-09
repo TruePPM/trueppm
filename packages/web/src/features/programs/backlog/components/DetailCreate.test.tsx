@@ -220,7 +220,7 @@ describe('DetailCreate', () => {
       expect(agile[0]).toBe('story');
     });
 
-    // #3644 / web-rule 409 — `useDirtyDraft` freezes its baseline at mount and
+    // #3644 / web-rule 410 — `useDirtyDraft` freezes its baseline at mount and
     // deliberately never resyncs, while `pointsLabel` and `typeOptions` recompute
     // every render. A late `methodology` therefore desyncs the one consumer that
     // writes PERSISTED data: the dropdown reorders to lead with Task while the

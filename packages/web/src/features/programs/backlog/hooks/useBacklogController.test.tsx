@@ -291,7 +291,7 @@ describe('useBacklogController pull choreography', () => {
   });
 });
 
-// #3644 / web-rule 409 — the program query supplies `methodology`, which seeds a
+// #3644 / web-rule 410 — the program query supplies `methodology`, which seeds a
 // `useDirtyDraft` baseline the hook freezes at mount. The page must therefore not
 // render until that query settles, and must not present a resolved-looking
 // methodology when it failed.

@@ -278,7 +278,7 @@ export function useBacklogController(
     // lead with Task while the selected value stays `story`, and the form then
     // POSTs `item_type: 'story'` into a Waterfall program. The visible surface
     // self-corrects and the persisted value does not, which is why gating is
-    // the fix rather than a re-render (web-rule 409).
+    // the fix rather than a re-render (web-rule 410).
     //
     // The error is folded in for the same reason in its deterministic form: a
     // failed `GET /programs/{id}/` leaves `program` undefined forever, and
