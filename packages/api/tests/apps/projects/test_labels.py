@@ -532,6 +532,36 @@ class TestLabelAssignment:
         assert r.status_code == 404, r.content
         assert not TaskLabel.objects.filter(task=foreign_task, label=label).exists()
 
+    def test_trashed_project_is_404_for_a_still_live_member(
+        self,
+        member_client: APIClient,
+        project: Project,
+        member_task: Task,
+        label: Label,
+        memberships: None,
+    ) -> None:
+        """A behavior change worth naming explicitly (regression-check #3657).
+
+        ``VersionedModel.soft_delete()`` does not cascade to memberships — they
+        survive a trashed project by design — and ``IsProjectNotArchived`` checks
+        *archived*, not *deleted*. So before this fix a member of a **trashed**
+        project could still write a label (the old lookup had no
+        ``project__is_deleted`` term); the membership-scoped helper adds one, and
+        that same member now gets 404. Intentional, and asserted here rather than
+        left as an untested side effect of the rewrite.
+        """
+        project.soft_delete()
+
+        with _no_broadcast():
+            r = member_client.post(
+                self._attach_url(project, member_task),
+                {"label_id": str(label.pk)},
+                format="json",
+            )
+
+        assert r.status_code == 404, r.content
+        assert not TaskLabel.objects.filter(task=member_task, label=label).exists()
+
     def test_attach_broadcasts_task_updated_labels(
         self,
         member_client: APIClient,

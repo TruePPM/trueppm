@@ -576,6 +576,26 @@ def test_member_cannot_write_value_on_someone_elses_task(member_client, project)
     assert not TaskCustomFieldValue.objects.filter(task=unassigned).exists()
 
 
+@pytest.mark.django_db
+def test_trashed_project_is_404_for_a_still_live_member(member_client, project, task):
+    """A behavior change worth naming explicitly (regression-check #3657).
+
+    ``VersionedModel.soft_delete()`` does not cascade to memberships — they survive a
+    trashed project by design — and ``IsProjectNotArchived`` checks *archived*, not
+    *deleted*. So before this fix a member of a **trashed** project could still write a
+    field value (the old lookup had no ``project__is_deleted`` term); the
+    membership-scoped helper adds one, and that same member now gets 404. Intentional,
+    and asserted here rather than left as an untested side effect of the rewrite.
+    """
+    field = _field(project, "Client", CustomFieldType.TEXT)
+    project.soft_delete()
+
+    resp = member_client.put(_value_url(project, task, field), {"value": "x"}, format="json")
+
+    assert resp.status_code == 404, resp.content
+    assert not TaskCustomFieldValue.objects.filter(task=task).exists()
+
+
 # ---------------------------------------------------------------------------
 # show_on_card flag
 # ---------------------------------------------------------------------------
