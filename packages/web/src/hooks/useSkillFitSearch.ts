@@ -11,7 +11,16 @@ import type { Proficiency, ResourceWithSkillFit } from '@/types';
 interface ApiResourceSkillFit {
   id: string;
   name: string;
-  email: string;
+  /**
+   * Omitted entirely (not nulled) unless the caller holds workspace ADMIN or is the
+   * resource's own user — this endpoint is the catalog list, served by the same
+   * `ResourceSerializer` whose `to_representation` pops the key to prevent org-wide
+   * address harvest (#891, raised to the workspace-ADMIN gate in #3569; the skill-fit
+   * mode only layers `skill_fit`/`missing_skills` on top of that stripped row).
+   * `undefined` therefore means "you may not see this", never "this person has no
+   * address". See `ApiResource.email` in `useResources.ts`.
+   */
+  email?: string;
   job_role: string;
   max_units: string;
   calendar: string | null;
