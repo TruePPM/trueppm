@@ -53,10 +53,21 @@ a startup error:
 | `TRUEPPM_PUBLIC_API_BASE_URL` | full origin with scheme, no trailing slash — same origin as above | OIDC only: builds `{base}/api/v1/auth/oidc/callback/` | your IdP refuses the login with a `redirect_uri` mismatch |
 
 `TRUEPPM_PUBLIC_API_BASE_URL` is empty by default, which falls back to the
-incoming request's absolute URL. That is correct for local dev and wrong behind
-a proxy, where the value then depends on forwarded headers rather than on
-anything you set. **Set it explicitly on any proxied deploy** so the value your
-IdP allow-lists is deterministic. See [Single sign-on](/administration/single-sign-on/).
+incoming request's absolute URL. That is correct **only when the SPA and the
+API are genuinely reached at one origin** — the production single-server
+Compose topology above, or any deploy proxied so `Host` reaches Django
+unchanged — and wrong behind a proxy that rewrites `Host`, where the value then
+depends on forwarded headers rather than on anything you set. **Set it
+explicitly on any proxied deploy** so the value your IdP allow-lists is
+deterministic. See [Single sign-on](/administration/single-sign-on/).
+
+This is **not** automatically true of the bundled local *development* stack
+(`docker-compose.yml`, `make up`) — that stack runs the SPA (Vite, `:5173`) and
+the API (`:8000`) on two different ports, and Vite's dev proxy rewrites `Host`
+on the way through exactly like a reverse proxy would. `docker-compose.yml`
+therefore pins both `TRUEPPM_PUBLIC_API_BASE_URL` and `TRUEPPM_FRONTEND_BASE_URL`
+explicitly rather than relying on the empty default — see [Testing SSO against
+the local development stack](/administration/single-sign-on/#testing-sso-against-the-local-development-stack).
 
 ### Split hostnames are not supported
 
