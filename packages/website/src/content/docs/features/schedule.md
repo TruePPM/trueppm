@@ -415,7 +415,15 @@ TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/sch
 | Complete | `barComplete` (`semantic-on-track`) | Task marked as 100% complete |
 | Summary | `barSummary` 8px tall | WBS parent / summary row |
 | Milestone | Diamond | Zero-duration event (`is_milestone=true`) |
-| Baseline ghost | `ghost-fill`/`ghost-border` 6px | Original planned dates rendered below the live bar |
+| Actual-date overlay | `ghost-fill`/`ghost-border` 6px, dashed | A task's recorded actual start/finish, drawn below the live bar once it has at least one actual date; colored by schedule variance (late/early/in-progress) |
+
+:::note[Not the same thing as a baseline overlay]
+This dashed bar reads a task's own `actualStart`/`actualFinish` fields — it is
+unrelated to a **baseline** comparison. The planned-vs-baseline ghost-bar
+overlay on the Gantt is a separate, not-yet-shipped surface: see
+[Baselines](/features/baselines/#capturing-and-managing-baselines-via-the-api)
+for what capturing a baseline does today and when the overlay itself lands.
+:::
 
 Bar labels use `COLOR.text` (`#1A1917` light / palette swap in dark mode). The canvas font is set once at engine init to the Tailwind `font-sans` stack so labels match the task list typography.
 
@@ -765,6 +773,6 @@ The [Advancing-to-Milestone card](/features/sprints/) on the Sprints view links 
 
 ## If you are…
 
-- **Raj (PM)** — this is your home. The critical path lights up automatically; baselines overlay as ghosts; the milestone diamonds are your contractual signal.
+- **Raj (PM)** — this is your home. The critical path lights up automatically; a task's actual dates overlay as a dashed bar once you record them; the milestone diamonds are your contractual signal.
 - **Maya (Scrum Master)** — you don't open this day to day. When you do, the sprint windows are where your cadence is visible against Raj's gates — and the one place you can see a gate landing inside one of your sprints.
 - **Tom (engineer)** — you don't open this either. The Schedule auto-re-forecasts off your board moves.

@@ -1,10 +1,17 @@
 ---
 title: My Work
 description: A contributor's personal task list across every project, with zero project-management vocabulary.
+documentedFor: "0.4"
 ---
 
 :::note[0.1]
 My Work shipped in 0.1.
+:::
+
+:::note[Ships in 0.4]
+Four sections below — Your focus row, My projects health, Log time, and Work
+from connected tools — describe 0.4 additions; each also carries its own
+**(ships in 0.4)** marker at its own heading.
 :::
 
 :::note[0.3]

@@ -216,9 +216,9 @@ MS Project XML round-trips today. Beyond that the surface is narrow:
 
 - **0.4:** CSV / Excel import, and a personal, read-only, one-way Jira sync into My
   Work — coexistence, not migration.
-- **0.5:** a one-time Jira migration import.
-- **0.6:** breadth across the top-10 tools (Asana, Monday, Wrike, ClickUp, Trello,
-  Notion, Linear, Basecamp) and full `.mpp` support.
+- **0.6:** a one-time Jira migration import *(returned from 0.5 in the 0.6
+  re-triage)*, breadth across the top-10 tools (Asana, Monday, Wrike, ClickUp,
+  Trello, Notion, Linear, Basecamp), and full `.mpp` support.
 - **0.7:** the specialist long tail — Primavera P6 XER/PMXML, OmniPlan, GanttProject,
   MPX/ProjectLibre.
 

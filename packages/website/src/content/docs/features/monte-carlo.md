@@ -64,6 +64,13 @@ its leaf tasks — so you do not need to redraw them.
 
 ### Step 2 — Run the simulation
 
+In the app, open the Schedule view and expand the **Forecast & sensitivity** bar
+docked at the bottom, then run a simulation from the **Monte Carlo** row — no
+API call needed. See [Forecast & sensitivity](/features/schedule/#forecast--sensitivity)
+for what the collapsed and expanded states show.
+
+To script it instead, or to integrate against it directly:
+
 ```
 POST /api/v1/projects/<project_id>/monte-carlo/
 Content-Type: application/json
@@ -103,7 +110,7 @@ removes it.
 | `p50` | 50% of simulated runs finished on or before this date. Closest to the deterministic CPM date. |
 | `p80` | 80% of runs finished by this date. The standard commitment date for most project plans. |
 | `p95` | 95% of runs finished by this date. Use for contractual deadlines and hard external commitments. |
-| `status_date` | *(coming in 0.4)* The data date this run was actually computed against — the project's explicit status date, or today when unset (see [Progress-aware forecasting](#progress-aware-forecasting) below). Recorded on every run so a past forecast states which "today" produced it. |
+| `status_date` | *(coming in 0.4)* The data date this run was actually computed against — the project's explicit status date (set at **Project settings → General → Status date**, not API-only), or today when unset (see [Progress-aware forecasting](#progress-aware-forecasting) below). Recorded on every run so a past forecast states which "today" produced it. |
 | `distribution` | Full sorted list of all simulated finish dates. Use this to render a histogram or answer "what is the probability of finishing by date X?" |
 
 The most recent result is also available without re-running the simulation:
@@ -254,7 +261,8 @@ progresses, the simulation will:
   earlier than its own CPM finish — re-run those forecasts after upgrading.)*
 
 A new optional `status_date` field on the project (`GET`/`PATCH
-/api/v1/projects/<id>/`) will set that anchor. When it is left null the forecast
+/api/v1/projects/<id>/`) will set that anchor — in the app, under
+**Project settings → General → Status date (data date)**, not API-only. When it is left null the forecast
 defaults to today, so an actively-tracked project reads correctly with no extra
 configuration; a PM who wants a reproducible, frozen forecast for a report can
 pin an explicit date. The same progress signals will flow through the
