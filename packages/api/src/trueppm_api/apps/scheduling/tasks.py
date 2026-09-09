@@ -13,6 +13,7 @@ import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
 
+from trueppm_api.apps.projects.services import clear_uncommitted_cpm_output
 from trueppm_api.core.idempotent import idempotent_task
 
 logger = logging.getLogger(__name__)
@@ -1158,6 +1159,21 @@ def _run_schedule(
     ]
     if not db_tasks:
         logger.info("recalculate_schedule: project %s has no tasks, skipping", project_id)
+        # ADR-1152: a project whose entire committed set was groomed away still holds
+        # every row's last schedule, and this return is BEFORE the write-back — so the
+        # worst case (100% of rows stale) is exactly the one the atomic block below
+        # never reaches. Clear here so the invariant holds on this path too (#3578).
+        # Deliberately NOT inside _settle_empty(): its other three callers are the
+        # project-not-found path (nothing to clear) and the two escalate-to-program
+        # paths, where the program run is the sole writer and clears the whole
+        # program's project set itself.
+        cleared = clear_uncommitted_cpm_output(Task, project_ids=[project_id])
+        if cleared:
+            logger.info(
+                "recalculate_schedule: project %s cleared CPM output on %d unscheduled row(s)",
+                project_id,
+                cleared,
+            )
         _settle_empty()
         return
 
@@ -1360,6 +1376,15 @@ def _run_schedule(
             ],
             batch_size=_WRITEBACK_BATCH_SIZE,
         )
+
+        # ADR-1152 (#3578): the write-back above covers only the rows the engine
+        # returned, which is the committed set. Rows that LEFT it keep their last
+        # schedule forever unless something clears them, and nothing did — so a
+        # groomed-out card was still read as current by the task serializer and by
+        # nine project-level aggregates over Task.objects. Same atomic block as the
+        # bulk_update on purpose: the committed set's new dates and the non-committed
+        # set's nulls are one consistent picture, or neither lands.
+        clear_uncommitted_cpm_output(Task, project_ids=[project_id])
 
         # Persist driving-link flags (#2095). bulk_update bypasses VersionedModel.save
         # so it never bumps server_version — is_driving is a derived CPM output, not a
@@ -1795,6 +1820,15 @@ def _run_program_schedule(program_id: str) -> None:
             Task.objects.bulk_update(
                 tasks_to_update, _PROGRAM_WRITE_FIELDS, batch_size=_WRITEBACK_BATCH_SIZE
             )
+
+        # ADR-1152 (#3578): mirror of the single-project clear. Scoped to every member
+        # project, NOT to the schedulable subset — a member whose whole committed set
+        # was groomed away contributes no rows to `tasks_to_update` yet is precisely
+        # the project holding the most residue. This also covers the two
+        # escalate-to-program returns in _run_schedule, which deliberately clear
+        # nothing themselves because the program run is the sole writer while
+        # escalation holds (ADR-0120 D3).
+        clear_uncommitted_cpm_output(Task, project_ids=member_ids)
 
         # Persist driving-link flags (#2095) — bulk_update, no server_version bump.
         if program_db_deps:
