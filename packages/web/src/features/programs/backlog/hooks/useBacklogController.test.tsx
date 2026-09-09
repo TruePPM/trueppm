@@ -71,8 +71,15 @@ interface SetupOptions {
 
 function setup({ role = ROLE_ADMIN, pullOptions, getImpl }: SetupOptions = {}) {
   getMock.mockImplementation(getImpl ?? (() => Promise.resolve({ data: ITEMS })));
+  // `isLoading`/`isError` are part of the shape the controller reads (#3644 folded
+  // the program query into the page's loading and error gates, because the
+  // methodology it supplies seeds a draft baseline `useDirtyDraft` freezes at
+  // mount). A mock that omits them models a query that cannot exist and made
+  // `isLoading` resolve to `undefined` rather than `false`.
   useProgramMock.mockReturnValue({
     data: { id: PROGRAM, name: 'Polaris', code: 'PLR', color: '#123', my_role: role },
+    isLoading: false,
+    isError: false,
   });
   useProgramProjectsMock.mockReturnValue({
     data: [{ id: 'pr-1', name: 'Avionics', colorDot: '#abc' }],
@@ -281,5 +288,59 @@ describe('useBacklogController pull choreography', () => {
 
     act(() => result.current.dismissToast());
     expect(result.current.toast).toBeNull();
+  });
+});
+
+// #3644 / web-rule 410 — the program query supplies `methodology`, which seeds a
+// `useDirtyDraft` baseline the hook freezes at mount. The page must therefore not
+// render until that query settles, and must not present a resolved-looking
+// methodology when it failed.
+describe('useBacklogController program-query gating (#3644)', () => {
+  it('stays loading while the program query is in flight, even once items have landed', async () => {
+    const gated = setup({});
+    // Settle the ITEMS query first. Without this the assertion below passes on
+    // the broken build for the wrong reason — `itemsQuery.isLoading` is still
+    // true at this point, so `isLoading` reads true whether or not the program
+    // query is gated at all.
+    await waitFor(() => expect(gated.result.current.isLoading).toBe(false));
+
+    useProgramMock.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    gated.rerender();
+
+    await waitFor(() => expect(gated.result.current.isLoading).toBe(true));
+  });
+
+  it('surfaces a failed program read instead of standing on the HYBRID fallback', async () => {
+    const failed = setup({});
+    useProgramMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: { response: { status: 500 } },
+    });
+    failed.rerender();
+
+    await waitFor(() => expect(failed.result.current.errorKind).toBe('generic'));
+  });
+
+  // The first cut of the gate above read `programQuery.isError ? 'generic' : null`,
+  // which threw away the 403/404 classification the page already had — the items
+  // query can serve from a warm cache while access is revoked underneath it, and
+  // the reader would get "Couldn't load the backlog. Retry" instead of being told
+  // they no longer have access. Both queries go through the one classifier now.
+  it.each([
+    [403, 'forbidden'],
+    [404, 'not-found'],
+  ] as const)('classifies a %i on the program read as %s, not generic', async (status, kind) => {
+    const failed = setup({});
+    useProgramMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: { response: { status } },
+    });
+    failed.rerender();
+
+    await waitFor(() => expect(failed.result.current.errorKind).toBe(kind));
   });
 });

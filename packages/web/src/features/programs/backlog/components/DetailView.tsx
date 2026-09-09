@@ -17,6 +17,7 @@
  */
 
 import { useState } from 'react';
+import type { Methodology } from '@/types';
 import { CloseIcon, ExternalLinkIcon } from '@/components/Icons';
 import {
   DialogFooter,
@@ -25,6 +26,7 @@ import {
   useUnsavedChangesGuard,
 } from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { pointsFieldLabel } from '../methodologyVocabulary';
 import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import {
   BACKLOG_ITEM_TYPES,
@@ -78,6 +80,8 @@ export interface DetailViewProps {
   tagSuggestions: string[];
   /** Program's resolved estimation scale (ADR-0510, #2027). */
   estimationScale: EstimationScale;
+  /** Program's resolved methodology (#3644) — names the points field. */
+  methodology: Methodology;
   canEdit: boolean;
   canDelete: boolean;
   onClose: () => void;
@@ -99,6 +103,7 @@ export function DetailView({
   item,
   tagSuggestions,
   estimationScale,
+  methodology,
   canEdit,
   canDelete,
   onClose,
@@ -116,6 +121,7 @@ export function DetailView({
   // noticed a dirty draft belonged to a *different* item once #2668 wired up
   // the missing `key` on this component).
   const { draft, setField, dirty, reset, commit } = useDirtyDraft<DetailDraft>(toDraft(item));
+  const pointsLabel = pointsFieldLabel(methodology);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<WriteRefusal | null>(null);
 
@@ -293,7 +299,7 @@ export function DetailView({
           {itemTypeShowsPoints(draft.itemType) && (
             <>
               <label className="text-neutral-text-secondary" htmlFor={`${item.id}-points`}>
-                Story points
+                {pointsLabel}
               </label>
               {canEdit ? (
                 <StoryPointField
@@ -301,7 +307,10 @@ export function DetailView({
                   scale={estimationScale}
                   value={draft.storyPoints}
                   onChange={(next) => setField('storyPoints', next)}
-                  ariaLabel="Story points"
+                  // Tracks the visible label rather than defaulting to "Story
+                  // points" — a WATERFALL reader must not get an accessible name
+                  // that appears nowhere on screen (WCAG 2.5.3 Label in Name).
+                  ariaLabel={pointsLabel}
                   size="md"
                   className="w-24"
                 />
@@ -319,12 +328,25 @@ export function DetailView({
 
           <span className="self-start pt-1.5 text-neutral-text-secondary">Tags</span>
           {canEdit ? (
-            <TagInput
-              tags={draft.tags}
-              onChange={(tags) => setField('tags', tags)}
-              suggestions={tagSuggestions}
-              id={`${item.id}-tags`}
-            />
+            <div>
+              <TagInput
+                tags={draft.tags}
+                onChange={(tags) => setField('tags', tags)}
+                suggestions={tagSuggestions}
+                id={`${item.id}-tags`}
+                describedBy={`${item.id}-tags-hint`}
+              />
+              {/*
+                Same sentence as the create form (#3644). Grooming an existing
+                item is the commoner path once a pool exists, and what pull
+                converts is whatever the item holds THEN — so the reader most
+                likely to add a consequential tag was the one getting no
+                explanation.
+              */}
+              <p id={`${item.id}-tags-hint`} className="mt-1 text-xs text-neutral-text-secondary">
+                Program-wide free text. On pull, each tag becomes a project label.
+              </p>
+            </div>
           ) : (
             <span className="flex flex-wrap gap-1">
               {item.tags.length === 0 && <span className="text-neutral-text-disabled">None</span>}

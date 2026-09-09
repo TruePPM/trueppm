@@ -5,11 +5,13 @@ import type { BacklogController } from '../hooks/useBacklogController';
 import { BacklogToasts } from './BacklogToasts';
 
 function renderToast(toast: BacklogController['toast']) {
+  // No cast: `BacklogToasts` declares the three fields it reads, so this object
+  // is checked rather than asserted (#3644).
   const controller = {
     toast,
     dismissToast: vi.fn(),
     retryPull: vi.fn(),
-  } as unknown as BacklogController;
+  };
   render(
     <MemoryRouter>
       <BacklogToasts controller={controller} />
