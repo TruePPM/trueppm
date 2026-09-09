@@ -368,6 +368,30 @@ def member(db: object) -> Any:
     return user
 
 
+@pytest.fixture
+def owner(db: object) -> Any:
+    """A real WorkspaceMembership at role OWNER (not a superuser bootstrap).
+
+    An explicit OWNER row, matching ``admin``/``member`` above, so the #3626
+    actor-ceiling tests exercise the stored role rather than the superuser
+    implicit-OWNER bypass in ``workspace_role_for_user``.
+    """
+    from trueppm_api.apps.workspace.models import (
+        MemberStatus,
+        WorkspaceMembership,
+        WorkspaceRole,
+    )
+
+    user = User.objects.create_user(username="sso_owner", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(),
+        user=user,
+        role=WorkspaceRole.OWNER,
+        status=MemberStatus.ACTIVE,
+    )
+    return user
+
+
 def api_client(user: Any | None = None) -> APIClient:
     c = APIClient()
     if user is not None:

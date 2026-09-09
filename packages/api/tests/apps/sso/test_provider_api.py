@@ -126,6 +126,60 @@ def test_default_role_owner_rejected(admin: Any) -> None:
 
 
 @pytest.mark.django_db
+def test_default_role_admin_refused_for_acting_admin(admin: Any) -> None:
+    """A workspace ADMIN cannot set ``default_role=ADMIN`` — #3626.
+
+    ``_ALLOWED_DEFAULT_ROLES`` alone would let this through (ADMIN is a
+    permitted *value*); the actor-ceiling check ``_refuse_default_role_at_or_above_actor``
+    additionally refuses a role at or above the acting user's own, mirroring
+    ``_apply_member_role_change`` and ``WorkspaceInviteListView.post``. Without it an
+    ADMIN could self-service-provision a peer ADMIN through a second IdP identity —
+    exactly the escalation the member-PATCH and invite paths already forbid.
+    """
+    resp = api_client(admin).post(
+        COLLECTION, {"slug": "generic", "default_role": int(WorkspaceRole.ADMIN)}, format="json"
+    )
+    assert resp.status_code == 403, resp.data
+    assert SsoProviderPolicy.objects.filter(slug="generic").exists() is False
+
+
+@pytest.mark.django_db
+def test_default_role_member_allowed_for_acting_admin(admin: Any) -> None:
+    """A workspace ADMIN CAN set ``default_role=MEMBER`` — strictly below its own role."""
+    resp = api_client(admin).post(
+        COLLECTION, {"slug": "generic", "default_role": int(WorkspaceRole.MEMBER)}, format="json"
+    )
+    assert resp.status_code == 201, resp.data
+    assert SsoProviderPolicy.objects.get(slug="generic").default_role == WorkspaceRole.MEMBER
+
+
+@pytest.mark.django_db
+def test_default_role_admin_allowed_for_owner(owner: Any) -> None:
+    """A workspace OWNER CAN set ``default_role=ADMIN`` — the only principal that may."""
+    resp = api_client(owner).post(
+        COLLECTION, {"slug": "generic", "default_role": int(WorkspaceRole.ADMIN)}, format="json"
+    )
+    assert resp.status_code == 201, resp.data
+    assert SsoProviderPolicy.objects.get(slug="generic").default_role == WorkspaceRole.ADMIN
+
+
+@pytest.mark.django_db
+def test_default_role_admin_refused_on_put_for_acting_admin(admin: Any) -> None:
+    """The same ceiling applies on update, not just create (#3626).
+
+    Seeds a provider at the OSS-default ``default_role=MEMBER`` (via ``_full_config``,
+    which never sets it), then has the same acting ADMIN try to raise it to ADMIN
+    through ``PUT`` — the write path a stored policy is actually edited through.
+    """
+    client = api_client(admin)
+    create_resp = client.post(COLLECTION, _full_config(), format="json")
+    assert create_resp.status_code == 201, create_resp.data
+    resp = client.put(DETAIL, {"default_role": int(WorkspaceRole.ADMIN)}, format="json")
+    assert resp.status_code == 403, resp.data
+    assert SsoProviderPolicy.objects.get(slug="generic").default_role == WorkspaceRole.MEMBER
+
+
+@pytest.mark.django_db
 def test_allow_password_signin_rejected_in_oss(admin: Any) -> None:
     resp = api_client(admin).post(
         COLLECTION, {"slug": "generic", "allow_password_signin": False}, format="json"

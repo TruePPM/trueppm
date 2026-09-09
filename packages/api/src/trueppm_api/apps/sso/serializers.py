@@ -13,7 +13,10 @@ Security-relevant shapes preserved from ADR-0187:
   write-only field and providing it is the rotation path;
 - ``scopes`` is server-fixed (``openid email profile`` / GitHub
   ``read:user user:email``) and read-only — the admin cannot widen it;
-- ``default_role`` is restricted to MEMBER/ADMIN so SSO never auto-grants OWNER;
+- ``default_role`` is restricted to MEMBER/ADMIN here so SSO never auto-grants OWNER,
+  and is further capped by an actor ceiling in the view (#3626,
+  ``sso.views._refuse_default_role_at_or_above_actor``) so a workspace ADMIN cannot
+  use it to self-service-provision a peer ADMIN;
 - ``allow_password_signin`` is rejected in OSS (a set-but-ignored no-op, #2025);
 - the composed ``server_url`` is re-validated as an absolute https URL, and a
   pasted ``.well-known`` discovery URL is rejected (ADR-0187 issuer rules);
@@ -142,7 +145,16 @@ class SsoProviderWriteSerializer(serializers.Serializer[SsoProviderPolicy]):
     enabled = serializers.BooleanField(required=False)
     allowed_email_domains = serializers.ListField(child=serializers.CharField(), required=False)
     auto_create_members = serializers.BooleanField(required=False)
-    default_role = serializers.IntegerField(required=False)
+    default_role = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Workspace role auto-created members are granted. Must be Member (100) or "
+            "Admin (300) — SSO auto-create can never mint an Owner. Also capped to a "
+            "role strictly below the acting user's own workspace role: an Admin may set "
+            "this to Member but not Admin, matching the ceiling on member-role grants "
+            "and invites. Only an Owner can set it to Admin (#3626)."
+        ),
+    )
     allow_password_signin = serializers.BooleanField(required=False)
 
     def validate_slug(self, value: str) -> str:
