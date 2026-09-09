@@ -19,13 +19,14 @@
 # present in the image, so the install below gates readiness on the chart default
 # (/readyz) and runs the full `helm test` incl. its readyz leg — no overrides on
 # the api readiness path. The install DOES change the celery probe settings: the
-# worker's are turned OFF and beat's are widened. See the CELERY_PROBE_OVERRIDES
-# block below for the evidence, and note the consequence — no runtime gate
-# exercises the chart's own celery probe defaults (#3218). #3230 settled that: a
-# runtime gate is unavailable for the reason the override exists (an exec probe
-# cannot succeed under kind-in-dind CPU contention at ANY timing), so the
-# defaults were re-derived against the 300s worker grace instead and are held
-# statically by section N+5 of scripts/helm-structure-check.sh.
+# worker's LIVENESS is turned off and beat's is widened; the worker's STARTUP and
+# READINESS are left at chart defaults and are genuinely exercised by
+# `--wait` (#3346 — see the CELERY_PROBE_OVERRIDES block below for why liveness
+# alone still needs the override, and the current evidence for readiness/startup
+# no longer needing it). #3230 settled the liveness half of this: a runtime gate
+# is unavailable for `inspect ping` under kind-in-dind CPU contention at ANY
+# timing, so its defaults were re-derived against the 300s worker grace instead
+# and are held statically by section N+5 of scripts/helm-structure-check.sh.
 # For a local run against an already-published tag, set RELEASE_IMAGE_TAG (e.g.
 # `latest`) and, if that tag predates readyz, add the /health/ readiness override
 # yourself. See #2279 (drill) and #2284 (per-commit image).
@@ -84,11 +85,26 @@ INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
 # On a loaded kind-in-dind node that is self-defeating — and shortening the
 # period, as the first attempt did, makes it worse rather than better.
 #
-# So the worker's probes are OFF for the drill. Be clear about the cost:
-# `helm install --wait` no longer proves the worker is functional, only that it
-# rolled out. Section 9 buys that back with an explicit ping assertion that can
-# RETRY — which a kubelet probe structurally cannot, because its response to a
-# slow answer is to kill the thing it is waiting for.
+# So the worker's LIVENESS is off for the drill — #3230's split
+# (probes.worker.liveness.* / .readiness.* / .startup.*, each with its own
+# `enabled`) is what makes narrowing the override to liveness ALONE possible;
+# before that split the only lever was the blunt `probes.worker.enabled=false`,
+# which also removed readiness and therefore proved nothing about it.
+#
+# Readiness and startup are deliberately left ON (#3236, #3346). They no longer
+# run `celery inspect ping` at all: the worker's own `heartbeat_sent` signal
+# (trueppm_api.core.worker_heartbeat) touches a file on a fixed ~2s timer that
+# runs on the MainProcess event loop independent of task load, and the probes
+# just stat that file (`find`/`test`, no fork of Django, Celery, or the broker).
+# That is exactly the resource story two paragraphs up, with the resource cost
+# removed rather than worked around — so `helm install --wait` now gates on a
+# probe that has nothing left in common with the one that failed in job
+# 16193488334, and a green install is real evidence the worker answers, not
+# merely that it rolled out. Section 9 below keeps an independent, RETRY-able
+# `inspect ping` from OUTSIDE the probe path as a second, harder proof — and now
+# treats a failure there as fatal (see that section), since a functional worker
+# has nothing left to explain a failure against a probe with no load-dependent
+# cost.
 #
 # Beat keeps its probe: it renders a livenessProbe only (no readiness), so it
 # never gates `--wait`, and at the chart's 60s period a kill needs
@@ -97,30 +113,20 @@ INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
 # drill does not double Django-import forks into the chart's tightest cgroup
 # (250m CPU / 256Mi).
 #
-# The chart-level question this raises was #3230, and it is now answered in the
-# chart rather than here: a Celery worker sits behind NO Service (verified — the
-# api and web Services both select on app.kubernetes.io/component), so its
-# readinessProbe gates nothing in production except rolling-update pacing, while
-# costing a control-plane round trip inside its own CPU budget. #3230 split the
-# two probes apart (probes.worker.liveness.* / .readiness.*, each with its own
-# `enabled`) so that trade can be made per-probe. This drill deliberately keeps
-# the blunt master switch: `probes.worker.enabled=false` is what #3218's evidence
-# supports, and narrowing it to readiness alone would be a new claim about
-# liveness under kind-in-dind that no job has tested.
-#
 # This array is held identical to the one in scripts/helm-netpol-drill.sh by
 # scripts/tests/helm-celery-probe-overrides.test.sh (#3230), which extracts both
 # and compares them — the prose note that used to say "keep the two in sync" had
 # no mechanism behind it.
 CELERY_PROBE_OVERRIDES=(
-  --set probes.worker.enabled=false
+  --set probes.worker.liveness.enabled=false
   --set probes.beat.initialDelaySeconds=45
   --set probes.beat.timeoutSeconds=15
   --set probes.beat.failureThreshold=10
 )
 
-# Budget for the diagnostic worker control-plane ping in section 9 (#3236),
-# which reports on the readiness probe disabled above. Worst case 3 x (20 + 10)
+# Budget for the independent, retry-able worker control-plane ping in section 9
+# (#3236, #3346) — a second, harder proof of worker function alongside the
+# chart's own (now heartbeat-based) readiness probe. Worst case 3 x (20 + 10)
 # = ~90s, after the install rather than gating it.
 WORKER_PING_ATTEMPTS="${WORKER_PING_ATTEMPTS:-3}"
 WORKER_PING_TIMEOUT="${WORKER_PING_TIMEOUT:-20}"
@@ -362,11 +368,13 @@ except Exception as e:
   || fail "/admin/ through the web tier (svc/${web_svc}) returned '${admin_code}', expected 403 — a default install is publishing Django admin (#2569)"
 log "admin denied at the web tier (HTTP 403) — deny-by-default holds at runtime"
 
-# ---- 9. celery worker: concurrency pinned, and it STAYS up (#2571) ----------
-# `helm install --wait` above already gates on the worker becoming Ready. What it
-# cannot see is an OOMKill loop that starts once the prefork children are all
-# spawned, so also assert the flag is really on the running container and that
-# the pod has not restarted.
+# ---- 9. celery worker: concurrency pinned, Ready, and it STAYS up (#2571) ---
+# `helm install --wait` above already gates on the worker becoming Ready — and
+# unlike before #3346, that Ready now comes from the heartbeat-file readiness
+# probe rather than a probe this drill has to disable, so it is real evidence.
+# What `--wait` cannot see is an OOMKill loop that starts once the prefork
+# children are all spawned, so also assert the flag is really on the running
+# container and that the pod has not restarted.
 worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o jsonpath='{.items[0].metadata.name}')"
 [ -n "$worker_pod" ] || fail "no celery-worker pod found"
 worker_cmd="$(kubectl get pod "$worker_pod" -o jsonpath='{.spec.containers[0].command}')"
@@ -375,27 +383,23 @@ echo "$worker_cmd" | grep -qE -- '--concurrency=[0-9]+' \
 restarts="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
 [ "${restarts:-0}" -eq 0 ] \
   || fail "celery-worker restarted ${restarts}x since rollout — likely the OOMKill loop from an unpinned prefork pool (#2571)"
-log "celery worker pinned and stable (0 restarts): $worker_cmd"
+worker_ready_condition="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].ready}')"
+[ "$worker_ready_condition" = "true" ] \
+  || fail "celery-worker pod is not Ready (${worker_ready_condition:-<empty>}) despite helm install --wait succeeding — inconsistent chart/cluster state"
+log "celery worker pinned, Ready, and stable (0 restarts): $worker_cmd"
 
-# The chart's readiness probe is what used to prove the worker's control plane
-# answers; this drill disables it (see CELERY_PROBE_OVERRIDES), so the check
-# moves here, where it can retry instead of restarting the container it is
-# measuring.
-#
-# It is DIAGNOSTIC, NOT AN ASSERTION, and that is deliberate — see #3236.
-# Making it fatal would red this drill on a defect that is not the drill's and
-# not this branch's: in job 16193692029 the worker was up with 0 restarts and
-# every other check in this script passed, yet `inspect ping` got no reply
-# across 5 attempts of 30s each, driven by `kubectl exec` completely outside the
-# probe path. The same command against a healthy worker returns `1 node online`
-# in under a second, and the drill passes end to end whenever the worker did not
-# have to retry its initial broker connection — which is the discriminator #3236
-# exists to confirm. Until that is understood, a hard failure here would just be
-# the #3218 flake wearing a new message.
-#
-# The output is printed either way, because a silent skip would leave the next
-# reader with nothing.
-log "checking whether the celery worker answers a control-plane ping (diagnostic, see #3236)"
+# An INDEPENDENT, retry-able functional proof that the worker actually SERVES,
+# not merely that Kubernetes reports it Ready (#3236, #3346). Before #3346 this
+# was diagnostic-only because the chart's own readiness probe had to be
+# disabled to get a green install at all (see CELERY_PROBE_OVERRIDES) — a
+# ping failure here could not be distinguished from that known #3218/#3236
+# defect. Now that readiness is a load-independent heartbeat-file check with
+# nothing left to explain a false failure, this is FATAL: a worker this drill
+# has already proven Ready with 0 restarts that still cannot answer a
+# control-plane ping, driven by `kubectl exec` completely outside the probe
+# path, is exactly the "Ready but not serving" failure mode #2279's acceptance
+# criterion calls out, and it must fail loudly rather than read as green.
+log "checking whether the celery worker answers a control-plane ping (fatal — #3236, #3346)"
 ping_ok=""
 ping_out=""
 for attempt in $(seq 1 "$WORKER_PING_ATTEMPTS"); do
@@ -410,15 +414,9 @@ for attempt in $(seq 1 "$WORKER_PING_ATTEMPTS"); do
   sleep "$WORKER_PING_RETRY_DELAY"
 done
 if [ -z "$ping_ok" ]; then
-  # Not `fail` — see the note above. Dump what a reader needs, loudly.
-  echo "WARNING (#3236): celery worker never answered 'inspect ping' after ${WORKER_PING_ATTEMPTS} attempts of ${WORKER_PING_TIMEOUT}s." >&2
-  echo "  The worker is Running with 0 restarts and every other drill check passed, so this is NOT a deploy regression." >&2
-  echo "  Last ping output: ${ping_out:-<none>}" >&2
   echo "  ---- celery-worker log (broker connect / reconnect is the thing to look at) ----" >&2
-  # dump_diagnostics only dumps NOT-Ready pods, and with the worker's probes
-  # disabled this pod always reads Ready — so its log has to be fetched here or
-  # it is never captured at all.
   kubectl logs "$worker_pod" -c celery-worker --tail=40 2>&1 | sed 's/^/    /' >&2 || true
+  fail "celery-worker is Ready with ${restarts:-0} restarts but never answered 'inspect ping' after ${WORKER_PING_ATTEMPTS} attempts of ${WORKER_PING_TIMEOUT}s — Ready does not mean serving (#3236). Last ping output: ${ping_out:-<none>}"
 fi
 
-log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned, guards fail closed"
+log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"

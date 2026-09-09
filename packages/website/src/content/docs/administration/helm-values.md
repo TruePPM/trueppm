@@ -263,48 +263,63 @@ large request buffering). Tune per the [sizing profiles](/administration/sizing/
 
 ## Health probes
 
+For what each probe checks in plain language, and what to do when one fails, see
+[Startup, Readiness, and Liveness Probes](/administration/probes/). This section is
+the values reference; that page is the troubleshooting guide.
+
 | Key | Default | What it does |
 |---|---|---|
-| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. Detection of the reverse direction — a database carrying migrations the running image does not ship, i.e. an image rolled back without restoring the schema — ships in 0.4 as `migration_state: ahead`, gated only for a pod that *booted* into it so a forward rolling upgrade never pulls the old pods out of the Service. Either way, schema presence is not data compatibility: rolling back across a destructive migration still needs a [restore from backup](/getting-started/upgrade/#rollback). |
+| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. Detection of the reverse direction — a database carrying migrations the running image does not ship, i.e. an image rolled back without restoring the schema — ships in 0.4 as `migration_state: ahead`, gated only for a pod that *booted* into it so a forward rolling upgrade never pulls the old pods out of the Service. Either way, schema presence is not data compatibility: rolling back across a destructive migration still needs a [restore from backup](/getting-started/upgrade/#rollback). The disk-migration scan behind this check is cached process-wide rather than rebuilt on every call, and the endpoint carries its own rate limit (`env.TRUEPPM_THROTTLE_READYZ_RATE`, default `2000/min`) instead of a full throttle exemption — both land in 0.4. |
 | `probes.api.livenessPath` | `/api/v1/health/` | Shallow liveness so a transient dependency blip can't restart-loop the pod. |
 | `probes.api.readiness*/liveness*Seconds` | 10/10, 30/30 | Initial-delay and period tuning. |
 | `probes.api.hostHeader` | _(empty → ingress host, else `<release>-trueppm-api`)_ | `Host` header kubelet sends on both api probes. kubelet dials by pod IP, so without this Django validates `<podIP>:8000` against `ALLOWED_HOSTS` in `get_host()` — before any view, and out of reach of `SECURE_REDIRECT_EXEMPT` — and answers 400 DisallowedHost. The pod never turns Ready, the Service gets no endpoints, and the Ingress serves 503, with nothing in the failure naming `ALLOWED_HOSTS`. Empty resolves to the first ingress host when `ingress.enabled: true`, and otherwise to the api Service's own DNS name `<release>-trueppm-api` — the name the `helm test` probe already curls, so a no-Ingress install needs no value here either. Whatever it resolves to must be in `ALLOWED_HOSTS`. See [Host names you must include](/administration/configuration/#host-names-you-must-include). |
-| `probes.worker.enabled` / `probes.beat.enabled` | `true` | Master switch for that component's `celery inspect ping` exec probes — catches a wedged event loop a process-alive check would miss. |
-| `probes.worker.liveness.*` | initial delay `60`, ping every `60`s, `failureThreshold: 5` | Pings the pod's **own** worker node. This is the probe that kills the container, so it is the forgiving one — see below. |
-| `probes.worker.readiness.*` | initial delay `15`, ping every `60`s, `failureThreshold: 3` | The same ping, but a failure only removes the pod from a Service it is not in. Tuned to reach a first success early rather than to detect trouble fast. |
+| `probes.worker.enabled` / `probes.beat.enabled` | `true` | Master switch for that component's probes. |
+| `probes.worker.heartbeatFile` | `/tmp/trueppm-celery-worker-heartbeat` | File a Celery signal handler touches on `worker_ready`/`heartbeat_sent` and removes on `worker_shutting_down` (ships 0.4, #3346). Both `probes.worker.startup` and `probes.worker.readiness` below stat this same path. |
+| `probes.worker.startup.*` | enabled, `initialDelaySeconds: 0`, every `5`s, `failureThreshold: 30` | **Ships in 0.4.** Checks the heartbeat file **exists** — true once the worker has fired `worker_ready` at least once, i.e. its broker connection is established. Suspends liveness until it passes, so a slow first boot cannot restart-loop. |
+| `probes.worker.liveness.*` | initial delay `60`, ping every `60`s, `failureThreshold: 5` | Still `celery inspect ping` against the pod's **own** worker node. This is the probe that kills the container, so it is the forgiving one — see below. |
+| `probes.worker.readiness.*` | initial delay `15`, every `15`s, `failureThreshold: 3`, `staleSeconds: 30` | **No longer `celery inspect ping`** (0.4, #3236, #3346) — it stats the heartbeat file above and fails once it is older than `staleSeconds`. The file is refreshed by Celery's own `heartbeat_sent` signal on a fixed ~2s timer, independent of task load, so — unlike the pre-0.4 ping-based check — this probe cannot be starved by a busy worker. |
 | `probes.beat.liveness.*` | initial delay `30`, ping every `60`s, `failureThreshold: 5` | Beat's ping targets broker reachability (the fleet, not its own node); the generous threshold avoids restarts on a brief worker blip. Beat renders a liveness probe only, so there is no `probes.beat.readiness`. |
-| `probes.worker.*` / `probes.beat.*` flat keys | _(empty)_ | Shared override applied to **both** probes — see [Tuning celery liveness and readiness apart](#tuning-celery-liveness-and-readiness-apart). |
+| `probes.worker.*` / `probes.beat.*` flat keys | _(empty)_ | Shared override applied across that component's probes — see [Tuning celery probes apart](#tuning-celery-probes-apart). |
+| `probes.web.readiness*/liveness*Seconds` | 5/10, 10/30 | **Ships in 0.4.** Initial-delay and period tuning for the web (nginx) tier's `GET /` probes — previously hardcoded in the chart. No startup key: the container serves a pre-built static bundle, so there is no boot-time dependency for a startup probe to cover. |
 
-### Tuning celery liveness and readiness apart
+### Tuning celery probes apart
 
-The Celery worker's two probes run the same `celery inspect ping` command and have
-opposite consequences:
+The Celery worker's three probes have different mechanisms and opposite
+consequences:
 
-- a **readiness** failure is free. A Celery worker sits behind no Service — both the
-  API and web Services select on `app.kubernetes.io/component` — so readiness paces
-  rolling updates and gates nothing else. The pod drops out and comes back.
+- **readiness** and **startup** failures are free. A Celery worker sits behind no
+  Service — both the API and web Services select on `app.kubernetes.io/component` —
+  so they pace rolling updates and gate nothing else. The pod drops out and comes
+  back. Since 0.4 neither runs `inspect ping`: both stat the heartbeat file, a plain
+  filesystem check with no fork of Django, Celery, or the broker.
 - a **liveness** failure **kills the container**, and the worker's
   `lifecycle.worker.terminationGracePeriodSeconds` is `300`. Celery shuts down warm
   (it stops prefetching and finishes what it holds), so a kill can cost up to five
-  minutes of unavailability for that pod.
+  minutes of unavailability for that pod. Liveness still runs `celery inspect ping`
+  — a missed check only costs a bounded restart, unlike a false readiness failure,
+  which had no failure budget to absorb it.
 
-So the two get different timings. Liveness is slow to conclude anything: its
-steady-state detection budget is `failureThreshold x periodSeconds` = `5 x 60` =
-300s, derived to match the grace it spends, and its initial delay is `60` because a
-cold worker also has to fork a Django import to answer its first probe. Readiness is
-the opposite: initial delay `15`, so a rollout is not left idling on a worker that
-is already up.
+Liveness is slow to conclude anything: its steady-state detection budget is
+`failureThreshold x periodSeconds` = `5 x 60` = 300s, derived to match the grace it
+spends, and its initial delay is `60` because a cold worker also has to fork a
+Django import to answer its first `inspect ping`. Readiness is the opposite:
+initial delay `15`, period `15`, so a rollout is not left idling on a worker that
+is already up, and a stuck worker is caught in dozens of seconds rather than up to
+a minute — safe to run this often *because* it no longer forks anything into the
+container it measures.
 
-Both periods stay at `60`s deliberately. An exec probe runs *inside* the container
-it measures, so every probe forks a full Django and Celery import into the worker's
-own CPU budget and competes with the process that has to answer the ping. Probing
-more often makes a contended worker worse, not better.
+`probes.worker.liveness.periodSeconds` (and the flat `probes.worker.periodSeconds`
+override) still has a **60s floor** enforced by CI (`helm:structure-check`):
+`inspect ping` runs *inside* the container it measures, so probing more often
+forks more Django imports into the worker's own CPU budget and competes with the
+process that has to answer it. Readiness carries no such floor from 0.4 onward — it has
+nothing left to compete with.
 
 Set the per-probe keys — `probes.worker.liveness.initialDelaySeconds`,
-`probes.worker.readiness.periodSeconds`, and so on — to change one probe without the
-other. Each also takes its own `enabled`, empty by default and inheriting
-`probes.worker.enabled`, so you can drop the free probe and keep the destructive one
-(or the reverse) without turning both off.
+`probes.worker.readiness.periodSeconds`, `probes.worker.startup.failureThreshold`,
+and so on — to change one probe without the others. Each also takes its own
+`enabled`, empty by default and inheriting `probes.worker.enabled`, so you can drop
+one probe and keep the others without turning all three off.
 
 :::note[The flat keys still mean "both probes"]
 `probes.worker.initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`,
@@ -469,7 +484,7 @@ knobs operators reach for first:
 | `valkey.sentinel.tls` | `false` | Use TLS to the Valkey data nodes. |
 | `env.TRUEPPM_FRONTEND_BASE_URL` | `""` | Public origin for absolute deep-links in notification emails. |
 | `env.TRUEPPM_PUBLIC_API_BASE_URL` | `""` | Public origin of the API. Pins the OIDC `redirect_uri` and the inbound Git-webhook URL instead of deriving them from the request's `Host` header. Set it with SSO, and whenever your edge does not preserve `Host` — TruePPM ignores `X-Forwarded-Host` by design. |
-| `env.TRUEPPM_THROTTLE_ANON_RATE` / `_USER_RATE` | `60/min` / `1000/min` | API rate limits; probe endpoints are always exempt. |
+| `env.TRUEPPM_THROTTLE_ANON_RATE` / `_USER_RATE` | `60/min` / `1000/min` | API rate limits. `/health/` and `/edition/` are always exempt (they do no dependency work); `/readyz` is **not** — from 0.4 it has its own dedicated, generous scope (`env.TRUEPPM_THROTTLE_READYZ_RATE`, default `2000/min`) instead of a full exemption, because unlike the other two it does a real database and cache round-trip per call. |
 | `env.TRUEPPM_NUM_PROXIES` | `"1"` | Trusted reverse-proxy depth for real-client-IP extraction. A wrong value lets clients spoof `X-Forwarded-For`. |
 | `env.TRUEPPM_RATE_LIMIT_ENABLED` | `"true"` | Global API rate-limiting kill switch. Leave `"true"` in production. Disabling also requires `TRUEPPM_RATE_LIMIT_DISABLE_ACK`; for load testing only ([details](/administration/configuration/#disabling-rate-limiting-entirely)). |
 | `env.TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `"30"` | Trashed-project hard-delete window, in days. **Do not set `0`** — it is not "use the default", it puts the purge cutoff at the present moment and deletes every trashed project, with all child data, via CASCADE. From 0.4 the app will refuse to boot on `0` rather than losing the data silently. An empty string is invalid, not "disabled". To turn auto-purge off, leave this unset and disable the policy in Settings → System Health. See [Retention](/administration/retention/). |

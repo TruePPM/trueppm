@@ -246,8 +246,14 @@ services:
     depends_on:
       api-init:
         condition: service_completed_successfully
+    # /readyz (#3346), not /health/ — this healthcheck is what `nginx`'s
+    # `depends_on: condition: service_healthy` keys off, so it should answer
+    # the same question Kubernetes' readiness probe does (dependencies
+    # reachable AND migrations applied), not the shallow "process is up"
+    # liveness question. Matches the Helm chart's api readiness path so the
+    # two first-five-minutes experiences agree; see administration/probes.md.
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz')\""]
       interval: 15s
       timeout: 5s
       start_period: 30s
@@ -287,14 +293,21 @@ services:
       api-init:
         condition: service_completed_successfully
     # `restart: unless-stopped` only restarts on process EXIT, so a worker whose
-    # event loop has wedged reports `Up` forever (#3189). `celery inspect ping`
-    # round-trips a control-plane message over the broker, so it detects that
-    # AND confirms the pod can still reach Valkey — the same probe the Helm
-    # chart uses.
+    # event loop has wedged reports `Up` forever (#3189). This USED to be
+    # `celery inspect ping`, described here as "the same probe the Helm chart
+    # uses" — that stopped being true in #3346: an exec probe forks a full
+    # Django import into the container it measures, so under load the same
+    # process that has to answer the ping can be busy servicing the pool and
+    # fail the check while doing exactly the job it exists to do (#3236 — a
+    # worker with 0 restarts, processing jobs throughout, that never once
+    # answered `inspect ping`). This now stats a heartbeat file
+    # trueppm_api.core.worker_heartbeat touches every ~2s on the worker's own
+    # timer, independent of task load — a plain filesystem check, matching the
+    # Helm chart's worker readiness probe. See administration/probes.md.
     healthcheck:
-      test: ["CMD-SHELL", "celery -A trueppm_api.celery inspect ping -d celery@$$HOSTNAME --timeout 10 >/dev/null"]
-      interval: 30s
-      timeout: 15s
+      test: ["CMD-SHELL", "find /tmp/trueppm-celery-worker-heartbeat -newermt '-30 seconds' 2>/dev/null | grep -q ."]
+      interval: 15s
+      timeout: 5s
       start_period: 60s
       retries: 3
 
@@ -351,16 +364,23 @@ services:
         condition: service_completed_successfully
       celery:
         condition: service_started
-    # Beat runs no worker control plane of its own, so the ping targets the
-    # fleet: it asserts beat can reach the broker and that a worker answers. The
-    # product already ships /api/v1/health/beat/ for the other direction (is beat
-    # alive?) and nothing consumed it; this is the container-level half (#3189).
-    # A generous failureThreshold keeps a brief worker blip from killing beat.
+    # Beat runs no worker control plane of its own. This USED to fleet-ping
+    # (asserting beat can reach the broker AND that some worker answers), which
+    # coupled beat's own health to whether a worker happened to be reachable at
+    # that moment — a healthy beat could read unhealthy purely because the
+    # worker was mid-restart. #3346 narrows this to what beat's health actually
+    # means: has it loaded its schedule? The shelve at `--schedule` is written
+    # on boot before the first tick, so its existence is the "schedule loaded"
+    # signal (matches the scope this issue's table sets for beat readiness).
+    # The product already ships /api/v1/health/beat/ for the OTHER direction —
+    # is beat still alive and ticking, as opposed to having merely booted once
+    # — via the DB-recorded beat.heartbeat task; nothing else here checks that,
+    # by design (a container healthcheck should not depend on the database).
     healthcheck:
-      test: ["CMD-SHELL", "celery -A trueppm_api.celery inspect ping --timeout 10 >/dev/null"]
-      interval: 60s
-      timeout: 15s
-      start_period: 90s
+      test: ["CMD-SHELL", "test -e /tmp/celerybeat-schedule"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
       retries: 5
 
   # Copies the pre-built frontend assets into the shared volume so nginx

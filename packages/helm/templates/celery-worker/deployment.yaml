@@ -83,12 +83,29 @@ spec:
           {{- end }}
           env:
             {{- include "trueppm.appEnv" . | nindent 12 }}
+            # Keeps the signal handler's write path (trueppm_api.core.worker_heartbeat)
+            # and this Deployment's startup/readiness exec probes reading the SAME
+            # file (#3346) even when an operator overrides probes.worker.heartbeatFile.
+            - name: TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE
+              value: {{ .Values.probes.worker.heartbeatFile | quote }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
             {{- with (include "trueppm.mediaVolumeMount" .) }}
             {{- . | nindent 12 }}
             {{- end }}
+          {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "startup") }}
+          # Heartbeat-file EXISTENCE check (#3346): true once the worker has fired
+          # worker_ready at least once (trueppm_api.core.worker_heartbeat), which
+          # only happens after mingle/gossip complete — i.e. the broker connection
+          # this pod needs is genuinely established. A filesystem stat, so unlike
+          # the ping-based probes it costs nothing to poll every few seconds.
+          # While a startup probe is in play kubelet suspends liveness, so a slow
+          # first boot cannot restart-loop; a worker that never reaches
+          # worker_ready is still caught once failureThreshold is exhausted.
+          startupProbe:
+            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "startup" "mode" "heartbeat-exists" "file" .Values.probes.worker.heartbeatFile) | nindent 12 }}
+          {{- end }}
           {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "liveness") }}
           # `inspect ping` against this pod's own worker node — a wedged event loop
           # stops answering the control-plane ping even while the process lingers.
@@ -97,12 +114,24 @@ spec:
           # were one rendered body until then, which forced identical numbers onto
           # two probes with opposite costs: a readiness failure is free backpressure,
           # a liveness failure kills the container and burns the 300s worker grace.
+          # Liveness keeps this ping-based mechanism on purpose (#3346): a missed
+          # liveness check only restarts the container, a bounded cost, unlike
+          # readiness below, which has none.
           livenessProbe:
             {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "liveness" "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME") | nindent 12 }}
           {{- end }}
           {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "readiness") }}
+          # Heartbeat-file FRESHNESS check (#3236, #3346) — NOT `inspect ping`.
+          # An exec probe runs INSIDE the container it measures, so a worker busy
+          # processing a full queue could miss the ping's window and fail the
+          # probe while doing exactly the job it exists to do; readiness has no
+          # failure budget to widen around that (one success is all it needs, so
+          # a probe that never gets one cannot be repaired by any timing value).
+          # The heartbeat file is refreshed by celery's own heartbeat_sent signal
+          # on a fixed ~2s timer independent of task load, so this check is a
+          # plain filesystem stat with no fork of Django, Celery, or the broker.
           readinessProbe:
-            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "readiness" "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME") | nindent 12 }}
+            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "readiness" "mode" "heartbeat-fresh" "file" .Values.probes.worker.heartbeatFile) | nindent 12 }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources.worker | nindent 12 }}

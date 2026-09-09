@@ -173,6 +173,7 @@ controls. See
 | `CSV_IMPORT_MAX_UNCOMPRESSED_MB` | `100` | Decompression-bomb ceiling for `.xlsx` uploads: the maximum total *uncompressed* size the workbook may declare. |
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | General default rate limit for an **authenticated** account, in DRF `<count>/<period>` form. Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
+| `TRUEPPM_THROTTLE_READYZ_RATE` | `2000/min` | Rate limit for the unauthenticated readiness probe (`GET /api/v1/readyz`), per client IP, in DRF `<count>/<period>` form. Its own scope rather than the shared `anon` bucket — see [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_NUM_PROXIES` | `1` | Number of trusted reverse proxies in front of the API. Used to extract the real client IP for the **unauthenticated** rate limit from the `X-Forwarded-For` chain. The standard Helm chart runs a single ingress (`1`); set to your actual proxy depth, or `0` if the API is reached directly (uses `REMOTE_ADDR`). An incorrect value lets a client spoof its IP and evade the anon limit, so match it to your deployment. |
 | `TRUEPPM_RATE_LIMIT_ENABLED` | `true` | Global on/off switch for **all** API rate limiting. Leave `true` in production. Setting it `false` requires an explicit acknowledgment env var and disables every throttle instance-wide (DoS/abuse protection off) — intended for load testing only. See [disabling rate limiting entirely](#disabling-rate-limiting-entirely) below. |
 | `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` | `5/min` | Per-**account** login rate limit, bucketed by hashed username across all source IPs, in DRF `<count>/<period>` form. Stacks with the fixed per-IP `login` throttle to bound distributed credential stuffing. See [login brute-force protection](#login-brute-force-protection) below. |
@@ -446,16 +447,22 @@ it:
 |----------|---------|------------|
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | Unauthenticated requests, bucketed per client IP |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | Authenticated requests, bucketed per account |
+| `TRUEPPM_THROTTLE_READYZ_RATE` | `2000/min` | The readiness probe (`/api/v1/readyz`) only, bucketed per client IP — see below |
 
 Both use Django REST Framework's `<count>/<period>` syntax, where `period` is
 `sec`, `min`, `hour`, or `day` (for example `120/min` or `5000/hour`).
 
 A few behaviors are worth knowing:
 
-- **The Kubernetes probe endpoints are exempt.** `/api/v1/health/` (liveness /
-  readiness) and `/api/v1/edition/` (the shell's startup edition read) are never
-  counted, so an orchestrator's tight probe loop cannot exhaust the shared limit
-  and trigger spurious pod restarts.
+- **`/api/v1/health/` (liveness) and `/api/v1/edition/` (the shell's startup
+  edition read) are exempt.** They are never counted, so an orchestrator's
+  tight liveness loop cannot exhaust the shared limit and trigger spurious pod
+  restarts. **`/api/v1/readyz` (readiness) is not exempt** — unlike the other
+  two it does a real database and cache round-trip per call, so it gets its
+  own dedicated, generous scope (`TRUEPPM_THROTTLE_READYZ_RATE`, default
+  `2000/min`) instead of a full exemption, bounding an unauthenticated caller
+  who reaches the pod IP directly (the probe path bypasses the Ingress) without
+  risking a legitimate, tight readiness loop.
 - **Scoped endpoints replace, not stack.** Endpoints with their own stricter
   limit — login, token refresh, Monte Carlo, and the other scoped throttles —
   keep only that specific limit; the general default does not add to it.

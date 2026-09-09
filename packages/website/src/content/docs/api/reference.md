@@ -2503,9 +2503,13 @@ Both defaults are operator-configurable (`TRUEPPM_THROTTLE_ANON_RATE` and
 `TRUEPPM_THROTTLE_USER_RATE`; see
 [Configuration](/administration/configuration/#general-api-rate-limiting)).
 
-- **Probe endpoints are exempt.** `/api/v1/health/`, `/api/v1/readyz`, and
-  `/api/v1/edition/` are never rate limited, so Kubernetes liveness/readiness
-  loops are not throttled.
+- **`/api/v1/health/` and `/api/v1/edition/` are exempt.** They are never rate
+  limited, so a Kubernetes liveness loop is not throttled. `/api/v1/readyz` is
+  **not** exempt — unlike those two it does a real database and cache
+  round-trip per call, so it gets its own dedicated, generous scope (`readyz`
+  in the table below) instead of a full exemption, to bound an unauthenticated
+  caller who reaches the pod IP directly (the probe path bypasses the
+  Ingress).
 - **Scoped endpoints replace the default.** An endpoint with its own limit
   carries only that specific limit — scoped limits do **not** stack on top of
   the general default (two *different* scoped throttles on the same endpoint,
@@ -2526,6 +2530,7 @@ return `429` with the same `Retry-After` envelope shown above.
 |-------|------|------------|
 | `anon` | 60/min (`TRUEPPM_THROTTLE_ANON_RATE`) | General default, unauthenticated |
 | `user` | 1000/min (`TRUEPPM_THROTTLE_USER_RATE`) | General default, authenticated |
+| `readyz` | 2000/min (`TRUEPPM_THROTTLE_READYZ_RATE`) | `/api/v1/readyz` — its own scope, not the shared `anon` bucket, since its traffic comes from kubelet hitting the pod IP directly rather than through the Ingress |
 | `login` | 10/min | Login, per client IP |
 | `login_account` | 5/min (`TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE`) | Login, per submitted username — stacks with `login` |
 | `password_reset` | 5/min | Password-reset request + confirm |

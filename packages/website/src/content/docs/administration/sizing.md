@@ -319,6 +319,51 @@ replica additionally buys you redundancy, which a second worker in the same pod
 does not. Prefer replicas there. See [Durability &
 Redundancy](/administration/durability/#the-step-up-ladder) for what that costs.
 
+## Startup budget
+
+:::note[Ships in 0.4]
+The worker `startup` probe, the worker's heartbeat-based `readiness` probe, and
+the tunable web probes below ship in 0.4 (#3346). On 0.3 the worker has no
+startup probe and its readiness probe is `celery inspect ping` on a 60s period
+— see [Tuning celery probes apart](/administration/helm-values/#tuning-celery-probes-apart)
+for what changed and why.
+:::
+
+How long each component can take to boot before Kubernetes gives up on it and
+restarts the container, at the chart's shipped probe defaults. This is the
+number to compare against your node's actual boot time (image pull, migration
+count, broker reconnect) when deciding whether to raise a `failureThreshold` or
+`periodSeconds` for a slower environment. Full probe semantics — what each one
+checks, and what to do when it fails — are in
+[Startup, Readiness, and Liveness Probes](/administration/probes/); this table
+is only the arithmetic.
+
+| Component | Time to first Ready (typical) | Time to restart if never Ready |
+|---|---|---|
+| api | ~10s (`readiness.initialDelaySeconds`) once migrations are applied and the DB/cache answer | With no startup probe (default): `livenessInitialDelaySeconds` (30) + `livenessFailureThreshold` (3) × `livenessPeriodSeconds` (30) = **120s**. With `probes.api.startupEnabled=true`: `startupFailureThreshold` (30) × `startupPeriodSeconds` (5) = **150s**, and liveness is suspended until startup passes. |
+| celery worker | ~15s (`readiness.initialDelaySeconds`) once `worker_ready` has fired once | Startup: `failureThreshold` (30) × `periodSeconds` (5) = **150s** — this gates whether the container is ever considered for liveness at all. Liveness (once startup passes): `initialDelaySeconds` (60) + `failureThreshold` (5) × `periodSeconds` (60) = **360s total**, derived to match the worker's 300s termination grace so a kill never costs more unavailability than the detection that ordered it. |
+| celery beat | N/A (liveness-only; no readiness, see below) | `initialDelaySeconds` (30) + `failureThreshold` (5) × `periodSeconds` (60) = **330s**. Beat's grace is only 30s, so a kill itself is cheap — the generous threshold exists to absorb a brief worker blip on the fleet ping, not a slow beat boot. |
+| web (nginx) | ~5s (`readinessInitialDelaySeconds`) — no startup dependency, so this is close to the container's actual start time | `livenessInitialDelaySeconds` (10) + `failureThreshold` (3, chart default) × `livenessPeriodSeconds` (30) = **100s** |
+
+Two numbers on this page are not tunable per-component budgets, on purpose:
+
+- **Beat renders no readiness probe.** It is a pinned singleton behind no
+  Service (`strategy: Recreate`, `replicas: 1`), so a readiness probe would
+  gate nothing beyond rolling-update pacing that a singleton doesn't do, while
+  still costing a Django import in the chart's tightest cgroup (250m CPU /
+  256Mi). "Schedule loaded" — the readiness question the
+  [scope table](/administration/probes/) poses for beat — is answered instead
+  by the presence of the `--schedule` shelve file, which is what the Docker
+  Compose healthchecks check directly (Helm has no Service to gate, so it does
+  not render an equivalent probe).
+- **The API's `failureThreshold` (3) on liveness is not itself configurable
+  independent of the shared default** — it comes from
+  `probes.api.livenessInitialDelaySeconds`/`livenessPeriodSeconds` plus
+  Kubernetes' own default `failureThreshold: 3` on any probe block that does
+  not set one explicitly (the API's `probes.*` values in `values.yaml` do not
+  expose it as a separate key). Set it directly in a chart patch if your
+  environment needs a different one.
+
 ## Bottlenecks, in the order they bite
 
 1. **Celery / Monte Carlo CPU.** The scheduler is the heavy part. A portfolio reforecast or a Monte Carlo run (P50/P80/P95) is a CPU-bound burst. At 100+ concurrent users triggering recalculations, this is the first wall you hit. Scale Celery replicas, and raise `celeryWorker.concurrency` to match the pod's CPU limit. The chart pins this at `2` by default precisely so it never falls back to Celery's `cpu_count()` auto-detection, which reads the node's cores rather than the cgroup limit, over-allocates, and gets OOM-killed (the dev compose file caps it at 2 for the same reason).
