@@ -220,3 +220,17 @@ schema:PaginatedPhaseList
 # VALID_WINDOWS constant was confirmed unshared and removed with the view; the
 # _MAX_HISTORY_ROWS cap on the surviving list views is untouched.
 /api/v1/projects/{project_pk}/history/summary/
+
+# #3650 — GET /me/work/ under-declared response fixed. The endpoint's
+# @extend_schema was decorating `list()`, a ListModelMixin method a bare
+# ListAPIView.get() only delegates to internally — drf-spectacular resolves an
+# override off the HTTP-verb method (`get`), never saw it, and fell back to
+# auto-inferring the envelope from `serializer_class` + `pagination_class`
+# alone, missing the five hand-added top-level keys the view actually returns
+# (active_sprints, due_today_count, server_version_high_water,
+# retro_action_items, signals, external_items, external_sources). The
+# decorator now lives on an explicit `get()` override and declares the real
+# envelope as MeWorkListPage. The phantom PaginatedMeWorkTaskList component is
+# superseded, the same #2127 class of fix — no path is removed and the
+# response body is unchanged (it is now correctly documented, not different).
+schema:PaginatedMeWorkTaskList

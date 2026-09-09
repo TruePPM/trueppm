@@ -12,9 +12,11 @@ from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
+from rest_framework.throttling import ScopedRateThrottle
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
@@ -29,6 +31,7 @@ from trueppm_api.apps.projects.services import (
     MAX_BURN_HORIZON_DAYS,
     MAX_BURN_WINDOW_DAYS,
 )
+from trueppm_api.apps.projects.views import ProjectBurnView
 
 User = get_user_model()
 
@@ -559,3 +562,84 @@ def test_baseline_series_uses_story_points_when_metric_is_points(
     # The key assertion is that planned is NOT 3 (the task count).
     assert point["planned"] != 3, "baseline overlay must use story_points, not task count"
     assert point["planned"] == 0  # 3 tasks × 5 pts all finish ≤ today
+
+
+# ---------------------------------------------------------------------------
+# Throttle (#3581)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBurnThrottle:
+    """Scoped rate limit on ``GET /api/v1/projects/<pk>/burn/`` (#3581).
+
+    ``ProjectBurnView`` previously declared no ``throttle_classes`` and fell
+    through to the general "user" default of 1000/min. The read reconstructs its
+    series from ``HistoricalTask`` snapshots — #3566 bounds the *window* per
+    request, but the floor cost still scales with project history (#3579) — and
+    any project member, including a Viewer, can issue it. These tests drive real
+    requests through the API client and assert on the resulting ``429``;
+    asserting ``throttle_scope`` alone would pass even if ``ScopedRateThrottle``
+    silently no-ops when the view carries no ``throttle_scope`` attribute — the
+    exact failure mode tracked as #3598, live on another branch at the time this
+    was written.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear_throttle_cache(self) -> object:
+        """The ``burn`` scope's rate-limit history lives in the LocMem cache;
+        clear it around each test so a drained bucket never leaves a later test
+        pre-throttled."""
+        cache.clear()
+        yield
+        cache.clear()
+
+    def test_exceeding_rate_returns_429(
+        self, project: Project, member: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Patch the rate on the shared ``ScopedRateThrottle`` class — DRF binds
+        ``THROTTLE_RATES`` at import, so a plain settings override never reaches
+        the already-bound throttle (same idiom as ``TestWhatIfThrottle``)."""
+        monkeypatch.setattr(
+            ScopedRateThrottle,
+            "THROTTLE_RATES",
+            {**ScopedRateThrottle.THROTTLE_RATES, "burn": "2/min"},
+        )
+        _create_tasks(project, 1)
+        c = _client(member)
+        statuses = [c.get(f"/api/v1/projects/{project.pk}/burn/").status_code for _ in range(3)]
+        assert statuses == [200, 200, 429]
+
+    def test_throttle_is_per_account_not_global(
+        self, project: Project, member: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One member exhausting the bucket must not lock out a second account —
+        the scope keys on the user, so a fresh account gets its own allowance."""
+        monkeypatch.setattr(
+            ScopedRateThrottle,
+            "THROTTLE_RATES",
+            {**ScopedRateThrottle.THROTTLE_RATES, "burn": "1/min"},
+        )
+        _create_tasks(project, 1)
+        c = _client(member)
+        assert c.get(f"/api/v1/projects/{project.pk}/burn/").status_code == 200
+        assert c.get(f"/api/v1/projects/{project.pk}/burn/").status_code == 429
+
+        other_user = User.objects.create_user(username="member2", password="pw")
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.VIEWER)
+        other = _client(other_user)
+        assert other.get(f"/api/v1/projects/{project.pk}/burn/").status_code == 200
+
+    def test_throttle_scope_is_declared_on_the_view(self) -> None:
+        """``ScopedRateThrottle`` resolves its scope from ``view.throttle_scope``
+        at request time — a bare ``scope`` class attribute set on the throttle
+        (the pattern used by the FBV-only ``MonteCarloRunThrottle`` /
+        ``TelemetryTestThrottle`` subclasses) is NOT read for a CBV, since
+        ``allow_request`` re-reads ``getattr(view, 'throttle_scope', None)``.
+        Missing it makes the check return ``True`` unconditionally — no
+        throttling at all (#3598's failure mode). This pins the attribute so a
+        future refactor cannot silently drop it; it is a *supplement* to the two
+        429 tests above, not a replacement, since a passing attribute check alone
+        proves nothing about the rate actually being enforced."""
+        assert ProjectBurnView.throttle_classes == [ScopedRateThrottle]
+        assert ProjectBurnView.throttle_scope == "burn"
