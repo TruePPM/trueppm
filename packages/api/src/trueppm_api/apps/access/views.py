@@ -48,10 +48,12 @@ from trueppm_api.apps.access.serializers import (
     ExternalStakeholderSerializer,
     MeSerializer,
     ProgramMembershipReadSerializer,
+    ProgramMembershipUpdateSerializer,
     ProgramMembershipWriteSerializer,
     ProgramUserDefinedMentionGroupReadSerializer,
     ProgramUserDefinedMentionGroupWriteSerializer,
     ProjectMembershipReadSerializer,
+    ProjectMembershipUpdateSerializer,
     ProjectMembershipWriteSerializer,
     UserDefinedMentionGroupReadSerializer,
     UserDefinedMentionGroupWriteSerializer,
@@ -238,7 +240,10 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         return names_map
 
     def get_serializer_class(self) -> type[BaseSerializer[ProjectMembership]]:
-        if self.action in ("create", "partial_update", "update"):
+        if self.action in ("partial_update", "update"):
+            # An update body carries role only — ``user`` is immutable (#3641).
+            return ProjectMembershipUpdateSerializer
+        if self.action == "create":
             return ProjectMembershipWriteSerializer
         return ProjectMembershipReadSerializer
 
@@ -307,11 +312,27 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             ).data
         )
 
+    @extend_schema(
+        responses={
+            201: ProjectMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, or "
+                "``user`` names an account the caller cannot reach (#3641). The "
+                "unreachable-target message is identical to the one a nonexistent id "
+                "gets, so the field is not an existence oracle."
+            ),
+        }
+    )
     def create(self, request: Request, **kwargs: object) -> Response:
         project = self._get_project_or_404()
         self._require_actor_role(request, project.pk, Role.OWNER)
 
-        serializer = ProjectMembershipWriteSerializer(data=request.data)
+        # The write serializer bounds ``user`` to the accounts this caller may name
+        # (reachable_membership_targets, #3641) — it needs the request to do that,
+        # and resolves nobody without it.
+        serializer = ProjectMembershipWriteSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
         actor_role = _membership_role(request, project.pk)
@@ -402,11 +423,24 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             ProjectMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(
+        responses={
+            200: ProjectMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, "
+                "demoting this member would strand the project without an Owner, or the "
+                "body carried ``user`` — a membership's account is fixed at creation "
+                "(#3641)."
+            ),
+        }
+    )
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         project = self._get_project_or_404()
         instance = self.get_object()
 
-        serializer = ProjectMembershipWriteSerializer(instance, data=request.data, partial=True)
+        serializer = ProjectMembershipUpdateSerializer(
+            instance, data=request.data, partial=True, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
         new_role = serializer.validated_data.get("role")
@@ -1194,15 +1228,23 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
     permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
 
     def get_permissions(self) -> list[BasePermission]:
-        """Express the Owner-only create gate at the permission layer (#1351).
+        """Express the create/update role floors at the permission layer (#1351).
 
         ``create`` is Owner-only, so IsProgramOwner is added as defense-in-depth
-        over the in-body ``_require_actor_role(OWNER)`` check. ``partial_update``
-        is deliberately excluded: a ``role_title``-only PATCH (benign descriptive
-        metadata, #565) is permitted at Admin+, and the body already escalates to
-        the Owner gate only when ``role``/``user`` change — gating the whole action
-        on Owner here would regress that Admin metadata branch. ``destroy`` allows
-        self-remove, so it is excluded too.
+        over the in-body ``_require_actor_role(OWNER)`` check.
+
+        ``partial_update`` carries **Admin**, not Owner: a ``role_title``-only PATCH
+        (benign descriptive metadata, #565) is permitted at Admin+, and the body
+        escalates to the Owner gate only when ``role`` changes. Gating the whole
+        action on Owner here would regress that Admin metadata branch. Admin is the
+        floor the body already enforces, and stating it here is what keeps a
+        below-Admin caller's refusal a **403 about their authority** rather than a
+        400 from whichever field validator happened to run first — the convention
+        ``destroy`` states at the bottom of this class (#3365). It matters since
+        #3641: ``user`` is now refused by the serializer, which runs before the
+        in-body role check.
+
+        ``destroy`` allows self-remove, so it is excluded.
         """
         perms: list[BasePermission] = [
             IsAuthenticated(),
@@ -1211,6 +1253,8 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         ]
         if self.action == "create":
             perms.append(IsProgramOwner())
+        elif self.action in ("partial_update", "update"):
+            perms.append(IsProgramAdmin())
         return perms
 
     def get_queryset(self) -> QuerySet[ProgramMembership]:
@@ -1220,7 +1264,10 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         )
 
     def get_serializer_class(self) -> type[BaseSerializer[ProgramMembership]]:
-        if self.action in ("create", "partial_update", "update"):
+        if self.action in ("partial_update", "update"):
+            # An update body carries role/role_title only — ``user`` is immutable (#3641).
+            return ProgramMembershipUpdateSerializer
+        if self.action == "create":
             return ProgramMembershipWriteSerializer
         return ProgramMembershipReadSerializer
 
@@ -1277,11 +1324,24 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         instance = self.get_object()
         return Response(ProgramMembershipReadSerializer(instance).data)
 
+    @extend_schema(
+        responses={
+            201: ProgramMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, or "
+                "``user`` names an account the caller cannot reach (#3641) — see the "
+                "project twin."
+            ),
+        }
+    )
     def create(self, request: Request, **kwargs: object) -> Response:
         program = self._get_program_or_404()
         self._require_actor_role(request, program.pk, Role.OWNER)
 
-        serializer = ProgramMembershipWriteSerializer(data=request.data)
+        # See the project twin: ``user`` is caller-scoped and needs the request.
+        serializer = ProgramMembershipWriteSerializer(
+            data=request.data, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
 
         actor_role = _program_membership_role(request, program.pk)
@@ -1331,22 +1391,38 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             ProgramMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(
+        responses={
+            200: ProgramMembershipReadSerializer,
+            400: state_refusal_400(
+                "Refused on the request: the role is at or above the caller's own, "
+                "demoting this member would strand the program without an Owner, or the "
+                "body carried ``user`` — a membership's account is fixed at creation "
+                "(#3641)."
+            ),
+        }
+    )
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         program = self._get_program_or_404()
         instance = self.get_object()
 
-        serializer = ProgramMembershipWriteSerializer(instance, data=request.data, partial=True)
+        serializer = ProgramMembershipUpdateSerializer(
+            instance, data=request.data, partial=True, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         new_role = serializer.validated_data.get("role")
-        new_user = serializer.validated_data.get("user")
 
-        # Reassigning the access role or the member identity stays Owner-only (the
-        # ADR-0070 matrix). The freeform role_title (#565) is benign descriptive
-        # metadata — not enforced anywhere — so a role_title-only PATCH is allowed
-        # at Admin+. A request that also touches role/user is privileged and falls
-        # back to the Owner gate.
-        privileged_change = new_role is not None or new_user is not None
-        required_role = Role.OWNER if privileged_change else Role.ADMIN
+        # Changing the access role stays Owner-only (the ADR-0070 matrix). The
+        # freeform role_title (#565) is benign descriptive metadata — not enforced
+        # anywhere — so a role_title-only PATCH is allowed at Admin+. A request that
+        # also touches role is privileged and falls back to the Owner gate.
+        #
+        # Reassigning the *member identity* is no longer a privileged change here
+        # because it is no longer a change at all: the serializer refuses ``user`` on
+        # update at any role (#3641). Swapping the account behind a live row was a
+        # second route to the same address harvest, and it rewrote who held access
+        # while keeping the row's ``joined_at`` access evidence.
+        required_role = Role.OWNER if new_role is not None else Role.ADMIN
 
         # Lock the actor's membership row inside an atomic block to close the
         # TOCTOU window where a concurrent demotion could let the actor assign

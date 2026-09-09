@@ -3,6 +3,22 @@
 ## Status
 Accepted — 2026-08-01, for #2597 (0.4)
 
+**Amended 2026-09-08 (#3371):** §2 (`withdraw_approval` / `POST
+/api/v1/tasks/{id}/withdraw-approval/`) is **removed**. A 2026-09-04 dead-surface
+audit found the action had no client consumer and had never shipped — the
+`changelog.d/2597.fixed.md` fragment announcing it was still unassembled 5 weeks
+after merge. Deleting it re-opens the ergonomic hole this ADR's §2 closed (a
+Scheduler who approves in error has no way back), but that trade was made
+deliberately: a route with a stated intended consumer and zero actual ones is a
+maintained no-op, not working functionality on standby, and estimate approval is
+still recoverable via the audit trail (§4) even without a self-service undo. The
+decision: **delete, and accept that approval is one-way until a UI asks for
+undo** — rather than build the consumer `useApproveEstimates` never grew. §1 (the
+no-op-PERT-edit fix) is unaffected by this amendment and remains in effect; only
+§2 and the RBAC wiring in §3 that named `withdraw_approval` are superseded. No new
+ADR was opened for the removal — this note is the record. Tagged
+`pre-withdraw-approval-removal-2026-09-08` immediately before the removal commit.
+
 ## Context
 
 `TaskSerializer._apply_estimate_governance` (`packages/api/src/trueppm_api/apps/projects/serializers.py:4732`)

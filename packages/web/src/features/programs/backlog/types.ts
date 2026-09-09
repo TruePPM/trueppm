@@ -6,6 +6,8 @@
  * (not a project name), so those are absent / optional accordingly.
  */
 
+import type { Methodology } from '@/types';
+
 export type BacklogItemStatus = 'PROPOSED' | 'PULLED' | 'ARCHIVED';
 
 export type BacklogItemType = 'epic' | 'feature' | 'story' | 'task' | 'spike' | 'chore' | 'bug';
@@ -92,6 +94,15 @@ export interface MemberProject {
   color?: string;
   /** Count of items already in this project's backlog, when available. */
   backlogCount?: number;
+  /**
+   * The project's resolved methodology (#3644). Shown in the pull picker so a PM
+   * can see they are about to pull into a schedule-first project *before* they
+   * commit — there is no un-pull endpoint, so this is the last moment the
+   * information can change the decision. Optional because an older cached roster
+   * may not carry it, and a picker row degrades to name-only rather than
+   * asserting a preset it cannot back up.
+   */
+  methodology?: Methodology;
 }
 
 /** Status values the inline status dropdown may set (PULLED excluded — that

@@ -9696,7 +9696,7 @@
                                 }
                             }
                         },
-                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer."
+                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at program Admin+, which is self-grantable by creating a project/program, so the field is gated independently of endpoint access (#3627)."
                     },
                     "403": {
                         "description": "Not a program Admin — or an agent (`mcp:read`) token where a member project has opted out of agent reads and `TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` is `withhold` (#3014). The body carries the ADR-0809 refusal envelope naming `capability_scope`."
@@ -11253,7 +11253,7 @@
                                 }
                             }
                         },
-                        "description": "Merged program schedule computed on read: project lanes, tasks (full for projects the caller can read, redacted ExternalTaskCard shape otherwise), leaf-level links flagged cross-project, and the program-true critical path."
+                        "description": "Merged program schedule computed on read: project lanes (each with its own rolled-up working-day duration, #3597), tasks (full — including each task's own working-day duration — for projects the caller can read, redacted ExternalTaskCard shape otherwise, with no duration field), leaf-level links flagged cross-project, and the program-true critical path."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -14106,11 +14106,26 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProgramMembershipWrite"
+                                    "$ref": "#/components/schemas/ProgramMembershipRead"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Refused on the request: the role is at or above the caller's own, or ``user`` names an account the caller cannot reach (#3641) — see the project twin."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -14123,39 +14138,6 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -14263,17 +14245,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProgramMembershipUpdateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProgramMembershipUpdateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProgramMembershipUpdateRequest"
                             }
                         }
                     }
@@ -14294,11 +14276,26 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProgramMembershipWrite"
+                                    "$ref": "#/components/schemas/ProgramMembershipRead"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Refused on the request: the role is at or above the caller's own, demoting this member would strand the program without an Owner, or the body carried ``user`` — a membership's account is fixed at creation (#3641)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -14311,39 +14308,6 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -19700,7 +19664,7 @@
                                 }
                             }
                         },
-                        "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer."
+                        "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at project Admin+, which is self-grantable by creating a project, so the field is gated independently of endpoint access (#3627)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -27940,11 +27904,26 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProjectMembershipWrite"
+                                    "$ref": "#/components/schemas/ProjectMembershipRead"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Refused on the request: the role is at or above the caller's own, or ``user`` names an account the caller cannot reach (#3641). The unreachable-target message is identical to the one a nonexistent id gets, so the field is not an existence oracle."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -27957,39 +27936,6 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -28097,17 +28043,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProjectMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProjectMembershipUpdateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProjectMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProjectMembershipUpdateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProjectMembershipWriteRequest"
+                                "$ref": "#/components/schemas/PatchedProjectMembershipUpdateRequest"
                             }
                         }
                     }
@@ -28128,11 +28074,26 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProjectMembershipWrite"
+                                    "$ref": "#/components/schemas/ProjectMembershipRead"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Refused on the request: the role is at or above the caller's own, demoting this member would strand the project without an Owner, or the body carried ``user`` — a membership's account is fixed at creation (#3641)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -28145,39 +28106,6 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -46819,90 +46747,6 @@
                 "summary": "Revoke suggestion"
             }
         },
-        "/api/v1/tasks/{id}/withdraw-approval/": {
-            "post": {
-                "operationId": "v1_tasks_withdraw_approval_create",
-                "description": "Revoke an accepted three-point estimate back to pending (ADR-0766, #2597).\n\nSymmetric counterpart to approve_estimates: lets a Scheduler undo an approval\ngiven in error without having to trigger a PERT-field no-op write to force\nthe downgrade — that no-op path was the accidental-revocation bug this same\nissue closes. Only meaningful when estimation_mode is SUGGEST_APPROVE.\nIdempotent — calling on a task that is not currently accepted (already\npending, or ungoverned/null) is a no-op (200, no DB write, no broadcast).\n\nPermission: IsProjectScheduler+ (Resource Manager and above) — same gate as\napprove_estimates; whoever can grant the approval can withdraw it.",
-                "summary": "Withdraw an approved three-point estimate back to pending",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "description": "A UUID string identifying this task.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Task"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "400": {
-                        "description": "Project estimation_mode is not suggest_approve."
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/tasks/{task_pk}/time-entries/": {
             "get": {
                 "operationId": "v1_tasks_time_entries_retrieve",
@@ -59267,13 +59111,10 @@
                     }
                 }
             },
-            "PatchedProgramMembershipWriteRequest": {
+            "PatchedProgramMembershipUpdateRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
+                "description": "PATCH body — ``role`` and ``role_title`` only; see the project twin for why.",
                 "properties": {
-                    "user": {
-                        "type": "integer"
-                    },
                     "role": {
                         "allOf": [
                             {
@@ -59479,13 +59320,10 @@
                     }
                 }
             },
-            "PatchedProjectMembershipWriteRequest": {
+            "PatchedProjectMembershipUpdateRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
+                "description": "PATCH body — ``role`` only.\n\nA separate class rather than ``read_only_fields`` on the add serializer so the\npublished schema tells the truth: ``user`` is genuinely not part of an update\nbody, and an integrator reading ``PatchedProjectMembershipWriteRequest`` would\notherwise still see it advertised as writable. Sending it anyway is refused by\nthe inherited ``validate`` rather than silently dropped (#3641).",
                 "properties": {
-                    "user": {
-                        "type": "integer"
-                    },
                     "role": {
                         "type": "integer",
                         "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
@@ -62108,38 +61946,13 @@
                     "user_detail"
                 ]
             },
-            "ProgramMembershipWrite": {
-                "type": "object",
-                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
-                "properties": {
-                    "user": {
-                        "type": "integer"
-                    },
-                    "role": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/RoleEnum"
-                            }
-                        ],
-                        "minimum": -2147483648,
-                        "maximum": 2147483647
-                    },
-                    "role_title": {
-                        "type": "string",
-                        "maxLength": 50
-                    }
-                },
-                "required": [
-                    "role",
-                    "user"
-                ]
-            },
             "ProgramMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID), role, and the freeform role_title.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (role/user reassignment stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
+                "description": "Write serializer — accepts user, role, and the freeform role_title.\n\n``user`` is the stock ``auth.User`` **integer** primary key, bounded to\n:func:`reachable_membership_targets` on add and refused entirely on\n``partial_update`` (#3641) — the project twin carries the same constraint for the\nsame reason.\n\n``program`` is injected from the URL. ``role_title`` (#565) is optional; the\nview gates *who* may set it (a role change stays Owner-only, while a\nrole_title-only PATCH is allowed at Admin+).",
                 "properties": {
                     "user": {
-                        "type": "integer"
+                        "type": "integer",
+                        "description": "The stock auth.User integer primary key of the account to add. Bounded to accounts you can already reach: a workspace Admin may name any active account; anyone else may name themselves or somebody already on a project or program roster they belong to. Deactivated accounts are never accepted. An id outside that set is refused with 400 and the same message a nonexistent id gets, so this field is not an existence oracle — use a workspace invite to bring in anyone further out. Accepted on add only; a membership's user cannot be changed."
                     },
                     "role": {
                         "allOf": [
@@ -64315,28 +64128,13 @@
                     "user_detail"
                 ]
             },
-            "ProjectMembershipWrite": {
-                "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
-                "properties": {
-                    "user": {
-                        "type": "integer"
-                    },
-                    "role": {
-                        "type": "integer",
-                        "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
-                    }
-                },
-                "required": [
-                    "user"
-                ]
-            },
             "ProjectMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
+                "description": "Write serializer — accepts user and role; project is injected from URL.\n\n``user`` is the stock ``auth.User`` **integer** primary key (TruePPM has no custom\nuser model), and it is bounded to :func:`reachable_membership_targets` — see that\nfunction for who a caller may name and why. It is accepted on add only; a\n``partial_update`` that carries it is refused (#3641).\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
                 "properties": {
                     "user": {
-                        "type": "integer"
+                        "type": "integer",
+                        "description": "The stock auth.User integer primary key of the account to add. Bounded to accounts you can already reach: a workspace Admin may name any active account; anyone else may name themselves or somebody already on a project or program roster they belong to. Deactivated accounts are never accepted. An id outside that set is refused with 400 and the same message a nonexistent id gets, so this field is not an existence oracle — use a workspace invite to bring in anyone further out. Accepted on add only; a membership's user cannot be changed."
                     },
                     "role": {
                         "type": "integer",

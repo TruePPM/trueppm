@@ -129,6 +129,32 @@ Authorization: Bearer <token>
 
 **Role escalation rule:** you can only assign a role strictly below your own. An Owner (400) can assign up to Admin (300).
 
+#### Who you can add
+
+:::note[Ships in 0.4]
+Until 0.4, `user` accepts any account on the installation.
+:::
+
+0.4 bounds `user` to accounts you can already reach, so adding somebody can never
+reveal an account you could not already see:
+
+| You are | You can add |
+|---|---|
+| A workspace Admin or Owner | Any active account |
+| Anyone else | Yourself, and anyone already on a project or program roster you belong to |
+
+Deactivated accounts are never addable, at any tier. A target outside your reach is
+refused with `HTTP 400` and a `user` error — the same response a nonexistent id gets,
+so the endpoint cannot be used to test whether an account exists.
+
+To bring in somebody nobody on your rosters has worked with, use a
+[workspace invite](/administration/workspace-settings/) instead. It is keyed on an
+email address you already hold, so it discloses nothing; once they accept, they are a
+workspace member and reachable the normal way.
+
+`user` is **not** accepted on `PATCH`. A membership row's account is fixed at creation
+— remove the member and add the other account instead.
+
 ### Change a member's role
 
 ```http

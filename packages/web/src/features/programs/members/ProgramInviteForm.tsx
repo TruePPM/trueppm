@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { UserSearchResult } from '@/api/types';
 import { useUserSearch } from '@/features/settings/hooks/useUserSearch';
 import { RolePicker } from '@/features/settings/members/RolePicker';
+import { extractFieldErrors } from '@/lib/apiError';
 import { ROLE_MEMBER } from '@/lib/roles';
 import { useAddProgramMember } from '../hooks/useProgramMemberMutations';
 
@@ -30,6 +31,15 @@ export function ProgramInviteForm({ programId }: Props) {
 
   const { data: results = [], isFetching } = useUserSearch(debouncedQ);
   const { mutate: addMember, isPending, error } = useAddProgramMember(programId);
+
+  // A 400 on this route is a refusal the server can explain — most often a target
+  // this caller is not allowed to add (#3641). The generic branch's "please try
+  // again" is wrong advice for it: the server has already decided, so replaying the
+  // identical request is rejected identically. Surface the server's own `user`
+  // message, which names the remedy, rather than restating the rule here where the
+  // two would drift. Safe to key off one shared mutation: this form submits one
+  // target at a time, so the refusal can only be about the user it names.
+  const refusalMessage = extractFieldErrors(error).user ?? null;
 
   const conflictError =
     error &&
@@ -69,8 +79,8 @@ export function ProgramInviteForm({ programId }: Props) {
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <p className="text-xs text-neutral-text-secondary">
-        Users must have an existing TruePPM account to be added to a program. They will
-        not gain access to projects in this program automatically.
+        Users must have an existing TruePPM account to be added to a program. They will not gain
+        access to projects in this program automatically.
       </p>
 
       <div className="flex flex-col gap-2 sm:flex-row">
@@ -211,7 +221,12 @@ export function ProgramInviteForm({ programId }: Props) {
           This user is already a member of the program.
         </p>
       )}
-      {error && !conflictError && (
+      {refusalMessage && !conflictError && (
+        <p role="alert" className="text-xs text-semantic-critical">
+          {refusalMessage}
+        </p>
+      )}
+      {error && !conflictError && !refusalMessage && (
         <p role="alert" className="text-xs text-semantic-critical">
           Failed to add member &mdash; please try again.
         </p>

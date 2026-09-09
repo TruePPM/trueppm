@@ -17,8 +17,11 @@ import type {
  * row-model change (ADR-0030 "constrained mode, not a new library").
  *
  * Render-don't-derive (ADR-0115): criticality (`isCritical`), cross-project-ness
- * (`crossProject`), and external redaction (`isExternal`) all come straight from
- * the server — nothing is recomputed in the browser.
+ * (`crossProject`), external redaction (`isExternal`), and — since #3597 — each
+ * full task's and lane's working-day `duration` all come straight from the
+ * server; nothing is recomputed in the browser. (The one exception is an
+ * ADR-0120 D5 redacted card's `duration`, which has no server value to read —
+ * see `inclusiveDays`.)
  */
 
 /** Prefix marking a synthetic project-lane summary row (no backing entity). */
@@ -39,7 +42,17 @@ export function projectIdFromLaneId(laneId: string): string {
   return laneId.slice(LANE_ID_PREFIX.length);
 }
 
-/** Inclusive calendar-day span between two ISO `YYYY-MM-DD` dates (≥1). */
+/**
+ * Inclusive CALENDAR-day span between two ISO `YYYY-MM-DD` dates (≥1).
+ *
+ * Deliberately kept for exactly one caller (`leafTask`'s external-task branch,
+ * #3597): an ADR-0120 D5 redacted card has no server `duration` field — only
+ * `early_start`/`early_finish` are exposed for a task in a project the
+ * requester cannot read — so it is the only remaining shape with no
+ * working-day value to read. Every other duration on this page (full tasks,
+ * lane rollups) reads a server-computed working-day value instead; do not
+ * reintroduce this as a shortcut for either.
+ */
 function inclusiveDays(startIso: string, finishIso: string): number {
   const start = Date.parse(`${startIso}T00:00:00Z`);
   const finish = Date.parse(`${finishIso}T00:00:00Z`);
@@ -66,7 +79,10 @@ function laneSummaryTask(lane: ProgramScheduleLane, laneTasks: ProgramScheduleTa
     name: lane.name,
     start,
     finish,
-    duration: start && finish ? inclusiveDays(start, finish) : 0,
+    // Server-computed working days over the lane's own rolled-up span (#3597) —
+    // replaces a client-derived calendar-day count that read ~1.4x too long
+    // whenever the span crossed a weekend.
+    duration: lane.duration,
     progress: 0,
     parentId: null,
     isCritical: false,
@@ -98,7 +114,15 @@ function leafTask(task: ProgramScheduleTask, laneId: string): Task {
     // arrows would have no endpoints to draw to. A task with no `early_start`
     // stays unscheduled (null → the gutter), matching the single-project view.
     plannedStart: earlyStart,
-    duration: earlyStart && earlyFinish ? inclusiveDays(earlyStart, earlyFinish) : 1,
+    // A full task's `duration` is a server-computed working-day value (#3597) —
+    // the same field the project schedule reads for this task, per ADR-0115. An
+    // externally-redacted card (ADR-0120 D5) carries no `duration` at all, so it
+    // keeps the pre-#3597 calendar-day approximation from its two exposed dates.
+    duration: task.is_external
+      ? earlyStart && earlyFinish
+        ? inclusiveDays(earlyStart, earlyFinish)
+        : 1
+      : task.duration,
     progress: 0,
     parentId: laneId,
     isCritical: task.is_critical,

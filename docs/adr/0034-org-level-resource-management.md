@@ -33,16 +33,24 @@
 > the actor cannot see — but #3174 already chose a different remedy for exactly that
 > reach (an audit event naming the actor) and closed on it. Reopening the gate
 > question here would re-decide a closed ADR under a hardening fix; it is recorded as
-> a known residual instead. (2) Three endpoints outside this ADR's serializer
+> a known residual instead. (2) Two endpoints outside this ADR's serializer
 > hand-build their payload and still return `email` to a caller holding a project
 > role they can grant themselves: the project and program **`resource-allocation`**
-> views (#3599) and the **project seed export** (#3627). So the #891 harvest control
-> is tightened on the catalog by this amendment, not completed — the invariant
-> "`Resource.email` is workspace-Admin-only" holds for `ResourceSerializer` and for
-> nothing else yet. A related asymmetry this amendment creates: `email` is now
-> *readable* only at workspace ADMIN but remains *writable* at the derived org gate
-> (#3625). Tracked as #3600, #3599, #3627 and #3625; none should be read as this ADR
-> endorsing the derivation for them.
+> views (#3599). So the #891 harvest control is tightened on the catalog by this
+> amendment, not completed — the invariant "`Resource.email` is workspace-Admin-only"
+> holds for `ResourceSerializer` and for nothing else yet. A related asymmetry this
+> amendment creates: `email` is now *readable* only at workspace ADMIN but remains
+> *writable* at the derived org gate (#3625). Tracked as #3600, #3599, and #3625;
+> none should be read as this ADR endorsing the derivation for them.
+>
+> **Update (2026-09-08, #3627).** A third such hand-built-payload endpoint existed
+> at amendment time and is not part of the residual above: the project/program
+> **seed export** (`GET /api/v1/projects/{id}/export/`, `GET
+> /api/v1/programs/{id}/export/`, and their async bundle counterparts) also
+> hand-built its `resources[]`/`accounts[]` blocks outside `ResourceSerializer` and
+> was reachable through the same self-grantable project/program Admin path. It now
+> withholds `email` unless the requester holds workspace Admin+, matching this
+> amendment's invariant rather than re-arguing it.
 >
 > **Amended 2026-09-08 (#3647) — "Creating and editing catalog rows is unchanged"
 > above is true of the catalog and silent on a fifth surface that changed with it.**
