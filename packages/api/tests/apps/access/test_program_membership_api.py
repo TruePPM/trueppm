@@ -638,6 +638,86 @@ def test_re_add_revoked_member_restores_api_access(
     assert _client(member).get(_members_url(program)).status_code == 200
 
 
+# ---------------------------------------------------------------------------
+# #3436: reinstatement evidence — mirrors the project-side block exactly.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_stamps_reinstated_at(
+    program: Program, owner: object, member: object
+) -> None:
+    existing = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    assert existing.reinstated_at is None
+    existing.soft_delete()
+
+    resp = _client(owner).post(
+        _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+    )
+
+    assert resp.status_code == 201, resp.data
+    assert resp.data["reinstated_at"] is not None
+    revived = ProgramMembership.objects.get(pk=existing.pk)
+    assert revived.reinstated_at is not None
+    assert revived.reinstated_at >= revived.joined_at
+
+
+@pytest.mark.django_db
+def test_re_add_revoked_member_stamps_reinstated_at_even_at_the_same_role(
+    program: Program, owner: object, member: object
+) -> None:
+    """Unconditional on revive, unlike role_changed_at — see the project-side twin."""
+    existing = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    existing.soft_delete()
+
+    resp = _client(owner).post(
+        _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+    )
+
+    assert resp.status_code == 201, resp.data
+    revived = ProgramMembership.objects.get(pk=existing.pk)
+    assert revived.role_changed_at is None
+    assert revived.reinstated_at is not None
+
+
+@pytest.mark.django_db
+def test_second_revive_advances_reinstated_at(
+    program: Program, owner: object, member: object
+) -> None:
+    existing = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    existing.soft_delete()
+    _client(owner).post(
+        _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+    )
+    first_reinstated_at = ProgramMembership.objects.get(pk=existing.pk).reinstated_at
+    assert first_reinstated_at is not None
+
+    ProgramMembership.objects.get(pk=existing.pk).soft_delete()
+    resp = _client(owner).post(
+        _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+    )
+
+    assert resp.status_code == 201, resp.data
+    second_reinstated_at = ProgramMembership.objects.get(pk=existing.pk).reinstated_at
+    assert second_reinstated_at is not None
+    assert second_reinstated_at > first_reinstated_at
+
+
+@pytest.mark.django_db
+def test_fresh_add_response_carries_null_reinstated_at(
+    program: Program, owner: object, owner_is_workspace_admin: WorkspaceMembership
+) -> None:
+    """Workspace-admin fixture, not a shared roster — see the project-side twin."""
+    new_user = _make_user("prog-fresh-add")
+
+    resp = _client(owner).post(
+        _members_url(program), {"user": str(new_user.pk), "role": Role.MEMBER}, format="json"
+    )
+
+    assert resp.status_code == 201, resp.data
+    assert resp.data["reinstated_at"] is None
+
+
 @pytest.mark.django_db
 def test_re_add_revoked_member_cannot_exceed_the_callers_own_role(
     program: Program, owner: object, member: object

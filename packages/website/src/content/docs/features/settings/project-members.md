@@ -44,6 +44,13 @@ member never reveals an account they could not already see:
   roster they belong to. Somebody you removed earlier still counts, so re-adding a
   member you revoked keeps working.
 
+Re-adding a removed member does not reset their **Joined** date on the row — it still
+reflects the date they first joined, not the date they were most recently restored. Do
+not read the Joined date alone as proof they held access the whole time in between: the
+API separately records *when a membership was last reinstated*, so an admin exporting
+membership history for a compliance review can distinguish "joined once, never left"
+from "was removed and later re-added." This field is not yet surfaced on this page.
+
 If the search turns up somebody outside that set, the add is refused and you will be
 pointed at the [workspace invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow)
 instead — ask a workspace admin to send one. Deactivated accounts are never addable.

@@ -197,6 +197,28 @@ def test_soft_deleted_co_member_becomes_tombstone(
     assert str(co.pk) in changes["program_memberships"]["deleted"]
 
 
+@pytest.mark.django_db
+def test_reinstated_at_rides_the_program_sync_delta(
+    authed_client: APIClient, program: Program, membership: ProgramMembership
+) -> None:
+    """#3436: the offline program-sync rail must carry the reinstatement fact too.
+
+    Mirrors ``test_sync_pull.test_reinstated_at_rides_the_sync_delta`` for the
+    project rail — drives the model-level revive helper directly rather than the
+    members endpoint, since this is a sync-payload assertion.
+    """
+    from trueppm_api.apps.access.views import _revive_revoked_membership
+
+    hwm = authed_client.get(URL).json()["timestamp"]
+    membership.soft_delete()
+    _revive_revoked_membership(membership, new_role=membership.role)
+
+    changes = authed_client.get(f"{URL}?since={hwm}").json()["changes"]
+    updated = changes["program_memberships"]["updated"]
+    assert [row["id"] for row in updated] == [str(membership.pk)]
+    assert updated[0]["reinstated_at"] is not None
+
+
 # ---------------------------------------------------------------------------
 # Empty state
 # ---------------------------------------------------------------------------

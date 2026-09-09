@@ -227,11 +227,17 @@ class SyncTaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
 
 
 class SyncMembershipSerializer(serializers.ModelSerializer[ProjectMembership]):
-    """Sync payload for ProjectMembership — lets mobile clients enforce offline RBAC."""
+    """Sync payload for ProjectMembership — lets mobile clients enforce offline RBAC.
+
+    ``reinstated_at`` rides the delta (#3436) so an offline client can tell a
+    revived membership apart from one that never lapsed, the same discriminator
+    the online read serializer exposes — null iff this row has never been
+    revoked and re-added.
+    """
 
     class Meta:
         model = ProjectMembership
-        fields = ["id", "server_version", "project", "user", "role"]
+        fields = ["id", "server_version", "project", "user", "role", "reinstated_at"]
 
 
 class SyncProgramSerializer(serializers.ModelSerializer[Program]):
@@ -265,14 +271,15 @@ class SyncProgramMembershipSerializer(serializers.ModelSerializer[ProgramMembers
     """Sync payload for ProgramMembership — lets clients enforce offline program RBAC.
 
     Mirrors :class:`SyncMembershipSerializer` (project membership) exactly: only
-    ``(program, user, role)`` plus the sync bookkeeping fields. The User table is
-    not synced, so ``user`` is the FK id — the client resolves display names from
-    its own cached roster, identical to the project-membership sync behaviour.
+    ``(program, user, role)`` plus the sync bookkeeping fields and
+    ``reinstated_at`` (#3436). The User table is not synced, so ``user`` is the
+    FK id — the client resolves display names from its own cached roster,
+    identical to the project-membership sync behaviour.
     """
 
     class Meta:
         model = ProgramMembership
-        fields = ["id", "server_version", "program", "user", "role"]
+        fields = ["id", "server_version", "program", "user", "role", "reinstated_at"]
 
 
 class SyncSprintSerializer(serializers.ModelSerializer[Sprint]):

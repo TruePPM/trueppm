@@ -944,6 +944,27 @@ def test_a_hot_task_does_not_hide_edits_in_other_collections(
 
 
 @pytest.mark.django_db
+def test_reinstated_at_rides_the_sync_delta(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """#3436: an offline client must see the reinstatement fact too, not only the
+    online read serializer. Revoke-then-revive directly — this is a sync-payload
+    assertion, not a membership-API permissions one, so it drives the model-level
+    helper the create view calls rather than going through the members endpoint.
+    """
+    from trueppm_api.apps.access.views import _revive_revoked_membership
+
+    since = _pull(authed_client, project, 0)["timestamp"]
+    membership.soft_delete()
+    _revive_revoked_membership(membership, new_role=membership.role)
+
+    body = _pull(authed_client, project, since)
+    updated = body["changes"]["memberships"]["updated"]
+    assert [row["id"] for row in updated] == [str(membership.pk)]
+    assert updated[0]["reinstated_at"] is not None
+
+
+@pytest.mark.django_db
 def test_every_edit_is_delivered_exactly_once_under_arbitrary_interleaving(
     authed_client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
