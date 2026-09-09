@@ -235,14 +235,26 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         comment = mention.task_comment
         if comment is None or comment.is_deleted:
             return ""
-        if not self._recipient_can_see_source(obj, mention):
+        if not self._recipient_can_see_project(obj):
             return ""
         body = comment.body or ""
         return body[:200]
 
-    def _recipient_can_see_source(self, obj: Notification, mention: Mention) -> bool:
-        """True if the notification's recipient currently belongs to the source
-        project of ``mention`` (so the body snippet is safe to reveal).
+    def _recipient_can_see_project(self, obj: Notification) -> bool:
+        """True if the notification's recipient currently belongs to ``obj.project``.
+
+        Generalizes the mention-only #514 gate (formerly
+        ``_recipient_can_see_source``, keyed on ``mention.project_id``) to every
+        notification, mention- or event-sourced (#3510): ``Notification.project_id``
+        is set at dispatch for both — the event-sourced fan-outs in ``services.py``
+        write it directly, and the mention fan-out (``_build_mention_notification``)
+        writes the same ``project_id`` the mention's source project resolved to — so
+        one project-membership check now backs both the mention ``snippet``
+        redaction and the ``subject``/``body``/``project`` redaction in
+        :meth:`to_representation`. A notification with no project at all (the
+        ADR-0663 account-scoped digest rows, which span the recipient's whole
+        membership set rather than one project) has no project boundary to check
+        against, so it is always visible.
 
         The set of the recipient's member projects is resolved once per response
         and memoized on the serializer context, so the inbox list stays O(1)
@@ -251,8 +263,8 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         serializing without a request) — every real read path (the viewset)
         supplies it.
         """
-        source_project_id = mention.project_id
-        if source_project_id is None:
+        project_id = obj.project_id
+        if project_id is None:
             return True
         member_project_ids = self.context.get("member_project_ids")
         if member_project_ids is None:
@@ -270,7 +282,36 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             # DRF's serializer context is a plain dict at runtime (typed Mapping
             # in the stubs); memoize so the list path resolves membership once.
             cast(dict[str, Any], self.context)["member_project_ids"] = member_project_ids
-        return source_project_id in member_project_ids
+        return project_id in member_project_ids
+
+    def to_representation(self, instance: Notification) -> dict[str, Any]:
+        """Redact ``subject``/``body``/``project`` for a revoked-membership read (#3510).
+
+        ``subject`` and ``body`` are free text rendered from the project and task
+        names at dispatch time (see the ``Notification(...)`` fan-outs in
+        ``services.py``), and ``project`` is the FK to the row's source project.
+        All three are frozen at dispatch and, before this change, were served
+        unredacted forever after — including to a user removed from the project,
+        who kept an inbox that went on naming that project's tasks indefinitely.
+        ``snippet`` already redacted the same class of content one field over
+        (#514); this extends that same treatment to the rest of the row instead
+        of re-flooring the whole read against current membership.
+
+        Retention position (#3510): a delivered notification is a record of a
+        message that was sent, not a live view of the project — so the row is
+        kept and its content is redacted, matching ``snippet``'s existing
+        behavior. Redacted values reuse shapes the client already handles:
+        ``subject``/``body`` blank to ``""`` (their normal non-null default), and
+        ``project`` becomes ``None`` — already the shape of an ADR-0663
+        account-scoped digest row with no single owning project. No schema
+        change, no new client-side branch.
+        """
+        data = super().to_representation(instance)
+        if not self._recipient_can_see_project(instance):
+            data["subject"] = ""
+            data["body"] = ""
+            data["project"] = None
+        return data
 
     def get_task_id(self, obj: Notification) -> str | None:
         # Event-sourced rows (#497/#861) carry a direct deep-link FK; mention
