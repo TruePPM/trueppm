@@ -117,8 +117,32 @@ INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
 # scripts/tests/helm-celery-probe-overrides.test.sh (#3230), which extracts both
 # and compares them — the prose note that used to say "keep the two in sync" had
 # no mechanism behind it.
+#
+# staleSeconds widened 30 -> 120 for the drill only (#3692). Two consecutive CI
+# runs failed with the worker's readiness probe (heartbeat-file freshness)
+# reporting zero successes over a full 7-8 minute --wait window, on different
+# runners (nuc-4, then nuc-2), while the worker itself logged `ready.` and was
+# never killed (RESTARTS=0) — i.e. the #3218 shape, but against the #3346
+# mechanism that was built specifically to not have that shape. Extensive local
+# repro (live Valkey under docker-compose, both unthrottled and at a synthetic
+# 0.05-CPU cgroup limit; a from-scratch kind cluster on the same kind/k8s
+# versions CI pins, node CPU capped to 2 and then 1 for the whole cluster) could
+# not reproduce a single stale reading — heartbeat_sent kept the file within 0-2s
+# of wall clock throughout every one of those runs, which rules out the file
+# never being touched as an explanation reproducible from a laptop. What's left
+# is genuine host-level contention on the shared NUC runner fleet at the two
+# moments these jobs ran (see docs for the class: several MRs' pipelines were
+# open concurrently against just two physical runners) — a story a 30s staleness
+# window has very little room to absorb across ~32 checks spread over 8 minutes,
+# but a 120s window has substantially more. This does not touch the chart's
+# production default (still 30s in values.yaml) and is not a claim that the
+# mechanism is proven safe under contention this severe — see the heartbeat-age
+# diagnostic added to dump_diagnostics() below, which will show directly, on any
+# future recurrence, whether the file genuinely went stale (host contention) or
+# reads fresh despite a reported failure (a different bug entirely).
 CELERY_PROBE_OVERRIDES=(
   --set probes.worker.liveness.enabled=false
+  --set probes.worker.readiness.staleSeconds=120
   --set probes.beat.initialDelaySeconds=45
   --set probes.beat.timeoutSeconds=15
   --set probes.beat.failureThreshold=10
@@ -174,6 +198,22 @@ except u.HTTPError as e:
     print("HTTP", e.code, e.read().decode())
 except Exception as e:
     print("probe error:", e)' 2>&1 | sed 's/^/  /' >&2 || true
+  fi
+  # #3692: the worker readiness probe's own pass/fail was ALL two prior failures
+  # left behind — no signal on whether the heartbeat file was genuinely stale
+  # (heartbeat_sent not keeping up, pointing at host contention) or fresh despite
+  # a reported failure (a different bug in the probe/exec path). Print the file's
+  # actual age against wall clock so a recurrence answers that directly instead
+  # of reopening the same investigation from zero.
+  worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  if [ -n "$worker_pod" ]; then
+    echo "---- worker heartbeat file age (#3692) ----" >&2
+    kubectl exec "$worker_pod" -c celery-worker -- sh -c '
+      f="${TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE:-/tmp/trueppm-celery-worker-heartbeat}"
+      now=$(date +%s)
+      mt=$(stat -c %Y "$f" 2>&1) || { echo "stat failed: $mt"; exit 0; }
+      echo "now=$now mtime=$mt age=$((now - mt))s"
+    ' 2>&1 | sed 's/^/  /' >&2 || true
   fi
 }
 
