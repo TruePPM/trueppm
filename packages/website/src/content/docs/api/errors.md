@@ -287,6 +287,14 @@ differently and says so: the inbound Git webhook receiver answers its usual bare
 unauthenticated — and records the reason as `project_archived` on the project's
 Git automation config, which only an Admin can read.
 
+`POST`/`DELETE /projects/{id}/tasks/{id}/labels/` and
+`PUT`/`DELETE /projects/{id}/tasks/{id}/field-values/{id}/` follow the same rule:
+the task lookup is membership-scoped, so a caller with no live membership on the
+project gets `404` whether the task id is real or made up — the two are
+deliberately indistinguishable. A project member who lacks write authority on the
+task (a Viewer, or a Member acting on someone else's task) still gets `403`,
+because that refusal is a fact about their role, not about the task's existence.
+
 ### 404 / 409 — conflicts and protected references
 
 Refused deletes carry a count of the rows still pointing at the target, and —
