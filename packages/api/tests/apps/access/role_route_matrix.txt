@@ -269,7 +269,6 @@
 --+++++  GET api/v1/projects/<project_pk>/fields/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/guardrail-policy/::get
 --+++++  GET api/v1/projects/<project_pk>/history/::get
---+++++  GET api/v1/projects/<project_pk>/history/summary/::get
 ----+++  GET api/v1/projects/<project_pk>/import/csv/<pk>/::get
 --+++++  GET api/v1/projects/<project_pk>/imports/::get
 --+++++  GET api/v1/projects/<project_pk>/labels/::list
@@ -379,7 +378,7 @@
 -----++  PATCH api/v1/programs/<program_pk>/ceremonies/<pk>/::partial_update
 -----++  PATCH api/v1/programs/<program_pk>/phase-gate-config/::patch
 -----++  PATCH api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/::partial_update
---+++++  PATCH api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/::partial_update
+-----++  PATCH api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/::partial_update
 ------+  PATCH api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/::partial_update
 --+++++  PATCH api/v1/projects/<pk>/board-views/<view_pk>/::patch
 -----++  PATCH api/v1/projects/<pk>/phases/reorder/::patch
@@ -462,7 +461,6 @@
 -++++++  POST api/v1/^tasks/(?P<pk>[^/.]+)/reorder/$::reorder
 -++++++  POST api/v1/^tasks/(?P<pk>[^/.]+)/restore/$::restore
 -++++++  POST api/v1/^tasks/(?P<pk>[^/.]+)/split/$::split
--++++++  POST api/v1/^tasks/(?P<pk>[^/.]+)/withdraw-approval/$::withdraw_approval
 -++++++  POST api/v1/^tasks/delete-untouched-seeded/$::delete_untouched_seeded
 -++++++  POST api/v1/^template-applications/(?P<pk>[^/.]+)/undo/$::undo
 -++++++  POST api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/accept/$::accept
