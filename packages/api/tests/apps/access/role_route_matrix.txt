@@ -348,6 +348,7 @@
 -++++++  GET api/v1/workspace/members/::get
 -------  GET api/v1/workspace/sso/providers/::get
 -------  GET api/v1/workspace/sso/providers/<slug:slug>/::get
+-------  GET api/v1/workspace/sso/redirect-uri/::get
 -++++++  PATCH api/v1/^acceptance-criteria/(?P<pk>[^/.]+)/$::partial_update
 -----++  PATCH api/v1/^calendars/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/^dependencies/(?P<pk>[^/.]+)/$::partial_update
