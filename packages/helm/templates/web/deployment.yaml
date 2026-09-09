@@ -68,14 +68,14 @@ spec:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: {{ .Values.probes.web.readinessInitialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.web.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 10
-            periodSeconds: 30
+            initialDelaySeconds: {{ .Values.probes.web.livenessInitialDelaySeconds | default 10 }}
+            periodSeconds: {{ .Values.probes.web.livenessPeriodSeconds | default 30 }}
           {{- include "trueppm.preStop" (dict "root" $ "tier" "web") | nindent 10 }}
           resources:
             {{- toYaml .Values.resources.web | nindent 12 }}

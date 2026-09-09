@@ -449,10 +449,40 @@ wrong for your node.
 
 `app` names the Celery application (matches the worker/beat -A argument).
 Usage: include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "liveness" "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME")
+
+--- mode (#3346) ---------------------------------------------------------
+
+`mode` selects the exec command this renders, and defaults to "ping" (the
+`celery inspect ping` body above) so every existing caller (worker liveness,
+beat liveness) is unaffected. Two more modes back the worker's startup and
+readiness probes, both reading a file a Celery signal handler touches
+(`trueppm_api.core.worker_heartbeat`) instead of round-tripping the broker:
+
+  - "heartbeat-exists" (startup): `test -e <file>`. True once the worker has
+    fired `worker_ready` at least once — i.e. mingle/gossip completed and the
+    broker connection is genuinely established, which is exactly what a
+    startup probe needs to confirm once.
+  - "heartbeat-fresh" (readiness): `find <file> -newermt "-Ns"`, true when the
+    file's mtime is within the last N seconds (`staleSeconds`, resolved with
+    the same flat-then-per-kind precedence as every other numeric knob here).
+    The file is refreshed by celery's own `heartbeat_sent` signal, fired on a
+    fixed ~2s timer that runs on the worker's MainProcess event loop —
+    independent of whether the prefork pool is idle or saturated — so probing
+    it costs a plain filesystem stat with no fork of Django, Celery, or a
+    broker round trip. This is what replaces `inspect ping` for readiness
+    (#3236): an exec probe that runs INSIDE the container it measures can
+    starve under load and fail a worker that is doing its job, and readiness
+    has no failure budget to widen around that.
+
+Both heartbeat modes skip the ping-specific kubelet-timeout derivation above
+(there is no celery ping budget to add headroom to) and use `timeoutSeconds`
+directly — the check is a filesystem stat, so the pre-existing default of 10s
+is generous, not tight.
 */}}
 {{- define "trueppm.celeryProbe" -}}
 {{- $p := .probe -}}
 {{- $o := (index $p .kind) | default dict -}}
+{{- $mode := .mode | default "ping" -}}
 {{- $init := 30 -}}
 {{- if not (kindIs "invalid" $o.initialDelaySeconds) }}{{- $init = $o.initialDelaySeconds -}}{{- end -}}
 {{- if not (kindIs "invalid" $p.initialDelaySeconds) }}{{- $init = $p.initialDelaySeconds -}}{{- end -}}
@@ -465,6 +495,7 @@ Usage: include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" 
 {{- $timeout := 10 -}}
 {{- if not (kindIs "invalid" $o.timeoutSeconds) }}{{- $timeout = $o.timeoutSeconds -}}{{- end -}}
 {{- if not (kindIs "invalid" $p.timeoutSeconds) }}{{- $timeout = $p.timeoutSeconds -}}{{- end -}}
+{{- if eq $mode "ping" }}
 {{- $t := $timeout | int64 -}}
 {{- $kubelet := max (add $t 5) (div (mul $t 3) 2) -}}
 {{- if not (kindIs "invalid" $o.kubeletTimeoutSeconds) }}{{- $kubelet = $o.kubeletTimeoutSeconds -}}{{- end -}}
@@ -482,6 +513,32 @@ initialDelaySeconds: {{ $init }}
 periodSeconds: {{ $period }}
 timeoutSeconds: {{ $kubelet }}
 failureThreshold: {{ $threshold }}
+{{- else }}
+{{- $stale := 30 -}}
+{{- if not (kindIs "invalid" $o.staleSeconds) }}{{- $stale = $o.staleSeconds -}}{{- end -}}
+{{- if not (kindIs "invalid" $p.staleSeconds) }}{{- $stale = $p.staleSeconds -}}{{- end -}}
+{{- /* .file is an operator-supplied Helm value (probes.worker.heartbeatFile), not
+       attacker-controlled at request time — but it still becomes a literal
+       fragment of an `sh -c` command below, so it is single-quoted like any other
+       untrusted-enough string handed to a shell. `quote` (used elsewhere in this
+       file) only YAML-quotes the rendered manifest string; it does not shell-quote
+       the value going INTO that string. Embedded single quotes are escaped the
+       standard POSIX way: close the quote, emit an escaped quote, reopen it. */}}
+{{- $safeFile := .file | replace "'" "'\\''" -}}
+exec:
+  command:
+    - sh
+    - -c
+    {{- if eq $mode "heartbeat-exists" }}
+    - {{ printf "test -e '%s'" $safeFile | quote }}
+    {{- else }}
+    - {{ printf "test -n \"$(find '%s' -newermt '-%v seconds' 2>/dev/null)\"" $safeFile $stale | quote }}
+    {{- end }}
+initialDelaySeconds: {{ $init }}
+periodSeconds: {{ $period }}
+timeoutSeconds: {{ $timeout }}
+failureThreshold: {{ $threshold }}
+{{- end }}
 {{- end }}
 
 {{/*

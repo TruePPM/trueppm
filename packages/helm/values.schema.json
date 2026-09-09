@@ -577,6 +577,29 @@
         },
         "beat": {
           "$ref": "#/definitions/celeryBeatProbe"
+        },
+        "web": {
+          "description": "nginx readiness/liveness probes (#3346). No startup key — the web container serves a pre-built static bundle with no boot-time dependency for a startup probe to cover.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "readinessInitialDelaySeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "readinessPeriodSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "livenessInitialDelaySeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "livenessPeriodSeconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       }
     },
@@ -1194,7 +1217,7 @@
   },
   "definitions": {
     "celeryProbeTimings": {
-      "description": "Timings for ONE `celery inspect ping` exec probe. Every key is nullable: null means fall back to the component's flat (shared) key, then to the chart built-in.",
+      "description": "Timings for ONE celery-worker/beat exec probe (ping or heartbeat-file, see trueppm.celeryProbe). Every key is nullable: null means fall back to the component's flat (shared) key, then to the chart built-in.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1211,7 +1234,7 @@
           "minimum": 1
         },
         "timeoutSeconds": {
-          "description": "Celery's own `inspect ping --timeout`, in seconds.",
+          "description": "For a ping-mode probe (liveness), celery's own `inspect ping --timeout`. For a heartbeat-mode probe (worker startup/readiness, #3346), kubelet's own exec timeout directly — the check is a filesystem stat, so no derivation is needed.",
           "type": ["integer", "null"],
           "minimum": 1
         },
@@ -1220,14 +1243,19 @@
           "minimum": 1
         },
         "kubeletTimeoutSeconds": {
-          "description": "kubelet's probe timeout. null derives max(timeoutSeconds + 5, 1.5 x timeoutSeconds), which must also cover the sh fork, Python start, and Django/Celery import each exec probe pays.",
+          "description": "Ping-mode only. kubelet's probe timeout. null derives max(timeoutSeconds + 5, 1.5 x timeoutSeconds), which must also cover the sh fork, Python start, and Django/Celery import each exec probe pays.",
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "staleSeconds": {
+          "description": "Heartbeat-mode only (worker readiness, #3346). How old the heartbeat file may be before the probe fails.",
           "type": ["integer", "null"],
           "minimum": 1
         }
       }
     },
     "celeryProbe": {
-      "description": "`celery inspect ping` exec probes for the worker deployment. The five flat keys are the pre-0.4 shared form: they ship null, they apply to BOTH probes, and they WIN over the per-probe blocks so an existing values file keeps its old meaning.",
+      "description": "Exec probes for the worker deployment (#3346): `celery inspect ping` for liveness, a heartbeat-file check for startup/readiness. The five flat keys are the pre-0.4 shared form: they ship null, they apply across liveness/readiness/startup, and they WIN over the per-probe blocks so an existing values file keeps its old meaning.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1253,6 +1281,14 @@
         "kubeletTimeoutSeconds": {
           "type": ["integer", "null"],
           "minimum": 1
+        },
+        "heartbeatFile": {
+          "description": "Path the worker's heartbeat-file signal handler writes and the startup/readiness probes read (#3346). Must match TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE if that env var is set on the worker container. Restricted to a plain absolute path (no shell metacharacters) as defense-in-depth: the value is shell-quoted before it reaches the rendered exec probe command, but a values file should never need anything this pattern would reject.",
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9_./-]+$"
+        },
+        "startup": {
+          "$ref": "#/definitions/celeryProbeTimings"
         },
         "liveness": {
           "$ref": "#/definitions/celeryProbeTimings"

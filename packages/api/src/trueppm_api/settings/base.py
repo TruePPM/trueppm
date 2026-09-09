@@ -1401,6 +1401,21 @@ REST_FRAMEWORK = {
         # interactive client never trips them.
         "anon": env("TRUEPPM_THROTTLE_ANON_RATE", default=_STANDARD_RATE),
         "user": env("TRUEPPM_THROTTLE_USER_RATE", default="1000/min"),
+        # /api/v1/readyz (#2820). Unlike /health/ and /edition/, readyz is not
+        # free — every call does a real database round-trip and a real cache
+        # round-trip — and it used to be FULLY exempt from the shared throttle
+        # (the same exemption /health/ and /edition/ still get), which meant an
+        # unauthenticated caller who found the pod IP directly (the probe path
+        # bypasses the Ingress) could drive unbounded database load with no rate
+        # limit at all. A dedicated scope, not the shared "anon" bucket: readyz
+        # traffic comes from kubelet hitting the pod IP directly rather than
+        # through the Ingress, so its source IP is the node, not an end user's,
+        # and sharing "anon" would let a legitimate probe loop compete with real
+        # anonymous traffic in both directions. The default is generous enough
+        # that no documented probe configuration comes close to tripping it —
+        # see administration/probes.md for the numbers this assumes — while
+        # still bounding an outright flood from an unauthenticated source.
+        "readyz": env("TRUEPPM_THROTTLE_READYZ_RATE", default="2000/min"),
         "login": _STRICT_RATE,
         # Per-account login lockout (#1717). The "login" scope above keys on the
         # client IP, so it only bounds guesses per source address; a distributed

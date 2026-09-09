@@ -17,16 +17,21 @@ Covers:
   - the body leaks no infrastructure detail — only coarse ok/fail per dependency
     plus the coarse migration-state enum
   - the selector helpers probe DB, cache, and migrations independently
+  - readyz is throttled on its own dedicated scope, not fully exempt (#2820)
+  - readyz's disk-migration scan is cached process-wide, not rebuilt per call (#2820)
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
+from unittest import mock
 from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
 from rest_framework.test import APIClient
+from rest_framework.throttling import SimpleRateThrottle
 
 from trueppm_api.apps.observability.selectors import (
     READY_MIGRATIONS_AHEAD,
@@ -432,3 +437,155 @@ class TestUnknownAppliedMigrationDetection:
             assert _has_migrations_unknown_to_image(_loader()) is False
         finally:
             recorder.record_unapplied("an_app_this_image_does_not_install", "0001_initial")
+
+
+@pytest.mark.django_db
+class TestReadyzThrottling:
+    """readyz is rate-limited on its own scope, not fully exempt (#2820, #3346).
+
+    Rates are overridden with ``mock.patch.dict`` on
+    ``SimpleRateThrottle.THROTTLE_RATES`` — see ``test_default_throttle.py`` for
+    why ``@override_settings`` does not reach an already-imported throttle class.
+    """
+
+    def test_readyz_is_throttled_past_its_own_scope_rate(self) -> None:
+        cache.clear()
+        try:
+            client = APIClient()
+            with mock.patch.dict(SimpleRateThrottle.THROTTLE_RATES, {"readyz": "2/min"}):
+                statuses = [client.get(URL).status_code for _ in range(3)]
+            # The first two are served (200 — every dependency is healthy in the
+            # test DB); the third exceeds the 2/min readyz bucket and is refused
+            # BEFORE the view runs, so it is 429, never the probe's own 503.
+            assert statuses[:2] == [200, 200]
+            assert statuses[2] == 429
+        finally:
+            cache.clear()
+
+    def test_readyz_does_not_share_the_anon_bucket(self) -> None:
+        """Pinning the shared "anon" scope tiny must not throttle readyz.
+
+        Proves the dedicated "readyz" scope is actually in effect — if readyz
+        fell back to ProbeExemptAnonRateThrottle's "anon" scope (the pre-#2820
+        exemption) or to the shared "anon" default, this would 429.
+        """
+        cache.clear()
+        try:
+            client = APIClient()
+            with mock.patch.dict(SimpleRateThrottle.THROTTLE_RATES, {"anon": "1/min"}):
+                statuses = [client.get(URL).status_code for _ in range(5)]
+            assert statuses == [200] * 5
+        finally:
+            cache.clear()
+
+    def test_readyz_throttle_response_includes_retry_after(self) -> None:
+        cache.clear()
+        try:
+            client = APIClient()
+            with mock.patch.dict(SimpleRateThrottle.THROTTLE_RATES, {"readyz": "1/min"}):
+                client.get(URL)
+                throttled = client.get(URL)
+            assert throttled.status_code == 429
+            assert "Retry-After" in throttled.headers
+        finally:
+            cache.clear()
+
+
+@pytest.mark.django_db
+class TestReadyzMigrationDiskCache:
+    """The disk-migration scan is cached process-wide, not rebuilt per call (#2820).
+
+    ``load_disk()`` is the expensive part (filesystem walk + ``import_module()``
+    of every migration file); ``_install_cached_load_disk`` patches it to run at
+    most once per process. These tests assert the caching layer is actually
+    installed and does not change the probe's answer — the behavioral tests
+    above already cover every readiness outcome.
+    """
+
+    def test_migration_loader_load_disk_is_patched(self) -> None:
+        from django.db.migrations.loader import MigrationLoader
+
+        assert MigrationLoader.load_disk.__name__ == "patched"
+
+    def test_repeated_probes_reuse_the_cached_disk_scan(self) -> None:
+        """A second/third call must not repopulate the cache from a fresh scan.
+
+        Each ``_probe_migrations()`` call builds its own ``MigrationExecutor``
+        (and therefore its own ``MigrationLoader``), so the only way the SAME
+        cache tuple object can survive three calls is if ``load_disk()``
+        short-circuited on the second and third rather than re-scanning disk.
+        """
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        assert selectors_module._probe_migrations() == READY_MIGRATIONS_IN_SYNC
+        cache_after_first = selectors_module._disk_migration_cache
+        assert cache_after_first is not None
+
+        assert selectors_module._probe_migrations() == READY_MIGRATIONS_IN_SYNC
+        assert selectors_module._probe_migrations() == READY_MIGRATIONS_IN_SYNC
+
+        assert selectors_module._disk_migration_cache is cache_after_first
+
+    def test_disk_migrations_cache_survives_a_loader_that_mutates_its_copy(self) -> None:
+        """One caller's edits to its own disk_migrations must not poison the cache.
+
+        Regression guard: an earlier version of the cache handed out the SAME
+        dict/set objects to every loader, so test code (or any caller) that
+        edited its own ``loader.disk_migrations`` — exactly what
+        ``TestUnknownAppliedMigrationDetection`` does above to simulate a squash
+        — permanently corrupted every later loader in the process.
+        """
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        selectors_module._probe_migrations()
+        assert selectors_module._disk_migration_cache is not None
+        cached_disk_before = dict(selectors_module._disk_migration_cache[0])
+
+        mutated = _loader()
+        victim_key = next(iter(mutated.disk_migrations))
+        del mutated.disk_migrations[victim_key]
+
+        assert victim_key in cached_disk_before
+        assert selectors_module._disk_migration_cache is not None
+        assert victim_key in selectors_module._disk_migration_cache[0]
+        # And a fresh loader still sees it too.
+        assert victim_key in _loader().disk_migrations
+
+    def test_an_empty_scan_is_never_cached(self) -> None:
+        """A ``load_disk()`` call that reports zero migrated apps must not stick.
+
+        ``django.contrib.auth`` alone guarantees a real image always has
+        migrated apps, so an empty result means this particular call raced
+        something rather than describing reality (#3346). Caching it would
+        permanently wrong-answer every later caller in the process — including
+        unrelated modules like ``test_permission_name_widths.py`` that build
+        their own ``MigrationLoader`` — for the rest of the process's life.
+        Exercises ``_cached_load_disk`` directly with a stand-in ``_original``
+        so the test does not depend on ever provoking the real race.
+        """
+        from django.db.migrations.loader import MigrationLoader
+
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        def _empty_original(loader: MigrationLoader) -> None:
+            loader.disk_migrations = {}
+            loader.unmigrated_apps = set()
+            loader.migrated_apps = set()
+
+        selectors_module._disk_migration_cache = None
+        try:
+            # load=False: build a bare loader without running (patched)
+            # load_disk() during construction, so calling _cached_load_disk
+            # below is the first and only scan and _disk_migration_cache is
+            # still None going in.
+            empty_loader = MigrationLoader(None, load=False)
+            selectors_module._cached_load_disk(empty_loader, _empty_original)
+            assert selectors_module._disk_migration_cache is None
+
+            # The next, real caller must still get a genuine scan rather than
+            # being stuck with the empty one above.
+            real_loader = _loader()
+            assert real_loader.migrated_apps
+            assert selectors_module._disk_migration_cache is not None
+        finally:
+            selectors_module._disk_migration_cache = None

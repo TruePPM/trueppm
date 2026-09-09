@@ -40,6 +40,7 @@ from trueppm_api.apps.observability.services import (
     start_purge_run,
 )
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+from trueppm_api.core.throttling import ReadyzRateThrottle
 
 # Matches trueppm_api.apps.observability.tasks._SINGLETON_KEY — the single row.
 _SINGLETON_KEY = 1
@@ -91,7 +92,10 @@ def _escape_label_value(value: str) -> str:
         "endpoints when its database or cache is dead. No authentication required, so "
         "kubelet can call it; the body carries only coarse `ok`/`fail` per dependency "
         "plus the coarse migration-state enum, and never any connection string, host, "
-        "migration name, or driver error text."
+        "migration name, or driver error text. Rate-limited on its own scope "
+        "(`TRUEPPM_THROTTLE_READYZ_RATE`, generous by default) rather than exempted "
+        "from throttling entirely, because unlike `/health/` it does real database "
+        "and cache work per call (#2820)."
     ),
     responses={
         200: inline_serializer(
@@ -109,6 +113,7 @@ def _escape_label_value(value: str) -> str:
 )
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([ReadyzRateThrottle])
 def readyz(_request: Request) -> Response:
     """Report dependency-aware readiness for Kubernetes readiness/startup probes.
 
@@ -122,6 +127,12 @@ def readyz(_request: Request) -> Response:
     ``migration_state`` is additive (#2806): ``checks`` keeps its existing keys and
     ``ok``/``fail`` values, so a probe or scraper reading only ``status``/``checks``
     is unaffected.
+
+    Rate-limited on its own scope (``ReadyzRateThrottle``, #2820) instead of the
+    full throttle exemption ``/health/``/``/edition/`` get: unlike those two this
+    view does a real database and cache round-trip per call, so an unauthenticated
+    caller who reaches the pod IP directly (the probe path bypasses the Ingress)
+    must not be able to drive unbounded load with zero rate limit.
     """
     ready, checks, migration_state = get_readiness()
     return Response(

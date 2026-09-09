@@ -545,9 +545,15 @@ Health probes ship on every tier and are value-tunable under `probes.*`:
   verifies the database and cache are reachable), so a pod only joins the `Service`
   once it can actually serve; liveness stays on the shallow `/api/v1/health/` so a
   transient dependency blip cannot restart-loop the pod.
-- The **worker** and **beat** use a `celery inspect ping` exec probe — a
-  control-plane round-trip that catches a wedged event loop a bare process-alive
-  check would miss.
+- The **worker**'s liveness and **beat**'s only probe use a `celery inspect ping`
+  exec probe — a control-plane round-trip that catches a wedged event loop a bare
+  process-alive check would miss. The **worker**'s startup and readiness probes do
+  not: from 0.4 they stat a heartbeat file a Celery signal handler touches on its
+  own load-independent timer, specifically because an exec probe that does real
+  work runs *inside* the container it measures and can fail a worker that is busy
+  doing its job rather than actually broken. See
+  [Startup, Readiness, and Liveness Probes](/administration/probes/) for the full
+  breakdown per component.
 
 For multi-replica production the chart also ships an optional
 `PodDisruptionBudget` (`podDisruptionBudget.enabled=true`, api + worker) and an

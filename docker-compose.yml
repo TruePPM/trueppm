@@ -76,8 +76,14 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+    # /readyz (#3346), not /health/ — this healthcheck is what other services'
+    # `depends_on: condition: service_healthy` key off, so it should answer the
+    # same question Kubernetes' readiness probe does (dependencies reachable AND
+    # migrations applied), not the shallow "process is up" liveness question.
+    # Matches the Helm chart's api readiness path so the two first-five-minutes
+    # experiences agree; see administration/probes.md.
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz')\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -118,6 +124,19 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+    # `restart: unless-stopped` only restarts on process EXIT, so a worker whose
+    # event loop has wedged reports `Up` forever without this. Stats a heartbeat
+    # file trueppm_api.core.worker_heartbeat touches every ~2s on the worker's
+    # own timer (#3346) — NOT `celery inspect ping`, which forks a full Django
+    # import into the container it measures and can fail a worker that is busy
+    # doing its job (#3236). Matches the Helm chart's worker readiness probe;
+    # see administration/probes.md.
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/trueppm-celery-worker-heartbeat -newermt '-30 seconds' 2>/dev/null | grep -q ."]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   celery-beat:
     image: trueppm-api:local
@@ -143,6 +162,16 @@ services:
         condition: service_healthy
       celery:
         condition: service_started
+    # The schedule shelve is written to `--schedule` on boot, before the first
+    # tick — its existence is "beat has loaded its schedule" (#3346), and
+    # checking it does not couple beat's health to whether a worker happens to
+    # be reachable right now, unlike a fleet-wide `inspect ping` would.
+    healthcheck:
+      test: ["CMD-SHELL", "test -e /tmp/celerybeat-schedule"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   postgres_data:

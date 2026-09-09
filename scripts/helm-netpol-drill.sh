@@ -53,30 +53,31 @@ IMAGE_REPO="${IMAGE_REPO:-${REGISTRY}/trueppm/trueppm}"
 RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 APISERVER_HOST="${APISERVER_HOST:-docker}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
-# DRILL-SPECIFIC celery probe settings (#3218) — chart defaults are unchanged
-# and stay the production posture. Same values and same reason as the block in
-# scripts/helm-install-drill.sh, which carries the full evidence. The two are
-# held identical by scripts/tests/helm-celery-probe-overrides.test.sh (#3230),
-# which extracts BOTH arrays and compares them; that replaced a prose "keep the
-# two in sync" note that had no mechanism. It also checks every key here is one
-# values.schema.json still accepts, because the chart root is closed and a
-# renamed probe key makes `helm install` refuse rather than degrade. Short
-# version: an exec probe runs INSIDE the container it measures,
-# so each `celery inspect ping` forks a full Django import into the worker's own
-# 1-CPU cgroup and starves the MainProcess that has to answer it. On a loaded
-# node it never succeeds — job 16193488334 saw x13 readiness failures with zero
-# successes against a worker that had logged `ready.` 16s in and never
-# restarted. Readiness needs one success and has no failure budget to widen, so
-# no timing value can fix it; the probe has to come off for the drill.
-# This drill installs the same chart the same way and job 16193421330 shows it
-# failing identically, so it carries the same block. A CNI-enforcing cluster is
-# if anything worse, since Calico must program the policy before the worker can
-# reach Valkey at all.
+# DRILL-SPECIFIC celery probe settings (#3218, #3346) — chart defaults are
+# unchanged and stay the production posture. Same values and same reason as the
+# block in scripts/helm-install-drill.sh, which carries the full evidence. The
+# two are held identical by scripts/tests/helm-celery-probe-overrides.test.sh
+# (#3230), which extracts BOTH arrays and compares them; that replaced a prose
+# "keep the two in sync" note that had no mechanism. It also checks every key
+# here is one values.schema.json still accepts, because the chart root is
+# closed and a renamed probe key makes `helm install` refuse rather than
+# degrade. Short version: the worker's LIVENESS probe is still `celery inspect
+# ping`, an exec probe that runs INSIDE the container it measures, so each call
+# forks a full Django import into the worker's own 1-CPU cgroup and starves the
+# MainProcess that has to answer it — on a loaded node it never succeeds (job
+# 16193488334: x13 readiness failures with zero successes against a worker that
+# had logged `ready.` 16s in and never restarted), so liveness stays off here.
+# READINESS and STARTUP are left ON (#3346): they no longer run `inspect ping`
+# at all — they stat a heartbeat file a Celery signal handler touches on its
+# own load-independent timer — so this drill's `--wait` now gates on a probe
+# that can genuinely pass under kind-in-dind CPU contention, and a CNI-enforcing
+# cluster (Calico must program the policy before the worker can reach Valkey at
+# all) is exactly the harder case that mechanism was built to survive.
 # Beat keeps its probe: it renders a livenessProbe only, so it never gates
 # `--wait`, and its period stays at the chart's 60s so the drill does not double
 # Django-import forks into the chart's tightest cgroup.
 CELERY_PROBE_OVERRIDES=(
-  --set probes.worker.enabled=false
+  --set probes.worker.liveness.enabled=false
   --set probes.beat.initialDelaySeconds=45
   --set probes.beat.timeoutSeconds=15
   --set probes.beat.failureThreshold=10

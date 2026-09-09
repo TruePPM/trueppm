@@ -640,6 +640,29 @@ probes:
     timeoutSeconds: null
     failureThreshold: null
     kubeletTimeoutSeconds: null
+    # File a Celery signal handler touches on worker_ready/heartbeat_sent and
+    # removes on worker_shutting_down (trueppm_api.core.worker_heartbeat,
+    # #3346). Both probes.worker.startup and probes.worker.readiness below read
+    # this same path with a plain `find`/`test` exec — no Django/Celery import,
+    # no broker round trip — which is what makes them safe to run far more
+    # often than an `inspect ping` exec ever was. Must match
+    # TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE if that env var is set (it defaults
+    # to this same path, so most installs never need to touch either). /tmp is
+    # the worker container's only writable mount (readOnlyRootFilesystem).
+    heartbeatFile: /tmp/trueppm-celery-worker-heartbeat
+    # Startup (#3346): true once the worker has fired `worker_ready` at least
+    # once — mingle/gossip completed, so the broker connection this pod needs
+    # is genuinely established. Cheap enough (a filesystem stat) to poll every
+    # 5s without the #3218 cost an `inspect ping` startup probe would have had.
+    # While a startup probe is in play kubelet suspends liveness, so a slow
+    # first boot cannot restart-loop; a genuinely wedged worker that never
+    # fires worker_ready is still caught once failureThreshold is exhausted.
+    startup:
+      enabled: null # null = inherit probes.worker.enabled
+      initialDelaySeconds: 0
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 30
     # A liveness failure KILLS the container, and the worker's
     # lifecycle.terminationGracePeriodSeconds is 300 — so every kill costs up to
     # five minutes of unavailability for that pod. The detection budget is therefore
@@ -649,6 +672,10 @@ probes:
     # that ordered it. initialDelaySeconds is 60 because a cold worker must also
     # fork a Django import to answer its first probe, and liveness is the probe that
     # should be slowest to conclude anything.
+    #
+    # Liveness keeps `celery inspect ping` on purpose (#3346) — a missed
+    # liveness check only restarts the container, a bounded cost the grace math
+    # above already accounts for, unlike readiness below, which has none.
     liveness:
       enabled: null # null = inherit probes.worker.enabled
       initialDelaySeconds: 60
@@ -656,20 +683,28 @@ probes:
       timeoutSeconds: 10
       failureThreshold: 5
       kubeletTimeoutSeconds: null
-    # Readiness is the free one: a celery worker sits behind NO Service (both the
-    # api and web Services select on app.kubernetes.io/component), so this gates
-    # nothing but rolling-update pacing. Its job is to reach a first success early,
-    # hence initialDelaySeconds 15. periodSeconds stays at 60 on purpose: an exec
-    # probe runs INSIDE the container it measures, so probing more often forks more
-    # Django imports into the worker's own CPU budget and starves the MainProcess
-    # that has to answer the ping — the #3218 mechanism. Steady-state probe load is
-    # therefore unchanged at two forks a minute across both probes.
+    # Readiness no longer runs `celery inspect ping` (#3236, #3346): an exec
+    # probe runs INSIDE the container it measures, so a worker busy processing
+    # a full queue could miss the ping's window and fail the probe while doing
+    # exactly the job it exists to do — and readiness has no failure budget to
+    # widen around that (one success is all it needs; a probe that never gets
+    # one cannot be fixed by any timing value). It now checks the heartbeat
+    # file's freshness instead (staleSeconds), a plain filesystem stat with no
+    # fork of Django, Celery, or the broker — so, unlike the old ping-based
+    # probe, it is safe to run often. periodSeconds/staleSeconds are therefore
+    # far tighter than the pre-#3346 60s: a stuck worker is now caught in
+    # dozens of seconds instead of up to a minute, with none of the #3218 cost.
     readiness:
       enabled: null # null = inherit probes.worker.enabled
       initialDelaySeconds: 15
-      periodSeconds: 60
-      timeoutSeconds: 10
+      periodSeconds: 15
+      timeoutSeconds: 5
       failureThreshold: 3
+      # How old the heartbeat file may be before readiness fails. Several
+      # multiples of celery's own ~2s heartbeat_sent interval above worst-case
+      # scheduling jitter, so a briefly descheduled MainProcess does not flap
+      # Ready.
+      staleSeconds: 30
   beat:
     enabled: true
     initialDelaySeconds: null
@@ -689,6 +724,20 @@ probes:
       timeoutSeconds: 10
       failureThreshold: 5
       kubeletTimeoutSeconds: null
+  # web (nginx) probes (#3346). No startup probe: the container serves a
+  # pre-built static bundle, so nginx is either up within a second or its
+  # process failed to start at all — there is no meaningful boot window for a
+  # startup probe to cover, unlike api/worker which wait on migrations or a
+  # broker connection. Readiness and liveness both hit `GET /`, which nginx
+  # answers with the SPA's index.html with no backend dependency, so the two
+  # differ only in timing: readiness reaches a first success quickly so a
+  # rolling update proceeds promptly, liveness is slower to conclude a restart
+  # is warranted.
+  web:
+    readinessInitialDelaySeconds: 5
+    readinessPeriodSeconds: 10
+    livenessInitialDelaySeconds: 10
+    livenessPeriodSeconds: 30
 
 # Root Django log level threaded into the api, worker, and beat containers via
 # DJANGO_LOG_LEVEL (#1899). Empty = leave the app default. Set to DEBUG/INFO/
