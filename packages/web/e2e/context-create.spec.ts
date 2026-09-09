@@ -15,7 +15,7 @@ const BASE = `/projects/${PID}`;
 
 const PROJECT_DETAIL = {
   id: PID, name: 'Create Affordance Project', description: '', start_date: '2026-01-01',
-  calendar: 'default', estimation_mode: 'OPEN', agile_features: true, methodology: 'HYBRID',
+  calendar: 'default', estimation_mode: 'open', agile_features: true, methodology: 'HYBRID',
   code: '', health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'BOARD',
   lead: null, lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null,
   archived_by: null, recalculated_at: null, is_sample: false, program_detail: null, server_version: 1,
@@ -41,7 +41,7 @@ async function setup(page: import('@playwright/test').Page) {
   // being masked by a permissive 200 body (the #1190 flake class).
   await setupCatchAll(page);
   await page.route('**/api/v1/auth/token/refresh/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ access: 'e2e-access' }) }));
-  await page.route('**/api/v1/auth/me/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ id: 1, username: 'e2e', email: 'e2e@example.com', workspace_role: 300 }) }));
+  await page.route('**/api/v1/auth/me/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ id: 'e2e-user', username: 'e2e', email: 'e2e@example.com', workspace_role: 300 }) }));
   await page.route('**/api/v1/me/notifications/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 0, next: null, previous: null, results: [] }) }));
 
   await page.route('**/api/v1/projects/', (r) =>

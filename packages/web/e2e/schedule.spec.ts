@@ -81,7 +81,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   // (#1111). A 200 keeps the shell mounted; an unmocked 404 would render
   // ProjectNotFound instead of the schedule.
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01', calendar: 'default', estimation_mode: 'OPEN', agile_features: false, methodology: 'HYBRID', code: '', health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE', lead: null, lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null, archived_by: null, recalculated_at: null, is_sample: false, program_detail: null, server_version: 1 }) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01', calendar: 'default', estimation_mode: 'open', agile_features: false, methodology: 'HYBRID', code: '', health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE', lead: null, lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null, archived_by: null, recalculated_at: null, is_sample: false, program_detail: null, server_version: 1 }) }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -92,7 +92,6 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         task_count: 0,
-        critical_path_count: 0,
         health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,
@@ -137,7 +136,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ access: 'e2e-token' }) }),
   );
   await page.route('**/api/v1/auth/me/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'u1', email: 'e2e@example.com', first_name: 'E', last_name: '2E', is_staff: false }) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'u1', email: 'e2e@example.com'}) }),
   );
   await page.route('**/api/v1/workspace/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'w1', name: 'E2E', public_sharing_enabled: false }) }),
@@ -510,7 +509,7 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
     // unmounting the grid. Mock it with its real array shape.
     await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(json([])));
     await page.route('**/api/v1/auth/me/', (route) =>
-      route.fulfill(json({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' })),
+      route.fulfill(json({ id: 'u1', email: 'pm@example.com'})),
     );
     await page.route('**/api/v1/edition/', (route) => route.fulfill(json({ edition: 'community' })));
     // The always-mounted command palette (useCommandItems → useCurrentSprintTargets,
@@ -529,7 +528,7 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
       route.fulfill(
         json({
           id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01',
-          calendar: 'default', estimation_mode: 'OPEN', agile_features: false, methodology: 'HYBRID', code: '',
+          calendar: 'default', estimation_mode: 'open', agile_features: false, methodology: 'HYBRID', code: '',
           health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE', lead: null,
           lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null, archived_by: null,
           recalculated_at: null, is_sample: false, program_detail: null, server_version: 1,
@@ -540,7 +539,7 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
     await page.route('**/api/v1/projects/*/status-summary/', (route) =>
       route.fulfill(
         json({
-          task_count: 0, critical_path_count: 0, health_band: 'on_track', monte_carlo_p80: null, at_risk_count: 0,
+          task_count: 0, health_band: 'on_track', monte_carlo_p80: null, at_risk_count: 0,
           critical_count: 0, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null,
         }),
       ),

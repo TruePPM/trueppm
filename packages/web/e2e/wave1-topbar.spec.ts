@@ -26,7 +26,6 @@ const FIXTURE_PROJECTS = [
 
 const HEALTH_STATUS_SUMMARY = {
   task_count: 5,
-  critical_path_count: 1,
   // The band is a server field (#3501) — the chip prints it and no longer works
   // one out from the counts. `critical` is what this project's counts and its
   // AUTO health produce on the server.
@@ -45,7 +44,6 @@ const HEALTH_STATUS_SUMMARY = {
 
 const EMPTY_STATUS_SUMMARY = {
   task_count: 3,
-  critical_path_count: 0,
   health_band: 'on_track',
   monte_carlo_p80: null,
   at_risk_count: 0,

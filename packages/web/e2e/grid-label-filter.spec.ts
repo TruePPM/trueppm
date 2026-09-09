@@ -138,7 +138,6 @@ async function setup(
       contentType: 'application/json',
       body: JSON.stringify({
         task_count: TASKS.length,
-        critical_path_count: 0,
         health_band: 'on_track',
         monte_carlo_p80: null,
         at_risk_count: 0,
