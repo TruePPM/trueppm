@@ -2897,6 +2897,153 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
         return deduped
 
 
+class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
+    """One entry of the ``kpis`` map in :func:`compute_program_rollup` (ADR-0088, #3652).
+
+    Shape depends on ``available``: an available KPI carries ``value`` (and
+    ``unit`` for the two day-variance KPIs); a deferred one carries ``reason``
+    instead. Both extra fields are ``required=False`` because only one branch's
+    keys are ever present on a given entry — declaring both keeps the schema a
+    real object (unlike the ``{"type": "object"}`` this replaces) without
+    inventing values the deferred branch never sends.
+    """
+
+    available = serializers.BooleanField(read_only=True)
+    value = serializers.JSONField(read_only=True, required=False, allow_null=True)
+    unit = serializers.CharField(read_only=True, required=False)
+    reason = serializers.CharField(read_only=True, required=False)
+
+
+class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/programs/{id}/rollup/`` (ADR-0088, #3652).
+
+    Matches :func:`trueppm_api.apps.projects.program_rollup.compute_program_rollup`
+    exactly — see that function's docstring for the aggregation semantics.
+    """
+
+    aggregation_policy = serializers.CharField(read_only=True)
+    policy_available = serializers.BooleanField(read_only=True)
+    project_count = serializers.IntegerField(read_only=True)
+    program_health = serializers.CharField(read_only=True)
+    kpis = serializers.DictField(child=ProgramRollupKpiEntrySerializer(), read_only=True)
+
+
+class ProgramScheduleLaneSerializer(serializers.Serializer[dict[str, Any]]):
+    """One project lane in :func:`compute_program_schedule`'s ``projects`` list (#3652)."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    accessible = serializers.BooleanField(read_only=True)
+    duration = serializers.IntegerField(
+        read_only=True, help_text="Lane's rolled-up working-day duration (#3597)."
+    )
+
+
+class ProgramScheduleTaskSerializer(serializers.Serializer[dict[str, Any]]):
+    """One task row in :func:`compute_program_schedule`'s ``tasks`` list (ADR-0120 D5, #3652).
+
+    Discriminated by ``is_external``. When ``False`` the requester can read the
+    owning project and every field below is populated (mirrors the project
+    schedule's own task row, plus ``is_external``). When ``True`` the task is
+    redacted to the ExternalTaskCard shape (title + CPM dates only,
+    ``ExternalTaskCardSerializer``) and the full-only fields
+    (``wbs_path``/``late_start``/``late_finish``/``total_float_days``/``duration``)
+    are absent; ``project_name`` is present only on this branch. ``name``
+    (full) and ``title`` (redacted) are mutually exclusive by construction —
+    never both populated on the same row.
+    """
+
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True, required=False)
+    title = serializers.CharField(read_only=True, required=False)
+    hex_id = serializers.CharField(read_only=True, allow_null=True)
+    project_id = serializers.UUIDField(read_only=True)
+    project_name = serializers.CharField(read_only=True, required=False)
+    is_milestone = serializers.BooleanField(read_only=True)
+    is_external = serializers.BooleanField(read_only=True)
+    wbs_path = serializers.CharField(read_only=True, required=False, allow_null=True)
+    early_start = serializers.DateField(read_only=True, allow_null=True)
+    early_finish = serializers.DateField(read_only=True, allow_null=True)
+    late_start = serializers.DateField(read_only=True, required=False, allow_null=True)
+    late_finish = serializers.DateField(read_only=True, required=False, allow_null=True)
+    total_float_days = serializers.IntegerField(read_only=True, required=False)
+    is_critical = serializers.BooleanField(read_only=True, allow_null=True)
+    duration = serializers.IntegerField(read_only=True, required=False, allow_null=True)
+
+
+class ProgramScheduleLinkSerializer(serializers.Serializer[dict[str, Any]]):
+    """One leaf-level dependency edge in :func:`compute_program_schedule`'s ``links`` list."""
+
+    predecessor_id = serializers.CharField(read_only=True)
+    successor_id = serializers.CharField(read_only=True)
+    dep_type = serializers.CharField(read_only=True)
+    lag_days = serializers.IntegerField(read_only=True)
+    is_cross_project = serializers.BooleanField(read_only=True)
+
+
+class ProgramScheduleSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/programs/{id}/schedule/`` (ADR-0120 D3/D5, #3652).
+
+    Matches :func:`trueppm_api.apps.projects.program_schedule.compute_program_schedule`
+    exactly — see that function's docstring for the merge/redaction semantics.
+    ``start_date``/``finish_date`` and every task-level date are ``null`` on the
+    empty-graph path (no member project has a computed schedule yet).
+    """
+
+    program_id = serializers.UUIDField(read_only=True)
+    start_date = serializers.DateField(read_only=True, allow_null=True)
+    finish_date = serializers.DateField(read_only=True, allow_null=True)
+    projects = ProgramScheduleLaneSerializer(many=True, read_only=True)
+    tasks = ProgramScheduleTaskSerializer(many=True, read_only=True)
+    links = ProgramScheduleLinkSerializer(many=True, read_only=True)
+    critical_path = serializers.ListField(child=serializers.CharField(), read_only=True)
+    cross_project_edge_count = serializers.IntegerField(read_only=True)
+
+
+class ProgramResourceContentionTaskSerializer(serializers.Serializer[dict[str, Any]]):
+    """One task span in ``ProgramViewSet.resource_contention``'s ``resources[].tasks`` (#3652)."""
+
+    assignment_id = serializers.UUIDField(read_only=True)
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    project_id = serializers.UUIDField(read_only=True)
+    project_name = serializers.CharField(read_only=True)
+    early_start = serializers.DateField(read_only=True, allow_null=True)
+    early_finish = serializers.DateField(read_only=True, allow_null=True)
+    scheduled_start = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="Task's SPAN start (ADR-0752); null until the next CPM recalculation.",
+    )
+    units = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+
+
+class ProgramResourceContentionResourceSerializer(serializers.Serializer[dict[str, Any]]):
+    """One resource row in :meth:`ProgramViewSet.resource_contention`'s ``resources`` list (#3652).
+
+    ``email`` is deliberately absent (#3599) — see the view for why echoing it
+    here would reopen the #891 harvest control. ``max_units`` is the resource's
+    own default, never a per-project override (#3574; see the view docstring).
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    max_units = serializers.CharField(read_only=True)
+    tasks = ProgramResourceContentionTaskSerializer(many=True, read_only=True)
+
+
+class ProgramResourceContentionSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/programs/{id}/resource-contention/`` (ADR-0031, #3652)."""
+
+    program_id = serializers.UUIDField(read_only=True)
+    window_start = serializers.DateField(read_only=True)
+    window_end = serializers.DateField(read_only=True)
+    resources = ProgramResourceContentionResourceSerializer(many=True, read_only=True)
+    resource_count = serializers.IntegerField(read_only=True)
+    truncated = serializers.BooleanField(read_only=True)
+
+
 class ProgramRiskPolicySerializer(serializers.ModelSerializer[Program]):
     """GET/PATCH payload for ``/api/v1/programs/{id}/risk-policy/`` (#529).
 
@@ -8856,6 +9003,224 @@ class SprintBurndownSerializer(serializers.Serializer[dict[str, Any]]):
     projected_finish_date = serializers.DateField(read_only=True, allow_null=True)
 
 
+class SprintCapacityMemberSerializer(serializers.Serializer[dict[str, Any]]):
+    """One assigned member's row in :func:`services.capacity_summary` (#228, #3652)."""
+
+    member_id = serializers.UUIDField(read_only=True)
+    member_name = serializers.CharField(read_only=True)
+    initials = serializers.CharField(read_only=True)
+    committed_hours = serializers.FloatField(read_only=True)
+    available_hours = serializers.FloatField(read_only=True)
+    ratio = serializers.FloatField(read_only=True)
+    is_over = serializers.BooleanField(read_only=True)
+
+
+class SprintCapacityTotalsSerializer(serializers.Serializer[dict[str, Any]]):
+    """Aggregate totals block in :func:`services.capacity_summary` (#228, #3652)."""
+
+    committed_hours = serializers.FloatField(read_only=True)
+    available_hours = serializers.FloatField(read_only=True)
+    ratio = serializers.FloatField(read_only=True)
+    buffer_hours = serializers.FloatField(read_only=True)
+    # `label` shadows `Field.label` (DRF's own base attribute), hence the ignore —
+    # same shape as the `fields`/DictField conflict in bulk_settings.py.
+    label = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["on_track", "at_risk", "over_capacity"], read_only=True
+    )
+    pto_days = serializers.IntegerField(
+        read_only=True, help_text="Always 0 today — placeholder until a time-off model lands."
+    )
+
+
+class SprintCapacitySerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/sprints/{id}/capacity/`` (#228, #3652).
+
+    Matches :func:`trueppm_api.apps.projects.services.capacity_summary` exactly —
+    every assigned member (not only over-allocated ones) plus aggregate totals.
+    """
+
+    members = SprintCapacityMemberSerializer(many=True, read_only=True)
+    totals = SprintCapacityTotalsSerializer(read_only=True)
+    working_days = serializers.IntegerField(read_only=True)
+    hours_per_day = serializers.FloatField(read_only=True)
+
+
+class _BlockedUserRefSerializer(serializers.Serializer[dict[str, Any]]):
+    """``{id, username}`` reference used by the blocked-task roll-ups (#1134, #3652)."""
+
+    id = serializers.CharField(read_only=True)
+    username = serializers.CharField(read_only=True)
+
+
+class _BlockingTaskRefSerializer(serializers.Serializer[dict[str, Any]]):
+    """``{id, short_id, title}`` soft link used by the blocked-task roll-ups (#1134, #3652)."""
+
+    id = serializers.UUIDField(read_only=True)
+    short_id = serializers.CharField(read_only=True)
+    title = serializers.CharField(read_only=True)
+
+
+class BlockedTaskRowSerializer(serializers.Serializer[dict[str, Any]]):
+    """One row of a blocked-task roll-up (:func:`blocker_services._blocked_row`, #3652).
+
+    Reason text is deliberately never included (ADR-0124 §4) — see the builder's
+    docstring. Shared by the sprint- and project-scoped roll-ups since both call
+    the same row builder.
+    """
+
+    task_id = serializers.UUIDField(read_only=True)
+    task_short_id = serializers.CharField(read_only=True)
+    title = serializers.CharField(read_only=True)
+    assignee = _BlockedUserRefSerializer(read_only=True, allow_null=True)
+    blocker_type = serializers.CharField(read_only=True, allow_null=True)
+    blocked_since = serializers.DateTimeField(read_only=True, allow_null=True)
+    blocked_age_seconds = serializers.IntegerField(read_only=True, allow_null=True)
+    blocked_by = _BlockedUserRefSerializer(read_only=True, allow_null=True)
+    blocking_task = _BlockingTaskRefSerializer(read_only=True, allow_null=True)
+
+
+class SprintBlockedRollupSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/sprints/{id}/blocked/`` (#1134/#1157, #3652).
+
+    Matches :func:`trueppm_api.apps.projects.blocker_services.sprint_blocked_rollup`.
+    """
+
+    sprint_id = serializers.UUIDField(read_only=True)
+    count = serializers.IntegerField(read_only=True)
+    blocked = BlockedTaskRowSerializer(many=True, read_only=True)
+    truncated = serializers.BooleanField(read_only=True)
+
+
+class IncomingCarryoverTaskSerializer(serializers.Serializer[dict[str, Any]]):
+    """One rolled-forward task row in :func:`services.incoming_carryover` (#865, #3652)."""
+
+    id = serializers.UUIDField(read_only=True, allow_null=True)
+    short_id = serializers.CharField(read_only=True)
+    short_id_display = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    story_points = serializers.IntegerField(read_only=True, allow_null=True)
+    pulled_in_to_current = serializers.BooleanField(read_only=True)
+
+
+class IncomingCarryoverPriorSprintSerializer(serializers.Serializer[dict[str, Any]]):
+    """The prior-sprint summary block in :func:`services.incoming_carryover` (#3652)."""
+
+    id = serializers.UUIDField(read_only=True)
+    short_id_display = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    start_date = serializers.DateField(read_only=True)
+    finish_date = serializers.DateField(read_only=True)
+
+
+class IncomingCarryoverSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/sprints/{id}/incoming_carryover/`` (ADR-0094 §3, #3652).
+
+    ``prior_sprint`` is null and ``tasks`` is empty when there is no prior
+    closed sprint — see :func:`services.incoming_carryover`.
+    """
+
+    prior_sprint = IncomingCarryoverPriorSprintSerializer(read_only=True, allow_null=True)
+    tasks = IncomingCarryoverTaskSerializer(many=True, read_only=True)
+
+
+class SprintScopeChangeEventSerializer(serializers.Serializer[dict[str, Any]]):
+    """One audit row in :func:`services.sprint_scope_change_payload`'s ``events`` list (#3652).
+
+    Distinct from ``SprintScopeChangeSerializer`` (the accept/reject action's row
+    shape): this audit read adds ``story_points``/``added_by_name`` and omits
+    ``task``/``sprint``, matching the dict the service actually builds.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    item_name = serializers.CharField(read_only=True)
+    story_points = serializers.IntegerField(read_only=True, allow_null=True)
+    added_by_name = serializers.CharField(read_only=True, allow_null=True)
+    added_at = serializers.DateTimeField(read_only=True)
+    goal_impact = serializers.BooleanField(read_only=True)
+    status = serializers.CharField(read_only=True)
+
+
+class SprintScopeChangeSummarySerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``summary`` block in :func:`services.sprint_scope_change_payload` (#543/#550, #3652)."""
+
+    points_added = serializers.IntegerField(read_only=True)
+    points_removed = serializers.IntegerField(read_only=True)
+    added_mid_sprint_count = serializers.IntegerField(read_only=True)
+    total = serializers.IntegerField(read_only=True)
+
+
+class SprintScopeChangePayloadSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/sprints/{id}/scope-changes/`` (#543/#550, #3652)."""
+
+    summary = SprintScopeChangeSummarySerializer(read_only=True)
+    events = SprintScopeChangeEventSerializer(many=True, read_only=True)
+
+
+class SprintPulsePointSerializer(serializers.Serializer[dict[str, Any]]):
+    """One sprint's aggregate point in :func:`retro_board_services.pulse_trend` (#3652)."""
+
+    sprint_id = serializers.UUIDField(read_only=True)
+    sprint_name = serializers.CharField(read_only=True)
+    avg_mood = serializers.FloatField(read_only=True, allow_null=True)
+    avg_energy = serializers.FloatField(read_only=True, allow_null=True)
+    avg_confidence = serializers.FloatField(read_only=True, allow_null=True)
+    response_count = serializers.IntegerField(read_only=True)
+
+
+class SprintPulseMineSerializer(serializers.Serializer[dict[str, Any]]):
+    """The requester's own current pulse, echoed in ``pulse_trend`` (#3652)."""
+
+    mood = serializers.IntegerField(read_only=True)
+    energy = serializers.IntegerField(read_only=True)
+    confidence = serializers.IntegerField(read_only=True)
+
+
+class SprintPulseTrendSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/sprints/{id}/pulse-trend/`` (ADR-0104/ADR-0117 §5, #3652).
+
+    ``gated: true`` is the **entire** body for a reader outside the ``pulse``
+    signal's audience — no count, no points (ADR-0104 §2.3) — so every field
+    below ``gated`` is ``required=False``: they are never present on that branch.
+    """
+
+    gated = serializers.BooleanField(read_only=True)
+    points = SprintPulsePointSerializer(many=True, read_only=True, required=False)
+    energy_declining = serializers.BooleanField(read_only=True, required=False)
+    my_response = SprintPulseMineSerializer(read_only=True, required=False, allow_null=True)
+
+
+class RetroBoardColumnSerializer(serializers.Serializer[dict[str, Any]]):
+    """One fixed retro-board column definition (ADR-0117 §1, #3652)."""
+
+    key = serializers.CharField(read_only=True)
+    label = serializers.CharField(read_only=True)  # type: ignore[assignment]
+
+
+class SprintReorderResultSerializer(serializers.Serializer[dict[str, Any]]):
+    """``{"updated": <count>}`` — shared response shape for the sprint reorder actions (#3652).
+
+    Used by ``POST .../reorder/`` and ``POST .../demo-list/reorder/``, both of
+    which write a dense rank column under a row lock and report how many rows
+    changed. A ``409`` on either path instead returns
+    ``{"detail": ..., "conflicts": [...]}`` when the target set changed
+    concurrently — declared separately on each view.
+    """
+
+    updated = serializers.IntegerField(read_only=True)
+
+
+class RetroActionItemPromotedTaskSerializer(serializers.Serializer[dict[str, Any]]):
+    """``{"task": <Task>}`` — response for promoting/pulling a retro action item
+    into a backlog task or a planned sprint (ADR-0071 §2/§4b, #3652).
+
+    Shared by ``POST .../retrospective/action-items/promote`` (201) and
+    ``POST .../retrospective/action-items/pull-to-sprint`` (200) — both return the
+    same created/reassigned task under the same ``task`` key.
+    """
+
+    task = TaskSerializer(read_only=True)
+
+
 class DidntShipItemSerializer(serializers.Serializer[dict[str, Any]]):
     """One task that was in the sprint at close but didn't complete (#985).
 
@@ -9104,6 +9469,22 @@ class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
     ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list, allow_empty=True
     )
+
+
+class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any]]):
+    """``{"<accepted|rejected>": [...], "pending_count": N}`` for the bulk scope-change
+    actions (ADR-0102 §5, #3652).
+
+    ``POST .../scope-changes/accept`` only ever populates ``accepted``; ``POST
+    .../scope-changes/reject`` only ever populates ``rejected`` — each field is
+    ``required=False`` because the other is never present on that action's
+    response, and both actions share one schema component rather than each
+    declaring a near-duplicate.
+    """
+
+    accepted = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
+    rejected = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
+    pending_count = serializers.IntegerField(read_only=True)
 
 
 class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
@@ -9446,6 +9827,18 @@ class RetroBoardItemSerializer(serializers.ModelSerializer[RetroBoardItem]):
             "created_at",
             "updated_at",
         ]
+
+
+class RetroBoardStateSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/sprints/{id}/retro-board/`` (ADR-0117 §1, #3652).
+
+    ``POST`` on the same path creates one sticky and returns a bare
+    ``RetroBoardItemSerializer`` instead of this envelope — declared separately
+    on the view since the two methods return different shapes.
+    """
+
+    columns = RetroBoardColumnSerializer(many=True, read_only=True)
+    items = RetroBoardItemSerializer(many=True, read_only=True)
 
 
 class PulseResponseSerializer(serializers.ModelSerializer[PulseResponse]):

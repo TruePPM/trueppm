@@ -86,8 +86,11 @@ from trueppm_api.apps.projects.serializers import (
     ProgramExportJobSerializer,
     ProgramImportJobSerializer,
     ProgramProjectRowSerializer,
+    ProgramResourceContentionSerializer,
     ProgramRiskPolicySerializer,
     ProgramRollupConfigSerializer,
+    ProgramRollupSerializer,
+    ProgramScheduleSerializer,
     ProgramSerializer,
     SeedImportRequestSerializer,
 )
@@ -1563,27 +1566,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             ),
         ],
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "{program_id, window_start, window_end, resource_count, truncated, "
-                    "resources}. Each resource is "
-                    "{id, name, max_units, tasks[]} and each task span is "
-                    "{assignment_id, id, name, project_id, project_name, early_start, "
-                    "early_finish, scheduled_start, units, status} — aggregated across "
-                    "every member project of the program and tagged with its source "
-                    "project, so a caller can surface people over-allocated across "
-                    "sibling projects in overlapping windows. scheduled_start "
-                    "(ADR-0752) is the task's SPAN start; the client renders "
-                    "scheduled_start..early_finish, falling back to early_start when "
-                    "scheduled_start is null. Overallocation detection stays "
-                    "client-side per ADR-0031, so the assignment cap (ADR-1118) "
-                    "cuts on a resource boundary: resource_count is the number of "
-                    "resources in scope and truncated is true when whole resources "
-                    "were dropped — every resource returned carries all of its "
-                    "in-window spans, so its client-side verdict stays exact."
-                ),
-            ),
+            200: ProgramResourceContentionSerializer,
             400: OpenApiResponse(
                 description="Malformed `start`/`end` date, or `start` is after `end`."
             ),
@@ -2614,19 +2597,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
     @extend_schema(
         summary="Compute the program KPI rollup across its projects",
-        responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Program rollup computed on read (ADR-0088): aggregation_policy, "
-                    "policy_available (whether that policy could be honored), project_count "
-                    "(contributing projects), program_health (the program health dot), and "
-                    "kpis — a per-KPI map where an available KPI is "
-                    "{available: true, value, unit?} and a deferred KPI is "
-                    "{available: false, reason}."
-                ),
-            )
-        },
+        responses={200: ProgramRollupSerializer},
     )
     @action(detail=True, methods=["get"], url_path="rollup")
     def rollup(self, request: Request, pk: str | None = None) -> Response:
@@ -2659,20 +2630,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
     @extend_schema(
         summary="Compute the program-true cross-project schedule",
-        responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Merged program schedule computed on read: project lanes "
-                    "(each with its own rolled-up working-day duration, #3597), "
-                    "tasks (full — including each task's own working-day "
-                    "duration — for projects the caller can read, redacted "
-                    "ExternalTaskCard shape otherwise, with no duration field), "
-                    "leaf-level links flagged cross-project, and the "
-                    "program-true critical path."
-                ),
-            )
-        },
+        responses={200: ProgramScheduleSerializer},
     )
     @action(detail=True, methods=["get"], url_path="schedule")
     def schedule(self, request: Request, pk: str | None = None) -> Response:

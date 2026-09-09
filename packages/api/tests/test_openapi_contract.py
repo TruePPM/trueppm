@@ -1428,3 +1428,91 @@ def test_token_create_400s_keep_a_real_wire_shape(schema: dict, method: str, pat
     assert body.get("type") == "object" and "additionalProperties" in body, (
         f"{method.upper()} {path} declares a 400 in a shape the API never returns (#3319): {body}"
     )
+
+
+def _is_free_form(
+    schema_node: dict, components: dict, *, _seen: frozenset[str] = frozenset()
+) -> bool:
+    """Mirror `isFreeForm()` in `packages/web/e2e/fixtures/openapi-schema.ts` (#3652).
+
+    A schema that constrains nothing: `{"type": "object"}` with no `properties`
+    and no composition keyword. Kept in lockstep with the TS guard's definition
+    on purpose — this test and the e2e schema guard must agree on what "fixed"
+    means, or a regression here could still pass the guard (or vice versa).
+    """
+    node = schema_node
+    while "$ref" in node:
+        name = node["$ref"].rsplit("/", 1)[-1]
+        if name in _seen:
+            return False
+        _seen = _seen | {name}
+        node = components[name]
+    if node.get("type") != "object":
+        return False
+    has_composition = node.get("properties") or node.get("allOf")
+    has_composition = has_composition or node.get("oneOf") or node.get("anyOf")
+    return not has_composition
+
+
+#: The programs + sprints operations #3652 moved off a free-form `{"type": "object"}`
+#: 2xx body. Every other free-form operation the issue measured (schedule/projects,
+#: resources, monte-carlo, imports, time tracking, ...) is out of this MR's scope —
+#: see the sub-issues filed from #3652 — and must NOT be added here until it is
+#: actually fixed; this test exists to catch exactly that regression in reverse.
+_FREE_FORM_FIXED_BY_3652: frozenset[tuple[str, str, str]] = frozenset(
+    {
+        ("get", "/api/v1/programs/{id}/rollup/", "200"),
+        ("get", "/api/v1/programs/{id}/schedule/", "200"),
+        ("get", "/api/v1/programs/{id}/resource-contention/", "200"),
+        ("get", "/api/v1/sprints/{id}/scope-changes/", "200"),
+        ("post", "/api/v1/sprints/{id}/scope-changes/accept/", "200"),
+        ("post", "/api/v1/sprints/{id}/scope-changes/reject/", "200"),
+        ("get", "/api/v1/sprints/{id}/blocked/", "200"),
+        ("post", "/api/v1/sprints/{id}/demo-list/reorder/", "200"),
+        ("post", "/api/v1/sprints/{id}/reorder/", "200"),
+        ("get", "/api/v1/sprints/{id}/capacity/", "200"),
+        ("get", "/api/v1/sprints/{id}/incoming_carryover/", "200"),
+        ("get", "/api/v1/sprints/{id}/retro/", "200"),
+        ("post", "/api/v1/sprints/{id}/retro/", "200"),
+        ("patch", "/api/v1/sprints/{id}/retro/", "200"),
+        ("get", "/api/v1/sprints/{id}/retro-board/", "200"),
+        ("post", "/api/v1/sprints/{id}/retro-board/", "201"),
+        ("get", "/api/v1/sprints/{id}/pulse/", "200"),
+        ("put", "/api/v1/sprints/{id}/pulse/", "200"),
+        ("get", "/api/v1/sprints/{id}/pulse-trend/", "200"),
+        ("get", "/api/v1/sprints/{id}/retrospective/prior/", "200"),
+        (
+            "post",
+            "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/",
+            "201",
+        ),
+        (
+            "post",
+            "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/",
+            "200",
+        ),
+        ("get", "/api/v1/sprints/{id}/burndown/", "200"),
+    }
+)
+
+
+@pytest.mark.parametrize(("method", "path", "status_code"), sorted(_FREE_FORM_FIXED_BY_3652))
+def test_3652_operations_no_longer_declare_a_free_form_body(
+    schema: dict, method: str, path: str, status_code: str
+) -> None:
+    """Each programs/sprints operation #3652 fixed must stay a real object (#3652).
+
+    Regenerating the schema from a future edit that drops the `@extend_schema`
+    override (or replaces the serializer with a bare `OpenApiTypes.OBJECT`
+    again) would pass `api:schema-drift` — drift only proves the committed file
+    matches what the code generates, not that either one is still typed. This
+    is the #1329-style guard against that: it reads the committed artifact and
+    asserts the fix is still there.
+    """
+    components = schema["components"]["schemas"]
+    op = schema["paths"][path][method]
+    body = op["responses"][status_code]["content"]["application/json"]["schema"]
+    assert not _is_free_form(body, components), (
+        f"{method.upper()} {path} ({status_code}) regressed to a free-form body "
+        f"the #3652 fix removed: {body}"
+    )
