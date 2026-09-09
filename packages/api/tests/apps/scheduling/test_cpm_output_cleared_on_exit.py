@@ -195,6 +195,63 @@ def test_duration_is_never_cleared(project: Project) -> None:
     assert "duration" not in CPM_OUTPUT_FIELDS
 
 
+@pytest.mark.django_db
+def test_a_summary_row_leaving_the_set_is_cleared(project: Project) -> None:
+    """Summary rows get their dates from a different write path.
+
+    Leaf dates come from ``_apply_cpm_results``; a summary's come from
+    ``apply_summary_rollups`` plus ``summary_working_day_durations`` (#3530). The
+    clearing predicate does not distinguish them — it keys on status/type/recurring/
+    deleted — but a test that only ever ejects leaves would not show that, so this
+    pins the rolled-up write shape too.
+    """
+    parent = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+    child = Task.objects.create(project=project, name="Leaf", duration=4, wbs_path="1.1")
+
+    _recompute(project)
+    parent.refresh_from_db()
+    child.refresh_from_db()
+    # `is_summary` is a query-time annotation, not a column — the real premise is
+    # that the rollup ran, i.e. the parent's window is its child's rather than its
+    # own duration=1.
+    assert parent.early_finish is not None, "premise: the summary must roll up first"
+    assert parent.early_finish == child.early_finish, "premise: parent rolled up from its leaf"
+
+    # An epic is the plausible way a phase leaves the plan (ADR-0105).
+    Task.objects.filter(pk=parent.pk).update(type=TaskType.EPIC)
+    _recompute(project)
+
+    _assert_all_cleared(parent)
+    _assert_scheduled(child)
+
+
+@pytest.mark.django_db
+def test_a_milestone_leaving_the_set_is_cleared(project: Project) -> None:
+    """Milestones carry a normalized single-point window, so clear both ends.
+
+    ``_apply_cpm_results`` forces ``early_finish = early_start`` (and the late pair)
+    on a milestone so a client never renders a range. That normalization runs only
+    for rows the engine returned, so it is worth pinning that the ejected form is
+    fully null rather than half-written.
+    """
+    anchor = Task.objects.create(project=project, name="Work", duration=5)
+    gate = Task.objects.create(
+        project=project, name="Gate", duration=0, is_milestone=True, delivery_mode="milestone"
+    )
+    Dependency.objects.create(predecessor=anchor, successor=gate, dep_type="FS")
+
+    _recompute(project)
+    gate.refresh_from_db()
+    assert gate.early_start is not None
+    assert gate.early_finish == gate.early_start, "premise: milestone is a single point"
+
+    Task.objects.filter(pk=gate.pk).update(status=TaskStatus.BACKLOG)
+    _recompute(project)
+
+    _assert_all_cleared(gate)
+    _assert_scheduled(anchor)
+
+
 # ---------------------------------------------------------------------------
 # The fully-groomed project — the early return before any write-back
 # ---------------------------------------------------------------------------

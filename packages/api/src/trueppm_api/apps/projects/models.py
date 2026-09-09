@@ -199,7 +199,7 @@ _HISTORY_EXCLUDED_BASE = ["server_version", "sync_seq", "deleted_version"]
 # template rather than eight copies so the published contract cannot drift field by
 # field — it reaches API clients through docs/api/openapi.json, where it is the only
 # statement of what a null means.
-_CPM_OUTPUT_HELP = (
+CPM_OUTPUT_HELP = (
     "{what}. Read-only engine output. Null when the task is outside the "
     "schedulable set (BACKLOG status, EPIC type, a recurring template or "
     "occurrence, or soft-deleted) or has not been scheduled yet."
@@ -3173,16 +3173,16 @@ class Task(VersionedModel):
     # so it is load-bearing rather than decorative; it reaches docs/api/openapi.json
     # through drf-spectacular.
     early_start = models.DateField(
-        null=True, blank=True, help_text=_CPM_OUTPUT_HELP.format(what="CPM early start")
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM early start")
     )
     early_finish = models.DateField(
-        null=True, blank=True, help_text=_CPM_OUTPUT_HELP.format(what="CPM early finish")
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM early finish")
     )
     late_start = models.DateField(
-        null=True, blank=True, help_text=_CPM_OUTPUT_HELP.format(what="CPM late start")
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM late start")
     )
     late_finish = models.DateField(
-        null=True, blank=True, help_text=_CPM_OUTPUT_HELP.format(what="CPM late finish")
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM late finish")
     )
     # The task's SPAN start (ADR-0752), distinct from early_start's
     # remaining-work window (ADR-0132). Not started/complete: equals
@@ -3194,20 +3194,20 @@ class Task(VersionedModel):
     # never client-writable. No ``scheduled_finish`` column exists — it is
     # always identical to early_finish, so read that under its existing name.
     scheduled_start = models.DateField(
-        null=True, blank=True, help_text=_CPM_OUTPUT_HELP.format(what="CPM span start")
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM span start")
     )
     total_float = models.IntegerField(
         null=True,
         blank=True,
-        help_text=_CPM_OUTPUT_HELP.format(what="Total float in working days"),
+        help_text=CPM_OUTPUT_HELP.format(what="Total float in working days"),
     )
     free_float = models.IntegerField(
         null=True,
         blank=True,
-        help_text=_CPM_OUTPUT_HELP.format(what="Free float in working days"),
+        help_text=CPM_OUTPUT_HELP.format(what="Free float in working days"),
     )
     is_critical = models.BooleanField(
-        null=True, blank=True, help_text=_CPM_OUTPUT_HELP.format(what="Critical-path membership")
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="Critical-path membership")
     )
 
     # Explicit milestone flag — set by the PM or preserved from MS Project / P6 import.
