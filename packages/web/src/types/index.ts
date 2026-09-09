@@ -1068,7 +1068,10 @@ export interface ResourceSkill {
 export interface ResourceDetail {
   id: string;
   name: string;
-  email: string;
+  /** Undefined when the server withheld it — see `ApiResource.email` in
+   * `useResources.ts`. The roster read nests the same catalog serializer, so it is
+   * omitted below workspace ADMIN just like the catalog (#3647). */
+  email?: string;
   jobRole: string;
   maxUnits: number;
   calendarId: string | null;
