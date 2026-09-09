@@ -197,6 +197,19 @@ schema:ProgramMembershipWrite
 schema:PatchedProjectMembershipWriteRequest
 schema:PatchedProgramMembershipWriteRequest
 
+# #3649 — five hand-written list() overrides returned bare arrays but the
+# schema wrongly wrapped them in a pagination envelope, the #2127/#2515/#2583
+# class: drf-spectacular infers a paginated envelope from the viewset's default
+# pagination_class alone, blind to a list() override that never paginates.
+# Each now carries @extend_schema(responses={200: <Serializer>(many=True)}) +
+# @suppress_list_pagination; the response bodies are unchanged (they always
+# returned a bare array) — only the now-unreferenced envelope components drop.
+schema:PaginatedProjectMembershipReadList
+schema:PaginatedProgramMembershipReadList
+schema:PaginatedUserDefinedMentionGroupReadList
+schema:PaginatedProgramUserDefinedMentionGroupReadList
+schema:PaginatedPhaseList
+
 # #3372 — ProjectHistorySummaryView removed. The oldest and longest-lived orphan
 # found (shipped 2026-03-25 in 0.1): its own docstring claimed "the UI should call
 # this when the user hits the refresh button", but a repository-wide search — web

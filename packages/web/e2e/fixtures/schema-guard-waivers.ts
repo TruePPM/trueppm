@@ -12,8 +12,11 @@
  * it removes is the **silence**: before this file existed, a mock the server
  * could never produce generated no signal anywhere in the pipeline. The first
  * measured pass found 346 such lines across 104 operations, all of them green;
- * #3440 corrected four field families, and these 102 operations are what is
- * left.
+ * #3440 corrected four field families, and these 100 operations are what is
+ * left. (#3649 closed the cluster-(a) list-vs-envelope entries below — that
+ * wildcard was also silently covering two `/members/` operations' unrelated
+ * #2633 user-id drift, which needed its own narrower cluster-(e) entry once
+ * uncovered.)
  *
  * ## Shape
  *
@@ -35,7 +38,7 @@
  *   in one of the two full suite passes and not the other, so a property-level
  *   ledger built from either would red a spec nobody touched, nondeterministically,
  *   on a loaded runner — the exact failure shape this tree spends the most time
- *   chasing. `'*'` costs enforcement on the other properties of these 102
+ *   chasing. `'*'` costs enforcement on the other properties of these 100
  *   operations and buys a ledger that does not flake. Use the property-level
  *   form for anything added from here, where you know the one line you mean.
  * · Every reason names the issue that removes it. A waiver with no issue is a
@@ -97,48 +100,11 @@ export interface SchemaGuardWaiver {
 
 export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> = {
   // ---------------------------------------------------------------------------
-  // (a) SCHEMA WRONG - a hand-written list() returns a bare array - 5 operations
+  // (a) SCHEMA WRONG - a hand-written list() returns a bare array - 0 operations
+  // Fixed in #3649: the five list() overrides now carry @extend_schema(responses=
+  // {200: <Serializer>(many=True)}) + @suppress_list_pagination, so the published
+  // schema matches the bare array each already returned.
   // ---------------------------------------------------------------------------
-  'GET /api/v1/programs/{program_pk}/members/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/mention-groups/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/members/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/mention-groups/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/phases/': {
-    reason:
-      'SCHEMA-WRONG (#3649): the hand-written list() on this viewset returns a bare array, and ' +
-      'drf-spectacular inferred a paginated envelope from the default pagination class. The mock and ' +
-      'the client both match the SERVER, so fixing the mock would make it wrong. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
   // ---------------------------------------------------------------------------
   // (b) SCHEMA WRONG - the schema under-declares a hand-built response - 1 operations
   // ---------------------------------------------------------------------------
@@ -469,7 +435,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------
-  // (e) #2633 - user ids are integers server-side, strings in types.ts - 11 operations
+  // (e) #2633 - user ids are integers server-side, strings in types.ts - 14 operations
   // ---------------------------------------------------------------------------
   'GET /api/v1/projects/{id}/': {
     reason:
@@ -550,6 +516,32 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
       'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
       'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
+    allow: ['*'],
+  },
+  // #3649 narrowed the cluster-(a) wildcard on these two `/members/` operations to
+  // just its pagination-envelope claim, which surfaced this pre-existing #2633
+  // drift underneath it — it was never fixed, only hidden by the broader waiver.
+  'GET /api/v1/projects/{project_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
+      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
+      'half of #2633 and outside the denominator #3440 bound. Observed: [].user:type, ' +
+      '[].user_detail.id:type.',
+    allow: ['*'],
+  },
+  'GET /api/v1/programs/{program_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
+      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
+      'half of #2633 and outside the denominator #3440 bound. Observed: [].user:type, ' +
+      '[].user_detail.id:type.',
+    allow: ['*'],
+  },
+  'GET /api/v1/projects/{project_pk}/mention-groups/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
+      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
+      'half of #2633 and outside the denominator #3440 bound. Observed: [].members[].id:type.',
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------

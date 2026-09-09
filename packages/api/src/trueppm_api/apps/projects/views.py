@@ -13823,6 +13823,12 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             )
         return phases
 
+    @extend_schema(responses={200: PhaseSerializer(many=True)})
+    # This handler returns a bare array, but PhaseViewSet inherits the default
+    # pagination class, so the auto-schema would otherwise declare a
+    # Paginated...List envelope the real body violates (#3649). Opt out so the
+    # schema matches the response.
+    @suppress_list_pagination
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         queryset = self.filter_queryset(self.get_queryset())
         phases = list(queryset)

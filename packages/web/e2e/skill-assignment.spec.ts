@@ -244,7 +244,7 @@ async function seedAndNavigate(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ id: 'mem-e2e', role: 300, user_id: 'e2e-user' }]),
+      body: JSON.stringify([{ id: 'mem-e2e', role: 300, user: 'e2e-user' }]),
     }),
   );
 

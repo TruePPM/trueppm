@@ -45,7 +45,7 @@ async function setup(page: Page, methodology: Methodology) {
     projects: [projectFixture(methodology)],
     projectId: FIXTURE_PROJECT_ID,
     // Admin (role 300) so the Team role gate (>= Scheduler) is satisfied.
-    members: [{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }],
+    members: [{ id: 'mem-admin', role: 300, user: 'e2e-user' }],
   });
   await page.goto(`${BASE_URL}/overview`);
 }

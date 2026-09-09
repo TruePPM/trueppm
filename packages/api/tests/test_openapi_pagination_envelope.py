@@ -421,3 +421,59 @@ def test_the_cursor_count_predicate_rejects_what_it_must() -> None:
         },
         components,
     ), "an OPTIONAL count is thin documentation, not a broken promise"
+
+
+# ---------------------------------------------------------------------------
+# The five #3649 list() overrides that returned a bare array while the schema
+# claimed a pagination envelope
+# ---------------------------------------------------------------------------
+
+#: (METHOD, path) for each hand-written `list()` fixed by #3649. All five have
+#: always returned `Response(serializer.data)` on a plain list; the forward test
+#: above could never have caught them because it skips any handler without a
+#: `mapping` attribute — i.e. every stock `list()`, custom `@action`s only.
+_BARE_ARRAY_LIST_OPERATIONS: tuple[tuple[str, str], ...] = (
+    ("GET", "/api/v1/programs/{program_pk}/members/"),
+    ("GET", "/api/v1/programs/{program_pk}/mention-groups/"),
+    ("GET", "/api/v1/projects/{project_pk}/members/"),
+    ("GET", "/api/v1/projects/{project_pk}/mention-groups/"),
+    ("GET", "/api/v1/projects/{project_pk}/phases/"),
+)
+
+
+def test_hand_written_list_overrides_declare_a_bare_array_not_an_envelope() -> None:
+    """The five #3649 endpoints must publish ``type: array``, not a paginated envelope.
+
+    Before #3649 each of these declared ``$ref: Paginated<X>List`` — drf-spectacular
+    infers a pagination envelope from the viewset's ``pagination_class`` alone, blind
+    to a hand-written ``list()`` that never calls ``paginate_queryset``. A client
+    generated from the schema typed these responses as ``{count, next, previous,
+    results}`` and got an array. This is a distinct assertion from the schema-first
+    forward check above: that one is structurally blind to a plain ``list()``
+    override (see its ``hasattr(handler, "mapping")`` guard, which only lets
+    router-mapped ``@action`` handlers through), so it could not have caught this
+    class on its own.
+    """
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    paths = schema.get("paths", {})
+
+    offenders = []
+    for method, path in _BARE_ARRAY_LIST_OPERATIONS:
+        operation = paths.get(path, {}).get(method.lower())
+        if operation is None:
+            offenders.append(f"{method} {path} -> operation not found in schema")
+            continue
+        declared = (
+            operation.get("responses", {})
+            .get("200", {})
+            .get("content", {})
+            .get("application/json", {})
+            .get("schema", {})
+        )
+        if declared.get("type") != "array":
+            offenders.append(f"{method} {path} -> declared {declared!r} instead of a plain array")
+
+    assert not offenders, (
+        "These list() overrides return a bare array but the schema declares "
+        "something else (a pagination envelope, most likely):\n  " + "\n  ".join(sorted(offenders))
+    )

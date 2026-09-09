@@ -130,7 +130,7 @@ async function setup(page: Page, band: (typeof BANDS)[number]) {
     projectId: PROJECT_ID,
     statusSummary: statusSummary(band),
     // Admin so every surface renders (no role-gated hiding narrows the cluster).
-    members: [{ id: 'mem-admin', role: 300, user_id: 'e2e-user' }],
+    members: [{ id: 'mem-admin', role: 300, user: 'e2e-user' }],
   });
   if (band.band === null) {
     // Registered AFTER setupApiMocks so it wins (Playwright routes are LIFO):

@@ -193,7 +193,7 @@ async function gotoMobileSchedule(
     r.fulfill(json({ id: 'w1', name: 'E2E', public_sharing_enabled: false })),
   );
   await page.route('**/api/v1/programs/**', (r) => r.fulfill(json(page0)));
-  await page.route('**/api/v1/projects/*/members/**', (r) => r.fulfill(json(page0)));
+  await page.route('**/api/v1/projects/*/members/**', (r) => r.fulfill(json([])));
   await page.route('**/api/v1/projects/*/sprints/**', (r) => r.fulfill(json(page0)));
   await page.route('**/api/v1/projects/*/velocity/**', (r) => r.fulfill(json({ sprints: [] })));
   await page.route('**/api/v1/projects/*/monte-carlo/latest/**', (r) =>
