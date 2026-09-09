@@ -514,11 +514,31 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         # statement ordered by ascending pk — see the module-level
         # "Lock-acquisition order" comment for why "actor row, then instance" can
         # deadlock and pk order cannot.
+        #
+        # When a role change is requested, every current Owner's row is folded
+        # into this SAME statement too (security-review, #3438): a role change
+        # might trip the last-Owner guard below, which takes its own
+        # select_for_update() on the project's other Owner rows. Taking that as
+        # a SECOND, separate statement after this one reopens exactly the
+        # deadlock this comment warns about — this transaction would hold
+        # {actor, instance} and then reach for the Owner set, while a
+        # concurrent transaction with three or more Owners racing could be
+        # holding one of those Owner rows and reaching for {actor, instance} in
+        # the opposite order. Locking the superset up front, in one
+        # ascending-pk pass, means `_check_last_owner_guard`'s own query below
+        # only ever re-locks rows this statement already holds — a no-op, not a
+        # wait. We don't yet know under lock whether `instance` is actually an
+        # Owner, so this widens whenever a role change is requested at all,
+        # not only when the pre-lock `instance.role` looks like one; the
+        # over-inclusion when it turns out not to be a demotion is harmless.
         with transaction.atomic():
+            lock_filter = Q(pk=instance.pk) | Q(
+                project=project, user=request.user, is_deleted=False
+            )
+            if new_role is not None:
+                lock_filter |= Q(project=project, role=Role.OWNER, is_deleted=False)
             locked_rows = list(
-                ProjectMembership.objects.select_for_update()
-                .filter(Q(pk=instance.pk) | Q(project=project, user=request.user, is_deleted=False))
-                .order_by("pk")
+                ProjectMembership.objects.select_for_update().filter(lock_filter).order_by("pk")
             )
             actor_membership = next(
                 (m for m in locked_rows if m.user_id == request.user.pk and not m.is_deleted),
@@ -536,6 +556,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 if new_role >= actor_role:
                     raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
                 # Last-Owner guard: if demoting an Owner, ensure another Owner exists.
+                # Its own select_for_update() only re-locks rows already held above.
                 if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(project.pk, exclude_pk=instance.pk)
                 # Stamp role_changed_at only on an actual role change (#590) so a
@@ -1545,11 +1566,20 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         # `instance` (the row being patched), in one statement ordered by
         # ascending pk — see the module-level "Lock-acquisition order" comment
         # for why "actor row, then instance" can deadlock and pk order cannot.
+        #
+        # See the project twin for why every current Owner's row is folded into
+        # this SAME statement whenever a role change is requested at all
+        # (security-review, #3438): `_check_last_owner_guard`'s own lock below
+        # would otherwise be a second, separately-ordered statement, reopening
+        # the deadlock this comment exists to close.
         with transaction.atomic():
+            lock_filter = Q(pk=instance.pk) | Q(
+                program=program, user=request.user, is_deleted=False
+            )
+            if new_role is not None:
+                lock_filter |= Q(program=program, role=Role.OWNER, is_deleted=False)
             locked_rows = list(
-                ProgramMembership.objects.select_for_update()
-                .filter(Q(pk=instance.pk) | Q(program=program, user=request.user, is_deleted=False))
-                .order_by("pk")
+                ProgramMembership.objects.select_for_update().filter(lock_filter).order_by("pk")
             )
             actor_membership = next(
                 (m for m in locked_rows if m.user_id == request.user.pk and not m.is_deleted),

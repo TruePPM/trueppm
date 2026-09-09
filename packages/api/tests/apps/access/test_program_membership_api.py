@@ -204,6 +204,30 @@ def test_update_role_last_owner_guard(program: Program, owner: object) -> None:
 
 
 @pytest.mark.django_db
+def test_update_role_last_owner_guard_passes_with_a_second_owner(
+    program: Program, owner: object
+) -> None:
+    """Demoting an Owner succeeds when another Owner remains — see the project twin."""
+    owner_membership = ProgramMembership.objects.get(program=program, user=owner)
+    second_owner = _make_user("second-prog-owner")
+    second_owner_membership = ProgramMembership.objects.create(
+        program=program, user=second_owner, role=Role.OWNER
+    )
+
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/members/{owner_membership.pk}/",
+        {"role": Role.ADMIN},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    owner_membership.refresh_from_db()
+    assert owner_membership.role == Role.ADMIN
+    second_owner_membership.refresh_from_db()
+    assert second_owner_membership.role == Role.OWNER
+
+
+@pytest.mark.django_db
 def test_update_role_succeeds_for_owner(
     program: Program,
     owner: object,

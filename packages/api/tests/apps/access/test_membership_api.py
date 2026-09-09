@@ -468,6 +468,34 @@ def test_update_role_last_owner_guard(
     assert owner_membership.role == Role.OWNER
 
 
+@pytest.mark.django_db
+def test_update_role_last_owner_guard_passes_with_a_second_owner(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """Demoting an Owner succeeds when another Owner remains (#3438).
+
+    Pins the widened lock filter added for the last-Owner guard: `partial_update`
+    now folds every current Owner's row into the SAME up-front locked statement
+    as {actor, instance} whenever a role change is requested, so the guard's own
+    `select_for_update()` call only re-locks rows already held. With two Owners
+    on the roster the guard must still find one survivor and let the demotion
+    through — a bug in the widened filter (e.g. excluding a real Owner row) would
+    turn this into an incorrect 400.
+    """
+    second_owner = User.objects.create_user(username="second_owner", password="pw")
+    second_owner_membership = ProjectMembership.objects.create(
+        project=project, user=second_owner, role=Role.OWNER
+    )
+
+    resp = owner_client.patch(_url(project, owner_membership.pk), {"role": Role.ADMIN})
+
+    assert resp.status_code == 200, resp.data
+    owner_membership.refresh_from_db()
+    assert owner_membership.role == Role.ADMIN
+    second_owner_membership.refresh_from_db()
+    assert second_owner_membership.role == Role.OWNER
+
+
 # ---------------------------------------------------------------------------
 # Member management is Owner-only — the roles between Member and Owner must be
 # blocked too (#1508). The suite tested only Owner-allowed and Member-403, so a
