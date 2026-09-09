@@ -201,7 +201,7 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
     All other fields are read-only.
     """
 
-    mention = MentionSerializer(read_only=True)
+    mention = MentionSerializer(read_only=True, allow_null=True)
     snippet = serializers.SerializerMethodField()
     task_id = serializers.SerializerMethodField()
     # Derived read-only category (ADR-0216 §3) — mentions | tasks | signals |

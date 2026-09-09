@@ -51595,7 +51595,12 @@
                         "description": "Set (identity|policy) when verdict=refused; empty otherwise.\n\n* `identity` - Identity\n* `policy` - Policy"
                     },
                     "refusal_detail": {
-                        "type": "string",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentActionRefusalDetail"
+                            }
+                        ],
+                        "nullable": true,
                         "readOnly": true
                     },
                     "engine_version": {
@@ -51646,6 +51651,29 @@
                     "sequence",
                     "summary",
                     "verdict"
+                ]
+            },
+            "AgentActionRefusalDetail": {
+                "type": "object",
+                "description": "The non-hashed refusal telemetry attached to a refused action (ADR-0421, #1850).",
+                "properties": {
+                    "constraint": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RefusalConstraintEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Which specific guard fired — a finer axis than the chain's refusal_reason (identity|policy).\n\n* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee"
+                    },
+                    "projected_impact": {
+                        "readOnly": true,
+                        "description": "Structured projected schedule impact of the refused write. Empty {} for the current MCP-scope/identity producers (no schedule impact); the 0.6 gated-write producers populate {affected_task_count, slip_days, critical_path_delta_days, affected_task_ids}."
+                    }
+                },
+                "required": [
+                    "constraint",
+                    "projected_impact"
                 ]
             },
             "AgentActionRefusalReasonEnum": {
@@ -56423,7 +56451,8 @@
                                 "$ref": "#/components/schemas/Mention"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "event_type": {
                         "type": "string",
@@ -60886,7 +60915,8 @@
                                 "$ref": "#/components/schemas/_MentionAuthorMini"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "started_at": {
                         "type": "string",
@@ -65122,6 +65152,18 @@
                     "velocity_low"
                 ]
             },
+            "RefusalConstraintEnum": {
+                "enum": [
+                    "capability_scope",
+                    "token_identity",
+                    "graph_validation",
+                    "sprint_sovereignty",
+                    "rollup_lock",
+                    "engine_referee"
+                ],
+                "type": "string",
+                "description": "* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee"
+            },
             "RelationTypeEnum": {
                 "enum": [
                     "relates_to",
@@ -69339,7 +69381,8 @@
                                 "$ref": "#/components/schemas/_MentionAuthorMini"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "created_at": {
                         "type": "string",
@@ -69862,7 +69905,8 @@
                                 "$ref": "#/components/schemas/_MentionAuthorMini"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "acknowledged_count": {
                         "type": "integer",
@@ -70680,7 +70724,8 @@
                                 "$ref": "#/components/schemas/_MentionAuthorMini"
                             }
                         ],
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -71760,6 +71805,7 @@
                     "wbs_path": {
                         "type": "string",
                         "readOnly": true,
+                        "nullable": true,
                         "description": "Server-derived WBS path (ADR-0743). Never client-writable."
                     },
                     "status": {
