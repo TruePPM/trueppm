@@ -64,6 +64,12 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     "/api/v1/projects/{project_pk}/board/activity/": "pre-0.3 keyset page (#2844)",
     "/api/v1/projects/{project_pk}/history/": "pre-0.3 additive superset (#2844)",
     "/api/v1/tasks/trash/": "pre-0.3 capped list (#2844)",
+    # The blocked-tasks roll-up (#1134/#1157/#2855) is a capped triage list read
+    # from the top, not a paginated collection — `truncated` says "showing the
+    # 500 oldest", there is no cursor to walk the rest, and there never will be:
+    # a triage surface has no use for page 2. `results`/`next` would imply a
+    # continuation that does not exist.
+    "/api/v1/sprints/{id}/blocked/": "capped triage roll-up, not paginated (#1157/#2855)",
 }
 
 # Path segments that are not kebab-case. All pre-0.3; tracked in #2844.
