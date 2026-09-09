@@ -161,6 +161,15 @@ schema:BoardLane
 schema:BoardLanes
 schema:TaskScopeRollup
 
+# #3371 (ADR-0766 amended) — POST /tasks/{id}/withdraw-approval/ removed. A
+# 2026-09-04 dead-surface audit found it had no client consumer and had never
+# shipped (added 2026-08-01 alongside the no-op PERT-edit fix; its changelog
+# fragment was still unassembled). Deleting it re-opens the ergonomic hole
+# ADR-0766 closed — a Scheduler who approves in error has no way back — but
+# that trade is deliberate: approval stays one-way until a UI asks for undo.
+# `approve-estimates` is unchanged and unaffected.
+/api/v1/tasks/{id}/withdraw-approval/
+
 # #3641 — membership write serializers split, and `user` removed from both PATCH
 # bodies. Two classes of removal here, and they are not the same thing:
 #
