@@ -193,7 +193,7 @@ async function gotoScheduleWithMC(
         description: '',
         start_date: '2026-09-01',
         calendar: 'default',
-        estimation_mode: 'OPEN',
+        estimation_mode: 'open',
         agile_features: false,
         methodology: 'WATERFALL',
         code: '',
@@ -223,7 +223,6 @@ async function gotoScheduleWithMC(
       contentType: 'application/json',
       body: JSON.stringify({
         task_count: 2,
-        critical_path_count: 2,
         health_band: 'on_track',
         monte_carlo_p80: '2026-12-10',
         at_risk_count: 0,
@@ -300,7 +299,7 @@ async function gotoScheduleWithMC(
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' }),
+      body: JSON.stringify({ id: 'u1', email: 'pm@example.com'}),
     }),
   );
   // Current-user role comes from GET /projects/{id}/members/?self=true — a LIST

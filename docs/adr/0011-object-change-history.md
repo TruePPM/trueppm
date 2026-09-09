@@ -116,6 +116,25 @@ Supported windows: `1d`, `7d`, `30d`, `90d`. Response:
 }
 ```
 
+> **Superseded (2026-09-08) by #3372.** The portfolio summary endpoint described
+> above (`ProjectHistorySummaryView`, `GET /api/v1/projects/{pid}/history/summary/`)
+> is removed outright, not deprecated. It shipped 2026-03-25 in 0.1 with a
+> docstring claiming "the UI should call this when the user hits the refresh
+> button", but a repository-wide search (web client + Playwright suite, mobile
+> app, MCP server, docs tree) found no caller — it was the oldest and
+> longest-lived orphan of its kind found on the API surface. Being the oldest
+> orphan made it, in principle, the endpoint most likely to have an unknown
+> external integrator, which is exactly why a deprecation window looked more
+> defensible here than for a younger orphan; the decision made was still to take
+> the step-3 policy exception (see `stability.md`), for the same reason named on
+> every other exception recorded there: a deprecation window exists to give a
+> real caller time to migrate, and a repository-wide search finding zero callers
+> leaves nothing for the window to protect. The removal is recorded as a policy
+> exception in `stability.md` step 3, and the removed route answers a plain
+> `404` rather than failing silently. Nothing else in this ADR is affected — task
+> history, project history, and the unified changelog (ADR-0201) all remain as
+> described.
+
 History endpoints are **pull-only** — no WebSocket push, no notification triggers.
 
 ### Enterprise extension point

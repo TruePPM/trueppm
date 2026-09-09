@@ -88,7 +88,7 @@ const PROJECT: ProjectFixture = {
   // without them it stays in its loading skeleton and renders no title strip.
   effective_methodology: 'HYBRID',
   inherited_methodology: 'HYBRID',
-  estimation_mode: 'OPEN',
+  estimation_mode: 'open',
   agile_features: true,
   default_view: 'SCHEDULE',
   iteration_label: 'Sprint',

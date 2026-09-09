@@ -100,7 +100,6 @@ const BANDS = [
 function statusSummary({ band, at_risk_count, critical_count }: (typeof BANDS)[number]) {
   return {
     task_count: 8,
-    critical_path_count: 2,
     // A P80 forecast date also wants to render in the chip, immediately left of
     // the sync badge — the widest the cluster ever gets on a phone.
     monte_carlo_p80: '2026-09-07',

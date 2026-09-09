@@ -61,7 +61,7 @@ async function setup(page: Page, opts: Options) {
   await page.route(/\/api\/v1\/tasks\//, (r) => r.fulfill(json({ count: 0, next: null, previous: null, results: [] })));
   await page.route('**/api/v1/me/active-sprints/', (r) => r.fulfill(json([])));
   await page.route('**/api/v1/projects/*/presence/', (r) => r.fulfill(json([])));
-  await page.route('**/api/v1/projects/*/status-summary/', (r) => r.fulfill(json({ task_count: 0, critical_path_count: 0, health_band: 'on_track', monte_carlo_p80: null, at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null })));
+  await page.route('**/api/v1/projects/*/status-summary/', (r) => r.fulfill(json({ task_count: 0, health_band: 'on_track', monte_carlo_p80: null, at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null })));
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
   await page.route('**/api/v1/auth/me/', (r) => r.fulfill(json({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' })));
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (r) => r.fulfill(json([{ id: 'mem-1', role: 100 }])));

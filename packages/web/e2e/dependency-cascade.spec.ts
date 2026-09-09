@@ -106,8 +106,6 @@ test.describe('Dependency cascade refresh (#314)', () => {
         body: JSON.stringify({
           id: 'u1',
           email: 'pm@example.com',
-          first_name: 'P',
-          last_name: 'M',
         }),
       }),
     );
@@ -126,7 +124,7 @@ test.describe('Dependency cascade refresh (#314)', () => {
           description: '',
           start_date: '2026-05-01',
           calendar: 'default',
-          estimation_mode: 'OPEN',
+          estimation_mode: 'open',
           agile_features: false,
           methodology: 'WATERFALL',
           code: '',
@@ -177,7 +175,6 @@ test.describe('Dependency cascade refresh (#314)', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           task_count: 3,
-          critical_path_count: 2,
           health_band: 'on_track',
           monte_carlo_p80: null,
           at_risk_count: 0,

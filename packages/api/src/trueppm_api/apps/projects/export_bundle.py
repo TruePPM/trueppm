@@ -224,7 +224,17 @@ def build_and_store_project_archive(job_id: str) -> tuple[str, int]:
                 },
             )
             # Canonical JSON seed (round-trips through the importer, ADR-0109).
-            _add_bytes(tar, "seed.json", dump_seed(export_project(project)).encode("utf-8"))
+            # requesting_user=job.requested_by (#3627): the async bundle is reachable
+            # through the same self-grantable IsProjectAdmin gate as the sync GET
+            # export, so Resource/account email is withheld unless the requester
+            # holds workspace Admin+ — see exporter._Exporter._resolve_email_visibility.
+            _add_bytes(
+                tar,
+                "seed.json",
+                dump_seed(export_project(project, requesting_user=job.requested_by)).encode(
+                    "utf-8"
+                ),
+            )
             # MS Project XML (MSPDI). Degrade gracefully if generation fails so the
             # rest of the bundle still ships.
             try:
@@ -295,7 +305,15 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
             )
             # One canonical program seed for the whole bundle (round-trips through
             # the importer, ADR-0109). Attachments/time/history are async sidecars.
-            _add_bytes(tar, "seed.json", dump_seed(export_program(program)).encode("utf-8"))
+            # requesting_user=job.requested_by (#3627): see the project-bundle
+            # builder above — same self-grantable Admin+ gate, same redaction.
+            _add_bytes(
+                tar,
+                "seed.json",
+                dump_seed(export_program(program, requesting_user=job.requested_by)).encode(
+                    "utf-8"
+                ),
+            )
 
             counts["projects"] = len(projects)
             for project in projects:

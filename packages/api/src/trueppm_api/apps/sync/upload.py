@@ -74,6 +74,19 @@ _STRIPPED_ROW_KEYS = frozenset({"id", "project", "wbs_path"})
 # size. Overridable via settings.TRUEPPM_SYNC_BATCH_MAX_ROWS.
 DEFAULT_MAX_BATCH_ROWS = 500
 
+# Default cap on inline ``owners`` entries summed across an ENTIRE upload batch
+# (#3643). Same shape as ``TaskBulkView``: ``MAX_TASK_OWNERS_PER_WRITE``
+# (serializers.py, #3596) bounds a single row's ``owners`` list at 100, but this
+# module reuses ``TaskSerializer`` per row across up to ``DEFAULT_MAX_BATCH_ROWS``
+# created/updated rows, so the per-row cap alone still lets one push compose
+# 500 x 100 = 50,000 owner entries, each minting a ``TaskActivityEvent`` and (this
+# path does not suppress it — see ``TaskSerializer._owners_broadcast_enabled``) a
+# post-commit ``broadcast_board_event``. Bounded batch-wide, checked up front
+# alongside the row cap, for the same reason: cheaper to reject before the write
+# transaction opens than mid-batch. Overridable via
+# settings.TRUEPPM_SYNC_BATCH_MAX_OWNERS.
+DEFAULT_MAX_BATCH_OWNERS = 500
+
 
 class SyncIdCollision(APIException):
     """A client-generated id in the ``created`` bucket already exists in another project.
@@ -207,6 +220,29 @@ def _validate_and_extract_tasks(changes: dict[str, Any]) -> dict[str, Any]:
     if row_count > max_rows:
         raise ValidationError(
             {"changes": f"Batch too large: {row_count} rows exceeds the limit of {max_rows}."}
+        )
+
+    # Batch-wide ``owners`` budget (#3643) — see ``DEFAULT_MAX_BATCH_OWNERS``. Only
+    # ``created``/``updated`` rows can carry inline ``owners``; ``deleted`` is a bare
+    # id list. A non-list ``owners`` counts as zero here and is left for
+    # ``TaskSerializer``'s own field validation to reject with the proper message,
+    # same as the row itself failing to be a dict.
+    max_owners = getattr(settings, "TRUEPPM_SYNC_BATCH_MAX_OWNERS", DEFAULT_MAX_BATCH_OWNERS)
+    total_owners = sum(
+        len(owners)
+        for bucket in ("created", "updated")
+        for row in (tasks.get(bucket, []) or [])
+        if isinstance(row, dict) and isinstance(owners := row.get("owners"), list)
+    )
+    if total_owners > max_owners:
+        raise ValidationError(
+            {
+                "changes": (
+                    f"Batch names {total_owners} owner entries across its rows, more "
+                    f"than the limit of {max_owners}. Split the push into smaller "
+                    "batches, or send fewer owners per row."
+                )
+            }
         )
     return tasks
 
@@ -422,7 +458,28 @@ def apply_task_changes(
     ctx = _ApplyContext(
         request=request,
         project=project,
-        serializer_context={"request": request, "caller_role": role, "project": project},
+        # suppress_owner_broadcast (#3643): ``ProjectSyncView._apply_and_record``
+        # (sync/views.py) coalesces every row this batch touches into ONE
+        # ``tasks_bulk_mutated`` broadcast per upload — added for #809, where
+        # emitting one ``async_to_sync(group_send)`` per row (up to
+        # ``TRUEPPM_SYNC_BATCH_MAX_ROWS``) overflowed the channel-layer inbox
+        # under a reconnect storm. That coarse event is built from
+        # ``applied.events``, which already carries every row an inline
+        # ``owners`` write applies to (``_apply_created_row``/
+        # ``_apply_updated_row`` append to ``result.events`` on the same
+        # successful save that also applies ``owners``) — so a per-entry
+        # ``assignment_*`` broadcast on top of it would be exactly the
+        # duplicate load ``TaskBulkView`` suppresses this for. Safe under the
+        # all-or-nothing shape too: this function runs inside one
+        # ``transaction.atomic()`` with no per-row savepoints, so any row
+        # failure rolls back the whole batch before the coarse broadcast is
+        # ever registered — there is no partial-commit case to under-cover.
+        serializer_context={
+            "request": request,
+            "caller_role": role,
+            "project": project,
+            "suppress_owner_broadcast": True,
+        },
         existing_by_id=_fetch_existing_tasks(tasks, project),
         last_pulled_at=last_pulled_at,
     )

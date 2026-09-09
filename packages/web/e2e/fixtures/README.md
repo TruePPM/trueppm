@@ -119,6 +119,63 @@ reads back under another name — `owners` (write) → `assignments` (read). The
 shallow merge would otherwise put a field on the row that the real API never returns,
 and the spec would be asserting against a shape the server cannot produce.
 
+## Every mock is checked against `docs/api/openapi.json`
+
+`setupCatchAll` installs a schema guard (`schema-guard.ts`, #3440) that patches
+`page.route` on that page, so **every** response any route on it fulfills —
+including the ones inlined in a spec body — is validated against the response
+schema the real server declares for that method, path and status. A mismatch
+throws inside the route handler and Playwright reports it as that test's error,
+naming the endpoint, the property and the rule.
+
+It exists because this whole directory used to be derived from nothing.
+`grep -rl openapi e2e/` returned zero files, so `web:e2e` proved the front end
+agrees with these fixtures — not that either agrees with the API. Rename a
+serializer field and every spec stayed green, because the mock still sent the
+old name and the component still read it.
+
+Four rules fail a spec:
+
+| Rule | What it catches |
+|---|---|
+| `unknown-property` | the mock sends a field the serializer does not have — a rename, a typo, an invented field |
+| `type` | a string where the schema says integer, an array where it says object |
+| `enum` | a value the server cannot emit (`estimation_mode: 'OPEN'` — it is `'open'`) |
+| `null-on-non-nullable` | `null` on a field the schema declares always present |
+
+`missing-required` is **measured and not enforced**: a fixture that sends
+`{id, name}` for a Project is a deliberate minimal stand-in, and failing on it
+would be a test of fixture verbosity, not of drift.
+
+### When it fails
+
+Decide which artifact is wrong before changing anything. The mock is usually the
+one at fault, but not always — five endpoints return a bare array while the
+*schema* wrongly declares pagination (#3649), so "fixing" the mock there would
+make it wrong. If the schema is what is wrong, fix the annotation, regenerate
+with `scripts/export-openapi.sh`, and do not weaken the check.
+
+A deliberate, tracked exception goes in `schema-guard-waivers.ts` — the guard
+prints the exact line to add. That file is a ledger of what is *not* bound, with
+a reason and an issue per entry, and `scripts/check-e2e-schema-guard.sh` ratchets
+it so it can only shrink.
+
+### Measuring it
+
+```bash
+TRUEPPM_E2E_SCHEMA_GUARD=report TRUEPPM_E2E_SCHEMA_REPORT=/tmp/schema.ndjson \
+  npx playwright test
+npm run e2e:schema-report /tmp/schema.ndjson
+```
+
+`report` observes without failing — for measurement only. CI must never set it,
+and the gate enforces that. `off` disables the guard entirely; same rule.
+
+Note what the report separates out: 46 operations declare their 2xx body as a
+free-form `{type: object}` (`/projects/{id}/overview/` among them), so a mock for
+one of those cannot be wrong here no matter what it sends. That is a hole in the
+schema (#3652), counted apart from "checked" so it is never read as coverage.
+
 ## Adding a new auxiliary endpoint
 
 If a new endpoint is needed by 3+ specs, add it to `setupApiMocks` rather

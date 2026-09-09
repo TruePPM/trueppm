@@ -1442,9 +1442,13 @@ def has_org_role_from_live_project(user: Any, floor: int) -> bool:
     This narrows the derivation; it does not make it trustworthy. Project roles are
     self-grantable by design (creating a project makes you its Owner, and that must
     not change), so no filter here turns membership into an org principal. Surfaces
-    that are irreversible or exfiltrating use :class:`IsWorkspaceOperator` instead
-    (ADR-0213 C1); this gate is for the shared catalogs whose blast radius is a
-    curation mistake rather than a disclosure.
+    that are irreversible or exfiltrating use a **stored** principal instead: routine
+    install-wide work (the resource catalog's deactivation lifecycle, its email
+    exposure, the cross-project assignments view) uses
+    :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict`; set-once
+    infrastructure (mail transport) uses :class:`IsWorkspaceOperator` (ADR-0213 C1).
+    This gate is for the shared catalogs whose blast radius is a curation mistake
+    rather than a disclosure.
     """
     if user is None or not getattr(user, "is_authenticated", False):
         return False

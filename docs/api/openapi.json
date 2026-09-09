@@ -9696,7 +9696,7 @@
                                 }
                             }
                         },
-                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer."
+                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at program Admin+, which is self-grantable by creating a project/program, so the field is gated independently of endpoint access (#3627)."
                     },
                     "403": {
                         "description": "Not a program Admin — or an agent (`mcp:read`) token where a member project has opted out of agent reads and `TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` is `withhold` (#3014). The body carries the ADR-0809 refusal envelope naming `capability_scope`."
@@ -19664,7 +19664,7 @@
                                 }
                             }
                         },
-                        "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer."
+                        "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at project Admin+, which is self-grantable by creating a project, so the field is gated independently of endpoint access (#3627)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -26518,58 +26518,6 @@
                     }
                 },
                 "summary": "Retrieve history"
-            }
-        },
-        "/api/v1/projects/{project_pk}/history/summary/": {
-            "get": {
-                "operationId": "v1_projects_history_summary_retrieve",
-                "description": "Aggregate mutation counts for a project over a time window.\n\nGET /api/v1/projects/{project_pk}/history/summary/?window=7d\n\nSupported windows: 1d, 7d (default), 30d, 90d.\nResponse is cached in Redis for 5 minutes. Pass ``?refresh=1`` to bust\nthe cache — the UI should call this when the user hits the refresh button.\n\nThe ``generated_at`` field is an ISO-8601 timestamp the UI should display\nas \"last updated X ago\" so users know the freshness of the data.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "project_pk",
-                        "schema": {
-                            "type": "string"
-                        },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "projects"
-                ],
-                "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "No response body"
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Retrieve summary"
             }
         },
         "/api/v1/projects/{project_pk}/import/csv/": {
@@ -46745,90 +46693,6 @@
                     }
                 },
                 "summary": "Revoke suggestion"
-            }
-        },
-        "/api/v1/tasks/{id}/withdraw-approval/": {
-            "post": {
-                "operationId": "v1_tasks_withdraw_approval_create",
-                "description": "Revoke an accepted three-point estimate back to pending (ADR-0766, #2597).\n\nSymmetric counterpart to approve_estimates: lets a Scheduler undo an approval\ngiven in error without having to trigger a PERT-field no-op write to force\nthe downgrade — that no-op path was the accidental-revocation bug this same\nissue closes. Only meaningful when estimation_mode is SUGGEST_APPROVE.\nIdempotent — calling on a task that is not currently accepted (already\npending, or ungoverned/null) is a no-op (200, no DB write, no broadcast).\n\nPermission: IsProjectScheduler+ (Resource Manager and above) — same gate as\napprove_estimates; whoever can grant the approval can withdraw it.",
-                "summary": "Withdraw an approved three-point estimate back to pending",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "description": "A UUID string identifying this task.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Task"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "400": {
-                        "description": "Project estimation_mode is not suggest_approve."
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
         },
         "/api/v1/tasks/{task_pk}/time-entries/": {

@@ -18,8 +18,18 @@ import { CloseIcon, WarningIcon } from '@/components/Icons';
 import type { BacklogController } from '../hooks/useBacklogController';
 import { FOCUS_RING } from './styles';
 
+/**
+ * Narrowed to the three fields this component reads (#3644). It used to take the
+ * whole `BacklogController`, which forced its test to build one with
+ * `as unknown as BacklogController` — the one cast of that type in the tree, and
+ * the mechanism by which the NEXT required controller field would land here
+ * silently while `tsc` stayed green. A component that names what it uses cannot
+ * have that problem.
+ */
+type BacklogToastsController = Pick<BacklogController, 'toast' | 'dismissToast' | 'retryPull'>;
+
 interface BacklogToastsProps {
-  controller: BacklogController;
+  controller: BacklogToastsController;
 }
 
 export function BacklogToasts({ controller }: BacklogToastsProps) {

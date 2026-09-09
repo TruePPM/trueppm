@@ -67,6 +67,7 @@ OPT_OUT="
 check-issue-boundary.sh	reads the GitLab tracker, not the repo — a failure comes from an issue label and no commit can fix it, so as a pre-push gate it would block pushes on state the pusher did not touch (#2977)
 check-suppression-issues.sh	queries the tracker for issue state
 check-todo-grep.sh	resolves TODO(#NNN) against open/closed issues via the tracker
+check-known-issues-freshness.sh	resolves every /-/issues/NNNN reference on known-issues.md against the tracker — same reasoning as check-todo-grep.sh (#3628)
 check-adr-collisions.sh	compares ADR numbers against remote branches
 check-release-images.sh	verifies published release images; release-time only
 check-mermaid-rendered.sh	requires a full astro build of packages/website (minutes, not seconds)

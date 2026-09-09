@@ -116,7 +116,7 @@ async function setup(page: Page, opts: SetupOpts = {}) {
     r.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 5, critical_path_count: 0, health_band: 'on_track', monte_carlo_p80: null,
+        task_count: 5, health_band: 'on_track', monte_carlo_p80: null,
         at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
         last_saved: null, recalculated_at: null,
       }),

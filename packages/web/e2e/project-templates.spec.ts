@@ -68,7 +68,7 @@ async function setup(
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ id: 1, username: 'e2e', email: 'e2e@example.com', workspace_role: 300 }),
+      body: pj({ id: 'e2e-user', username: 'e2e', email: 'e2e@example.com', workspace_role: 300 }),
     }),
   );
   await page.route('**/api/v1/me/notifications/**', (r) =>
