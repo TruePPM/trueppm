@@ -8,6 +8,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 from trueppm_api.apps.teams.permissions import IsTeamMember
 
@@ -52,22 +53,105 @@ def test_roster_lists_members_with_facets(
 
 
 def test_roster_list_is_paginated(
-    admin_client: APIClient, default_team: Team, team_members: dict[str, Any]
+    admin_client: APIClient, project: Any, default_team: Team, team_members: dict[str, Any]
 ) -> None:
     """A 200-member roster returns a single bounded page (#1317).
 
     Page-number pagination (not cursor) is retained for the roster, so ``count``
     stays available for any future "N members" header.
+
+    Each extra user also gets a live ``ProjectMembership`` (#3511): the roster
+    read now floors on it, and a real ``TeamMembership`` never exists without one
+    (the ADR-0078 §F mirror only ever creates a team row alongside a project
+    one) — an unpaired ``TeamMembership`` here would test the new floor, not
+    pagination.
     """
     extra = User.objects.bulk_create([User(username=f"tm{i:04d}") for i in range(200)])
     TeamMembership.objects.bulk_create(
         [TeamMembership(team=default_team, user=u, role=TeamRole.MEMBER) for u in extra]
+    )
+    ProjectMembership.objects.bulk_create(
+        [ProjectMembership(project=project, user=u, role=Role.MEMBER) for u in extra]
     )
     resp = admin_client.get(_members_url(default_team))
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 50  # PageNumberPagination default page_size
     assert resp.data["count"] >= 200
     assert resp.data["next"] is not None
+
+
+def test_roster_excludes_a_revoked_project_member(
+    admin_client: APIClient,
+    project: Any,
+    default_team: Team,
+    team_members: dict[str, Any],
+    viewer: Any,
+) -> None:
+    """A revoked project member's mirrored ``TeamMembership`` row is not listed (#3511).
+
+    The ADR-0078 §F mirror (``ensure_team_membership``) only ever *creates* team
+    rows — the teams app has no ``post_delete`` receiver on ``ProjectMembership``,
+    so revoking someone's project access leaves their ``TeamMembership`` row live
+    with ``is_deleted=False``. Without the floor added here, that ghost row keeps
+    surfacing in the roster after the person can no longer even open the project —
+    the same class already fixed on the facet and voter-roster seams (#3386,
+    #3387, #3334). Paired control: a live member (``project_admin``) keeps
+    appearing with their role intact, so this cannot pass by accidentally
+    excluding everyone.
+    """
+    ProjectMembership.objects.filter(project=project, user=viewer).update(is_deleted=True)
+
+    resp = admin_client.get(_members_url(default_team))
+    assert resp.status_code == 200
+    rows = resp.data["results"]
+
+    user_ids = {str(row["user"]) for row in rows}
+    assert str(team_members["viewer"].user_id) not in user_ids
+
+    live_row = next(r for r in rows if str(r["user"]) == str(team_members["project_admin"].user_id))
+    assert live_row["role"] == TeamRole.ADMIN
+
+
+def test_member_count_excludes_a_revoked_project_member(
+    admin_client: APIClient,
+    project: Any,
+    default_team: Team,
+    team_members: dict[str, Any],
+    viewer: Any,
+) -> None:
+    """The team-list ``member_count`` drops a revoked project member too (#3511).
+
+    Same defect, different read path: ``TeamViewSet``'s ``member_count_annotated``
+    counted every ``is_deleted=False`` ``TeamMembership`` row regardless of whether
+    the underlying ``ProjectMembership`` was still live.
+    """
+    ProjectMembership.objects.filter(project=project, user=viewer).update(is_deleted=True)
+
+    resp = admin_client.get(f"/api/v1/projects/{project.pk}/teams/")
+    assert resp.status_code == 200
+    rows = resp.data["results"]
+    assert rows[0]["member_count"] == 3  # 4 team_members minus the revoked viewer
+
+
+def test_revoked_project_member_cannot_be_patched_via_the_roster(
+    admin_client: APIClient,
+    project: Any,
+    default_team: Team,
+    team_members: dict[str, Any],
+    viewer: Any,
+) -> None:
+    """A revoked member's team row is not just hidden from list — it 404s on write too.
+
+    ``partial_update`` fetches its instance through the same floored
+    ``get_queryset()``, so there is no way to keep editing a role/facet for
+    someone who has lost project access via this endpoint.
+    """
+    ProjectMembership.objects.filter(project=project, user=viewer).update(is_deleted=True)
+
+    resp = admin_client.patch(
+        _member_url(default_team, team_members["viewer"]), {"is_scrum_master": True}
+    )
+    assert resp.status_code == 404
 
 
 def test_outsider_cannot_read_roster(
