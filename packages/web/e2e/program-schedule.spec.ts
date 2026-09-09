@@ -47,8 +47,8 @@ const FIXTURE_SCHEDULE = {
   start_date: '2026-03-02',
   finish_date: '2026-05-01',
   projects: [
-    { id: 'proj-a', name: 'Helios Platform', accessible: true },
-    { id: 'proj-b', name: 'Helios Mobile', accessible: true },
+    { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 10 },
+    { id: 'proj-b', name: 'Helios Mobile', accessible: true, duration: 1 },
   ],
   tasks: [
     {
@@ -65,6 +65,7 @@ const FIXTURE_SCHEDULE = {
       late_finish: '2026-03-13',
       total_float_days: 0,
       is_critical: true,
+      duration: 10,
     },
     {
       id: 't-b1',
@@ -80,6 +81,7 @@ const FIXTURE_SCHEDULE = {
       late_finish: '2026-03-16',
       total_float_days: 0,
       is_critical: true,
+      duration: 1,
     },
   ],
   links: [
@@ -173,8 +175,8 @@ test.describe('Program schedule view', () => {
         start_date: null,
         finish_date: null,
         projects: [
-          { id: 'proj-a', name: 'Helios Platform', accessible: true },
-          { id: 'proj-b', name: 'Helios Mobile', accessible: true },
+          { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 0 },
+          { id: 'proj-b', name: 'Helios Mobile', accessible: true, duration: 0 },
         ],
         tasks: [],
         links: [],

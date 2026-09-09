@@ -12,6 +12,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -56,6 +57,28 @@ def owner_client(owner: object, owner_membership: ProjectMembership) -> APIClien
     c = APIClient()
     c.force_authenticate(user=owner)
     return c
+
+
+@pytest.fixture
+def colleague(db: object) -> object:
+    """A real teammate — reachable only once a roster the caller belongs to names them."""
+    return User.objects.create_user(username="colleague", password="pw")
+
+
+@pytest.fixture
+def owner_is_workspace_admin(owner: object) -> WorkspaceMembership:
+    """Promote ``owner`` to workspace ADMIN — the principal that may add any account.
+
+    A project Owner reaches only the accounts already on a roster they belong to
+    (#3641), so a test whose subject is role defaults, conflict handling or error
+    mapping — not target reachability — has to take the actor out of that variable.
+    Workspace ADMIN is the tier the install already hands the directory to
+    (``WorkspaceMemberListView``, ``/workspace/invites/``), and it is not
+    self-grantable.
+    """
+    return WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=owner, role=WorkspaceRole.ADMIN
+    )
 
 
 @pytest.fixture
@@ -140,12 +163,28 @@ def test_list_excludes_soft_deleted(
 
 @pytest.mark.django_db
 def test_create_member_as_owner(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    colleague: object,
 ) -> None:
-    new_user = User.objects.create_user(username="new_u", password="pw")
-    resp = owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.MEMBER})
-    assert resp.status_code == 201
-    assert ProjectMembership.objects.filter(project=project, user=new_user).exists()
+    """An Owner adds someone already on a roster they share — the golden path.
+
+    This test previously created a brand-new user with no relationship to the
+    project, the owner, or any shared program, and asserted 201 — i.e. it encoded
+    the #3641 harvest as intended behavior. The target is now somebody the owner
+    already shares a *different* project with, which is what the narrowed queryset
+    permits; the unrelated-account case is asserted as a refusal below.
+    """
+    other_project = Project.objects.create(name="Shared", start_date=date(2026, 1, 1))
+    ProjectMembership.objects.create(
+        project=other_project, user=owner_membership.user, role=Role.OWNER
+    )
+    ProjectMembership.objects.create(project=other_project, user=colleague, role=Role.MEMBER)
+
+    resp = owner_client.post(_url(project), {"user": str(colleague.pk), "role": Role.MEMBER})
+    assert resp.status_code == 201, resp.data
+    assert ProjectMembership.objects.filter(project=project, user=colleague).exists()
 
 
 @pytest.mark.django_db
@@ -159,12 +198,18 @@ def test_create_blocked_for_member(
 
 @pytest.mark.django_db
 def test_create_cannot_assign_owner_role(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Owner cannot assign Owner to another user (role >= own role)."""
     new_user = User.objects.create_user(username="new_u3", password="pw")
     resp = owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.OWNER})
     assert resp.status_code == 400
+    # Pin the *reason*: with the target queryset narrowed (#3641) a 400 alone no
+    # longer distinguishes "role too high" from "user unreachable".
+    assert "role" in resp.data
 
 
 @pytest.mark.django_db
@@ -181,7 +226,10 @@ def test_create_duplicate_returns_409(
 
 @pytest.mark.django_db
 def test_create_without_role_uses_project_default(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Omitting role falls back to the project's default_member_role (ADR-0363)."""
     project.default_member_role = Role.SCHEDULER
@@ -196,7 +244,10 @@ def test_create_without_role_uses_project_default(
 
 @pytest.mark.django_db
 def test_create_without_role_defaults_to_member_when_unset(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """A project left at its MEMBER default seeds MEMBER for a role-less add."""
     new_user = User.objects.create_user(username="def_member", password="pw")
@@ -207,7 +258,10 @@ def test_create_without_role_defaults_to_member_when_unset(
 
 @pytest.mark.django_db
 def test_create_explicit_role_overrides_project_default(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """An explicit role in the payload wins over the project default."""
     project.default_member_role = Role.VIEWER
@@ -867,7 +921,10 @@ def test_insert_race_answers_409_not_500(
 
 @pytest.mark.django_db
 def test_an_unexpected_integrity_error_is_not_masked_as_409(
-    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Only the (project, user) uniqueness race becomes a 409.
 
@@ -1036,3 +1093,145 @@ def test_re_add_restores_the_team_facets_the_revocation_floored(
 
     assert resp.status_code == 201, resp.data
     assert user_facets(member_user, project.pk)["is_scrum_master"] is True
+
+
+# ---------------------------------------------------------------------------
+# Target reachability (#3641) — a membership write may not name an arbitrary
+# account, because the 201/200 answers with that account's email address.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_refuses_an_account_the_owner_cannot_already_reach(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+) -> None:
+    """The harvest, closed at the door it entered by.
+
+    ``POST /api/v1/projects/`` is ungated and mints the caller as Owner, so before
+    this narrowing any authenticated account could stand up a project and then walk
+    sequential ``auth.User`` ids through this endpoint, reading an address out of
+    every 201. The target is now bounded to accounts already on a roster the caller
+    belongs to.
+    """
+    victim = User.objects.create_user(username="victim", password="pw", email="v@example.com")
+
+    resp = owner_client.post(_url(project), {"user": str(victim.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+    assert not ProjectMembership.objects.filter(project=project, user=victim).exists()
+    # The refusal must not carry the address it was refusing to disclose.
+    assert "v@example.com" not in str(resp.data)
+
+
+@pytest.mark.django_db
+def test_create_refuses_a_deactivated_account(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
+    colleague: object,
+) -> None:
+    """``is_active=False`` is out of reach at every tier, matching /users/search/.
+
+    The deactivated pool is admin-only state (#1724); a roster write must not be the
+    way back into it. Asserted with the actor at workspace ADMIN — the widest tier —
+    so a pass cannot come from the co-membership bound instead.
+    """
+    colleague.is_active = False  # type: ignore[attr-defined]
+    colleague.save(update_fields=["is_active"])  # type: ignore[attr-defined]
+
+    resp = owner_client.post(_url(project), {"user": str(colleague.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+
+
+@pytest.mark.django_db
+def test_a_workspace_admin_may_still_add_anyone(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    owner_is_workspace_admin: WorkspaceMembership,
+    colleague: object,
+) -> None:
+    """Onboarding is preserved for the tier that already holds the directory.
+
+    Workspace ADMIN is what ``/workspace/invites/`` and the workspace member list
+    already require, and it is not self-grantable — so widening the target set there
+    reintroduces nothing.
+    """
+    resp = owner_client.post(_url(project), {"user": str(colleague.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    assert ProjectMembership.objects.filter(project=project, user=colleague).exists()
+
+
+@pytest.mark.django_db
+def test_owner_can_re_add_a_member_they_revoked(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """Revoking someone must not put them out of reach.
+
+    The caller's own membership has to be live, but the target's does not — a revoked
+    row is still evidence that somebody with reach introduced that account to this
+    roster, and requiring a live one would make ``_revive_revoked_membership`` (#3410)
+    unreachable through the API that owns it.
+    """
+    member_membership.soft_delete()
+
+    resp = owner_client.post(_url(project), {"user": str(member_user.pk), "role": Role.MEMBER})
+
+    assert resp.status_code == 201, resp.data
+    member_membership.refresh_from_db()
+    assert member_membership.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_patch_cannot_reassign_a_membership_onto_another_account(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+) -> None:
+    """The second door: PATCH used to accept ``user`` and swap the row's account.
+
+    That was the same harvest one request further in, and it also rewrote who held
+    access while keeping the row's ``joined_at`` access evidence. ``user`` is refused
+    on update outright — explicitly, so a 200 cannot mean "ignored".
+    """
+    victim = User.objects.create_user(username="patch-victim", password="pw", email="p@x.test")
+
+    resp = owner_client.patch(
+        _url(project, member_membership.pk), {"user": str(victim.pk)}, format="json"
+    )
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+    member_membership.refresh_from_db()
+    assert member_membership.user_id == member_user.pk  # type: ignore[attr-defined]
+    assert "p@x.test" not in str(resp.data)
+
+
+@pytest.mark.django_db
+def test_patch_still_changes_a_role(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """The legitimate update path is untouched by the ``user`` refusal."""
+    resp = owner_client.patch(
+        _url(project, member_membership.pk), {"role": Role.SCHEDULER}, format="json"
+    )
+
+    assert resp.status_code == 200, resp.data
+    member_membership.refresh_from_db()
+    assert member_membership.role == Role.SCHEDULER

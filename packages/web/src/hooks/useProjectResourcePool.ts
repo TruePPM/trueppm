@@ -14,7 +14,14 @@ interface ApiResourceSkill {
 interface ApiResourceDetail {
   id: string;
   name: string;
-  email: string;
+  /**
+   * Omitted entirely (not nulled) unless the caller holds workspace ADMIN or is the
+   * resource's own user — `resource_detail` nests the same `ResourceSerializer` as
+   * the catalog, so it strips `email` the same way (#891, #3569, missed for this
+   * surface until #3647). `undefined` means "you may not see this", never "this
+   * person has no address". See `ApiResource.email` in `useResources.ts`.
+   */
+  email?: string;
   job_role: string;
   max_units: string;
   calendar: string | null;

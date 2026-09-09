@@ -1123,6 +1123,47 @@ docs:version-accuracy:
     - bash scripts/remove-ships-in-callouts.sh --self-test
     - bash scripts/check-early-promotion.sh --self-test
 
+docs:known-issues-freshness:
+  extends: .fast-job
+  # Known-issues freshness gate (#3628). known-issues.md states its own
+  # contract in the intro: "When an issue closes, its entry comes off this
+  # page." Nothing enforced that — a 2026-09-08 sweep found ten of its 28
+  # issue references pointing at closed issues (the third recorded instance
+  # of the class: #2594, #3607, #3628), so this replaces the next
+  # persona-panel sweep with a mechanical check.
+  #
+  # Every `/-/issues/NNNN` reference on the page must resolve to an OPEN
+  # issue, unless its own physical line also carries the ack marker
+  # (`<!-- known-issues-ack:closed -->`) — the escape hatch for a reference
+  # cited on purpose (a decision that already shipped, or a closed issue
+  # cited as evidence a fix landed). Adding the marker is a claim a human
+  # made after checking `main`, not a way to silence the gate — CLAUDE.md:
+  # "a closed issue is evidence the work merged, not that the entry's claim
+  # is now false."
+  #
+  # Auth (same as lint:todo-grep, #3043): CI_JOB_TOKEN cannot authenticate
+  # against the Issues API on any endpoint, so no auth header is sent unless
+  # KNOWN_ISSUES_TOKEN (a project/group access token with read_api) is set —
+  # not required for trueppm/trueppm itself, whose tracker is public.
+  #
+  # Fail-closed on purpose: an unresolvable lookup (network error, private
+  # fork with no token) fails the job rather than silently passing.
+  # KNOWN_ISSUES_ALLOW_UNRESOLVED=1 is the explicit opt-out, not set here — a
+  # tracker-API timeout should retry the JOB, not red main and not go quiet.
+  #
+  # Runs on every MR pipeline and on main. ~5-15s incl. issue-state lookups
+  # (one per unique reference; the page has ~25).
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash curl jq
+  script:
+    - bash scripts/check-known-issues-freshness.sh --self-test
+    - bash scripts/check-known-issues-freshness.sh
+
 docs:config-links:
   # Every https://docs.trueppm.com link in the two files an operator actually
   # edits — packages/helm/values.yaml and .env.example — must resolve to a page

@@ -52,6 +52,7 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
     counts,
     tagUniverse,
     estimationScale,
+    methodology,
     canEdit,
     canDelete,
     matchCount,
@@ -247,6 +248,7 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
             item={selectedItem}
             tagSuggestions={tagUniverse}
             estimationScale={estimationScale}
+            methodology={methodology}
             canEdit={canEdit}
             canDelete={canDelete}
             onClose={url.closeDetail}
@@ -288,6 +290,7 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
           <DetailCreate
             tagSuggestions={tagUniverse}
             estimationScale={estimationScale}
+            methodology={methodology}
             onCancel={url.closeDetail}
             onCreate={async (input) => {
               const created = await controller.createItem(input);

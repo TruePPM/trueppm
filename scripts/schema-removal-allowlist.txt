@@ -161,6 +161,42 @@ schema:BoardLane
 schema:BoardLanes
 schema:TaskScopeRollup
 
+# #3371 (ADR-0766 amended) — POST /tasks/{id}/withdraw-approval/ removed. A
+# 2026-09-04 dead-surface audit found it had no client consumer and had never
+# shipped (added 2026-08-01 alongside the no-op PERT-edit fix; its changelog
+# fragment was still unassembled). Deleting it re-opens the ergonomic hole
+# ADR-0766 closed — a Scheduler who approves in error has no way back — but
+# that trade is deliberate: approval stays one-way until a UI asks for undo.
+# `approve-estimates` is unchanged and unaffected.
+/api/v1/tasks/{id}/withdraw-approval/
+
+# #3641 — membership write serializers split, and `user` removed from both PATCH
+# bodies. Two classes of removal here, and they are not the same thing:
+#
+#   ProjectMembershipWrite / ProgramMembershipWrite were phantom RESPONSE
+#   components, the #2127/#2515/#2583 class. All four membership write actions
+#   have always returned `*MembershipReadSerializer(instance).data`; the schema
+#   declared the write serializer because the actions carried no
+#   @extend_schema(responses=…). They now declare ProjectMembershipRead /
+#   ProgramMembershipRead, which is what the endpoints actually send — so these
+#   two components described a response no endpoint has ever returned. Their
+#   *Request twins (…WriteRequest) are unchanged and still describe the POST body.
+#
+#   PatchedProject/ProgramMembershipWriteRequest is a DELIBERATE BREAKING
+#   REMOVAL, replaced by PatchedProject/ProgramMembershipUpdateRequest: `user` is
+#   no longer accepted on either PATCH route, so the update body is genuinely a
+#   different shape and an SDK generated here loses the field and gets a renamed
+#   model class. A membership write answers with the target account's email
+#   address, and reassigning a live row onto an arbitrary account was one of the
+#   two doors onto an install-wide address harvest; the other is the POST target,
+#   narrowed in the same change. It lands inside the pre-0.9 window stability.md
+#   allows and is recorded as the seventh policy exception in that page's step 3.
+#   No path is removed and no response body changes.
+schema:ProjectMembershipWrite
+schema:ProgramMembershipWrite
+schema:PatchedProjectMembershipWriteRequest
+schema:PatchedProgramMembershipWriteRequest
+
 # #3372 — ProjectHistorySummaryView removed. The oldest and longest-lived orphan
 # found (shipped 2026-03-25 in 0.1): its own docstring claimed "the UI should call
 # this when the user hits the refresh button", but a repository-wide search — web
