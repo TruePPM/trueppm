@@ -11,7 +11,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EstimationScale, Program } from '@/api/types';
+import type { Methodology } from '@/types';
 import { useProgram } from '@/hooks/useProgram';
+import { resolveMethodology } from '../methodologyVocabulary';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import {
   countByStatus,
@@ -80,6 +82,13 @@ export interface BacklogController {
   /** Program's resolved estimation scale (ADR-0510, #2027) — drives the points
    *  picker/labels on the create + detail panes. Fibonacci until the program loads. */
   estimationScale: EstimationScale;
+  /**
+   * The program's resolved methodology (#3644). Governs authoring vocabulary —
+   * an intake item is program-scoped and has no project until it is pulled, so
+   * this is the only methodology in scope while it is being written. The *pull*
+   * preview reads the target project's own value instead.
+   */
+  methodology: Methodology;
   selectedItem: BacklogItem | undefined;
   memberProjects: MemberProject[];
 
@@ -112,7 +121,8 @@ export function useBacklogController(
   pullOptions?: UsePullItemOptions,
 ): BacklogController {
   const url = useBacklogUrlState();
-  const { data: program } = useProgram(programId);
+  const programQuery = useProgram(programId);
+  const program = programQuery.data;
   const itemsQuery = useBacklogItems(programId);
   const projectsQuery = useMemberProjects(programId);
   const mutations = useBacklogMutations(programId);
@@ -237,14 +247,21 @@ export function useBacklogController(
     [clearTimers],
   );
 
+  // Classifies whichever of the page's two queries failed. Reading only the
+  // items error would flatten a failed program read to `generic` and lose the
+  // bespoke 403/404 copy the page already has — a real loss of classification,
+  // reachable when the items query serves from a warm cache while access is
+  // revoked underneath it (#3644, surfaced by `regression-check`).
   const errorKind: BacklogController['errorKind'] = useMemo(() => {
-    const error = itemsQuery.error as { response?: { status?: number } } | null;
+    const error = (itemsQuery.error ?? programQuery.error) as {
+      response?: { status?: number };
+    } | null;
     if (!error) return null;
     const status = error.response?.status;
     if (status === 403) return 'forbidden';
     if (status === 404) return 'not-found';
     return 'generic';
-  }, [itemsQuery.error]);
+  }, [itemsQuery.error, programQuery.error]);
 
   return {
     programId,
@@ -252,8 +269,25 @@ export function useBacklogController(
     // Identity fields for the backlog header marker (#963). A single-program
     // board marks the program once in the header — never per row.
     program: program ? { color: program.color, code: program.code, name: program.name } : undefined,
-    isLoading: itemsQuery.isLoading,
-    errorKind: itemsQuery.isError ? errorKind : null,
+    // BOTH queries gate the page, not just the items one (#3644). The program
+    // read supplies `methodology`, and `DetailCreate` SEEDS a `useDirtyDraft`
+    // baseline from it — a baseline the hook captures once at mount and
+    // deliberately never resyncs. Every other consumer of that value
+    // (`pointsLabel`, `typeOptions`) recomputes on render, so a late-arriving
+    // program silently desyncs the frozen one: the Type dropdown reorders to
+    // lead with Task while the selected value stays `story`, and the form then
+    // POSTs `item_type: 'story'` into a Waterfall program. The visible surface
+    // self-corrects and the persisted value does not, which is why gating is
+    // the fix rather than a re-render (web-rule 410).
+    //
+    // The error is folded in for the same reason in its deterministic form: a
+    // failed `GET /programs/{id}/` leaves `program` undefined forever, and
+    // `resolveMethodology(undefined)` then stands as HYBRID — one of the three
+    // REAL answers asserted as fact on a program that may be neither. Both
+    // errors go through the SAME classifier above, so a 403 on either query
+    // still reads as "forbidden" rather than collapsing to the generic retry.
+    isLoading: itemsQuery.isLoading || programQuery.isLoading,
+    errorKind: itemsQuery.isError || programQuery.isError ? errorKind : null,
 
     url,
     allItems,
@@ -264,6 +298,7 @@ export function useBacklogController(
     counts,
     tagUniverse,
     estimationScale: program?.effective_estimation_scale ?? 'fibonacci',
+    methodology: resolveMethodology(program?.effective_methodology),
     selectedItem,
     memberProjects: projectsQuery.data,
 

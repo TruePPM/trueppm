@@ -11,9 +11,15 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import PROGRAM_ROLE_LABELS, ProgramMembership, Role
+from trueppm_api.apps.access.models import (
+    PROGRAM_ROLE_LABELS,
+    ProgramMembership,
+    ProjectMembership,
+    Role,
+)
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import Methodology, Program
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -50,6 +56,20 @@ def program(owner: object) -> Program:
         description="",
         methodology=Methodology.HYBRID,
         created_by=owner,
+    )
+
+
+@pytest.fixture
+def owner_is_workspace_admin(owner: object) -> WorkspaceMembership:
+    """Promote ``owner`` to workspace ADMIN — the principal that may add any account.
+
+    A program Owner reaches only the accounts already on a roster they belong to
+    (#3641). A test whose subject is role ceilings, role_title handling or error
+    mapping has to take the actor out of that variable; workspace ADMIN is the tier
+    the install already hands the directory to, and it is not self-grantable.
+    """
+    return WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=owner, role=WorkspaceRole.ADMIN
     )
 
 
@@ -149,6 +169,7 @@ def test_create_member_succeeds_under_owner_role(
     program: Program,
     owner: object,
     member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     resp = _client(owner).post(
         f"/api/v1/programs/{program.pk}/members/",
@@ -353,7 +374,12 @@ def test_role_title_defaults_to_empty(program: Program, owner: object, member: o
 
 
 @pytest.mark.django_db
-def test_create_member_with_role_title(program: Program, owner: object, member: object) -> None:
+def test_create_member_with_role_title(
+    program: Program,
+    owner: object,
+    member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
+) -> None:
     resp = _client(owner).post(
         _members_url(program),
         {"user": str(member.pk), "role": Role.MEMBER, "role_title": "Product Owner"},
@@ -413,10 +439,14 @@ def test_admin_cannot_change_role_via_patch(
 def test_admin_cannot_reassign_user_via_patch(
     program: Program, owner: object, admin_user: object
 ) -> None:
-    """The other privileged branch: reassigning the member identity stays Owner-only.
+    """Reassigning the member identity is refused at Admin — and now at every role.
 
-    A payload carrying ``user`` is privileged even alongside a benign role_title, so
-    an Admin is rejected — guards the ``new_user`` arm of ``privileged_change`` (#565).
+    This used to assert a *role* gate: ``user`` made the payload privileged, so an
+    Admin got 403 while an Owner would have succeeded. #3641 removed the capability
+    instead of the caller — a PATCH carrying ``user`` is a 400 whoever sends it (see
+    ``test_owner_cannot_reassign_user_via_patch``), because swapping the account
+    behind a live row was the second door onto the address harvest. The refusal is
+    explicit rather than a silent drop, so a 200 never means "ignored".
     """
     ProgramMembership.objects.create(program=program, user=admin_user, role=Role.ADMIN)
     original = _make_user("orig-user")
@@ -427,7 +457,8 @@ def test_admin_cannot_reassign_user_via_patch(
         {"user": str(other.pk), "role_title": "PO"},
         format="json",
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
     target.refresh_from_db()
     assert target.user_id == original.pk
     assert target.role_title == ""
@@ -665,7 +696,10 @@ def test_insert_race_answers_409_not_500(program: Program, owner: object, member
 
 @pytest.mark.django_db
 def test_an_unexpected_integrity_error_is_not_masked_as_409(
-    program: Program, owner: object, member: object
+    program: Program,
+    owner: object,
+    member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
 ) -> None:
     """Only the (program, user) uniqueness race becomes a 409."""
     from unittest.mock import patch
@@ -861,3 +895,137 @@ def test_no_program_permission_refusal_uses_project_vocabulary() -> None:
         and "Project" in cls.message
     }
     assert offenders == {}, f"program refusals naming a project role: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# Target reachability (#3641) — mirrors the project twin. `POST /api/v1/programs/`
+# is IsAuthenticated and `create_program` auto-OWNERs the caller, so this path is
+# reachable from a standing start exactly like the project one.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_refuses_an_account_the_owner_cannot_already_reach(
+    program: Program, owner: object
+) -> None:
+    """A self-minted program Owner may not name an arbitrary account."""
+    victim = User.objects.create_user(username="prog-victim", password="pw", email="pv@x.test")
+
+    resp = _client(owner).post(
+        _members_url(program), {"user": str(victim.pk), "role": Role.MEMBER}, format="json"
+    )
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+    assert not ProgramMembership.objects.filter(program=program, user=victim).exists()
+    assert "pv@x.test" not in str(resp.data)
+
+
+@pytest.mark.django_db
+def test_create_refuses_a_deactivated_account(
+    program: Program,
+    owner: object,
+    member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
+) -> None:
+    """``is_active=False`` stays out of reach even at workspace ADMIN (#1724)."""
+    member.is_active = False  # type: ignore[attr-defined]
+    member.save(update_fields=["is_active"])  # type: ignore[attr-defined]
+
+    resp = _client(owner).post(
+        _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+    )
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+
+
+@pytest.mark.django_db
+def test_create_accepts_someone_sharing_a_project_with_the_owner(
+    program: Program, owner: object, member: object
+) -> None:
+    """The golden path without workspace ADMIN: a colleague from a shared roster."""
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Project
+
+    shared = Project.objects.create(name="Shared", start_date=date(2026, 1, 1))
+    ProjectMembership.objects.create(project=shared, user=owner, role=Role.OWNER)
+    ProjectMembership.objects.create(project=shared, user=member, role=Role.MEMBER)
+
+    resp = _client(owner).post(
+        _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+    )
+
+    assert resp.status_code == 201, resp.data
+    assert ProgramMembership.objects.filter(program=program, user=member).exists()
+
+
+@pytest.mark.django_db
+def test_owner_cannot_reassign_user_via_patch(
+    program: Program, owner: object, member: object
+) -> None:
+    """The second door, at the tier that used to be allowed through it.
+
+    ``partial_update`` treated a payload carrying ``user`` as a privileged change and
+    let an Owner through. It is now refused at every role — the capability is gone,
+    not merely gated (#3641).
+    """
+    target = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    victim = User.objects.create_user(username="prog-reassign", password="pw", email="pr@x.test")
+
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{target.pk}/", {"user": str(victim.pk)}, format="json"
+    )
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+    target.refresh_from_db()
+    assert target.user_id == member.pk  # type: ignore[attr-defined]
+    assert "pr@x.test" not in str(resp.data)
+
+
+@pytest.mark.django_db
+def test_patch_still_changes_a_role_and_role_title(
+    program: Program, owner: object, member: object
+) -> None:
+    """The legitimate update paths are untouched by the ``user`` refusal."""
+    target = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{target.pk}/",
+        {"role": Role.SCHEDULER, "role_title": "Tech Lead"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    target.refresh_from_db()
+    assert target.role == Role.SCHEDULER
+    assert target.role_title == "Tech Lead"
+
+
+@pytest.mark.django_db
+def test_below_admin_reassignment_attempt_is_a_403_not_a_400(
+    program: Program, owner: object, member: object
+) -> None:
+    """A below-Admin caller is refused on *authority*, before the field is examined.
+
+    ``user`` is now refused by the serializer, which runs before the in-body role
+    check — so without an Admin floor at the permission layer a plain Member would
+    read "bad request" for what is a permission refusal, inverting this file's own
+    convention (#3365). ``get_permissions`` states the floor the body already
+    enforces, which keeps the status honest.
+    """
+    ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    target = ProgramMembership.objects.create(
+        program=program, user=_make_user("floor-target"), role=Role.MEMBER
+    )
+    victim = User.objects.create_user(username="floor-victim", password="pw")
+
+    resp = _client(member).patch(
+        f"{_members_url(program)}{target.pk}/", {"user": str(victim.pk)}, format="json"
+    )
+
+    assert resp.status_code == 403, resp.data
+    target.refresh_from_db()
+    assert target.user_id != victim.pk

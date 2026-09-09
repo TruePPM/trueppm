@@ -53,6 +53,15 @@ from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskRes
 
 _UTC = ZoneInfo("UTC")
 
+# Sentinel distinguishing "no HTTP caller at all" (a management command, run by
+# an operator with direct DB/shell access — already a higher trust tier than any
+# API role) from "an HTTP caller whose user object is falsy" (an async export
+# job's ``requested_by`` can go ``NULL`` via ``on_delete=SET_NULL`` if the
+# requesting account is deleted between enqueue and build). Only the sentinel is
+# treated as trusted; a literal ``None`` from a real request lineage is not
+# (#3627) — see ``_Exporter._resolve_email_visibility``.
+_NO_HTTP_CALLER = object()
+
 
 @dataclass(order=True)
 class _RawEvent:
@@ -137,7 +146,12 @@ def _put(target: dict[str, Any], key: str, value: Any) -> None:
     target[key] = value
 
 
-def export_program(program: Program, *, with_events: bool = False) -> dict[str, Any]:
+def export_program(
+    program: Program,
+    *,
+    with_events: bool = False,
+    requesting_user: Any = _NO_HTTP_CALLER,
+) -> dict[str, Any]:
     """Serialize ``program`` to a canonical seed document (a ``dict``).
 
     Args:
@@ -147,14 +161,28 @@ def export_program(program: Program, *, with_events: bool = False) -> dict[str, 
             v2 document (ADR-0114 §7 / #1109) with ``anchor``-relative dates and
             a reconstructed ``events`` timeline, so the export re-imports through
             the replay engine as the program's dated life rather than a snapshot.
+        requesting_user: the account the export is being produced *for* (#3627).
+            ``Resource.email`` and account ``email`` are withheld unless this
+            user holds workspace Admin+ — see
+            ``_Exporter._resolve_email_visibility``. Omit entirely for a caller
+            with no HTTP request context (e.g. the management command, run by an
+            operator with shell/DB access already); that is treated as trusted
+            and email is included unredacted. A literal ``None`` (an async
+            export job whose ``requested_by`` went ``NULL``) is deliberately
+            *not* trusted and redacts.
     """
     projects = list(
         Project.objects.filter(program=program, is_deleted=False).order_by("code", "name", "pk")
     )
-    return _Exporter(program=program, projects=projects, with_events=with_events).build()
+    return _Exporter(
+        program=program,
+        projects=projects,
+        with_events=with_events,
+        requesting_user=requesting_user,
+    ).build()
 
 
-def export_project(project: Project) -> dict[str, Any]:
+def export_project(project: Project, *, requesting_user: Any = _NO_HTTP_CALLER) -> dict[str, Any]:
     """Serialize a single ``project`` to a canonical seed document (#967).
 
     The canonical schema requires a top-level ``program`` block (ADR-0109) but
@@ -166,8 +194,18 @@ def export_project(project: Project) -> dict[str, Any]:
     project export creates a fresh program instead of clobbering the live parent
     program's subtree. The #616 round-trip guarantee still holds. See the #967
     addendum in ADR-0109.
+
+    Args:
+        project: the project to export.
+        requesting_user: see :func:`export_program` — controls whether
+            ``Resource.email`` / account ``email`` are withheld (#3627).
     """
-    return _Exporter(program=None, projects=[project], synthetic_program=project).build()
+    return _Exporter(
+        program=None,
+        projects=[project],
+        synthetic_program=project,
+        requesting_user=requesting_user,
+    ).build()
 
 
 class _Exporter:
@@ -178,6 +216,7 @@ class _Exporter:
         projects: list[Project],
         synthetic_program: Project | None = None,
         with_events: bool = False,
+        requesting_user: Any = _NO_HTTP_CALLER,
     ) -> None:
         # ``program`` is the live parent program for a program export, or None
         # for a single-project export (#967), in which case ``synthetic_program``
@@ -185,6 +224,17 @@ class _Exporter:
         self.program = program
         self.synthetic_program = synthetic_program
         self.projects = projects
+        # #3627: whether this export includes real Resource/account email.
+        # ``_resources_block``/``_account_entry`` never reach ``ResourceSerializer``
+        # (the #891 harvest control), so the exporter enforces the same invariant
+        # itself rather than inheriting a serializer it does not use. The
+        # endpoint-level gate (IsProjectAdmin/IsProgramAdmin) stays project- or
+        # program-scoped and self-grantable by design (creating a project makes
+        # you its Owner) — that is what makes the field a workspace-wide harvest
+        # once any project Admin can pull the whole catalog into an export. So
+        # email is workspace-Admin-only *content*, independent of who can reach
+        # the export action at all. See docs/adr/0034 (#3569 amendment) and #3627.
+        self._email_visible = self._resolve_email_visibility(requesting_user)
         # v2 event-timeline export (#1109). When on, dates become anchor-relative
         # and an ``events`` array is reconstructed from the history tables.
         self.with_events = with_events
@@ -223,6 +273,37 @@ class _Exporter:
         self.task_label_slugs: dict[Any, list[str]] = {}
         # memoized — _all_resources is consulted by three blocks.
         self._resources_cache: list[Resource] | None = None
+
+    @staticmethod
+    def _resolve_email_visibility(requesting_user: Any) -> bool:
+        """True when ``requesting_user`` may see real ``email`` values (#3627).
+
+        The ``_NO_HTTP_CALLER`` sentinel (the parameter default) means the caller
+        has no HTTP request context at all — the management command, run by an
+        operator with direct DB/shell access, already a higher trust tier than
+        any API role — and is treated as trusted. Every other value, including a
+        literal ``None``, goes through the real check: an HTTP-driven export
+        passes ``request.user`` (always a real, authenticated user), while an
+        async export-job builder passes ``job.requested_by``, which can be
+        ``None`` if the requesting account was deleted between enqueue and
+        build — and a gone account must not fall back to trusted. Email is
+        visible only at workspace Admin+ (``WorkspaceRole.ADMIN``), matching the
+        invariant the #3569 amendment records for the other three email-bearing
+        routes: the endpoint stays reachable at project/program Admin+
+        (self-grantable by creating a project), so the field itself — not the
+        endpoint — has to be the workspace-wide gate.
+        """
+        if requesting_user is _NO_HTTP_CALLER:
+            return True
+        # Imported locally (not at module scope) to match the existing
+        # cross-app-import convention in this package (see attachment_policy.py,
+        # calendar_settings.py, etc.) and avoid a load-order dependency on the
+        # workspace app from the projects app.
+        from trueppm_api.apps.workspace.models import WorkspaceRole
+        from trueppm_api.apps.workspace.permissions import workspace_role_for_user
+
+        role = workspace_role_for_user(requesting_user)
+        return role is not None and role >= WorkspaceRole.ADMIN
 
     # --- public ------------------------------------------------------------
 
@@ -403,7 +484,13 @@ class _Exporter:
 
     def _account_entry(self, uid: Any, user: Any, roles: dict[Any, int]) -> dict[str, Any]:
         block: dict[str, Any] = {"slug": self._user_slug(user), "username": user.get_username()}
-        _put(block, "email", getattr(user, "email", ""))
+        # #3627: withheld for a non-workspace-Admin caller. Safe for the
+        # generic re-import path — accounts are matched by ``username``, never
+        # ``email`` (see importer._resolve_accounts) — so dropping the key here
+        # never breaks round-trip. ``_put`` already drops falsy values, so
+        # passing "" simply omits the key, matching the #3599 precedent of
+        # dropping rather than nulling a withheld email.
+        _put(block, "email", getattr(user, "email", "") if self._email_visible else "")
         display = f"{user.first_name} {user.last_name}".strip()
         _put(block, "display_name", display)
         if uid in roles:
@@ -449,7 +536,12 @@ class _Exporter:
         for res in self._all_resources():
             slug = self._resource_slug(res)
             block: dict[str, Any] = {"slug": slug, "name": res.name}
-            _put(block, "email", res.email)
+            # #3627: withheld for a non-workspace-Admin caller. Safe for the
+            # generic re-import path — ``_resolve_resources`` never matches an
+            # existing catalog Resource by email on that path (it always creates
+            # a fresh row, #1004) — only the server-curated sample loader does,
+            # and that path is never fed a redacted export.
+            _put(block, "email", res.email if self._email_visible else "")
             _put(block, "job_role", res.job_role)
             _put(block, "max_units", float(res.max_units))
             if res.calendar_id is not None:
