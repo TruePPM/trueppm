@@ -437,7 +437,10 @@ describe('SessionTrail names only chords the keyboard resolves', () => {
     const live = liveChords();
     const user = userEvent.setup();
     useTrailStore.getState().record('p1', 'Permits indented under Mobilization.');
-    const { container } = render(<SessionTrail onUndo={() => {}} />);
+    // `baseElement`, not `container`: the panel is portaled to `document.body`
+    // (#3663), so a `container`-scoped sweep would read an empty popover and pass
+    // vacuously — the exact failure mode this guard exists to avoid.
+    const { baseElement } = render(<SessionTrail onUndo={() => {}} />);
     await user.click(screen.getByRole('button', { name: /1 structural change this session/i }));
 
     // The panel's prose names no chord today — its scope sentence describes what
@@ -445,8 +448,8 @@ describe('SessionTrail names only chords the keyboard resolves', () => {
     // *guard* rather than a check: it is armed for the next glyph somebody adds
     // to this surface, which is how `⌘Z` would have been caught had it been
     // written here instead of in a comment.
-    expect(container.textContent ?? '').toContain('Undo reverses moves');
-    expect(keystrokeClaims(container).filter((chord) => !live.has(chord))).toEqual([]);
+    expect(baseElement.textContent ?? '').toContain('Undo reverses moves');
+    expect(keystrokeClaims(baseElement).filter((chord) => !live.has(chord))).toEqual([]);
   });
 });
 

@@ -487,6 +487,8 @@ trust the MR's `head_pipeline` (it goes stale right after a force-push):
 # NB: match on sha ALONE here. Pipelines on an MR ref carry
 # source == 'merge_request_event', so the source=='push' filter used by the
 # ref=main gate below would match NOTHING here and time out after an hour.
+# NB: this loop is deliberately SILENT while waiting — do not add a per-
+# iteration echo (see the note under "Run both polls under Monitor" below).
 for i in $(seq 1 120); do                                   # bounded: 120 × 30s = 60 min
   ST=$(glab api "projects/:id/pipelines?ref=refs/merge-requests/<iid>/head&per_page=20" \
         | python3 -c "import sys,json;m=[p for p in json.load(sys.stdin) if p['sha']=='$SHA'];print(m[0]['status'] if m else 'none')")
@@ -538,6 +540,8 @@ a reason to hold or fail the batch — report it separately.
 ```bash
 git fetch origin main                                  # after the merge above
 MAINSHA=$(git rev-parse origin/main)                   # the merge commit now on main
+# NB: this loop is deliberately SILENT while waiting — do not add a per-
+# iteration echo (see the note under "Run both polls under Monitor" below).
 for i in $(seq 1 120); do                              # bounded: 120 × 30s = 60 min
   ST=$(glab api "projects/:id/pipelines?ref=main&per_page=20" \
         | python3 -c "import sys,json;m=[p for p in json.load(sys.stdin) if p['sha']=='$MAINSHA' and p.get('source')=='push'];print(m[0]['status'] if m else 'none')")
@@ -562,6 +566,26 @@ echo "MAIN($MAINSHA) TIMEOUT after 60m"; exit 1
 > long-lived pollers have been silently killed by the harness mid-flight, and
 > fewer of them means less to lose. If one vanishes, re-query the API live rather
 > than trusting its last printed line.
+>
+> **Do not add a per-iteration status echo when you instantiate these loops
+> for Monitor — the templates above are deliberately silent while waiting.**
+> On 2026-09-09, landing !2442–!2445 produced 150+ near-duplicate
+> `poll N: status=running` notifications — one per conversation turn — because
+> the agent added `echo "poll $i: ...$ST"` before the `case` statement in every
+> Monitor script it wrote, which is *not* in the templates above. The templates
+> only `echo` at the terminal branches (`success` / `failed`/`canceled`) or on
+> final timeout; the `*)` branch is a bare `sleep 30` with no output. Copy that
+> shape exactly. If mid-wait visibility is genuinely useful for a long pipeline,
+> gate a heartbeat behind a modulus (`[ $((i % 10)) -eq 0 ] && echo "..."`, i.e.
+> once per ~5 min) — never an unconditional echo every 30s.
+>
+> **Do not manufacture filler tool calls while a Monitor task is pending.**
+> A bare placeholder call (e.g. `Bash({command: "true"})`) issued once per turn
+> while waiting for a notification produces a new conversation turn with zero
+> information and no gating delay between calls — this is what actually
+> multiplied the 150+ notifications above into a much larger number of wasted
+> turns. Once a Monitor poll is running, stop calling tools until its
+> notification arrives; do not loop on a no-op to "do something" between events.
 
 When the post-merge main pipeline goes red, apply the **same triage as the MR-ref
 poll** (below): if it is a known e2e flake, retry that one job once and keep
@@ -806,6 +830,16 @@ before merging rather than after.
   self-describing line. Prefer one combined poller for the overlapped gates —
   long-lived pollers get killed mid-flight, and on recovery you re-query the API
   live rather than trusting a dead poller's last line.
+- **Poll output stays silent except at transitions — never echo every tick, and
+  never fill the wait with placeholder tool calls.** The poll templates in
+  Step 3 emit nothing during `sleep 30`; they only `echo` at `success`,
+  `failed`/`canceled`, or final timeout. Adding an unconditional per-iteration
+  echo (or a `heartbeat` — gate one behind `i % 10` if you want mid-wait
+  visibility) turned a 4-MR landing into 150+ near-duplicate `status=running`
+  notifications on 2026-09-09. Compounding that, issuing a filler tool call
+  (e.g. a bare `Bash true`) once per conversation turn while a Monitor task is
+  pending multiplies those notifications into many more wasted turns — once a
+  poll is running, wait for its notification and call nothing in between.
 - **Match `source == 'push'` in the `ref=main` poll, not the sha alone.** A
   scheduled nightly can be running on the identical merge sha; `m[0]` then picks
   the nightly and either waits on it or reds the batch over a fuzz/k6 job that has
