@@ -550,3 +550,42 @@ class TestReadyzMigrationDiskCache:
         assert victim_key in selectors_module._disk_migration_cache[0]
         # And a fresh loader still sees it too.
         assert victim_key in _loader().disk_migrations
+
+    def test_an_empty_scan_is_never_cached(self) -> None:
+        """A ``load_disk()`` call that reports zero migrated apps must not stick.
+
+        ``django.contrib.auth`` alone guarantees a real image always has
+        migrated apps, so an empty result means this particular call raced
+        something rather than describing reality (#3346). Caching it would
+        permanently wrong-answer every later caller in the process — including
+        unrelated modules like ``test_permission_name_widths.py`` that build
+        their own ``MigrationLoader`` — for the rest of the process's life.
+        Exercises ``_cached_load_disk`` directly with a stand-in ``_original``
+        so the test does not depend on ever provoking the real race.
+        """
+        from django.db.migrations.loader import MigrationLoader
+
+        from trueppm_api.apps.observability import selectors as selectors_module
+
+        def _empty_original(loader: MigrationLoader) -> None:
+            loader.disk_migrations = {}
+            loader.unmigrated_apps = set()
+            loader.migrated_apps = set()
+
+        selectors_module._disk_migration_cache = None
+        try:
+            # load=False: build a bare loader without running (patched)
+            # load_disk() during construction, so calling _cached_load_disk
+            # below is the first and only scan and _disk_migration_cache is
+            # still None going in.
+            empty_loader = MigrationLoader(None, load=False)
+            selectors_module._cached_load_disk(empty_loader, _empty_original)
+            assert selectors_module._disk_migration_cache is None
+
+            # The next, real caller must still get a genuine scan rather than
+            # being stuck with the empty one above.
+            real_loader = _loader()
+            assert real_loader.migrated_apps
+            assert selectors_module._disk_migration_cache is not None
+        finally:
+            selectors_module._disk_migration_cache = None

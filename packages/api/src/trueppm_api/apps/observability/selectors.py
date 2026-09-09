@@ -626,11 +626,22 @@ def _cached_load_disk(loader: MigrationLoader, _original: Any) -> None:
     caller's edit permanently corrupt every other loader in the process for
     the rest of its life. The ``Migration`` objects the copies point to are
     still shared (they are immutable once constructed), so this stays cheap.
+
+    A scan that comes back with **no migrated apps at all** is never cached.
+    A real image always has migrated apps (``django.contrib.auth`` alone
+    guarantees that), so an empty result means this call raced something else
+    still setting up the app registry rather than describing this image's
+    actual migrations — caching it would lock the *whole process* onto a
+    permanently wrong, empty answer for every later caller, including ones in
+    entirely unrelated test modules that build their own ``MigrationLoader``
+    (#3346). Leaving the cache unset lets the next caller retry a real scan.
     """
     global _disk_migration_cache
     with _disk_migration_cache_lock:
         if _disk_migration_cache is None:
             _original(loader)
+            if not loader.migrated_apps:
+                return
             _disk_migration_cache = (
                 dict(loader.disk_migrations),
                 set(loader.unmigrated_apps),
