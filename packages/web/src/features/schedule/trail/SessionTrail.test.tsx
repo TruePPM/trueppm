@@ -53,6 +53,34 @@ describe('SessionTrail', () => {
     expect(screen.queryByRole('button', { name: /^undo/i })).not.toBeInTheDocument();
   });
 
+  it('renders the panel OUTSIDE the trigger subtree, so no ancestor can clip it', async () => {
+    // #3663: the panel used to be an in-flow `absolute right-0 w-[380px]` inside the
+    // Schedule toolbar, whose wrapper is `overflow-hidden` — so a panel wider than the
+    // distance from the trigger to that wrapper's edge had its left half painted
+    // nowhere. jsdom has no layout and cannot measure the clip (the E2E spec asserts
+    // the box), but it CAN assert the property that makes the clip impossible: only
+    // leaving the subtree escapes a clipping ancestor, a `z-index` never does.
+    const user = userEvent.setup();
+    useTrailStore.getState().record('p1', 'an act');
+    const { container } = render(<SessionTrail />);
+    await user.click(screen.getByRole('button', { name: /1 structural change/i }));
+    const panel = screen.getByRole('dialog');
+    expect(panel).toBeInTheDocument();
+    expect(container.contains(panel)).toBe(false);
+  });
+
+  it('moves focus into the panel on open, which the portal would otherwise strand', async () => {
+    // Portaled to the end of `<body>`, the panel is no longer the trigger's DOM
+    // neighbour: without this, Tab from the trigger walks into the rest of the
+    // toolbar and the panel's Close and Undo are reachable only from the document's
+    // very end.
+    const user = userEvent.setup();
+    useTrailStore.getState().record('p1', 'an act');
+    render(<SessionTrail />);
+    await user.click(screen.getByRole('button', { name: /1 structural change/i }));
+    expect(screen.getByRole('dialog')).toHaveFocus();
+  });
+
   it('closes on Escape and returns focus to the trigger', async () => {
     const user = userEvent.setup();
     useTrailStore.getState().record('p1', 'an act');
