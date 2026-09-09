@@ -113,6 +113,22 @@ async function setup(
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
   );
+  await page.route('**/api/v1/me/work/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        active_sprints: [],
+        due_today_count: 0,
+        server_version_high_water: 0,
+        retro_action_items: [],
+      }),
+    }),
+  );
   await page.route('**/api/v1/edition/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
   );

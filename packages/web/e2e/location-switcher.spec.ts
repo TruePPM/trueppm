@@ -134,7 +134,6 @@ async function setupMyWorkPage(page: Page) {
         due_today_count: 0,
         server_version_high_water: 0,
         retro_action_items: [],
-        signals: null,
         external_items: [],
         external_sources: [],
       }),

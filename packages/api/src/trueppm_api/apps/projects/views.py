@@ -40,6 +40,7 @@ from django.db.models.expressions import RawSQL
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.drainage import set_override
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -16717,6 +16718,24 @@ class MeActiveSprintsView(APIView):
 # ---------------------------------------------------------------------------
 
 
+def _as_single_object_response(
+    serializer: serializers.Serializer[Any],
+) -> serializers.Serializer[Any]:
+    """Coerce drf-spectacular's list-view heuristic off an explicit envelope (#3650).
+
+    ``AutoSchema._is_list_view()`` returns True unconditionally for any GET on a
+    ``ListModelMixin`` view (``MeWorkView`` mixes it in via ``generics.ListAPIView``)
+    — it never inspects what the ``@extend_schema`` override actually declares. Left
+    alone, that wraps an already-complete, hand-declared pagination envelope in a
+    SECOND pagination layer (``Paginated<Name>List``), corrupting the very fix this
+    issue exists to make. ``many=False`` is drf-spectacular's own documented escape
+    hatch for exactly this — see ``extend_schema_serializer``'s docstring ("coerce
+    the list view detection heuristic to acknowledge a non-list serializer").
+    """
+    set_override(serializer, "many", False)
+    return serializer
+
+
 class MeWorkPagination(pagination.LimitOffsetPagination):
     """Limit/offset pagination for the My Work cross-project list.
 
@@ -16874,29 +16893,216 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         )
 
     @extend_schema(
+        # The view paginates (get_paginated_response) AND hand-adds five more
+        # top-level keys on top of the {count, next, previous, results}
+        # envelope (see the class docstring's "Response shape" block) — a bare
+        # `serializer_class` + `pagination_class` auto-schema only sees the
+        # first four, which is the exact under-declaration #3650 found (191
+        # e2e schema-guard failures on the real keys). Declare the whole
+        # response by hand so the published contract matches what list()
+        # actually returns.
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Paginated flat task list for the requesting contributor across "
-                    "all their projects, wrapped with sprint and freshness metadata: "
-                    "{results: [<flat task>], next, previous, active_sprints: "
-                    "[<minimal sprint card>], due_today_count, "
-                    "server_version_high_water, retro_action_items, signals, "
-                    "external_items, external_sources}. "
-                    "`signals` (#1236) carries cross-program focus-card aggregates — "
-                    "`schedule_health`, `forecast` (Monte-Carlo P80), "
-                    "`sprint_burndown`, and `utilization` (the caller's own "
-                    "load-vs-capacity for the lead sprint, #1912) — each present "
-                    "only when a real server-side computation backs it (rule 120), "
-                    "and only on the first page. "
-                    "`external_items`/`external_sources` (#1422) are the user's "
-                    "read-only external work items (Jira etc.) and connected-source "
-                    "freshness, also first-page-only."
-                ),
+            200: _as_single_object_response(
+                inline_serializer(
+                    name="MeWorkListPage",
+                    fields={
+                        "count": serializers.IntegerField(),
+                        "next": serializers.URLField(allow_null=True),
+                        "previous": serializers.URLField(allow_null=True),
+                        "results": MeWorkTaskSerializer(many=True),
+                        "active_sprints": MeWorkActiveSprintSerializer(many=True),
+                        "due_today_count": serializers.IntegerField(
+                            help_text=(
+                                "Count of the caller's own non-BACKLOG, non-COMPLETE tasks due "
+                                "today — drives the sidebar My Work badge."
+                            ),
+                        ),
+                        "server_version_high_water": serializers.IntegerField(
+                            help_text=(
+                                "Largest server_version in the caller's currently-visible task "
+                                "set. Offline/mobile clients persist this and pass it back as "
+                                "?since= on the next delta sync pull."
+                            ),
+                        ),
+                        "retro_action_items": inline_serializer(
+                            name="MeWorkRetroActionItem",
+                            many=True,
+                            fields={
+                                "suggestion_state": serializers.ChoiceField(
+                                    choices=["suggested", "owned"],
+                                    help_text=(
+                                        "'suggested' — a PENDING TaskSuggestedAssignee addressed "
+                                        "to the caller. 'owned' — a RetroActionItem whose promoted "
+                                        "Task the caller owns and has not completed."
+                                    ),
+                                ),
+                                "suggestion_id": serializers.UUIDField(
+                                    allow_null=True,
+                                    help_text=(
+                                        "Null for an 'owned' row — only suggestions have one."
+                                    ),
+                                ),
+                                "task_id": serializers.UUIDField(),
+                                "task_status": serializers.CharField(),
+                                "task_short_id": serializers.CharField(),
+                                "text": serializers.CharField(),
+                                "from_retro_id": serializers.UUIDField(),
+                                "from_sprint_id": serializers.UUIDField(),
+                                "from_sprint_short_id": serializers.CharField(),
+                                "suggested_by_id": serializers.IntegerField(
+                                    allow_null=True,
+                                    help_text="Null for an 'owned' row.",
+                                ),
+                                "suggested_by_username": serializers.CharField(allow_null=True),
+                                "reason": serializers.CharField(allow_blank=True),
+                                "age_days": serializers.IntegerField(),
+                                "story_points": serializers.IntegerField(allow_null=True),
+                            },
+                            help_text="ADR-0071 §4c. See MeWorkView._me_work_retro_action_items.",
+                        ),
+                        "signals": inline_serializer(
+                            name="MeWorkSignals",
+                            required=False,
+                            fields={
+                                "schedule_health": inline_serializer(
+                                    name="MeWorkScheduleHealthSignal",
+                                    required=False,
+                                    fields={
+                                        "band": serializers.CharField(),
+                                        "project_count": serializers.IntegerField(),
+                                    },
+                                ),
+                                "forecast": inline_serializer(
+                                    name="MeWorkForecastSignal",
+                                    required=False,
+                                    fields={
+                                        "p80_finish": serializers.DateField(),
+                                        "project_id": serializers.UUIDField(),
+                                        "project_name": serializers.CharField(),
+                                        "as_of": serializers.DateTimeField(),
+                                    },
+                                ),
+                                "sprint_burndown": inline_serializer(
+                                    name="MeWorkSprintBurndownSignal",
+                                    required=False,
+                                    fields={
+                                        "sprint_id": serializers.UUIDField(),
+                                        "sprint_name": serializers.CharField(),
+                                        "committed_points": serializers.IntegerField(),
+                                        "series": inline_serializer(
+                                            name="MeWorkBurndownSnapshot",
+                                            many=True,
+                                            fields={
+                                                "date": serializers.DateField(),
+                                                "remaining_points": serializers.IntegerField(),
+                                            },
+                                        ),
+                                        "burn_status": serializers.CharField(),
+                                        "trend_points": serializers.IntegerField(allow_null=True),
+                                        "projected_finish_date": serializers.DateField(
+                                            allow_null=True
+                                        ),
+                                    },
+                                ),
+                                "utilization": inline_serializer(
+                                    name="MeWorkUtilizationSignal",
+                                    required=False,
+                                    fields={
+                                        "sprint_id": serializers.UUIDField(),
+                                        "sprint_name": serializers.CharField(),
+                                        "committed_hours": serializers.FloatField(),
+                                        "available_hours": serializers.FloatField(),
+                                        "ratio": serializers.FloatField(),
+                                        "is_over": serializers.BooleanField(),
+                                        "label": serializers.CharField(),
+                                    },
+                                ),
+                            },
+                            help_text=(
+                                "Cross-program focus-card aggregates (#1236, ADR-0221). Always "
+                                "present on the first page (an empty object when nothing is "
+                                "backable) and absent on later pages. Each sub-key appears only "
+                                "when a real server-side computation backs it (rule 120: no "
+                                "fabrication)."
+                            ),
+                        ),
+                        "external_items": inline_serializer(
+                            name="MeWorkExternalItem",
+                            many=True,
+                            required=False,
+                            fields={
+                                "id": serializers.UUIDField(),
+                                "source_type": serializers.CharField(),
+                                "key": serializers.CharField(),
+                                "title": serializers.CharField(allow_blank=True),
+                                "external_status": serializers.CharField(allow_blank=True),
+                                "status_category": serializers.CharField(),
+                                "due_date": serializers.DateField(allow_null=True),
+                                "url": serializers.CharField(allow_blank=True),
+                                "synced_at": serializers.DateTimeField(allow_null=True),
+                            },
+                            help_text=(
+                                "Read-only external work items (Jira etc., #1422, ADR-0097 §4) "
+                                "surfaced alongside native tasks. First-page-only — always "
+                                "present (possibly empty) on page 1, absent on later pages."
+                            ),
+                        ),
+                        "external_sources": inline_serializer(
+                            name="MeWorkExternalSource",
+                            many=True,
+                            required=False,
+                            fields={
+                                "source_type": serializers.CharField(),
+                                "label": serializers.CharField(),
+                                "site_url": serializers.CharField(allow_null=True),
+                                "status": serializers.CharField(),
+                                "last_synced_at": serializers.DateTimeField(allow_null=True),
+                                "last_sync": inline_serializer(
+                                    name="MeWorkExternalSourceLastSync",
+                                    required=False,
+                                    allow_null=True,
+                                    fields={
+                                        "at": serializers.DateTimeField(allow_null=True),
+                                        "ok": serializers.BooleanField(),
+                                        "reason": serializers.CharField(allow_blank=True),
+                                        "fetched": serializers.IntegerField(),
+                                        "stored": serializers.IntegerField(),
+                                        "total_available": serializers.IntegerField(
+                                            allow_null=True
+                                        ),
+                                        "truncated": serializers.BooleanField(),
+                                    },
+                                    help_text="Null before the first pull completes (#2925).",
+                                ),
+                            },
+                            help_text=(
+                                "Per-connected-source freshness + last-pull outcome (#1422, "
+                                "#2925). First-page-only — always present (possibly empty) on "
+                                "page 1, absent on later pages."
+                            ),
+                        ),
+                    },
+                )
             ),
         },
     )
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Schema-bearing GET handler.
+
+        drf-spectacular resolves an ``@extend_schema`` override off the
+        HTTP-verb method (``get``) — ``getattr(view, method.lower())`` — not
+        off ``action`` (ViewSet-only) and not off the ``ListModelMixin.list``
+        mixin method a plain ``ListAPIView.get`` merely delegates to
+        internally. Decorating ``list()`` instead of ``get()`` is exactly how
+        this endpoint's response schema silently fell back to the
+        auto-inferred ``{count, next, previous, results}`` envelope — the
+        under-declaration #3650 found (191 e2e schema-guard failures on the
+        five real hand-added keys). This override exists so the decorator has
+        somewhere real to attach; it does nothing ``ListAPIView.get`` did not
+        already do.
+        """
+        return self.list(request, *args, **kwargs)
+
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Wrap the paginated list with active_sprints + due_today_count + cursor."""
         from django.db.models import Count, DateField

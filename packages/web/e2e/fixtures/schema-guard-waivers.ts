@@ -15,8 +15,11 @@
  * #3440 corrected four field families, #3649 closed the cluster-(a)
  * list-vs-envelope entries below — that wildcard was also silently covering
  * two `/members/` operations' unrelated #2633 user-id drift, which needed its
- * own narrower cluster-(e) entry once uncovered — and #3651 corrected 11 more
- * (nullability). These 89 operations are what is left.
+ * own narrower cluster-(e) entry once uncovered — #3651 corrected 11 more
+ * (nullability), and #3650 closed the cluster-(b) entry by fixing the schema
+ * rather than waiving the mock, opening one narrower property-level entry —
+ * cluster (g) — for a client field #1753 has not yet shipped on this
+ * endpoint. These 89 operations are what is left.
  *
  * ## Shape
  *
@@ -59,8 +62,11 @@
  * the *server*; only the published contract is wrong, so "fixing" the mock would
  * make it wrong.
  *
- * **(b) SCHEMA WRONG — an under-declared response** (#3650). `GET /me/work/`
- * hand-adds five real top-level keys the declared schema does not model.
+ * **(b) SCHEMA WRONG — an under-declared response** (#3650, CLOSED). `GET
+ * /me/work/` hand-added five real top-level keys the declared schema did not
+ * model. Fixed by declaring the real envelope (`MeWorkListPage`) instead of
+ * waiving the mock — no entry remains below. Left here so the cluster
+ * lettering in the rest of this header stays stable.
  *
  * **(c) MOCK WRONG — an invented null** (#3654, folded in from #3651). #3651
  * fixed the 11 fields here that were genuinely null at runtime but declared
@@ -91,6 +97,13 @@
  * `finish_date`, `skill_fit`) and enum values the server cannot emit. Four
  * families were fixed in #3440 itself; the rest are ~10 investigations, each of
  * which may surface a component reading a field that does not exist.
+ *
+ * **(g) TEST AHEAD OF SERVER — a client field the endpoint has not shipped yet**
+ * (#1753). The client reads `is_phase` on My Work rows for the once-#1753-ships
+ * behavior; `MeWorkTaskSerializer` does not emit it today. Distinct from (f): the
+ * field is real and shipped elsewhere (`TaskSerializer`), just not on this one
+ * endpoint yet, so this is not an invented field — it is a mock dated to land
+ * before the server does.
  */
 export interface SchemaGuardWaiver {
   /** Why this drift is still served, and the issue whose closure removes it. */
@@ -111,16 +124,17 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   // schema matches the bare array each already returned.
   // ---------------------------------------------------------------------------
   // ---------------------------------------------------------------------------
-  // (b) SCHEMA WRONG - the schema under-declares a hand-built response - 1 operations
+  // (g) TEST AHEAD OF SERVER - a client field not yet emitted by this endpoint - 1 operation
   // ---------------------------------------------------------------------------
   'GET /api/v1/me/work/': {
     reason:
-      'SCHEMA-WRONG (#3650): MeWorkView.list() hand-adds five top-level keys that the declared ' +
-      'PaginatedMeWorkTaskList does not model. The extra keys the mock sends are real server fields. ' +
-      'Observed: due_today_count:unknown-property, active_sprints:unknown-property, ' +
-      'server_version_high_water:unknown-property, <root>:type, retro_action_items:unknown-property, ' +
-      '+5 more.',
-    allow: ['*'],
+      'TEST-AHEAD-OF-SERVER (#1753): MyWorkTaskRow/QuickLogTime/MyWorkPage read a client-side ' +
+      '`is_phase` on My Work rows in anticipation of #1753, which has landed `is_phase` on ' +
+      'TaskSerializer but not yet on MeWorkTaskSerializer. schedule-add-phase.spec.ts seeds it to ' +
+      'cover the once-#1753-ships behavior; the real /me/work/ cannot produce it today (a phase ' +
+      'cannot be assigned, so it would never reach this endpoint regardless). Remove once #1753 ' +
+      'adds the field server-side. Observed: results[].is_phase:unknown-property.',
+    allow: ['results[].is_phase:unknown-property'],
   },
   // ---------------------------------------------------------------------------
   // (c) MOCK WRONG - the fixture sends a null the server can never produce - 1 operation
