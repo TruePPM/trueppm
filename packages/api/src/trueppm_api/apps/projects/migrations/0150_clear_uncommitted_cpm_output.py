@@ -4,7 +4,7 @@ from typing import Any
 
 from django.db import migrations, models
 
-from trueppm_api.apps.projects.services import clear_uncommitted_cpm_output
+from trueppm_api.apps.projects.services import clear_all_uncommitted_cpm_output
 
 
 def _clear_uncommitted_cpm_output(apps: Any, schema_editor: Any) -> None:
@@ -17,9 +17,16 @@ def _clear_uncommitted_cpm_output(apps: Any, schema_editor: Any) -> None:
     an archived or finished project never will. Its overview would keep serving
     phantom late counts indefinitely (#3578).
 
-    A three-line wrapper on purpose: the predicate lives in ``projects.services`` so
-    a test can reach it without importing this module by name, which a squash would
-    delete (CLAUDE.md migration rule 3).
+    A thin wrapper on purpose: the predicate lives in ``projects.services`` so a test
+    can reach it without importing this module by name, which a squash would delete
+    (CLAUDE.md migration rule 3).
+
+    It routes through ``clear_all_uncommitted_cpm_output``, which chunks by project
+    so each statement is index-served rather than sequentially scanning the whole
+    ``projects_task`` table — migrations run on container start, and that scan would
+    be unbounded upgrade latency for a residue expected to be small. That function's
+    docstring carries the full reasoning. It is idempotent, so an interrupted run is
+    safe to retry from the start.
 
     No constraint is added, so ``api:migration-constraint-safety`` does not apply.
     All eight columns are in ``_HISTORY_EXCLUDED_TASK``, so this writes no
@@ -27,7 +34,10 @@ def _clear_uncommitted_cpm_output(apps: Any, schema_editor: Any) -> None:
     or trigger a recompute — it is the same derived-output write the CPM task
     already performs (ADR-0091).
     """
-    clear_uncommitted_cpm_output(apps.get_model("projects", "Task"))
+    clear_all_uncommitted_cpm_output(
+        apps.get_model("projects", "Task"),
+        apps.get_model("projects", "Project"),
+    )
 
 
 class Migration(migrations.Migration):

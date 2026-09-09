@@ -6915,3 +6915,52 @@ def clear_uncommitted_cpm_output(task_model: Any, project_ids: Any = None) -> in
         qs = qs.filter(project_id__in=project_ids)
 
     return int(qs.update(**dict.fromkeys(CPM_OUTPUT_FIELDS, None)))
+
+
+BACKFILL_PROJECT_CHUNK = 500
+"""Projects per statement in the one-time backfill.
+
+Sized like ``_WRITEBACK_BATCH_SIZE`` in ``scheduling/tasks.py``, which batches the
+CPM write-back this backfill mirrors.
+"""
+
+
+def clear_all_uncommitted_cpm_output(
+    task_model: Any, project_model: Any, chunk_size: int = BACKFILL_PROJECT_CHUNK
+) -> int:
+    """Project-chunked :func:`clear_uncommitted_cpm_output` across every project.
+
+    WHY IT CHUNKS rather than issuing one unscoped statement. Unscoped, the ``WHERE``
+    is ``(status=BACKLOG OR type=EPIC OR is_recurring OR is_deleted) AND (any of eight
+    columns IS NOT NULL)``, and no index on ``Task`` covers that compound OR — so
+    Postgres plans a **sequential scan of the whole ``projects_task`` table**. This
+    runs from a migration, and migrations run on container start, so unscoped it is
+    unbounded upgrade latency in exchange for clearing a residue expected to be small.
+
+    Scoping each statement with ``project_id__in`` makes it index-served by
+    ``Task.Meta.indexes[project]`` instead. The project ids come from
+    ``projects_project``, which is two to three orders of magnitude smaller than
+    ``projects_task``, so enumerating them does not reintroduce the scan this avoids.
+    Chunked rather than one ``__in`` over every id, because that list is itself an
+    unbounded query parameter.
+
+    Idempotent: the helper only touches rows still carrying output, so re-running a
+    completed chunk matches nothing and an interrupted backfill is safe to retry.
+
+    Args:
+        task_model: the ``Task`` model (``apps.get_model`` inside a migration).
+        project_model: the ``Project`` model, read only for its id list.
+        chunk_size: projects per statement.
+
+    Returns:
+        Total rows cleared across all chunks.
+    """
+    project_ids = list(project_model.objects.values_list("pk", flat=True))
+    cleared = 0
+    for start in range(0, len(project_ids), chunk_size):
+        cleared += clear_uncommitted_cpm_output(
+            task_model, project_ids=project_ids[start : start + chunk_size]
+        )
+    if cleared:
+        logger.info("cleared CPM output on %d task(s) outside the committed set", cleared)
+    return cleared

@@ -38,7 +38,11 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskType,
 )
-from trueppm_api.apps.projects.services import CPM_OUTPUT_FIELDS, clear_uncommitted_cpm_output
+from trueppm_api.apps.projects.services import (
+    CPM_OUTPUT_FIELDS,
+    clear_all_uncommitted_cpm_output,
+    clear_uncommitted_cpm_output,
+)
 from trueppm_api.apps.scheduling.tasks import _run_program_schedule, _run_schedule
 
 START = date(2026, 1, 5)  # Monday
@@ -324,3 +328,47 @@ def test_clear_reports_the_rows_it_cleared_and_spans_projects_when_unscoped(
     _assert_all_cleared(stale_2)
     kept.refresh_from_db()
     assert kept.early_finish == date(2026, 2, 10)
+
+
+@pytest.mark.django_db
+def test_chunked_backfill_reaches_every_project_across_chunk_boundaries(
+    calendar: Calendar,
+) -> None:
+    """What ``projects/0150`` actually calls.
+
+    The backfill is project-chunked rather than one unscoped statement: unscoped, no
+    index covers the compound OR predicate, so Postgres sequentially scans the whole
+    task table — and migrations run on container start. ``chunk_size=1`` here forces
+    several chunks over a handful of projects, so an off-by-one in the slicing (the
+    real risk in hand-rolled chunking) drops a project and fails this test.
+    """
+    projects = [
+        Project.objects.create(name=f"Chunked {i}", start_date=START, calendar=calendar)
+        for i in range(5)
+    ]
+    stale = [
+        Task.objects.create(
+            project=p,
+            name="Groomed out",
+            duration=3,
+            status=TaskStatus.BACKLOG,
+            early_finish=date(2026, 4, 1),
+            total_float=12,
+            is_critical=True,
+        )
+        for p in projects
+    ]
+
+    assert clear_all_uncommitted_cpm_output(Task, Project, chunk_size=1) == 5
+    for task in stale:
+        _assert_all_cleared(task)
+
+    # Idempotent: a re-run (an interrupted migration retried from the start) matches
+    # nothing, so it is safe to repeat rather than needing resume logic.
+    assert clear_all_uncommitted_cpm_output(Task, Project, chunk_size=1) == 0
+
+
+@pytest.mark.django_db
+def test_chunked_backfill_is_a_noop_with_no_projects(db: object) -> None:
+    """`range(0, 0, chunk)` is empty — the backfill must not fault on a fresh install."""
+    assert clear_all_uncommitted_cpm_output(Task, Project) == 0
