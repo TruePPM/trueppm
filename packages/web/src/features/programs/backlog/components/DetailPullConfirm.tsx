@@ -82,9 +82,18 @@ export function DetailPullConfirm({
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        {/*
+          Reduced to the methodology-INDEPENDENT half (#3644). This sentence used
+          to end "…in the target project's backlog", which is the exact claim
+          `PullEffectList` six lines below now corrects for a Waterfall target —
+          so the pane stated two different destinations at once, and the false
+          one was the larger, higher piece of prose. Correcting a fact moves the
+          drift onto every restatement of it; `PullEffectList` owns the
+          destination now, and this owns only what is true on every methodology.
+        */}
         <p className="text-xs leading-relaxed text-neutral-text-secondary">
           Pulling moves this item to <b className="text-neutral-text-primary">Pulled</b> and creates
-          a task in the target project&rsquo;s backlog (status Backlog, not assigned to a sprint).
+          a task in the target project (status Backlog, not assigned to a sprint).
         </p>
 
         {hasProjects ? (
@@ -105,7 +114,11 @@ export function DetailPullConfirm({
               <div className="text-xs font-semibold text-neutral-text-primary">
                 What will happen
               </div>
-              <PullEffectList projectName={selected?.name ?? null} className="mt-1.5" />
+              <PullEffectList
+                projectName={selected?.name ?? null}
+                projectMethodology={selected?.methodology}
+                className="mt-1.5"
+              />
             </div>
           </>
         ) : (

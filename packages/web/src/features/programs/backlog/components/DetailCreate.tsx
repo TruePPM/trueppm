@@ -21,12 +21,18 @@ import {
   useUnsavedChangesGuard,
 } from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { BACKLOG_ITEM_TYPES, itemTypeShowsPoints, type BacklogItemType } from '../types';
+import { itemTypeShowsPoints, type BacklogItemType } from '../types';
+import {
+  defaultItemType,
+  itemTypesFor,
+  pointsFieldLabel,
+} from '../methodologyVocabulary';
 import type { CreateBacklogItemInput } from '../hooks/useBacklogMutations';
 import { TagInput } from './TagInput';
 import { FOCUS_RING, INPUT_BASE } from './styles';
 import { StoryPointField } from '@/features/backlog/StoryPointField';
 import type { EstimationScale } from '@/api/types';
+import type { Methodology } from '@/types';
 
 const TYPE_LABELS: Record<BacklogItemType, string> = {
   story: 'Story',
@@ -47,18 +53,30 @@ interface CreateDraft {
   tags: string[];
 }
 
-const EMPTY_DRAFT: CreateDraft = {
-  title: '',
-  itemType: 'story',
-  storyPoints: '',
-  description: '',
-  tags: [],
-};
+/**
+ * A blank draft for `methodology`. The item type is the only field the preset
+ * moves — WATERFALL starts on Task rather than Story (#3644).
+ */
+function emptyDraft(methodology: Methodology): CreateDraft {
+  return {
+    title: '',
+    itemType: defaultItemType(methodology),
+    storyPoints: '',
+    description: '',
+    tags: [],
+  };
+}
 
 interface DetailCreateProps {
   tagSuggestions: string[];
   /** Program's resolved estimation scale (ADR-0510, #2027). */
   estimationScale: EstimationScale;
+  /**
+   * The program's resolved methodology (#3644). Governs the item-type default
+   * and the points field's noun — an intake item is program-scoped and has no
+   * project yet, so this is the only methodology in scope while authoring.
+   */
+  methodology: Methodology;
   onCancel: () => void;
   onCreate: (input: CreateBacklogItemInput) => Promise<void>;
 }
@@ -66,10 +84,15 @@ interface DetailCreateProps {
 export function DetailCreate({
   tagSuggestions,
   estimationScale,
+  methodology,
   onCancel,
   onCreate,
 }: DetailCreateProps) {
-  const { draft, setField, setDraft, dirty } = useDirtyDraft<CreateDraft>(EMPTY_DRAFT);
+  const { draft, setField, setDraft, dirty } = useDirtyDraft<CreateDraft>(
+    emptyDraft(methodology),
+  );
+  const pointsLabel = pointsFieldLabel(methodology);
+  const typeOptions = itemTypesFor(methodology);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -173,7 +196,7 @@ export function DetailCreate({
             }}
             className={`mt-1 h-8 ${INPUT_BASE}`}
           >
-            {BACKLOG_ITEM_TYPES.map((t) => (
+            {typeOptions.map((t) => (
               <option key={t} value={t}>
                 {TYPE_LABELS[t]}
               </option>
@@ -189,14 +212,17 @@ export function DetailCreate({
               htmlFor="backlog-create-points"
               className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
             >
-              Story points
+              {pointsLabel}
             </label>
             <StoryPointField
               id="backlog-create-points"
               scale={estimationScale}
               value={draft.storyPoints.trim() === '' ? null : Number(draft.storyPoints)}
               onChange={(next) => setField('storyPoints', next === null ? '' : String(next))}
-              ariaLabel="Story points"
+              // Must track the visible label, not default to "Story points" —
+              // otherwise a WATERFALL reader gets an accessible name that appears
+              // nowhere on screen (WCAG 2.5.3 Label in Name).
+              ariaLabel={pointsLabel}
               size="md"
               className="mt-1 w-32"
             />
@@ -230,8 +256,24 @@ export function DetailCreate({
               onChange={(next) => setField('tags', next)}
               suggestions={tagSuggestions}
               id="backlog-create-tags"
+              describedBy="backlog-create-tags-hint"
             />
           </div>
+          {/*
+            Tags and Labels are two different collections and the field gave no
+            way to tell (#3644): this is program-scoped free text, while the
+            Labels entry two rows above Backlog in the same rail is a curated,
+            colored, project-scoped catalog. Pull find-or-creates a project Label
+            per tag, so a tag typed here mints project vocabulary at a later,
+            different moment.
+
+            Only the two authoring-time facts are here. The clamp and the
+            new-label ceiling are pull-time consequences and are stated in
+            `PullEffectList`, where the conversion actually happens.
+          */}
+          <p id="backlog-create-tags-hint" className="mt-1 text-xs text-neutral-text-secondary">
+            Program-wide free text. On pull, each tag becomes a project label.
+          </p>
         </div>
       </div>
 
