@@ -123,17 +123,6 @@ async function setupRoutes(page: Page, tasks: object[]) {
   // teardown and races the page render (#2366). Routes below win.
   await setupCatchAll(page);
 
-  // Catch-all: any /api/v1/ request not matched below returns 404 instead of
-  // hitting the real Docker backend (which would 401, triggering session expiry).
-  // Registered first so specific mocks (registered later) take precedence —
-  // Playwright matches routes in LIFO order.
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({
-      status: 404,
-      contentType: 'application/json',
-      body: JSON.stringify({ detail: 'not mocked' }),
-    }),
-  );
 
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({
