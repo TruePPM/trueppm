@@ -68,11 +68,39 @@ async function setup(page: import('@playwright/test').Page) {
   );
   // Broad empty stubs so the views (and the TaskFormModal's dependent queries) don't
   // hit the live network. The "+ New" lives in the chrome, independent of view data.
-  for (const path of ['tasks', 'dependencies', 'sprints', 'risks', 'attention', 'my-tasks', 'resource-allocation', 'presence', 'velocity', 'monte-carlo/latest']) {
+  for (const path of ['tasks', 'dependencies', 'sprints', 'risks', 'presence', 'monte-carlo/latest']) {
     await page.route(`**/api/v1/projects/${PID}/${path}/**`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj(page200) }),
     );
   }
+  // attention/my-tasks/resource-allocation/velocity are OBJECT-shaped (#3679
+  // gave them a real schema), not paginated lists — the same malformed-mock
+  // class documented on status-summary below. Wrapping them in `page200` used
+  // to be silently tolerated because all four were free-form; it now fails the
+  // e2e schema guard.
+  await page.route(`**/api/v1/projects/${PID}/attention/**`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ items: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${PID}/my-tasks/**`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ tasks: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${PID}/resource-allocation/**`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        project_id: PID,
+        window_start: '2026-01-01',
+        window_end: '2026-03-01',
+        resources: [],
+        resource_count: 0,
+        truncated: false,
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PID}/velocity/**`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ sprints: [] }) }),
+  );
   // status-summary is OBJECT-shaped and is deliberately not in the loop above: the
   // list-shaped `page200` is the malformed-mock class that crashes a component into
   // the root error boundary and surfaces as an unrelated flake later (this spec's own
@@ -295,6 +323,12 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
         contentType: 'application/json',
         body: pj({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }),
       }),
+    );
+    // Registered so a background /velocity/ fetch for the new project (if any
+    // view prefetches it) doesn't fall through to the project-detail catch-all
+    // above and get served project fields under a velocity operationKey (#3679).
+    await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/velocity/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj({ sprints: [] }) }),
     );
 
     await page.goto(`/programs/${GID}/overview`);

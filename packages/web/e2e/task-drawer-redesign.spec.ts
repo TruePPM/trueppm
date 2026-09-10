@@ -252,7 +252,7 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
     }),
   );
   await page.route('**/api/v1/projects/*/velocity/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sprints: [] }) }),
   );
   await page.route('**/api/v1/projects/*/monte-carlo/latest/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(null) }),

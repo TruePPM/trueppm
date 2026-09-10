@@ -18381,8 +18381,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectAttention"
                                 },
                                 "examples": {
                                     "Attention": {
@@ -18405,7 +18404,7 @@
                                 }
                             }
                         },
-                        "description": "Prioritised attention list: {items: [{severity, type, task_id, task_name, assignee_name, date, detail, link_target}]}. severity is one of critical/warning/info; type is one of critical_task_late, unassigned_approaching, baseline_drift, overallocation. An overallocation item is raised when a resource's committed units on open tasks exceed their capacity ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
+                        "description": "Prioritised attention list, ordered by severity bucket (critical > warning > info). An overallocation item is raised when a resource's committed units on open tasks exceed their capacity ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -18482,8 +18481,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectBlockedRollup"
                                 }
                             }
                         },
@@ -19105,37 +19103,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
-                                },
-                                "examples": {
-                                    "Burndown": {
-                                        "value": {
-                                            "chart_type": "burndown",
-                                            "metric": "tasks",
-                                            "since": "2026-01-01",
-                                            "until": "2026-01-14",
-                                            "series": [
-                                                {
-                                                    "date": "2026-01-01",
-                                                    "actual": 20,
-                                                    "scope": 20,
-                                                    "ideal": 20
-                                                },
-                                                {
-                                                    "date": "2026-01-14",
-                                                    "actual": 3,
-                                                    "scope": 20,
-                                                    "ideal": 0
-                                                }
-                                            ]
-                                        },
-                                        "summary": "burndown"
-                                    }
+                                    "$ref": "#/components/schemas/ProjectBurnResponse"
                                 }
                             }
                         },
-                        "description": "Burn series. For burndown/burnup: {chart_type, metric, since, until, series: [{date, actual, scope, ideal}]}, plus a top-level baseline_series ([{date, planned}]) when the project has an active baseline. For combined: series rows are {date, remaining, completed, total, ideal}, and there is never a baseline_series. since is the window actually used, which may be later than a defaulted one that was clamped."
+                        "description": ""
                     },
                     "400": {
                         "content": {
@@ -20270,8 +20242,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectIntegrationsSummary"
                                 }
                             }
                         },
@@ -20821,8 +20792,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectMyTasks"
                                 },
                                 "examples": {
                                     "My-tasks": {
@@ -20845,7 +20815,7 @@
                                 }
                             }
                         },
-                        "description": "This week's tasks assigned to the requesting user: {tasks: [{id, name, due, status, percent_complete, is_critical, owner_name, owner_initials}]}."
+                        "description": "This week's tasks assigned to the requesting user."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -21073,45 +21043,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
-                                },
-                                "examples": {
-                                    "Overview": {
-                                        "value": {
-                                            "schedule_health": "on_track",
-                                            "spi": 1.02,
-                                            "risk_premium_days": 11,
-                                            "risk_premium_ratio": 0.09,
-                                            "risk_premium_band": null,
-                                            "risk_premium_as_of": "2026-07-27T09:12:00Z",
-                                            "risk_premium_reason": null,
-                                            "risk_premium_state": "premium",
-                                            "forecast_staleness": "project_changed",
-                                            "plan_version": 412,
-                                            "plan_version_current": 419,
-                                            "tasks_late_count": 2,
-                                            "critical_task_count": 7,
-                                            "total_tasks": 48,
-                                            "complete_tasks": 19,
-                                            "next_milestone": {
-                                                "id": "…",
-                                                "name": "Beta",
-                                                "date": "2026-03-01"
-                                            },
-                                            "team_utilization_pct": 82.5,
-                                            "team_utilization_reason": null,
-                                            "owner_name": "Sarah Chen",
-                                            "open_risk_count": 4,
-                                            "high_risk_count": 1,
-                                            "start_date": "2026-01-05"
-                                        },
-                                        "summary": "overview"
-                                    }
+                                    "$ref": "#/components/schemas/ProjectOverview"
                                 }
                             }
                         },
-                        "description": "Aggregated KPI snapshot for the single-project overview dashboard."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -21887,12 +21823,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectResourceAllocation"
                                 }
                             }
                         },
-                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resource_count, truncated, resources: [{id, name, max_units (project-effective: roster units_override if set, else Resource.max_units), tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. resource_count is the number of resources in scope and truncated is true when the assignment cap (ADR-1118) dropped whole resources from the list — the cut always falls on a resource boundary, so every resource returned carries all of its in-window spans and the client-side overallocation verdict (ADR-0031) stays exact for it. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
+                        "description": "Per-resource task spans within the window. max_units is project-effective: the roster's units_override if set, else Resource.max_units. resource_count is the number of resources in scope and truncated is true when the assignment cap (ADR-1118) dropped whole resources from the list — the cut always falls on a resource boundary, so every resource returned carries all of its in-window spans and the client-side overallocation verdict (ADR-0031) stays exact for it. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
                     },
                     "409": {
                         "content": {
@@ -21993,8 +21928,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectResourceHeatmap"
                                 }
                             }
                         },
@@ -22070,8 +22004,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectResourcesSummary"
                                 }
                             }
                         },
@@ -22202,8 +22135,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectRetroCarryover"
                                 }
                             }
                         },
@@ -22471,12 +22403,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectSprintHealth"
                                 }
                             }
                         },
-                        "description": "Tier-3 sprint-health signals (ADR-0101 §4). {signals: [{key, count, tone, detail}]} — only tripped signals are present (orphan tasks, active sprint spanning ≥3 phases, parent tasks in a sprint). `tone` is info|warn; `detail` is the server-owned consequence copy the client renders verbatim. Empty list when the project is healthy."
+                        "description": "Tier-3 sprint-health signals (ADR-0101 §4) — only tripped signals are present (orphan tasks, active sprint spanning ≥3 phases, parent tasks in a sprint). `tone` is info|warn; `detail` is the server-owned consequence copy the client renders verbatim. Empty list when the project is healthy."
                     },
                     "404": {
                         "content": {
@@ -24074,12 +24005,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectUtilization"
                                 }
                             }
                         },
-                        "description": "Sparse map of resource -> working day -> {hours, task_ids, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%). Each resource row also carries {max_units, hours_per_day, job_role, calendar_id, calendar_differs_from_project}; per-day capacity is hours_per_day x max_units, the same denominator load_pct uses. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
+                        "description": "Per-resource daily utilization: each resource row carries a sparse `days` map keyed by working day (YYYY-MM-DD) to {hours, tasks, load_pct, load_band, overallocated} for the requested window. load_band is on-track | at-risk | critical (>100% load); each resource also carries a top-level overallocated flag (true if any day exceeds 100%). Each resource row also carries {max_units, hours_per_day, calendar_id, calendar_differs_from_project}; per-day capacity is hours_per_day x max_units, the same denominator load_pct uses. Capacity is the resource's figure ON THIS PROJECT: the roster's units_override when one is set (0 included), else Resource.max_units."
                     },
                     "409": {
                         "content": {
@@ -24146,8 +24076,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectVelocity"
                                 }
                             }
                         },
@@ -55175,6 +55104,16 @@
                     "velocity_low"
                 ]
             },
+            "ForecastStalenessEnum": {
+                "enum": [
+                    "current",
+                    "project_changed",
+                    "aged",
+                    "unknown"
+                ],
+                "type": "string",
+                "description": "* `current` - current\n* `project_changed` - project_changed\n* `aged` - aged\n* `unknown` - unknown"
+            },
             "FrequencyEnum": {
                 "enum": [
                     "daily",
@@ -55357,6 +55296,14 @@
                     "name",
                     "projects"
                 ]
+            },
+            "GroupByEnum": {
+                "enum": [
+                    "role",
+                    "none"
+                ],
+                "type": "string",
+                "description": "* `role` - role\n* `none` - none"
             },
             "GroupMemberAddRequest": {
                 "type": "object",
@@ -56034,6 +55981,15 @@
                 ],
                 "type": "string",
                 "description": "* `draft` - Draft\n* `active` - Active"
+            },
+            "LoadBandEnum": {
+                "enum": [
+                    "on-track",
+                    "at-risk",
+                    "critical"
+                ],
+                "type": "string",
+                "description": "* `on-track` - on-track\n* `at-risk` - at-risk\n* `critical` - critical"
             },
             "LoadSampleResponse": {
                 "type": "object",
@@ -56959,6 +56915,14 @@
                 ],
                 "type": "string",
                 "description": "* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
+            },
+            "MetricEnum": {
+                "enum": [
+                    "tasks",
+                    "points"
+                ],
+                "type": "string",
+                "description": "* `tasks` - tasks\n* `points` - points"
             },
             "MilestoneListItem": {
                 "type": "object",
@@ -64069,6 +64033,343 @@
                     "name"
                 ]
             },
+            "ProjectAttention": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/attention/`` (#3679).",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectAttentionItem"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "items"
+                ]
+            },
+            "ProjectAttentionItem": {
+                "type": "object",
+                "description": "One row of ``GET /api/v1/projects/{id}/attention/`` (``ProjectAttentionView.get``, #3679).",
+                "properties": {
+                    "severity": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SeverityEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "type": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectAttentionItemTypeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "assignee_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "date": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "detail": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "link_target": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "assignee_name",
+                    "date",
+                    "detail",
+                    "link_target",
+                    "severity",
+                    "task_id",
+                    "task_name",
+                    "type"
+                ]
+            },
+            "ProjectAttentionItemTypeEnum": {
+                "enum": [
+                    "critical_task_late",
+                    "unassigned_approaching",
+                    "baseline_drift",
+                    "overallocation"
+                ],
+                "type": "string",
+                "description": "* `critical_task_late` - critical_task_late\n* `unassigned_approaching` - unassigned_approaching\n* `baseline_drift` - baseline_drift\n* `overallocation` - overallocation"
+            },
+            "ProjectBlockedRollup": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/blocked/`` (ADR-0124, #1134/#1157, #3679).\n\nProject-scoped counterpart to :class:`SprintBlockedRollupSerializer` — same\n:func:`blocker_services._blocked_row` builder, keyed by ``project_id``\ninstead of ``sprint_id``.",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "blocked": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlockedTaskRow"
+                        },
+                        "readOnly": true
+                    },
+                    "truncated": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "blocked",
+                    "count",
+                    "project_id",
+                    "truncated"
+                ]
+            },
+            "ProjectBurnBaselinePoint": {
+                "type": "object",
+                "description": "One day of the baseline overlay curve (:func:`services._burn_baseline_series`, #3679).",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "planned": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "date",
+                    "planned"
+                ]
+            },
+            "ProjectBurnCombined": {
+                "type": "object",
+                "description": "Response for ``?chart_type=combined`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series_combined` (#3679). Never carries\n``baseline_series``.",
+                "properties": {
+                    "chart_type": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectBurnCombinedChartTypeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "metric": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MetricEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "until": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "series": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectBurnCombinedPoint"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "chart_type",
+                    "metric",
+                    "series",
+                    "since",
+                    "until"
+                ]
+            },
+            "ProjectBurnCombinedChartTypeEnum": {
+                "enum": [
+                    "combined"
+                ],
+                "type": "string",
+                "description": "* `combined` - combined"
+            },
+            "ProjectBurnCombinedPoint": {
+                "type": "object",
+                "description": "One day of the combined burn curve (:func:`services.burn_series_combined`, #3679).",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "remaining": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "completed": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "total": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "ideal": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "completed",
+                    "date",
+                    "ideal",
+                    "remaining",
+                    "total"
+                ]
+            },
+            "ProjectBurnResponse": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/ProjectBurnSeries"
+                    },
+                    {
+                        "$ref": "#/components/schemas/ProjectBurnCombined"
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "chart_type",
+                    "mapping": {
+                        "burndown": "#/components/schemas/ProjectBurnSeries",
+                        "burnup": "#/components/schemas/ProjectBurnSeries",
+                        "combined": "#/components/schemas/ProjectBurnCombined"
+                    }
+                }
+            },
+            "ProjectBurnSeries": {
+                "type": "object",
+                "description": "Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series` (#3679). ``baseline_series`` is present only\nwhen the project has an active baseline.",
+                "properties": {
+                    "chart_type": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectBurnSeriesChartTypeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "metric": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MetricEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "until": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "series": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectBurnSeriesPoint"
+                        },
+                        "readOnly": true
+                    },
+                    "baseline_series": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectBurnBaselinePoint"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "baseline_series",
+                    "chart_type",
+                    "metric",
+                    "series",
+                    "since",
+                    "until"
+                ]
+            },
+            "ProjectBurnSeriesChartTypeEnum": {
+                "enum": [
+                    "burndown",
+                    "burnup"
+                ],
+                "type": "string",
+                "description": "* `burndown` - burndown\n* `burnup` - burnup"
+            },
+            "ProjectBurnSeriesPoint": {
+                "type": "object",
+                "description": "One day of a burndown/burnup curve (:func:`services._daily_burn_series`, #3679).",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "actual": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "scope": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "ideal": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "actual",
+                    "date",
+                    "ideal",
+                    "scope"
+                ]
+            },
             "ProjectCustomField": {
                 "type": "object",
                 "description": "Read/write serializer for project custom field definitions (#521).\n\nEnforces:\n- per-project case-insensitive name uniqueness (DB-level constraint + a\n  friendlier error here on create);\n- ``options`` non-empty list of unique ``{value, label}`` rows for\n  SINGLE_SELECT / MULTI_SELECT, empty for every other type;\n- ``PROJECT_CUSTOM_FIELD_MAX`` cap per project (32) on create.\n\nField type is immutable after create — switching a select field to text\nwould orphan the option list semantically. Recreate the field instead.",
@@ -65022,6 +65323,211 @@
                     "results"
                 ]
             },
+            "ProjectIntegrationsApiToken": {
+                "type": "object",
+                "description": "One API token row in ``_summarize_api_tokens`` (ADR-0068, #3679).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "token_prefix": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "last_used_at",
+                    "name",
+                    "token_prefix"
+                ]
+            },
+            "ProjectIntegrationsApiTokensSection": {
+                "type": "object",
+                "description": "The ``api_tokens`` section of ``ProjectViewSet.integrations_summary`` (#3679).",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectIntegrationsApiToken"
+                        },
+                        "readOnly": true
+                    },
+                    "active_total": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "active_total",
+                    "items",
+                    "last_used_at"
+                ]
+            },
+            "ProjectIntegrationsSummary": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/integrations-summary/`` (ADR-0076, #3679).\n\nA 503 (one subservice failed) is documented separately on the view as\n``{\"failed\": \"webhooks\" | \"api_tokens\"}`` — this serializer covers the 200 only.",
+                "properties": {
+                    "webhooks": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectIntegrationsWebhooksSection"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "api_tokens": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectIntegrationsApiTokensSection"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "api_tokens",
+                    "webhooks"
+                ]
+            },
+            "ProjectIntegrationsWebhook": {
+                "type": "object",
+                "description": "One webhook row in ``_summarize_webhooks`` (ADR-0019, #3679).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "url": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_active": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "last_delivery": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectIntegrationsWebhookDelivery"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "recent_failure_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "events",
+                    "id",
+                    "is_active",
+                    "last_delivery",
+                    "recent_failure_count",
+                    "url"
+                ]
+            },
+            "ProjectIntegrationsWebhookDelivery": {
+                "type": "object",
+                "description": "The ``last_delivery`` block of one webhook row in ``_summarize_webhooks`` (#3679).",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "response_status": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "attempt_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "attempt_count",
+                    "created_at",
+                    "response_status",
+                    "status"
+                ]
+            },
+            "ProjectIntegrationsWebhooksSection": {
+                "type": "object",
+                "description": "The ``webhooks`` section of ``ProjectViewSet.integrations_summary`` (#3679).",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectIntegrationsWebhook"
+                        },
+                        "readOnly": true
+                    },
+                    "total": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "active_total": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "last_delivery_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "active_total",
+                    "items",
+                    "last_delivery_at",
+                    "total"
+                ]
+            },
             "ProjectMembershipRead": {
                 "type": "object",
                 "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole                       — integer ordinal (canonical wire format; use for comparisons)\nrole_label                 — human-readable label e.g. \"Project Manager\" (display only)\njoined_at                  — when this membership row was first created. Per-project access\n                             evidence, but NOT proof of uninterrupted access: re-adding a\n                             previously removed member revives their original row and keeps\n                             this date, so the span may contain one or more revoked intervals\n                             (#3410). Use reinstated_at as the discriminator — it is null iff\n                             this membership has never lapsed (#3436).\nrole_changed_at            — when the role last changed, or null if unchanged since joining\nreinstated_at              — when this membership was last revived after a revoke, or null if\n                             it has never been revoked and re-added. Stamped on every revive\n                             (advances on a second revive rather than accumulating history) —\n                             the durable server-side fact that lets a caller, human or machine,\n                             tell a never-lapsed membership apart from a revived one (#3436).\nother_active_project_count — how many OTHER active (non-archived, non-deleted) projects this\n                             user belongs to, excluding the current one. A resource-load\n                             signal for the assigner (#598). The full count is shown; it is a\n                             number only and leaks no project identities.\nother_active_project_names — names of those other projects, but ONLY the ones the *requesting*\n                             user is OWNER of (visibility gate — never reveal the name of a\n                             project the requester cannot already see). Empty for non-OWNERs.",
@@ -65125,6 +65631,73 @@
                 },
                 "required": [
                     "user"
+                ]
+            },
+            "ProjectMyTasks": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/my-tasks/`` (#3679).",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectMyTasksTask"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "tasks"
+                ]
+            },
+            "ProjectMyTasksTask": {
+                "type": "object",
+                "description": "One row of ``GET /api/v1/projects/{id}/my-tasks/`` (``ProjectMyTasksView.get``, #3679).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "due": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "percent_complete": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_critical": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "owner_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "owner_initials": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "due",
+                    "id",
+                    "is_critical",
+                    "name",
+                    "owner_initials",
+                    "owner_name",
+                    "percent_complete",
+                    "status"
                 ]
             },
             "ProjectNotificationPreferenceDocument": {
@@ -65419,6 +65992,206 @@
                     "updated_at"
                 ]
             },
+            "ProjectOverview": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/overview/`` (``ProjectOverviewView.get``, #3679).\n\n``risk_premium_*`` fields come from\n:func:`trueppm_api.apps.scheduling.risk_premium.build_risk_premium`; the\n``forecast_staleness``/``plan_version``/``plan_version_current`` fields come\nfrom\n:func:`trueppm_api.apps.scheduling.forecast_staleness.forecast_staleness_from_run`.\nExactly one of ``team_utilization_pct``/``team_utilization_reason`` is set — see\n:func:`trueppm_api.apps.projects.utilization.compute_team_utilization`.",
+                "properties": {
+                    "schedule_health": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ScheduleHealthEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "spi": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "risk_premium_days": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "risk_premium_ratio": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "risk_premium_band": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "risk_premium_as_of": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "risk_premium_reason": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "risk_premium_state": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RiskPremiumStateEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "risk_premium_cpm_finish": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "risk_premium_p80": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "forecast_staleness": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ForecastStalenessEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "plan_version": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "plan_version_current": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "tasks_late_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "critical_task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "total_tasks": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "complete_tasks": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "next_milestone": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectOverviewNextMilestone"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "team_utilization_pct": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "team_utilization_reason": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TeamUtilizationReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "owner_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "open_risk_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "high_risk_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "complete_tasks",
+                    "critical_task_count",
+                    "forecast_staleness",
+                    "high_risk_count",
+                    "next_milestone",
+                    "open_risk_count",
+                    "owner_name",
+                    "plan_version",
+                    "plan_version_current",
+                    "risk_premium_as_of",
+                    "risk_premium_band",
+                    "risk_premium_cpm_finish",
+                    "risk_premium_days",
+                    "risk_premium_p80",
+                    "risk_premium_ratio",
+                    "risk_premium_reason",
+                    "risk_premium_state",
+                    "schedule_health",
+                    "spi",
+                    "start_date",
+                    "tasks_late_count",
+                    "team_utilization_pct",
+                    "team_utilization_reason",
+                    "total_tasks"
+                ]
+            },
+            "ProjectOverviewNextMilestone": {
+                "type": "object",
+                "description": "The ``next_milestone`` block of ``GET /projects/{id}/overview/`` (#3679).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "percent_complete": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "date",
+                    "id",
+                    "name",
+                    "percent_complete"
+                ]
+            },
             "ProjectPinResponse": {
                 "type": "object",
                 "properties": {
@@ -65707,6 +66480,214 @@
                     "server_version"
                 ]
             },
+            "ProjectResourceAllocation": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/resource-allocation/`` (issue #85, #3679).",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "window_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "window_end": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "resources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectResourceAllocationResource"
+                        },
+                        "readOnly": true
+                    },
+                    "resource_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "truncated": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "project_id",
+                    "resource_count",
+                    "resources",
+                    "truncated",
+                    "window_end",
+                    "window_start"
+                ]
+            },
+            "ProjectResourceAllocationResource": {
+                "type": "object",
+                "description": "One resource row in ``ProjectViewSet.resource_allocation`` (#3679).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "max_units": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectResourceAllocationTask"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "max_units",
+                    "name",
+                    "tasks"
+                ]
+            },
+            "ProjectResourceAllocationTask": {
+                "type": "object",
+                "description": "One task span row in ``ProjectViewSet.resource_allocation`` (#3679).",
+                "properties": {
+                    "assignment_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "early_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "early_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "scheduled_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "units": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "assignment_id",
+                    "early_finish",
+                    "early_start",
+                    "id",
+                    "name",
+                    "scheduled_start",
+                    "status",
+                    "units"
+                ]
+            },
+            "ProjectResourceHeatmap": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/resources/heatmap/`` (issue #217, ADR-0042, #3679).\n\n``group_by`` echoes the grouping actually applied — ``role`` or ``none``; a\nrequested ``project`` is served as ``none`` (see\n:func:`utilization.aggregate_utilization_weekly`).",
+                "properties": {
+                    "weeks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "resources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectResourceHeatmapResource"
+                        },
+                        "readOnly": true
+                    },
+                    "group_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/GroupByEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "group_by",
+                    "resources",
+                    "weeks"
+                ]
+            },
+            "ProjectResourceHeatmapResource": {
+                "type": "object",
+                "description": "One resource row in :func:`utilization.aggregate_utilization_weekly` (#3679).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "initials": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "job_role": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "color": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "calendar_differs_from_project": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "util": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "calendar_differs_from_project",
+                    "color",
+                    "id",
+                    "initials",
+                    "job_role",
+                    "name",
+                    "util"
+                ]
+            },
             "ProjectResourceRequest": {
                 "type": "object",
                 "description": "Read/write serializer for project roster membership.\n\nresource_detail is read-only expanded; writes use the resource UUID FK.\neffective_max_units is computed: units_override if set, else resource.max_units.",
@@ -65737,6 +66718,208 @@
                     "project",
                     "resource"
                 ]
+            },
+            "ProjectResourcesSummary": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/resources/summary/`` (issue #219, ADR-0042).\n\nSee ``ProjectViewSet.resources_summary`` (#3679).",
+                "properties": {
+                    "avg_utilization_pct": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "over_allocated_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "over_allocated_weeks": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "under_utilized_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "under_utilized_names": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "headcount": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "contractor_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "avg_utilization_pct",
+                    "contractor_count",
+                    "headcount",
+                    "over_allocated_count",
+                    "over_allocated_weeks",
+                    "under_utilized_count",
+                    "under_utilized_names"
+                ]
+            },
+            "ProjectRetroCarryover": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/retrospective/carryover/`` (ADR-0071 §4b, #3679).",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectRetroCarryoverItem"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "items"
+                ]
+            },
+            "ProjectRetroCarryoverItem": {
+                "type": "object",
+                "description": "One unresolved retro action item in ``ProjectViewSet.retro_carryover`` (#3679).\n\nADR-0071 §4b.",
+                "properties": {
+                    "action_item_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "text": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "from_retro_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "from_sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "from_sprint_short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "promoted_task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "promoted_task_status": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "promoted_task_short_id": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "age_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "assignee_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "assignee_username": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "action_item_id",
+                    "age_days",
+                    "assignee_id",
+                    "assignee_username",
+                    "from_retro_id",
+                    "from_sprint_id",
+                    "from_sprint_short_id",
+                    "promoted_task_id",
+                    "promoted_task_short_id",
+                    "promoted_task_status",
+                    "story_points",
+                    "text"
+                ]
+            },
+            "ProjectSprintHealth": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/sprint-health/`` (#988, #3679).",
+                "properties": {
+                    "signals": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectSprintHealthSignal"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "signals"
+                ]
+            },
+            "ProjectSprintHealthSignal": {
+                "type": "object",
+                "description": "One tripped Tier-3 signal in :func:`services.sprint_health` (ADR-0101 §4, #3679).",
+                "properties": {
+                    "key": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectSprintHealthSignalKeyEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "tone": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ToneEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "detail": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "count",
+                    "detail",
+                    "key",
+                    "tone"
+                ]
+            },
+            "ProjectSprintHealthSignalKeyEnum": {
+                "enum": [
+                    "orphan",
+                    "phase_span",
+                    "summary_in_sprint"
+                ],
+                "type": "string",
+                "description": "* `orphan` - orphan\n* `phase_span` - phase_span\n* `summary_in_sprint` - summary_in_sprint"
             },
             "ProjectStatusSummary": {
                 "type": "object",
@@ -66020,6 +67203,292 @@
                 "required": [
                     "name",
                     "project"
+                ]
+            },
+            "ProjectUtilization": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/utilization/`` (#3679).\n\nSee :func:`utilization.compute_utilization`.",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "window": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectUtilizationWindow"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "resources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectUtilizationResource"
+                        },
+                        "readOnly": true
+                    },
+                    "unassigned_task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "project_id",
+                    "resources",
+                    "unassigned_task_count",
+                    "window"
+                ]
+            },
+            "ProjectUtilizationDay": {
+                "type": "object",
+                "description": "One day of one resource's load in :func:`utilization.compute_utilization` (#3679).",
+                "properties": {
+                    "hours": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "load_pct": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "load_band": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LoadBandEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "overallocated": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "hours",
+                    "load_band",
+                    "load_pct",
+                    "overallocated",
+                    "tasks"
+                ]
+            },
+            "ProjectUtilizationResource": {
+                "type": "object",
+                "description": "One resource row in :func:`utilization.compute_utilization` (#3679).",
+                "properties": {
+                    "resource_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "resource_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "max_units": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "hours_per_day": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "calendar_id": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "calendar_differs_from_project": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "overallocated": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "days": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/ProjectUtilizationDay"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "calendar_differs_from_project",
+                    "calendar_id",
+                    "days",
+                    "hours_per_day",
+                    "max_units",
+                    "overallocated",
+                    "resource_id",
+                    "resource_name"
+                ]
+            },
+            "ProjectUtilizationWindow": {
+                "type": "object",
+                "description": "The ``window`` block of :func:`utilization.compute_utilization` (#3679).",
+                "properties": {
+                    "start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "end": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "end",
+                    "start"
+                ]
+            },
+            "ProjectVelocity": {
+                "type": "object",
+                "description": "Response shape for ``GET /api/v1/projects/{id}/velocity/``.\n\nSee :func:`services.velocity_summary`.\n\n``velocity_suppressed`` is present only when\n:func:`signal_privacy_services.suppress_velocity_summary` redacted the\nteam-private detail for a reader outside the velocity audience (ADR-0104\n§2.1) — ``sprints`` is emptied and the point-based fields are nulled in that\ncase, so it is the discriminator a client checks rather than re-deriving\nsuppression from an empty list (#3679).",
+                "properties": {
+                    "sprints": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectVelocitySprintEntry"
+                        },
+                        "readOnly": true
+                    },
+                    "rolling_avg_points": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "rolling_stdev_points": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "forecast_range_low": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "forecast_range_high": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "rolling_avg_tasks": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "rolling_stdev_tasks": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "team_velocity_per_day": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "excluded_count": {
+                        "type": "integer"
+                    },
+                    "velocity_suppressed": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "excluded_count",
+                    "forecast_range_high",
+                    "forecast_range_low",
+                    "rolling_avg_points",
+                    "rolling_avg_tasks",
+                    "rolling_stdev_points",
+                    "rolling_stdev_tasks",
+                    "sprints",
+                    "team_velocity_per_day",
+                    "velocity_suppressed"
+                ]
+            },
+            "ProjectVelocitySprintEntry": {
+                "type": "object",
+                "description": "One sprint row in :func:`services.velocity_summary` (#984, #3679).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "committed_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "committed_task_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_task_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "delta_vs_prior_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "delta_vs_prior_tasks": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "exclude_from_velocity": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "committed_points",
+                    "committed_task_count",
+                    "completed_points",
+                    "completed_task_count",
+                    "delta_vs_prior_points",
+                    "delta_vs_prior_tasks",
+                    "exclude_from_velocity",
+                    "finish_date",
+                    "id",
+                    "name",
+                    "start_date"
                 ]
             },
             "ProjectVisitResponse": {
@@ -67191,6 +68660,18 @@
                     "warnings"
                 ]
             },
+            "RiskPremiumStateEnum": {
+                "enum": [
+                    "not_run",
+                    "unmeasurable",
+                    "stale",
+                    "zero",
+                    "premium",
+                    "negative"
+                ],
+                "type": "string",
+                "description": "* `not_run` - not_run\n* `unmeasurable` - unmeasurable\n* `stale` - stale\n* `zero` - zero\n* `premium` - premium\n* `negative` - negative"
+            },
             "RiskRequest": {
                 "type": "object",
                 "description": "Read/write serializer for project risks.\n\nseverity is a computed read-only field (probability × impact); it is not\nstored in the database to avoid write-consistency hazards.\n\ntasks is a writable PrimaryKeyRelatedField that accepts task UUIDs on\ncreate and update.  The viewset annotates a severity DB expression on the\nqueryset so OrderingFilter can sort without round-tripping to Python.",
@@ -67401,6 +68882,16 @@
                     "task_count",
                     "title"
                 ]
+            },
+            "ScheduleHealthEnum": {
+                "enum": [
+                    "on_track",
+                    "at_risk",
+                    "critical",
+                    "unknown"
+                ],
+                "type": "string",
+                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown"
             },
             "SchedulerRun": {
                 "type": "object",
@@ -67680,6 +69171,15 @@
                     "task_count",
                     "valid"
                 ]
+            },
+            "SeverityEnum": {
+                "enum": [
+                    "critical",
+                    "warning",
+                    "info"
+                ],
+                "type": "string",
+                "description": "* `critical` - critical\n* `warning` - warning\n* `info` - info"
             },
             "ShareLink": {
                 "type": "object",
@@ -74578,6 +76078,14 @@
                 "type": "string",
                 "description": "* `member` - Member\n* `admin` - Admin"
             },
+            "TeamUtilizationReasonEnum": {
+                "enum": [
+                    "no_roster",
+                    "no_capacity"
+                ],
+                "type": "string",
+                "description": "* `no_roster` - no_roster\n* `no_capacity` - no_capacity"
+            },
             "TeamVisibilityEnum": {
                 "enum": [
                     "team_only",
@@ -75016,6 +76524,14 @@
                 "required": [
                     "task"
                 ]
+            },
+            "ToneEnum": {
+                "enum": [
+                    "info",
+                    "warn"
+                ],
+                "type": "string",
+                "description": "* `info` - info\n* `warn` - warn"
             },
             "TransferOwnershipRequest": {
                 "type": "object",

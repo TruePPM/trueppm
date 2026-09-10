@@ -127,16 +127,21 @@ test.describe('e2e schema guard — the oracle resolves', () => {
   });
 
   test('a free-form declared schema is reported as free-form, never as a pass', () => {
-    // 46 operations declare `{"type":"object"}` with no properties. A mock for
-    // one of them cannot be wrong here, and calling that "checked" is the exact
-    // "the guard's existence is read as coverage" failure this issue is an
-    // instance of.
-    const overview = resolveResponseSchema(
+    // 36 operations declare `{"type":"object"}` with no properties (46 before
+    // #3679 typed the 13 projects analytics/rollup reads — #3652's own
+    // sub-issue A). A mock for one of them cannot be wrong here, and calling
+    // that "checked" is the exact "the guard's existence is read as coverage"
+    // failure this issue is an instance of. monte-carlo/latest/ is used as the
+    // illustrative example rather than overview/ (#3679 gave overview/ a real
+    // schema, so it no longer demonstrates this case).
+    const monteCarloLatest = resolveResponseSchema(
       'GET',
-      'http://127.0.0.1:4173/api/v1/projects/p1/overview/',
+      'http://127.0.0.1:4173/api/v1/projects/p1/monte-carlo/latest/',
       200,
     );
-    expect(overview.kind === 'skipped' && overview.reason).toBe('free-form-schema');
+    expect(monteCarloLatest.kind === 'skipped' && monteCarloLatest.reason).toBe(
+      'free-form-schema',
+    );
     expect(isFreeForm({ type: 'object' })).toBe(true);
     expect(isFreeForm({ type: 'object', properties: { a: { type: 'string' } } })).toBe(false);
   });

@@ -154,9 +154,13 @@ const STATUS_SUMMARY = {
 
 const ATTENTION = {
   items: [
-    { severity: 'critical', type: 'critical_task_late', task_id: 't5', task_name: 'Order 138kV breakers',     assignee_name: 'Priya Patel', date: '2026-05-22', detail: 'On critical path · 1 day slip' },
-    { severity: 'at_risk',  type: 'task_at_risk',       task_id: 't9', task_name: 'Foundations & civil',      assignee_name: 'Diego Ortiz', date: '2026-06-15', detail: 'Negative float forecast' },
-    { severity: 'at_risk',  type: 'risk_high',          task_id: null, task_name: 'Long-lead 138kV breaker',  assignee_name: 'Priya Patel', date: null,         detail: 'Severity 20 · supply chain' },
+    { severity: 'critical', type: 'critical_task_late',  task_id: 't5', task_name: 'Order 138kV breakers',    assignee_name: 'Priya Patel', date: '2026-05-22', detail: 'On critical path · 1 day slip' },
+    // 'at_risk' / 'task_at_risk' / 'risk_high' are not values the server emits
+    // (AttentionItem's severity/type are closed unions — ProjectOverviewPage.tsx,
+    // #3679); the two rows below use the real vocabulary so the screenshot
+    // matches what the endpoint can actually produce.
+    { severity: 'warning',  type: 'baseline_drift',      task_id: 't9', task_name: 'Foundations & civil',     assignee_name: 'Diego Ortiz', date: '2026-06-15', detail: 'Negative float forecast' },
+    { severity: 'warning',  type: 'overallocation',      task_id: null, task_name: 'Long-lead 138kV breaker', assignee_name: 'Priya Patel', date: null,         detail: 'Severity 20 · supply chain' },
   ],
 };
 

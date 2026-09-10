@@ -206,11 +206,25 @@ from trueppm_api.apps.projects.serializers import (
     ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
     ProjectApiTokenSerializer,
+    ProjectAttentionSerializer,
+    ProjectBlockedRollupSerializer,
+    ProjectBurnCombinedSerializer,
+    ProjectBurnSeriesSerializer,
     ProjectCustomFieldSerializer,
     ProjectDetailSerializer,
     ProjectExportJobSerializer,
     ProjectForecastSerializer,
+    ProjectIntegrationsSummarySerializer,
+    ProjectMyTasksSerializer,
+    ProjectOverviewSerializer,
+    ProjectResourceAllocationSerializer,
+    ProjectResourceHeatmapSerializer,
+    ProjectResourcesSummarySerializer,
+    ProjectRetroCarryoverSerializer,
     ProjectSerializer,
+    ProjectSprintHealthSerializer,
+    ProjectUtilizationSerializer,
+    ProjectVelocitySerializer,
     PulseResponseSerializer,
     ReforecastPreviewSerializer,
     RetroActionItemPromotedTaskSerializer,
@@ -2893,14 +2907,15 @@ class ProjectViewSet(
         ],
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectUtilizationSerializer,
                 description=(
-                    "Sparse map of resource -> working day -> "
-                    "{hours, task_ids, load_pct, load_band, overallocated} for the "
+                    "Per-resource daily utilization: each resource row carries a "
+                    "sparse `days` map keyed by working day (YYYY-MM-DD) to "
+                    "{hours, tasks, load_pct, load_band, overallocated} for the "
                     "requested window. load_band is on-track | at-risk | critical "
                     "(>100% load); each resource also carries a top-level "
                     "overallocated flag (true if any day exceeds 100%). Each "
-                    "resource row also carries {max_units, hours_per_day, job_role, "
+                    "resource row also carries {max_units, hours_per_day, "
                     "calendar_id, calendar_differs_from_project}; per-day capacity "
                     "is hours_per_day x max_units, the same denominator load_pct "
                     "uses. " + BASIS
@@ -3047,16 +3062,12 @@ class ProjectViewSet(
         ],
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectResourceAllocationSerializer,
                 description=(
-                    "Per-resource task spans within the window: "
-                    "{project_id, window_start, window_end, resource_count, "
-                    "truncated, resources: "
-                    "[{id, name, max_units (project-effective: roster "
-                    "units_override if set, else Resource.max_units), tasks: [{assignment_id, id, "
-                    "name, early_start, early_finish, scheduled_start, units, "
-                    "status}]}]}. resource_count is the number of resources in "
-                    "scope and truncated is true when the assignment cap "
+                    "Per-resource task spans within the window. max_units is "
+                    "project-effective: the roster's units_override if set, else "
+                    "Resource.max_units. resource_count is the number of resources "
+                    "in scope and truncated is true when the assignment cap "
                     "(ADR-1118) dropped whole resources from the list — the cut "
                     "always falls on a resource boundary, so every resource "
                     "returned carries all of its in-window spans and the "
@@ -3298,7 +3309,7 @@ class ProjectViewSet(
         ],
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectResourceHeatmapSerializer,
                 description=(
                     "Week x person utilization heatmap: integer percent per ISO "
                     "week, against hours_per_day x max_units x working days. " + BASIS
@@ -3387,7 +3398,7 @@ class ProjectViewSet(
         summary="Get the resources KPI summary",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectResourcesSummarySerializer,
                 description=(
                     "Resource KPIs over an 8-week window: avg utilization, "
                     "over/under-allocation counts, headcount, and contractor count. "
@@ -3823,7 +3834,7 @@ class ProjectViewSet(
 
     @extend_schema(
         summary="Blocked tasks on this project (ADR-0124, #1134)",
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={200: ProjectBlockedRollupSerializer},
     )
     @extend_schema(
         parameters=[
@@ -3943,7 +3954,7 @@ class ProjectViewSet(
         summary="Get the project integrations summary",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectIntegrationsSummarySerializer,
                 description="Aggregated webhooks and API tokens sections for the project.",
             ),
             503: OpenApiResponse(
@@ -4030,7 +4041,7 @@ class ProjectViewSet(
         summary="List unresolved retro carryover action items",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectRetroCarryoverSerializer,
                 description=(
                     "Body includes an `items` array of unresolved action items from the "
                     "last one or two completed retros."
@@ -11847,41 +11858,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
-        responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Aggregated KPI snapshot for the single-project overview dashboard.",
-                examples=[
-                    OpenApiExample(
-                        "overview",
-                        value={
-                            "schedule_health": "on_track",
-                            "spi": 1.02,
-                            "risk_premium_days": 11,
-                            "risk_premium_ratio": 0.09,
-                            "risk_premium_band": None,
-                            "risk_premium_as_of": "2026-07-27T09:12:00Z",
-                            "risk_premium_reason": None,
-                            "risk_premium_state": "premium",
-                            "forecast_staleness": "project_changed",
-                            "plan_version": 412,
-                            "plan_version_current": 419,
-                            "tasks_late_count": 2,
-                            "critical_task_count": 7,
-                            "total_tasks": 48,
-                            "complete_tasks": 19,
-                            "next_milestone": {"id": "…", "name": "Beta", "date": "2026-03-01"},
-                            "team_utilization_pct": 82.5,
-                            "team_utilization_reason": None,
-                            "owner_name": "Sarah Chen",
-                            "open_risk_count": 4,
-                            "high_risk_count": 1,
-                            "start_date": "2026-01-05",
-                        },
-                    ),
-                ],
-            ),
-        },
+        responses={200: ProjectOverviewSerializer},
     )
     def get(self, request: Request, pk: str) -> Response:
         """Return KPI data for the project overview page."""
@@ -12082,16 +12059,13 @@ class ProjectAttentionView(APIView):
     @extend_schema(
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectAttentionSerializer,
                 description=(
-                    "Prioritised attention list: {items: [{severity, type, task_id, "
-                    "task_name, assignee_name, date, detail, link_target}]}. severity "
-                    "is one of critical/warning/info; type is one of "
-                    "critical_task_late, unassigned_approaching, baseline_drift, "
-                    "overallocation. An overallocation item is raised when a "
-                    "resource's committed units on open tasks exceed their capacity "
-                    "ON THIS PROJECT: the roster's units_override when one is set "
-                    "(0 included), else Resource.max_units."
+                    "Prioritised attention list, ordered by severity bucket "
+                    "(critical > warning > info). An overallocation item is raised "
+                    "when a resource's committed units on open tasks exceed their "
+                    "capacity ON THIS PROJECT: the roster's units_override when one "
+                    "is set (0 included), else Resource.max_units."
                 ),
                 examples=[
                     OpenApiExample(
@@ -12338,12 +12312,8 @@ class ProjectMyTasksView(APIView):
     @extend_schema(
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "This week's tasks assigned to the requesting user: "
-                    "{tasks: [{id, name, due, status, percent_complete, is_critical, "
-                    "owner_name, owner_initials}]}."
-                ),
+                response=ProjectMyTasksSerializer,
+                description="This week's tasks assigned to the requesting user.",
                 examples=[
                     OpenApiExample(
                         "my-tasks",
@@ -17464,7 +17434,7 @@ def _retro_owned_rows(
         summary="Velocity summary — last 8 closed sprints plus rolling stats",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=ProjectVelocitySerializer,
                 description=(
                     "Velocity summary object: the per-sprint completed-points series "
                     "plus `rolling_avg_points` and the `forecast_range_low`/"
@@ -17521,10 +17491,9 @@ class ProjectVelocityView(APIView):
 @extend_schema(
     responses={
         200: OpenApiResponse(
-            response=OpenApiTypes.OBJECT,
+            response=ProjectSprintHealthSerializer,
             description=(
-                "Tier-3 sprint-health signals (ADR-0101 §4). "
-                "{signals: [{key, count, tone, detail}]} — only tripped signals "
+                "Tier-3 sprint-health signals (ADR-0101 §4) — only tripped signals "
                 "are present (orphan tasks, active sprint spanning ≥3 phases, "
                 "parent tasks in a sprint). `tone` is info|warn; `detail` is the "
                 "server-owned consequence copy the client renders verbatim. "
@@ -17903,32 +17872,18 @@ class ProjectBurnView(APIView):
             ),
         ],
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Burn series. For burndown/burnup: {chart_type, metric, since, "
-                    "until, series: [{date, actual, scope, ideal}]}, plus a top-level "
-                    "baseline_series ([{date, planned}]) when the project has an "
-                    "active baseline. For combined: series rows are {date, remaining, "
-                    "completed, total, ideal}, and there is never a baseline_series. "
-                    "since is the window actually used, which may be later than a "
-                    "defaulted one that was clamped."
-                ),
-                examples=[
-                    OpenApiExample(
-                        "burndown",
-                        value={
-                            "chart_type": "burndown",
-                            "metric": "tasks",
-                            "since": "2026-01-01",
-                            "until": "2026-01-14",
-                            "series": [
-                                {"date": "2026-01-01", "actual": 20, "scope": 20, "ideal": 20},
-                                {"date": "2026-01-14", "actual": 3, "scope": 20, "ideal": 0},
-                            ],
-                        },
-                    ),
-                ],
+            200: PolymorphicProxySerializer(
+                component_name="ProjectBurnResponse",
+                # since is the window actually used, which may be later than a
+                # defaulted one that was clamped. A dict mapping (not a plain list)
+                # is used here because burndown and burnup share one shape/class —
+                # see ProjectBurnSeriesSerializer's docstring.
+                serializers={
+                    "burndown": ProjectBurnSeriesSerializer,
+                    "burnup": ProjectBurnSeriesSerializer,
+                    "combined": ProjectBurnCombinedSerializer,
+                },
+                resource_type_field_name="chart_type",
             ),
             400: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,

@@ -340,7 +340,7 @@ async function setupRoutes(page: import('@playwright/test').Page) {
       body: JSON.stringify([{ id: 'mem-1', role: 300, role_label: 'Scheduler' }]),
     }),
   );
-  for (const path of ['sprints', 'baselines', 'velocity']) {
+  for (const path of ['sprints', 'baselines']) {
     await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/${path}/`, (route) =>
       route.fulfill({
         status: 200,
@@ -349,6 +349,15 @@ async function setupRoutes(page: import('@playwright/test').Page) {
       }),
     );
   }
+  // velocity/ is OBJECT-shaped ({sprints: [...], ...}), not a paginated list —
+  // #3679 gave it a real schema, so it can no longer share the loop above.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/velocity/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sprints: [] }),
+    }),
+  );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/monte-carlo/latest/`, (route) =>
     route.fulfill({
       status: 404,
