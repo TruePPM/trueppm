@@ -26572,12 +26572,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/CsvImportQueuedResponse"
                                 }
                             }
                         },
-                        "description": "Import queued; body is {\"detail\", \"queued\", \"import_request_id\"}."
+                        "description": ""
                     },
                     "400": {
                         "description": "Missing or invalid upload (wrong type/too large), or an unknown `date_order`. The order is persisted on the import request so a drain re-dispatch replays the convention the operator confirmed."
@@ -26719,8 +26718,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/CsvImportUndoResponse"
                                 }
                             }
                         },
@@ -26821,8 +26819,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/CsvImportPreviewResponse"
                                 }
                             }
                         },
@@ -26897,12 +26894,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/JiraImportQueuedResponse"
                                 }
                             }
                         },
-                        "description": "Import queued; body is {\"detail\", \"import_request_id\"}."
+                        "description": ""
                     },
                     "400": {
                         "description": "Missing or invalid upload (wrong type/too large)."
@@ -26973,12 +26969,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MsProjectImportQueuedResponse"
                                 }
                             }
                         },
-                        "description": "Import queued; body is {\"detail\", \"import_request_id\"}."
+                        "description": ""
                     },
                     "400": {
                         "description": "Missing or invalid upload (wrong type/too large)."
@@ -36442,12 +36437,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MsProjectCreateProjectQueuedResponse"
                                 }
                             }
                         },
-                        "description": "Project shell created; import queued. Body is {\"queued\", \"project_id\", \"import_request_id\"}."
+                        "description": ""
                     },
                     "400": {
                         "description": "Missing/invalid upload, or program-admin gate failed."
@@ -53954,6 +53948,390 @@
                     "upstream_task"
                 ]
             },
+            "CsvImportColumnMapping": {
+                "type": "object",
+                "description": "One detected column, as returned in preview's ``columns[]`` (#3682).",
+                "properties": {
+                    "index": {
+                        "type": "integer"
+                    },
+                    "header": {
+                        "type": "string"
+                    },
+                    "field": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Target field this column resolved to, or null when unmapped."
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "description": "One of `exact` / `fuzzy` / `none` / `duplicate` / `override`."
+                    }
+                },
+                "required": [
+                    "confidence",
+                    "field",
+                    "header",
+                    "index"
+                ]
+            },
+            "CsvImportDateEvidence": {
+                "type": "object",
+                "description": "The single cell that self-identified the date order, when one did (#2926).",
+                "properties": {
+                    "row": {
+                        "type": "integer"
+                    },
+                    "column": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "`no_thirteenth_month` or `second_part_exceeds_twelve`."
+                    }
+                },
+                "required": [
+                    "column",
+                    "reason",
+                    "row",
+                    "value"
+                ]
+            },
+            "CsvImportDatePreviewRow": {
+                "type": "object",
+                "description": "One rendered row for the wizard's dates preview table (#2926).",
+                "properties": {
+                    "row": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "raw_start": {
+                        "type": "string"
+                    },
+                    "raw_finish": {
+                        "type": "string"
+                    },
+                    "start": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "finish": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "duration_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "unreadable": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "duration_days",
+                    "finish",
+                    "name",
+                    "raw_finish",
+                    "raw_start",
+                    "row",
+                    "start",
+                    "unreadable"
+                ]
+            },
+            "CsvImportDateReading": {
+                "type": "object",
+                "description": "One convention's reading of a sample row — populated only for an ambiguous file.",
+                "properties": {
+                    "order": {
+                        "type": "string"
+                    },
+                    "sample_row": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sample_name": {
+                        "type": "string"
+                    },
+                    "sample_raw_start": {
+                        "type": "string"
+                    },
+                    "start": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "finish": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "duration_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "values_matched": {
+                        "type": "integer"
+                    },
+                    "values_failed": {
+                        "type": "integer"
+                    },
+                    "rows_unparseable": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "duration_days",
+                    "finish",
+                    "order",
+                    "rows_unparseable",
+                    "sample_name",
+                    "sample_raw_start",
+                    "sample_row",
+                    "start",
+                    "values_failed",
+                    "values_matched"
+                ]
+            },
+            "CsvImportFieldChoice": {
+                "type": "object",
+                "description": "One entry in the wizard's per-column field dropdown catalog.",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "multi": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "field",
+                    "label",
+                    "multi",
+                    "required"
+                ]
+            },
+            "CsvImportPreviewResponse": {
+                "type": "object",
+                "description": "The 200 body of ``POST …/import/csv/preview/`` — declared, not prose (#3682).\n\nNothing is persisted by this endpoint; the view builds this dict directly\nfrom a :class:`~trueppm_api.apps.csvimport.parser.ParseResult`.\nResponse-only — nothing deserializes it.",
+                "properties": {
+                    "filename": {
+                        "type": "string"
+                    },
+                    "headers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CsvImportColumnMapping"
+                        }
+                    },
+                    "sample_rows": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "First 10 parsed rows, raw cell text."
+                    },
+                    "row_count": {
+                        "type": "integer"
+                    },
+                    "truncated_rows": {
+                        "type": "integer"
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "description": "The plan-task count, excluding the Import review branch."
+                    },
+                    "existing_task_count": {
+                        "type": "integer"
+                    },
+                    "projected_task_count": {
+                        "type": "integer"
+                    },
+                    "recommended_task_ceiling": {
+                        "type": "integer"
+                    },
+                    "exceeds_recommended_ceiling": {
+                        "type": "boolean"
+                    },
+                    "resource_count": {
+                        "type": "integer"
+                    },
+                    "parked_row_count": {
+                        "type": "integer",
+                        "description": "Rows that cannot become plan tasks and will be parked in the review branch."
+                    },
+                    "review_branch_name": {
+                        "type": "string"
+                    },
+                    "row_errors": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CsvImportRowError"
+                        }
+                    },
+                    "error_count": {
+                        "type": "integer"
+                    },
+                    "warning_count": {
+                        "type": "integer"
+                    },
+                    "warnings": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "date_order": {
+                        "type": "string",
+                        "description": "What the caller requested: one of `DATE_ORDERS`."
+                    },
+                    "date_order_resolved": {
+                        "type": "string",
+                        "description": "What will actually be used."
+                    },
+                    "date_order_auto": {
+                        "type": "string",
+                        "description": "What `auto` would have chosen."
+                    },
+                    "date_order_ambiguous": {
+                        "type": "boolean"
+                    },
+                    "date_order_evidence": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CsvImportDateEvidence"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "date_order_has_columns": {
+                        "type": "boolean"
+                    },
+                    "date_order_readings": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CsvImportDateReading"
+                        },
+                        "description": "Both conventions' readings, populated only when ambiguous."
+                    },
+                    "values_matched": {
+                        "type": "integer"
+                    },
+                    "values_failed": {
+                        "type": "integer"
+                    },
+                    "date_preview": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CsvImportDatePreviewRow"
+                        }
+                    },
+                    "available_fields": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CsvImportFieldChoice"
+                        }
+                    }
+                },
+                "required": [
+                    "available_fields",
+                    "columns",
+                    "date_order",
+                    "date_order_ambiguous",
+                    "date_order_auto",
+                    "date_order_evidence",
+                    "date_order_has_columns",
+                    "date_order_readings",
+                    "date_order_resolved",
+                    "date_preview",
+                    "error_count",
+                    "exceeds_recommended_ceiling",
+                    "existing_task_count",
+                    "filename",
+                    "headers",
+                    "parked_row_count",
+                    "projected_task_count",
+                    "recommended_task_ceiling",
+                    "resource_count",
+                    "review_branch_name",
+                    "row_count",
+                    "row_errors",
+                    "sample_rows",
+                    "task_count",
+                    "truncated_rows",
+                    "values_failed",
+                    "values_matched",
+                    "warning_count",
+                    "warnings"
+                ]
+            },
+            "CsvImportQueuedResponse": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "queued": {
+                        "type": "boolean"
+                    },
+                    "import_request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "detail",
+                    "import_request_id",
+                    "queued"
+                ]
+            },
+            "CsvImportRowError": {
+                "type": "object",
+                "description": "One row-scoped diagnostic, as returned in preview's ``row_errors[]`` (#3682).",
+                "properties": {
+                    "row": {
+                        "type": "integer"
+                    },
+                    "column": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "description": "`error` (row did not import) or `warning` (row imported, field dropped)."
+                    }
+                },
+                "required": [
+                    "code",
+                    "column",
+                    "message",
+                    "row",
+                    "severity"
+                ]
+            },
             "CsvImportStatusResponse": {
                 "type": "object",
                 "description": "The 200 body of ``GET …/import/csv/{id}/`` — declared, not prose (#3353).\n\nThis payload used to be typed ``OpenApiTypes.OBJECT`` with the key names listed\nin a sentence, which is not a contract anyone can generate an SDK against. It\nmatters most for ``can_undo``: a field whose entire purpose is to be read by a\nclient, reaching ``docs/api/openapi.json`` as an undiscoverable member of a free\nobject, is a field that does not exist for a non-browser caller (the #2942 class).\n\nResponse-only — nothing deserializes it; the view builds the dict itself.",
@@ -54000,6 +54378,45 @@
                     "requested_at",
                     "status",
                     "summary"
+                ]
+            },
+            "CsvImportUndoResponse": {
+                "type": "object",
+                "description": "The 200 body of ``POST …/import/csv/{id}/undo/`` — declared, not prose (#3682).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "undo": {
+                        "$ref": "#/components/schemas/CsvImportUndoResult"
+                    }
+                },
+                "required": [
+                    "id",
+                    "status",
+                    "undo"
+                ]
+            },
+            "CsvImportUndoResult": {
+                "type": "object",
+                "description": "The ``undo`` sub-object of the undo response — split counts (#3682).",
+                "properties": {
+                    "deleted": {
+                        "type": "integer",
+                        "description": "Rows soft-deleted because no one had touched them."
+                    },
+                    "kept": {
+                        "type": "integer",
+                        "description": "Rows left in place because a collaborator has since modified them."
+                    }
+                },
+                "required": [
+                    "deleted",
+                    "kept"
                 ]
             },
             "DateFormatEnum": {
@@ -55887,6 +56304,22 @@
                 "type": "string",
                 "description": "* `epic` - Epic\n* `feature` - Feature\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `chore` - Chore"
             },
+            "JiraImportQueuedResponse": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "import_request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "detail",
+                    "import_request_id"
+                ]
+            },
             "KeyEnum": {
                 "enum": [
                     "HISTORY_RETENTION_DAYS",
@@ -57089,6 +57522,43 @@
                 ],
                 "type": "string",
                 "description": "* `export` - export\n* `probe` - probe"
+            },
+            "MsProjectCreateProjectQueuedResponse": {
+                "type": "object",
+                "properties": {
+                    "queued": {
+                        "type": "boolean"
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "import_request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "import_request_id",
+                    "project_id",
+                    "queued"
+                ]
+            },
+            "MsProjectImportQueuedResponse": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "import_request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "detail",
+                    "import_request_id"
+                ]
             },
             "MyApiToken": {
                 "type": "object",
