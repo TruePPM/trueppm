@@ -5,6 +5,21 @@ description: Last-8 closed sprints with rolling avg ± stdev and a forecast rang
 
 A bar chart of the last 8 closed sprints, color-coded by completion ratio, with rolling average ± standard deviation and a forecast range chip. The footer links to ADR-0036 — the velocity ↔ CPM feedback decision.
 
+:::note[Three different numbers, three different gates]
+This page cites 8, 3, and 2 closed sprints, and [velocity calibration](/features/velocity-calibration/)
+cites 6 — these are not in tension, they answer different questions:
+
+- **8** — the display window for this panel's bar chart and rolling avg ± stdev (below).
+- **6** — the rolling window behind `team_velocity_per_day`, the CPM-calibration
+  figure velocity calibration reads on sprint close.
+- **3** — the minimum prior completed sprints before `team_velocity_per_day` is
+  defined at all (below that the average is too noisy to trust), which gates
+  both velocity calibration and the [milestone reforecast estimate](#on-the-board-sprint-panel).
+- **2** — the minimum closed sprints before the separate
+  [backlog delivery forecast](#backlog-delivery-forecast) (a real Monte Carlo,
+  not the deterministic reforecast band) will render at all.
+:::
+
 ## Where this lives in the story
 
 Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--monte-carlo-across-both-worlds)) of the [hybrid PM flow](/the-story/) — the velocity history that turns sprint cadence into a defensible probability for Carlos's exec view.

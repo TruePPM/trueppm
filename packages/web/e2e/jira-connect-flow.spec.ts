@@ -106,13 +106,6 @@ async function setup(page: Page) {
   // teardown and races the page render (#2366). Routes below win.
   await setupCatchAll(page);
 
-  // Catch-all registered FIRST so the specific handlers below (registered later)
-  // win — Playwright matches routes in reverse registration order.
-  await page.route('**/api/v1/**', (r) => {
-    if (r.request().method() !== 'GET') return r.fallback();
-    return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-  });
-
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
   );

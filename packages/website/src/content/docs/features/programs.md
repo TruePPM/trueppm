@@ -165,7 +165,9 @@ would be rejected when you submit.
 
 ## The program shell
 
-`/programs/:id` is a six-tab shell — **Overview**, **Backlog**, **Projects**, **Resources**, **Members**, and **Settings**:
+`/programs/:id` is a ten-tab shell, in rail order: **Overview**, **Backlog**,
+**Labels**, **Projects**, **Schedule**, **Resources**, **Agents**, **Members**,
+**Assets**, and **Settings**:
 
 ![The Atlas Platform Launch program overview: schedule health, baseline variance, critical tasks, milestone health, and risk score tiles](../../../assets/screenshots/program-overview.webp)
 
@@ -197,6 +199,11 @@ would be rejected when you submit.
   standup-style count of its **overdue** tasks (past their scheduled finish) and
   **at-risk** tasks (five or fewer working days of float), so the tab reads like
   a morning dashboard rather than a plain directory.
+- **Labels** — the program-scoped label set that a pulled backlog item's tags
+  convert into (see [Labels](/features/labels/)).
+- **Schedule** — the cross-project critical path across every member project's
+  timeline. See [Program schedule](/features/program-schedule/) for the full
+  read-only view and how cross-project dependencies draw.
 - **Resources** — *(added in 0.3)* within-program resource contention. Surfaces
   people staffed across more than one of the program's projects in overlapping
   windows, broken down by project, with an over-allocation flag when someone is
@@ -208,11 +215,15 @@ would be rejected when you submit.
   date shrinks toward as it nears completion — reporting progress does not
   make a person's allocation, or their contention with a sibling project,
   disappear.
+- **Agents** — the OSS, per-program read of what the team's own AI agents did
+  (see [Agent oversight](/features/agent-oversight/)).
 - **Members** — manage program-level membership. Roles use the same 5-role model
   as projects, named for the program: Viewer, Team Member, Resource Manager,
   Program Manager, Program Admin (Owner). Only the top two names differ, and only
   in the first word — a Program Manager and a Project Manager hold the same rank,
   each in its own container.
+- **Assets** — files and external links across the program's readable member
+  projects, unified into one program-level view (see [Assets](/features/assets/)).
 - **Settings** — deeper program configuration (see below).
 
 :::note[Ships in 0.4 — backlog vocabulary and pull destination]

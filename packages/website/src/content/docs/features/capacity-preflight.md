@@ -31,7 +31,7 @@ The per-person hours view answers "who is overcommitted?". A team that plans in 
 - **Points chip** — `{committed}/{capacity} pts · {pct}%`, summing the story points of every task committed to the sprint. The chip turns red once `committed_points` exceeds the sprint's `capacity_points` ceiling.
 - **Plain-English footer** — a one-line summary the whole team can read without parsing the donut: *"Team is at 75% of capacity. 6 pts free."* (or *"Team is 4 pts over capacity."* when over the ceiling).
 
-Both are **omitted entirely when no points ceiling is set** — a sprint that plans in hours only never sees an empty or zero-valued points chip. The `capacity_points` ceiling is set on the [Plan Sprint dialog](/features/plan-sprint/) and editable while the sprint is planned.
+Both are **omitted entirely when no points ceiling is set** — a sprint that plans in hours only never sees an empty or zero-valued points chip. The `capacity_points` ceiling is **not** part of sprint creation — the [Plan Sprint dialog](/features/plan-sprint/) is deliberately minimal (name, dates, optional goal) and has no points field. Set or change it from the **Capacity** card on the Board's active-sprint panel: click the card and type a value, or clear it to go back to hours-only. It is editable for as long as the sprint stays open.
 
 ## Where to find it in the app
 
