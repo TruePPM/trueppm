@@ -103,7 +103,7 @@ async function setup(page: Page) {
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, ok([]));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, ok([]));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, ok([]));
-  await page.route(`**/api/v1/programs/${PROGRAM_ID}/schedule/`, ok({ lanes: [], tasks: [] }));
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/schedule/`, ok({ projects: [], tasks: [] }));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/resource-contention/**`, ok({ resources: [] }));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/assets/`, ok({ results: [], count: 0, next: null, previous: null }));
   await page.route('**/api/v1/ws/ticket/', ok({ ticket: 'e2e' }));
