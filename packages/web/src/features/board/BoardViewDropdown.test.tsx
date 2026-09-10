@@ -83,6 +83,32 @@ describe('BoardViewDropdown', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
+  it('clamps the menu to the viewport instead of clipping when the trigger sits near the right edge (#3703)', () => {
+    // The old `left-0` CSS anchor never accounted for available room, so a
+    // trigger near the right edge of a narrow toolbar rendered the popover
+    // with its right edge pushed past the viewport — clipped by the
+    // viewport/clipping ancestor.
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 1150,
+      y: 100,
+      top: 100,
+      bottom: 128,
+      left: 1150,
+      right: 1220,
+      width: 70,
+      height: 28,
+      toJSON: () => {},
+    });
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    const menu = screen.getByRole('menu');
+    const left = Number.parseFloat(menu.style.left);
+    // rect.left (1150) + width (220) = 1370, past the default 1024px jsdom
+    // viewport — clamped to `vw - width - margin` = 1024 - 220 - 8 = 796.
+    expect(left).toBe(796);
+    expect(left + 220).toBeLessThanOrEqual(1024);
+  });
+
   it('lists all four built-in views', () => {
     renderDropdown();
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));

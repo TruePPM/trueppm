@@ -4,14 +4,30 @@
  * Shows built-in quick filters and user-saved named views. Selecting a view
  * applies its config to the board toolbar state. Users may save the current
  * state as a named view or delete views they created (or if Scheduler role).
+ *
+ * Both popovers (the menu and the "Save current view" form) are positioned via
+ * the shared `useAnchoredPopover` hook (rule 260): portaled to `document.body`,
+ * `position: fixed`, flipped/clamped against the viewport. The old in-flow
+ * `absolute left-0` never escaped a clipping ancestor and never accounted for
+ * the viewport, so a trigger near the right edge of the toolbar clipped this
+ * menu's content instead of flipping/clamping (#3703).
  */
-import { type MouseEvent, useEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type MouseEvent,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
   useBoardSavedViews,
   type BoardSavedView,
   type BoardViewConfig,
 } from '@/hooks/useBoardSavedViews';
 import { CheckIcon } from '@/components/Icons';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useLabels } from '@/hooks/useLabels';
 import { labelDotStyle } from '@/lib/labelColors';
 import { DeletedLabelChip } from '@/components/filters/DeletedLabelChip';
@@ -64,9 +80,11 @@ interface SaveViewModalProps {
   onSave: (name: string) => void;
   onCancel: () => void;
   isSaving: boolean;
+  popoverRef: RefObject<HTMLDivElement | null>;
+  style: CSSProperties;
 }
 
-function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
+function SaveViewModal({ onSave, onCancel, isSaving, popoverRef, style }: SaveViewModalProps) {
   const [name, setName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -76,7 +94,9 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
 
   return (
     <div
-      className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border rounded-card p-3 w-64"
+      ref={popoverRef}
+      style={style}
+      className="z-50 bg-neutral-surface border border-neutral-border rounded-card p-3 overflow-y-auto"
       role="dialog"
       aria-label="Save current view"
       aria-modal="false"
@@ -228,6 +248,36 @@ export function BoardViewDropdown({
     remove.mutate(sv.id);
   }
 
+  // Portal + fixed-position + flip/clamp so both popovers escape any
+  // `overflow-hidden` ancestor and never clip against the viewport edge (rule
+  // 260, #3703) — replaces the old in-flow `absolute left-0`. Two hook
+  // instances (one per popover) share the same trigger via a merged ref below,
+  // since the menu and the save form are mutually exclusive.
+  const menuEstimatedHeight = Math.min(
+    480,
+    64 + BUILTIN_VIEWS.length * 32 + views.length * 44 + (activeViewId ? 32 : 0),
+  );
+  const {
+    triggerRef: popoverTriggerRef,
+    popoverRef,
+    popoverStyle,
+  } = useAnchoredPopover<HTMLButtonElement, HTMLDivElement>({
+    open: open && !showSave,
+    width: 220,
+    estimatedHeight: menuEstimatedHeight,
+    align: 'left',
+  });
+  const {
+    triggerRef: saveTriggerRef,
+    popoverRef: savePopoverRef,
+    popoverStyle: savePopoverStyle,
+  } = useAnchoredPopover<HTMLButtonElement, HTMLDivElement>({
+    open: showSave,
+    width: 256,
+    estimatedHeight: 160,
+    align: 'left',
+  });
+
   const btnClass =
     'border border-neutral-border rounded-control px-2 py-0.5 text-xs text-neutral-text-primary ' +
     'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary ' +
@@ -238,6 +288,12 @@ export function BoardViewDropdown({
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={(node) => {
+          // The menu and the save form share one trigger — a merged callback
+          // ref, since an element takes one `ref` (rule 368(c)).
+          popoverTriggerRef.current = node;
+          saveTriggerRef.current = node;
+        }}
         type="button"
         onClick={() => {
           setOpen((v) => !v);
@@ -254,132 +310,142 @@ export function BoardViewDropdown({
         </span>
       </button>
 
-      {open && !showSave && (
-        <div
-          role="menu"
-          className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border
-            rounded-card min-w-[180px] max-h-[min(70vh,32rem)] overflow-y-auto py-1"
-        >
-          {/* Clear selection */}
-          {activeViewId && (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={handleClearView}
-                className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
+      {open &&
+        !showSave &&
+        popoverStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={popoverStyle}
+            role="menu"
+            className="z-50 bg-neutral-surface border border-neutral-border rounded-card overflow-y-auto py-1"
+          >
+            {/* Clear selection */}
+            {activeViewId && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleClearView}
+                  className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
                   hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary
                   focus:outline-none"
+                >
+                  Clear view
+                </button>
+                <hr className="border-neutral-border my-1" />
+              </>
+            )}
+
+            {/* Built-in views */}
+            <p className="px-3 py-0.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+              Quick filters
+            </p>
+            {BUILTIN_VIEWS.map((bv) => (
+              <button
+                key={bv.id}
+                type="button"
+                role="menuitem"
+                onClick={() => handleSelectBuiltin(bv)}
+                title={bv.description}
+                className={[
+                  'w-full text-left px-3 py-1.5 text-xs flex items-center justify-between gap-2',
+                  'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
+                  activeViewId === bv.id
+                    ? 'text-brand-primary font-medium'
+                    : 'text-neutral-text-primary',
+                ].join(' ')}
               >
-                Clear view
+                <span>{bv.label}</span>
+                {activeViewId === bv.id && (
+                  <CheckIcon
+                    className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]"
+                    aria-hidden="true"
+                  />
+                )}
               </button>
-              <hr className="border-neutral-border my-1" />
-            </>
-          )}
+            ))}
 
-          {/* Built-in views */}
-          <p className="px-3 py-0.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
-            Quick filters
-          </p>
-          {BUILTIN_VIEWS.map((bv) => (
-            <button
-              key={bv.id}
-              type="button"
-              role="menuitem"
-              onClick={() => handleSelectBuiltin(bv)}
-              title={bv.description}
-              className={[
-                'w-full text-left px-3 py-1.5 text-xs flex items-center justify-between gap-2',
-                'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
-                activeViewId === bv.id
-                  ? 'text-brand-primary font-medium'
-                  : 'text-neutral-text-primary',
-              ].join(' ')}
-            >
-              <span>{bv.label}</span>
-              {activeViewId === bv.id && (
-                <CheckIcon
-                  className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]"
-                  aria-hidden="true"
-                />
-              )}
-            </button>
-          ))}
-
-          {/* Saved views */}
-          {views.length > 0 && (
-            <>
-              <hr className="border-neutral-border my-1" />
-              <p className="px-3 py-0.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
-                Saved views
-              </p>
-              {views.map((sv) => (
-                <div key={sv.id} className="flex items-center group">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleSelectSaved(sv)}
-                    aria-label={savedViewAriaLabel(sv.name, summaryOf(sv))}
-                    className={[
-                      'flex-1 text-left px-3 py-1.5 text-xs flex flex-col items-stretch',
-                      'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
-                      activeViewId === sv.id
-                        ? 'text-brand-primary font-medium'
-                        : 'text-neutral-text-primary',
-                    ].join(' ')}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="truncate">{sv.name}</span>
-                      {activeViewId === sv.id && (
-                        <CheckIcon
-                          className="text-brand-primary ml-auto inline-block h-3 w-3 align-[-0.125em]"
-                          aria-hidden="true"
-                        />
-                      )}
-                    </span>
-                    <SavedViewMeta summary={summaryOf(sv)} />
-                  </button>
-                  {/* Delete — shown on hover; always visible for creator */}
-                  {(sv.createdBy === currentUserId || !sv.createdBy) && (
+            {/* Saved views */}
+            {views.length > 0 && (
+              <>
+                <hr className="border-neutral-border my-1" />
+                <p className="px-3 py-0.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+                  Saved views
+                </p>
+                {views.map((sv) => (
+                  <div key={sv.id} className="flex items-center group">
                     <button
                       type="button"
-                      onClick={(e) => handleDelete(e, sv)}
-                      aria-label={`Delete view "${sv.name}"`}
-                      className="px-2 py-1.5 text-neutral-text-disabled opacity-0 group-hover:opacity-100
+                      role="menuitem"
+                      onClick={() => handleSelectSaved(sv)}
+                      aria-label={savedViewAriaLabel(sv.name, summaryOf(sv))}
+                      className={[
+                        'flex-1 text-left px-3 py-1.5 text-xs flex flex-col items-stretch',
+                        'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
+                        activeViewId === sv.id
+                          ? 'text-brand-primary font-medium'
+                          : 'text-neutral-text-primary',
+                      ].join(' ')}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="truncate">{sv.name}</span>
+                        {activeViewId === sv.id && (
+                          <CheckIcon
+                            className="text-brand-primary ml-auto inline-block h-3 w-3 align-[-0.125em]"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </span>
+                      <SavedViewMeta summary={summaryOf(sv)} />
+                    </button>
+                    {/* Delete — shown on hover; always visible for creator */}
+                    {(sv.createdBy === currentUserId || !sv.createdBy) && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleDelete(e, sv)}
+                        aria-label={`Delete view "${sv.name}"`}
+                        className="px-2 py-1.5 text-neutral-text-disabled opacity-0 group-hover:opacity-100
                         hover:text-semantic-critical focus:opacity-100
                         focus:ring-2 focus:ring-brand-primary focus:outline-none
                         transition-opacity"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
-            </>
-          )}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
 
-          {/* Save current view */}
-          <hr className="border-neutral-border my-1" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => setShowSave(true)}
-            className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
+            {/* Save current view */}
+            <hr className="border-neutral-border my-1" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => setShowSave(true)}
+              className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
               hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary
               focus:outline-none"
-          >
-            + Save current view…
-          </button>
-        </div>
-      )}
+            >
+              + Save current view…
+            </button>
+          </div>,
+          document.body,
+        )}
 
-      {showSave && (
-        <SaveViewModal
-          onSave={handleSave}
-          onCancel={() => setShowSave(false)}
-          isSaving={create.isPending}
-        />
-      )}
+      {showSave &&
+        savePopoverStyle &&
+        createPortal(
+          <SaveViewModal
+            onSave={handleSave}
+            onCancel={() => setShowSave(false)}
+            isSaving={create.isPending}
+            popoverRef={savePopoverRef}
+            style={savePopoverStyle}
+          />,
+          document.body,
+        )}
     </div>
   );
 }
