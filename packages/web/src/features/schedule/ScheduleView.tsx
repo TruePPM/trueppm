@@ -6210,6 +6210,11 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         <ToolbarOverflowMenu
           triggerRef={overflowSlotRef}
           triggerAriaLabel="Project actions"
+          // Widened past the ToolbarOverflowMenu default (240) — this menu's
+          // longest rows ("Import from spreadsheet (CSV/Excel)…") wrap at the
+          // default width now that the popover no longer shrink-wraps its
+          // content (#3701).
+          width={320}
           sections={buildOverflowSections({
             ...buildDemotedItems({
               composition,

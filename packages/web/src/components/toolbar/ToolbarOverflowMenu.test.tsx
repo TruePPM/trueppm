@@ -173,20 +173,51 @@ describe('<ToolbarOverflowMenu> — branch coverage (#2459)', () => {
     expect(container.firstElementChild?.className).not.toMatch(/undefined|null/);
   });
 
-  it('anchors the popover to the right edge by default', () => {
-    render(<ToolbarOverflowMenu items={[actionItem('a')]} />);
+  // The popover is portaled and positioned via `useAnchoredPopover` (rule 260,
+  // #3701) rather than an in-flow `absolute right-0`/`left-0` class, so `align`
+  // is asserted against the computed `left` offset instead of a CSS class.
+  // jsdom's `getBoundingClientRect` is all-zeros by default; mock a trigger
+  // rect wide enough that 'right' and 'left' resolve to different offsets.
+  it('anchors the popover to the right edge of the trigger by default', () => {
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 700, y: 100, top: 100, bottom: 128, left: 700, right: 800, width: 100, height: 28,
+      toJSON: () => {},
+    });
+    render(<ToolbarOverflowMenu items={[actionItem('a')]} width={200} />);
     fireEvent.click(screen.getByRole('button', { name: 'More options' }));
     const menu = screen.getByRole('menu');
-    expect(menu).toHaveClass('right-0');
-    expect(menu).not.toHaveClass('left-0');
+    // rect.right (800) - width (200) = 600
+    expect(menu).toHaveStyle({ left: '600px' });
   });
 
-  it('anchors the popover to the left edge when align="left"', () => {
-    render(<ToolbarOverflowMenu items={[actionItem('a')]} align="left" />);
+  it('anchors the popover to the left edge of the trigger when align="left"', () => {
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 700, y: 100, top: 100, bottom: 128, left: 700, right: 800, width: 100, height: 28,
+      toJSON: () => {},
+    });
+    render(<ToolbarOverflowMenu items={[actionItem('a')]} align="left" width={200} />);
     fireEvent.click(screen.getByRole('button', { name: 'More options' }));
     const menu = screen.getByRole('menu');
-    expect(menu).toHaveClass('left-0');
-    expect(menu).not.toHaveClass('right-0');
+    // rect.left = 700
+    expect(menu).toHaveStyle({ left: '700px' });
+  });
+
+  it('clamps the popover to the viewport instead of clipping when the trigger sits near the left edge (#3701)', () => {
+    // The reported bug: a right-aligned trigger near the left edge of the
+    // screen (e.g. the Schedule mode chip) used to render the popover with a
+    // negative left offset — clipped by the viewport/clipping ancestor — since
+    // the old `right-0` CSS anchor never accounted for available room.
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 20, y: 100, top: 100, bottom: 128, left: 20, right: 90, width: 70, height: 28,
+      toJSON: () => {},
+    });
+    render(<ToolbarOverflowMenu items={[actionItem('a')]} width={220} />);
+    fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+    const menu = screen.getByRole('menu');
+    const left = Number.parseFloat(menu.style.left);
+    // rect.right (90) - width (220) = -130, clamped to the 8px viewport margin.
+    expect(left).toBe(8);
+    expect(left).toBeGreaterThanOrEqual(0);
   });
 
   it('renders a decorative icon on an action item when one is supplied', () => {

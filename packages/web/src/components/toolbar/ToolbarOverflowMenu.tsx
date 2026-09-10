@@ -17,19 +17,20 @@
  * per rule 112. Callers whose trigger IS the control — the mode chip, the zoom
  * cluster — pass no responsive class and are present at every width; for them the
  * popover holds the control's *acts*, and is not an overflow at all (#3263).
+ *
+ * The popover is positioned via the shared `useAnchoredPopover` hook (rule 260):
+ * portaled to `document.body`, `position: fixed`, flipped/clamped against the
+ * viewport. A trigger sitting near either edge of a narrow toolbar (or inside a
+ * clipping `overflow-hidden` ancestor, e.g. the Schedule outline pane) used to
+ * clip the popover's content against that edge instead of flipping/clamping —
+ * the `right-0`/`left-0` CSS anchor never escaped the ancestor and never
+ * accounted for the viewport at all (#3701).
  */
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MutableRefObject,
-  type ReactNode,
-} from 'react';
+import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckIcon, ChevronDownIcon } from '@/components/Icons';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
+import type { KeyboardEvent, MutableRefObject, ReactNode } from 'react';
 
 /**
  * Fields shared by both row kinds.
@@ -133,6 +134,14 @@ export interface ToolbarOverflowMenuProps {
    * ladder demotes the control the user was standing on (#3076).
    */
   triggerRef?: MutableRefObject<HTMLButtonElement | null>;
+  /**
+   * Fixed popover width in px (#3701). The panel no longer shrink-wraps its
+   * content — `useAnchoredPopover` needs a width up front to compute the
+   * viewport clamp — so a caller whose items run long (e.g. "Import from
+   * spreadsheet (CSV/Excel)…") should widen this rather than let text wrap.
+   * Defaults to 240, comfortably above the old `min-w-[200px]` floor.
+   */
+  width?: number;
 }
 
 export function ToolbarOverflowMenu({
@@ -147,15 +156,10 @@ export function ToolbarOverflowMenu({
   triggerAriaKeyShortcuts,
   footer,
   triggerRef: externalTriggerRef,
+  width = 240,
 }: ToolbarOverflowMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const internalTriggerRef = useRef<HTMLButtonElement>(null);
-  // One ref, two owners: the caller's if it supplied one, else our own. Sharing
-  // the object (rather than syncing two) is what keeps `close()`'s focus
-  // restore and an external `.focus()` pointing at the same node.
-  const triggerRef = externalTriggerRef ?? internalTriggerRef;
-  const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const menuId = useId();
 
@@ -169,24 +173,44 @@ export function ToolbarOverflowMenu({
   const showHeadings = renderSections.length > 1;
   const flatItems: ToolbarOverflowItem[] = renderSections.flatMap((s) => s.items);
 
+  // Rough content-height estimate for the hook's initial flip decision only —
+  // the real clamp (rule 351) comes from the measured viewport gap, this just
+  // decides whether the panel should open above or below the trigger.
+  const estimatedHeight = Math.min(
+    420,
+    44 + flatItems.length * 32 + (showHeadings ? renderSections.length * 26 : 0),
+  );
+
+  // Portal + fixed-position + flip/clamp so the popover escapes any
+  // `overflow-hidden` ancestor and never clips against the viewport edge
+  // (rule 260, #3701) — replaces the old in-flow `absolute right-0`/`left-0`.
+  const { triggerRef: anchorTriggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >({
+    open,
+    width,
+    estimatedHeight,
+    align,
+    onDismiss: () => setOpen(false),
+  });
+
+  // One ref, two owners: the caller's if it supplied one, plus the hook's own
+  // (it needs the trigger's rect to position the portaled panel). Assigning a
+  // second `ref` prop directly is not possible — an element takes one, so both
+  // are set from a single callback ref (rule 368(c)).
+  const triggerRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      anchorTriggerRef.current = node;
+      if (externalTriggerRef) externalTriggerRef.current = node;
+    },
+    [anchorTriggerRef, externalTriggerRef],
+  );
+
   const close = useCallback(() => {
     setOpen(false);
-    triggerRef.current?.focus();
-  }, [triggerRef]);
-
-  // Click outside the menu closes it. Pointerdown on the trigger is excluded
-  // so the toggle flow does not double-fire (open then immediately close).
-  useEffect(() => {
-    if (!open) return;
-    function onPointer(e: PointerEvent) {
-      const target = e.target as Node;
-      if (menuRef.current?.contains(target)) return;
-      if (triggerRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    document.addEventListener('pointerdown', onPointer);
-    return () => document.removeEventListener('pointerdown', onPointer);
-  }, [open, triggerRef]);
+    anchorTriggerRef.current?.focus();
+  }, [anchorTriggerRef]);
 
   // Move DOM focus to the active item whenever the menu opens or the active
   // index changes. Layout effect avoids a paint flash where the previous item
@@ -237,7 +261,7 @@ export function ToolbarOverflowMenu({
     if (item.kind === 'action') {
       item.onSelect();
       setOpen(false);
-      triggerRef.current?.focus();
+      anchorTriggerRef.current?.focus();
     } else {
       item.onChange(!item.checked);
       // Checkbox items stay open so the user can toggle multiple in a row —
@@ -289,61 +313,60 @@ export function ToolbarOverflowMenu({
           </>
         )}
       </button>
-      {open && (
-        <div
-          ref={menuRef}
-          id={menuId}
-          role="menu"
-          aria-label={triggerAriaLabel}
-          // Focus lives on the active `<button>` child; the outer container is
-          // a roving container, not the tab stop itself. `tabIndex={-1}` makes
-          // it programmatically focusable so jsx-a11y is satisfied without
-          // intercepting Tab.
-          tabIndex={-1}
-          onKeyDown={onMenuKeyDown}
-          className={[
-            'absolute z-30 top-full mt-1 min-w-[200px] max-h-[min(70vh,32rem)]',
-            'overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface',
-            'py-1',
-            align === 'right' ? 'right-0' : 'left-0',
-          ].join(' ')}
-        >
-          {renderSections.map((section, sectionIndex) => (
-            // Rule 250: `role="group"` labeled *like* the header via `aria-label`,
-            // with the visible header `aria-hidden` so AT hears the group name
-            // once — as the group's label — rather than again as a stray text
-            // node the roving sequence cannot reach.
-            <div
-              key={section.id}
-              role="group"
-              aria-label={showHeadings ? section.label : undefined}
-            >
-              {showHeadings && sectionIndex > 0 && (
-                <div role="separator" className="my-1 border-t border-neutral-border" />
-              )}
-              {showHeadings && (
-                <div aria-hidden="true" className="flex items-baseline gap-2 px-3 pt-1 pb-0.5">
-                  <span className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary">
-                    {section.label}
-                  </span>
-                  {section.note && (
-                    <span className="text-xs font-normal normal-case text-neutral-text-secondary">
-                      {section.note}
+      {open &&
+        popoverStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={popoverStyle}
+            id={menuId}
+            role="menu"
+            aria-label={triggerAriaLabel}
+            // Focus lives on the active `<button>` child; the outer container is
+            // a roving container, not the tab stop itself. `tabIndex={-1}` makes
+            // it programmatically focusable so jsx-a11y is satisfied without
+            // intercepting Tab.
+            tabIndex={-1}
+            onKeyDown={onMenuKeyDown}
+            className="z-30 overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface py-1"
+          >
+            {renderSections.map((section, sectionIndex) => (
+              // Rule 250: `role="group"` labeled *like* the header via `aria-label`,
+              // with the visible header `aria-hidden` so AT hears the group name
+              // once — as the group's label — rather than again as a stray text
+              // node the roving sequence cannot reach.
+              <div
+                key={section.id}
+                role="group"
+                aria-label={showHeadings ? section.label : undefined}
+              >
+                {showHeadings && sectionIndex > 0 && (
+                  <div role="separator" className="my-1 border-t border-neutral-border" />
+                )}
+                {showHeadings && (
+                  <div aria-hidden="true" className="flex items-baseline gap-2 px-3 pt-1 pb-0.5">
+                    <span className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary">
+                      {section.label}
                     </span>
-                  )}
-                </div>
-              )}
-              {section.items.map(renderRow)}
-            </div>
-          ))}
-          {footer && (
-            <>
-              <div role="separator" className="my-1 border-t border-neutral-border" />
-              {footer}
-            </>
-          )}
-        </div>
-      )}
+                    {section.note && (
+                      <span className="text-xs font-normal normal-case text-neutral-text-secondary">
+                        {section.note}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {section.items.map(renderRow)}
+              </div>
+            ))}
+            {footer && (
+              <>
+                <div role="separator" className="my-1 border-t border-neutral-border" />
+                {footer}
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 
