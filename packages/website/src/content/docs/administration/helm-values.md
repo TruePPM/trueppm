@@ -482,7 +482,7 @@ knobs operators reach for first:
 | `valkey.sentinel.masterName` | `""` | Name the Sentinels monitor the primary under. **Required** when `valkey.sentinel.enabled` is true. |
 | `valkey.sentinel.password` / `.sentinelPassword` | `""` | Data-node and Sentinel-node passwords. Routed through the chart-owned connection Secret, never rendered into a Deployment. |
 | `valkey.sentinel.tls` | `false` | Use TLS to the Valkey data nodes. |
-| `env.TRUEPPM_FRONTEND_BASE_URL` | `""` | Public origin for absolute deep-links in notification emails. |
+| `env.TRUEPPM_FRONTEND_BASE_URL` | `""` | Public origin for absolute deep-links in notification emails, and the page the OIDC callback sends the browser to once sign-in completes. Leave empty on this chart's default single-origin Ingress. |
 | `env.TRUEPPM_PUBLIC_API_BASE_URL` | `""` | Public origin of the API. Pins the OIDC `redirect_uri` and the inbound Git-webhook URL instead of deriving them from the request's `Host` header. Set it with SSO, and whenever your edge does not preserve `Host` — TruePPM ignores `X-Forwarded-Host` by design. |
 | `env.TRUEPPM_THROTTLE_ANON_RATE` / `_USER_RATE` | `60/min` / `1000/min` | API rate limits. `/health/` and `/edition/` are always exempt (they do no dependency work); `/readyz` is **not** — from 0.4 it has its own dedicated, generous scope (`env.TRUEPPM_THROTTLE_READYZ_RATE`, default `2000/min`) instead of a full exemption, because unlike the other two it does a real database and cache round-trip per call. |
 | `env.TRUEPPM_NUM_PROXIES` | `"1"` | Trusted reverse-proxy depth for real-client-IP extraction. A wrong value lets clients spoof `X-Forwarded-For`. |

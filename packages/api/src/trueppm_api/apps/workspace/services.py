@@ -517,11 +517,15 @@ def reconcile_group_access(group_id: Any) -> None:
     proj_ids = {p for _, p in pairs}
     confer = _build_confer_map(user_ids, proj_ids)
     # Lock the candidate membership rows once (one query), then reconcile in memory.
+    # order_by("pk"): access.views' `create` / `partial_update` lock ProjectMembership
+    # rows in ascending-pk order to avoid deadlocking against each other on a
+    # reversed actor/target pair (#3438) — this bulk lock joins the same
+    # convention rather than leaving Postgres to pick its own row order.
     existing = {
         (m.user_id, m.project_id): m
-        for m in ProjectMembership.objects.select_for_update().filter(
-            user_id__in=user_ids, project_id__in=proj_ids
-        )
+        for m in ProjectMembership.objects.select_for_update()
+        .filter(user_id__in=user_ids, project_id__in=proj_ids)
+        .order_by("pk")
     }
 
     now = timezone.now()

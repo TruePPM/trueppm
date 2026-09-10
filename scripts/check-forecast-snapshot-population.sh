@@ -57,10 +57,33 @@
 # failure and no fixture can represent a violation — the shape
 # `scripts/check-gate-selftest-parity.sh` records as EXTERNAL. It is an operational
 # check: run it against a dev/staging database, or against a restored production
-# snapshot, when you want to know whether the residue is present. Wiring it into
-# `.gitlab-ci.yml` / `make pre-push` is deliberately left to #3578, which decides
-# whether `_apply_cpm_results` should clear the fields at all — until that is
-# settled there is nothing a red run could ask a developer to do.
+# snapshot, when you want to know whether the residue is present.
+#
+# ## RESOLVED (#3578): it stays unwired, deliberately. Do not "helpfully" wire it.
+#
+# #3578 settled the question this file's previous note deferred — `_apply_cpm_results`
+# now clears the fields (ADR-1152) — and settled the wiring question the opposite way
+# from what "wiring it belongs there" implied. Three reasons, each sufficient:
+#
+#   * CI HAS NO POPULATED DATABASE. Over zero projects this script is vacuously
+#     green, and a green that can only ever be vacuous is worse than no check,
+#     because it gets cited as evidence. (It exits 2 on an empty DB, so the other
+#     branch is a hard error on every pipeline.)
+#   * IT REDS ON UNTOUCHED `main`. Its input is the developer's dev database, so in
+#     `make pre-push` it fails on rows that developer did not create, on a diff that
+#     did not cause it, naming nothing they can act on.
+#   * WIRING IT INTO `.gitlab-ci.yml` WOULD ALSO CONSCRIPT `check-gate-selftest-
+#     parity.sh` — an in-job self-test or an EXTERNAL opt-out line — full gate
+#     ceremony bought for a check that cannot run meaningfully there. (It is absent
+#     from that gate's OPT_OUT list today for a good reason: that gate scans
+#     `.gitlab-ci.yml`, so an unwired script is never examined.)
+#
+# The invariant itself is now gated where it can have a real denominator:
+# `packages/api/tests/apps/scheduling/test_cpm_output_cleared_on_exit.py` builds its
+# own fixtures, exercises all four ways a task leaves the committed set plus the
+# re-entry and program-scoped paths, and runs in `api:test` on every MR. This script
+# keeps its separate job: telling you whether a REAL database still carries residue,
+# which no synthetic fixture can answer.
 #
 # Usage:
 #   scripts/check-forecast-snapshot-population.sh [--verbose] [--quiet]

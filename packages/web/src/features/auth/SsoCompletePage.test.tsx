@@ -72,7 +72,7 @@ describe('SsoCompletePage', () => {
 
   it('distinguishes a deactivated account from a non-member (#2875)', () => {
     // sso_no_member's "ask an admin to invite you" is the wrong remedy here — the
-    // account already exists and is a member; it was switched off.
+    // account already exists and is a member; it was switched off, not missing.
     searchString = 'error=sso_account_disabled';
     renderPage();
     expect(screen.getByText('Your account is deactivated')).toBeInTheDocument();

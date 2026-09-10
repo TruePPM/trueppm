@@ -32,6 +32,7 @@ from trueppm_api.apps.projects.models import (
     _VALID_PRIORITY_BANDS,
     _VALID_SORT_KEYS,
     API_TOKEN_SCOPES,
+    CPM_OUTPUT_HELP,
     MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
@@ -7069,9 +7070,21 @@ class ExternalTaskCardSerializer(serializers.Serializer[Any]):
     project_id = serializers.UUIDField(read_only=True)
     project_name = serializers.CharField(source="project.name", read_only=True)
     is_milestone = serializers.BooleanField(read_only=True)
-    early_start = serializers.DateField(read_only=True, allow_null=True)
-    early_finish = serializers.DateField(read_only=True, allow_null=True)
-    is_critical = serializers.BooleanField(read_only=True, allow_null=True)
+    # help_text spelled out rather than inherited: this is a plain Serializer, not a
+    # ModelSerializer, so it does not pick up Task's field-level help_text — and the
+    # ADR-1152 null contract is exactly what a cross-boundary reader needs, since a
+    # blocking task that has left the schedulable set is the case this card exists for.
+    early_start = serializers.DateField(
+        read_only=True, allow_null=True, help_text=CPM_OUTPUT_HELP.format(what="CPM early start")
+    )
+    early_finish = serializers.DateField(
+        read_only=True, allow_null=True, help_text=CPM_OUTPUT_HELP.format(what="CPM early finish")
+    )
+    is_critical = serializers.BooleanField(
+        read_only=True,
+        allow_null=True,
+        help_text=CPM_OUTPUT_HELP.format(what="Critical-path membership"),
+    )
 
 
 class CrossProjectSlipConflictSerializer(serializers.ModelSerializer[CrossProjectSlipConflict]):
@@ -9554,7 +9567,11 @@ class MilestoneListItemSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(read_only=True)
     wbs_path = serializers.CharField(read_only=True)
-    early_finish = serializers.DateField(read_only=True, allow_null=True)
+    # Plain Serializer, so Task's field-level help_text is not inherited — spelled out
+    # so the picker's schema states the ADR-1152 null contract like every other surface.
+    early_finish = serializers.DateField(
+        read_only=True, allow_null=True, help_text=CPM_OUTPUT_HELP.format(what="CPM early finish")
+    )
     is_bound = serializers.BooleanField(read_only=True)
 
 
