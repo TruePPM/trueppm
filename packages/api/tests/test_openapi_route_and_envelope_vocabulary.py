@@ -70,6 +70,11 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     # a triage surface has no use for page 2. `results`/`next` would imply a
     # continuation that does not exist.
     "/api/v1/sprints/{id}/blocked/": "capped triage roll-up, not paginated (#1157/#2855)",
+    # The caller's own weekly time-entry rollup (#3684, ADR-0185 §4) is bounded
+    # to one ?from=/&to= week, not a paginated collection — `totals` and
+    # `submission` are per-week aggregates alongside the entry list. Declared
+    # free-form until #3684 typed it for the first time.
+    "/api/v1/me/time-entries/": "week-scoped rollup + aggregates, not paginated (ADR-0185/#3684)",
 }
 
 # Path segments that are not kebab-case. All pre-0.3; tracked in #2844.
