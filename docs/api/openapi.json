@@ -68251,14 +68251,6 @@
                 "type": "string",
                 "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
             },
-            "Source7d2Enum": {
-                "enum": [
-                    "manual",
-                    "timer"
-                ],
-                "type": "string",
-                "description": "* `manual` - Manual\n* `timer` - Timer"
-            },
             "SourceKindEnum": {
                 "enum": [
                     "hand",
@@ -75134,7 +75126,7 @@
                     "source": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/Source7d2Enum"
+                                "$ref": "#/components/schemas/TimeEntrySourceEnum"
                             }
                         ],
                         "readOnly": true
@@ -75180,6 +75172,14 @@
                 "required": [
                     "minutes"
                 ]
+            },
+            "TimeEntrySourceEnum": {
+                "enum": [
+                    "manual",
+                    "timer"
+                ],
+                "type": "string",
+                "description": "* `manual` - Manual\n* `timer` - Timer"
             },
             "TimeEntryWeekly": {
                 "type": "object",
@@ -75229,7 +75229,7 @@
                         "maxLength": 500
                     },
                     "source": {
-                        "$ref": "#/components/schemas/Source7d2Enum"
+                        "$ref": "#/components/schemas/TimeEntrySourceEnum"
                     },
                     "server_version": {
                         "type": "integer",
