@@ -145,6 +145,9 @@ async function setupCommon(page: Page) {
   // Retro board reads (ADR-0117) — the panel mounts for ACTIVE/COMPLETED and
   // fires these on mount; give them real shapes so the surface renders.
   await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (r) => r.fulfill(json({ detail: 'None' }, 404)));
+  await page.route(/\/api\/v1\/sprints\/.*\/retrospective\/prior\//, (r) =>
+    r.fulfill(json({ detail: 'None' }, 404)),
+  );
   await page.route(/\/api\/v1\/sprints\/.*\/retro-board\//, (r) =>
     r.fulfill(json({
       columns: [
@@ -166,6 +169,9 @@ async function setupCommon(page: Page) {
   );
   await page.route(/\/api\/v1\/tasks\//, (r) =>
     r.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/blocked\//, (r) =>
+    r.fulfill(json({ sprint_id: ACTIVE_SPRINT.id, count: 0, blocked: [], truncated: false })),
   );
 }
 

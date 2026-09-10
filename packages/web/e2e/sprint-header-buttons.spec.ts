@@ -204,6 +204,9 @@ async function setupCommon(page: import('@playwright/test').Page) {
     })),
   );
   await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (r) => r.fulfill(json({ detail: 'None' }, 404)));
+  await page.route(/\/api\/v1\/sprints\/.*\/retrospective\/prior\//, (r) =>
+    r.fulfill(json({ detail: 'None' }, 404)),
+  );
   // The live retro board (ADR-0117) mounts for ACTIVE/COMPLETED sprints and fires
   // these on mount; give them safe defaults so they don't hit the network and add
   // churn to the initial render (empty board, no own pulse, GATED trend → private wall).
@@ -222,6 +225,9 @@ async function setupCommon(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/me/active-sprints/', (r) => r.fulfill(json([])));
   await page.route('**/api/v1/project-resources/**', (r) =>
     r.fulfill(json({ count: PROJECT_RESOURCES.length, next: null, previous: null, results: PROJECT_RESOURCES })),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/blocked\//, (r) =>
+    r.fulfill(json({ sprint_id: ACTIVE_SPRINT.id, count: 0, blocked: [], truncated: false })),
   );
 }
 
