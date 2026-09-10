@@ -21,7 +21,13 @@ from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -82,7 +88,13 @@ class TaskTimeEntryView(IdempotencyMixin, APIView):
     @extend_schema(
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="TaskTimeEntryListResponse",
+                    fields={
+                        "results": TimeEntrySerializer(many=True),
+                        "total_logged_minutes": drf_serializers.IntegerField(),
+                    },
+                ),
                 description=(
                     "The caller's own time entries on this task plus their own "
                     "total: {results: [<entry>], total_logged_minutes: int}."
