@@ -20,10 +20,15 @@
  * rove the focusable rows (section headings are skipped), Home/End jump, Enter/
  * Space toggle in place, Escape closes and restores focus to the trigger, Tab
  * closes and falls through, outside pointerdown closes. Non-modal — no focus trap.
+ *
+ * The popover is positioned via the shared `useAnchoredPopover` hook (rule 260):
+ * portaled to `document.body`, `position: fixed`, flipped/clamped against the
+ * viewport. The old in-flow `absolute right-0` never escaped a clipping ancestor
+ * and never accounted for the viewport, so a trigger near either edge of the
+ * toolbar clipped this menu's content instead of flipping/clamping (#3702).
  */
 import {
   useCallback,
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -31,7 +36,9 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckIcon, ChevronDownIcon, RadioDotIcon, SlidersIcon } from '@/components/Icons';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import type { ScheduleViewMode } from '@/stores/scheduleStore';
 import type { TaskNamePlacement } from './engine';
 import type {
@@ -106,9 +113,7 @@ interface FlatItemBase {
   locked?: boolean;
 }
 
-type FlatItem =
-  | (FlatItemBase & { kind: 'checkbox' })
-  | (FlatItemBase & { kind: 'radio' });
+type FlatItem = (FlatItemBase & { kind: 'checkbox' }) | (FlatItemBase & { kind: 'radio' });
 
 // A rendered section may contain a nested radio group with its own sub-label.
 interface RenderSection {
@@ -204,8 +209,6 @@ export function ScheduleDisplayMenu({
 }: ScheduleDisplayMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const menuId = useId();
 
@@ -393,22 +396,32 @@ export function ScheduleDisplayMenu({
       ? `Display, ${activeFilterCount} active ${activeFilterCount === 1 ? 'filter' : 'filters'}`
       : 'Display';
 
+  // Rough content-height estimate for the hook's initial flip decision only —
+  // the real clamp (rule 351) comes from the measured viewport gap.
+  const estimatedHeight = Math.min(
+    520,
+    56 + items.length * 32 + sections.length * 26 + (toolbarPins ? 24 : 0),
+  );
+
+  // Portal + fixed-position + flip/clamp so the popover escapes any
+  // `overflow-hidden` ancestor and never clips against the viewport edge
+  // (rule 260, #3702) — replaces the old in-flow `absolute right-0`.
+  const {
+    triggerRef: anchorTriggerRef,
+    popoverRef,
+    popoverStyle,
+  } = useAnchoredPopover<HTMLButtonElement, HTMLDivElement>({
+    open,
+    width: 280,
+    estimatedHeight,
+    align: 'right',
+    onDismiss: () => setOpen(false),
+  });
+
   const close = useCallback(() => {
     setOpen(false);
-    triggerRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointer(e: PointerEvent) {
-      const target = e.target as Node;
-      if (menuRef.current?.contains(target)) return;
-      if (triggerRef.current?.contains(target)) return;
-      setOpen(false);
-    }
-    document.addEventListener('pointerdown', onPointer);
-    return () => document.removeEventListener('pointerdown', onPointer);
-  }, [open]);
+    anchorTriggerRef.current?.focus();
+  }, [anchorTriggerRef]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -518,9 +531,11 @@ export function ScheduleDisplayMenu({
       <button
         ref={(node) => {
           // Callback ref so the menu keeps its own handle (it restores focus here on
-          // close) while a caller can hold one too. Assigning `triggerRef.current`
-          // directly from a second `ref` prop is not possible — an element takes one.
-          triggerRef.current = node;
+          // close) while a caller can hold one too, PLUS the anchored-popover hook's
+          // own ref (it needs the trigger's rect to position the portaled panel).
+          // Assigning a second `ref` prop directly is not possible — an element takes
+          // one, so all three are set from a single callback ref (rule 368(c)).
+          anchorTriggerRef.current = node;
           if (externalTriggerRef) externalTriggerRef.current = node;
         }}
         type="button"
@@ -554,76 +569,81 @@ export function ScheduleDisplayMenu({
         )}
       </button>
 
-      {open && (
-        <div
-          ref={menuRef}
-          id={menuId}
-          role="menu"
-          aria-label="Display options"
-          tabIndex={-1}
-          onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-full mt-1 z-30 min-w-[200px] max-h-[min(70vh,32rem)]
-            overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface py-1"
-        >
-          {sections.map((section, si) => {
-            const headingId = `${menuId}-${section.id}`;
-            const radioGroup = section.radioGroup ?? null;
-            const radioIdSet = new Set(radioGroup?.itemIds ?? []);
-            const radioGroupId = `${menuId}-${section.id}-radio`;
-            // Items that belong to the radio sub-group are rendered together inside
-            // a role="group" so screen readers announce them as one radio set.
-            return (
-              <div key={section.id} role="group" aria-labelledby={headingId}>
-                {si > 0 && <div role="separator" className="my-1 border-t border-neutral-border" />}
-                <div id={headingId} className="flex items-baseline gap-2 px-3 pt-1 pb-0.5">
-                  <span
-                    className="text-xs font-semibold uppercase tracking-[.06em]
-                      text-neutral-text-secondary"
-                  >
-                    {section.label}
-                  </span>
-                  {section.note && (
-                    <span className="text-xs font-normal normal-case text-neutral-text-secondary">
-                      {section.note}
-                    </span>
+      {open &&
+        popoverStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={popoverStyle}
+            id={menuId}
+            role="menu"
+            aria-label="Display options"
+            tabIndex={-1}
+            onKeyDown={onMenuKeyDown}
+            className="z-30 overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface py-1"
+          >
+            {sections.map((section, si) => {
+              const headingId = `${menuId}-${section.id}`;
+              const radioGroup = section.radioGroup ?? null;
+              const radioIdSet = new Set(radioGroup?.itemIds ?? []);
+              const radioGroupId = `${menuId}-${section.id}-radio`;
+              // Items that belong to the radio sub-group are rendered together inside
+              // a role="group" so screen readers announce them as one radio set.
+              return (
+                <div key={section.id} role="group" aria-labelledby={headingId}>
+                  {si > 0 && (
+                    <div role="separator" className="my-1 border-t border-neutral-border" />
                   )}
-                </div>
-                {section.items.map((item) => {
-                  const isFirstRadio = radioGroup?.itemIds[0] === item.id;
-                  if (isFirstRadio && radioGroup) {
-                    return (
-                      <div key={`${item.id}-group`} role="group" aria-labelledby={radioGroupId}>
-                        <div
-                          id={radioGroupId}
-                          className="px-3 pt-1 pb-0.5 text-xs font-medium
+                  <div id={headingId} className="flex items-baseline gap-2 px-3 pt-1 pb-0.5">
+                    <span
+                      className="text-xs font-semibold uppercase tracking-[.06em]
+                      text-neutral-text-secondary"
+                    >
+                      {section.label}
+                    </span>
+                    {section.note && (
+                      <span className="text-xs font-normal normal-case text-neutral-text-secondary">
+                        {section.note}
+                      </span>
+                    )}
+                  </div>
+                  {section.items.map((item) => {
+                    const isFirstRadio = radioGroup?.itemIds[0] === item.id;
+                    if (isFirstRadio && radioGroup) {
+                      return (
+                        <div key={`${item.id}-group`} role="group" aria-labelledby={radioGroupId}>
+                          <div
+                            id={radioGroupId}
+                            className="px-3 pt-1 pb-0.5 text-xs font-medium
                             text-neutral-text-secondary"
-                        >
-                          {radioGroup.label}
+                          >
+                            {radioGroup.label}
+                          </div>
+                          {section.items.filter((it) => radioIdSet.has(it.id)).map(renderItem)}
                         </div>
-                        {section.items.filter((it) => radioIdSet.has(it.id)).map(renderItem)}
-                      </div>
-                    );
-                  }
-                  // Skip radio items after the first — rendered inside the group above.
-                  if (radioIdSet.has(item.id)) return null;
-                  return renderItem(item);
-                })}
-              </div>
-            );
-          })}
-          {/* The footer counts honestly. A pin that cannot be honoured at this
+                      );
+                    }
+                    // Skip radio items after the first — rendered inside the group above.
+                    if (radioIdSet.has(item.id)) return null;
+                    return renderItem(item);
+                  })}
+                </div>
+              );
+            })}
+            {/* The footer counts honestly. A pin that cannot be honoured at this
               width says so here — in words, naming the two ways to fix it —
               rather than being silently dropped or allowed to clip the bar. */}
-          {toolbarPins && (
-            <p
-              className="border-t border-neutral-border px-3 pt-1.5 pb-1 text-xs
+            {toolbarPins && (
+              <p
+                className="border-t border-neutral-border px-3 pt-1.5 pb-1 text-xs
                 text-neutral-text-secondary"
-            >
-              {toolbarPins.footer}
-            </p>
-          )}
-        </div>
-      )}
+              >
+                {toolbarPins.footer}
+              </p>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

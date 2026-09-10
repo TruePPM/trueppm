@@ -165,6 +165,17 @@ export interface CsvPreview {
   truncated_rows: number;
   /** The plan only — the Import review branch is counted by `parked_row_count`. */
   task_count: number;
+  /**
+   * The tested-comfortable Schedule ceiling (#3388, `administration/sizing.md`
+   * "Tested envelope") and whether this project would land past it once this
+   * import lands: `existing_task_count + task_count`, not the file's row count
+   * alone — the failure an operator would hit is opening the *project*, not the
+   * import. Advisory only — the wizard must never block the commit step on it.
+   */
+  existing_task_count: number;
+  projected_task_count: number;
+  recommended_task_ceiling: number;
+  exceeds_recommended_ceiling: boolean;
   resource_count: number;
   /** Rows that cannot become plan tasks and will be parked for review (#2732). */
   parked_row_count?: number;
