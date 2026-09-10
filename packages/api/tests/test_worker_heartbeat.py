@@ -68,6 +68,22 @@ class TestTouchAndRemove:
 
         assert any("could not touch" in r.message for r in caplog.records)
 
+    def test_touch_sets_restrictive_permissions(self, heartbeat_path: Path) -> None:
+        worker_heartbeat._touch(heartbeat_path)
+        assert (heartbeat_path.stat().st_mode & 0o777) == 0o600
+
+    def test_touch_does_not_follow_a_symlink(
+        self, tmp_path: Path, heartbeat_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        target = tmp_path / "outside-target"
+        heartbeat_path.symlink_to(target)
+
+        with caplog.at_level("WARNING", logger=worker_heartbeat.__name__):
+            worker_heartbeat._touch(heartbeat_path)  # must not raise
+
+        assert not target.exists(), "a symlink at the heartbeat path must not be followed"
+        assert any("could not touch" in r.message for r in caplog.records)
+
     def test_remove_deletes_the_file(self, heartbeat_path: Path) -> None:
         worker_heartbeat._touch(heartbeat_path)
         assert heartbeat_path.exists()

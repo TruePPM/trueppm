@@ -8,6 +8,7 @@ Covers: list (membership gate), create (Owner only, no over-assign), update
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -1231,3 +1232,137 @@ def test_create_role_check_serializes_against_concurrent_actor_demotion() -> Non
     assert not ProgramMembership.objects.filter(program=program, user=new_user).exists()
     owner_membership.refresh_from_db()
     assert owner_membership.role == Role.ADMIN
+
+
+# ---------------------------------------------------------------------------
+# Audit trail + notification + throttle (#3645) — see the project twin
+# (test_membership_api.py) for the full rationale of each assertion.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_writes_audit_event_and_notifies(
+    program: Program,
+    owner: object,
+    member: object,
+    owner_is_workspace_admin: WorkspaceMembership,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = _client(owner).post(
+            _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+        )
+    assert resp.status_code == 201, resp.data
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_ADDED)
+    assert event.actor_id == owner.pk
+    assert event.metadata["program_id"] == str(program.pk)
+    assert event.metadata["role"] == Role.MEMBER.label
+
+    notif = Notification.objects.get(
+        recipient=member, event_type=NotificationEventType.MEMBERSHIP_GRANTED
+    )
+    # A program has no owning project — the inbox row is still recipient-scoped.
+    assert notif.project_id is None
+    assert program.name in notif.subject
+
+
+@pytest.mark.django_db
+def test_create_refused_writes_no_audit_event(
+    program: Program, owner: object, admin_user: object, member: object
+) -> None:
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    ProgramMembership.objects.create(program=program, user=admin_user, role=Role.ADMIN)
+    resp = _client(admin_user).post(
+        _members_url(program), {"user": str(member.pk), "role": Role.MEMBER}, format="json"
+    )
+    assert resp.status_code == 403
+    assert not AuditEvent.objects.filter(event_type=AuditEventType.MEMBER_ADDED).exists()
+
+
+@pytest.mark.django_db
+def test_partial_update_role_change_writes_audit_event_and_notifies(
+    program: Program,
+    owner: object,
+    member: object,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = _client(owner).patch(
+            f"{_members_url(program)}{m.pk}/", {"role": Role.ADMIN}, format="json"
+        )
+    assert resp.status_code == 200
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_ROLE_CHANGED)
+    assert event.metadata["old_role"] == Role.MEMBER.label
+    assert event.metadata["new_role"] == Role.ADMIN.label
+
+    notif = Notification.objects.get(
+        recipient=member, event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED
+    )
+    assert program.name in notif.subject
+
+
+@pytest.mark.django_db
+def test_partial_update_role_title_only_writes_no_role_changed_audit_event(
+    program: Program, owner: object, admin_user: object
+) -> None:
+    """A role_title-only PATCH (Admin+, #565) must not fabricate a role-change
+    event — only an actual ``role`` change does."""
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    m = ProgramMembership.objects.create(program=program, user=admin_user, role=Role.ADMIN)
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{m.pk}/", {"role_title": "Tech Lead"}, format="json"
+    )
+    assert resp.status_code == 200
+    assert not AuditEvent.objects.filter(event_type=AuditEventType.MEMBER_ROLE_CHANGED).exists()
+
+
+@pytest.mark.django_db
+def test_destroy_writes_audit_event(program: Program, owner: object, member: object) -> None:
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    m = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    resp = _client(owner).delete(f"{_members_url(program)}{m.pk}/")
+    assert resp.status_code == 204
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_REMOVED)
+    assert event.actor_id == owner.pk
+    assert event.metadata["self_removal"] is False
+
+
+@pytest.mark.django_db
+def test_create_throttle_scope_is_shared_with_the_project_surface(
+    program: Program,
+    owner: object,
+    owner_is_workspace_admin: WorkspaceMembership,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``membership_grant`` bounds ``create`` on the program surface too — one
+    account-wide budget across both membership viewsets (#3645)."""
+    from django.core.cache import cache
+
+    from trueppm_api.apps.access.views import MembershipGrantThrottle
+
+    monkeypatch.setattr(MembershipGrantThrottle, "rate", "2/min")
+    cache.clear()
+    try:
+        users = [_make_user(f"prog_grantee_{i}") for i in range(3)]
+        statuses = [
+            _client(owner)
+            .post(_members_url(program), {"user": str(u.pk), "role": Role.MEMBER}, format="json")
+            .status_code
+            for u in users
+        ]
+        assert statuses == [201, 201, 429]
+    finally:
+        cache.clear()

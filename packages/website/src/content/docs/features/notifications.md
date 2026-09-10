@@ -130,6 +130,8 @@ column automatically — this page needs no change to support it.
 | The board or views you work on are reconfigured | ON | OFF |
 | A task you own goes stale | ON | OFF |
 | A task you own is carried to another sprint | ON | OFF |
+| You're added to a project or program *(0.4)* | ON | OFF |
+| Your role on a project or program changes *(0.4)* | ON | OFF |
 | Weekly program health digest | OFF | OFF |
 | Weekly resource overallocation digest | OFF | OFF |
 

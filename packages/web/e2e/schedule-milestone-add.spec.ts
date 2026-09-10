@@ -268,11 +268,19 @@ test.describe('Schedule "+ Milestone" dialog', () => {
     await page.getByRole('button', { name: 'Add new milestone (Cmd+M)' }).click();
     const dialog = page.getByRole('dialog', { name: 'New milestone' });
     await expect(dialog).toBeVisible();
-    // The offending request was issued from the modal's mount effect, so it
-    // lands within milliseconds of the dialog appearing. Give it a generous
-    // window anyway — an absence assertion that outruns the thing it denies
-    // would pass on the broken build and prove nothing.
-    await page.waitForTimeout(1_000);
+    // useTaskHistory's `enabled` (hooks/useTaskHistory.ts) is a plain boolean
+    // computed synchronously off `task?.id` at render time — a regression
+    // there fires the request as part of the SAME commit that mounts the
+    // dialog, not after some delay, so there is nothing to wait out. Flush
+    // two animation frames so React has committed and TanStack Query has had
+    // a macrotask to dispatch anything `enabled` armed, then assert — an
+    // observable condition (the event loop draining) rather than a fixed
+    // wall-clock guess that would pass on a broken build under load just as
+    // easily as a fixed timeout would.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    );
 
     expect(historyRequests).toEqual([]);
   });

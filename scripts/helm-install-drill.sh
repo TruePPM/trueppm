@@ -45,6 +45,8 @@ RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 # service is reachable as `docker`; locally kind's own 127.0.0.1 mapping is used.
 APISERVER_HOST="${APISERVER_HOST:-docker}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
+# Two-space indent for nesting diagnostic output under its section header.
+INDENT_SED='s/^/  /'
 
 # ---- DRILL-SPECIFIC celery probe settings (#3218) --------------------------
 # The chart's probe defaults are NOT changed — packages/helm is byte-identical
@@ -165,7 +167,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # ---- diagnostics on any failure -------------------------------------------
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (deploy did not reach a healthy state) ========" >&2
-  kubectl get pods -A -o wide 2>&1 | sed 's/^/  /' >&2 || true
+  kubectl get pods -A -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
   echo "---- not-Ready pods: describe + logs ----" >&2
   # Filter on the Ready CONDITION, not pod phase: a CrashLoopBackOff container and
   # an up-but-failing-readiness container both keep the pod in phase "Running", so
@@ -176,11 +178,11 @@ dump_diagnostics() {
     phase="$(kubectl get "$p" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
     if [ "$phase" != "Succeeded" ] && [ "$ready" != "True" ]; then
       echo "---- describe $p ----" >&2
-      kubectl describe "$p" 2>&1 | sed 's/^/  /' >&2 || true
+      kubectl describe "$p" 2>&1 | sed "$INDENT_SED" >&2 || true
       echo "---- logs $p (all containers, incl. init) ----" >&2
-      kubectl logs "$p" --all-containers --prefix --tail=80 2>&1 | sed 's/^/  /' >&2 || true
+      kubectl logs "$p" --all-containers --prefix --tail=80 2>&1 | sed "$INDENT_SED" >&2 || true
       echo "---- previous logs $p (crash before restart, if any) ----" >&2
-      kubectl logs "$p" --all-containers --prefix --previous --tail=80 2>&1 | sed 's/^/  /' >&2 || true
+      kubectl logs "$p" --all-containers --prefix --previous --tail=80 2>&1 | sed "$INDENT_SED" >&2 || true
     fi
   done
   # The api pod stays Running-but-0/1 when /readyz returns 503; the access log
@@ -197,7 +199,7 @@ try:
 except u.HTTPError as e:
     print("HTTP", e.code, e.read().decode())
 except Exception as e:
-    print("probe error:", e)' 2>&1 | sed 's/^/  /' >&2 || true
+    print("probe error:", e)' 2>&1 | sed "$INDENT_SED" >&2 || true
   fi
   # #3692: the worker readiness probe's own pass/fail was ALL two prior failures
   # left behind — no signal on whether the heartbeat file was genuinely stale
@@ -213,7 +215,7 @@ except Exception as e:
       now=$(date +%s)
       mt=$(stat -c %Y "$f" 2>&1) || { echo "stat failed: $mt"; exit 0; }
       echo "now=$now mtime=$mt age=$((now - mt))s"
-    ' 2>&1 | sed 's/^/  /' >&2 || true
+    ' 2>&1 | sed "$INDENT_SED" >&2 || true
   fi
 }
 

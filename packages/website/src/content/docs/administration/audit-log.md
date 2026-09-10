@@ -22,6 +22,15 @@ Several things on this page ship in **0.4** and are not in the latest release
   `sso_provider_deleted`, `sso_secret_rotated`, `sso_account_linked`) and the
   `auth.login_succeeded` log line — on 0.3 there is no single sign-on at all;
 - the `role` key on `member_added` rows written by an SSO join.
+- `member_added`, `member_role_changed` and `member_removed` rows written by
+  granting, changing, or revoking a **project or program** member's access
+  (`ProjectMembershipViewSet` / `ProgramMembershipViewSet`) — on 0.3 these three
+  event types record only workspace-level membership changes; a project/program
+  access grant is silent. The project/program rows carry `project_id` or
+  `program_id` in `metadata` instead of `source`, so the two origins are
+  distinguishable by metadata shape even though they share an event type. The
+  added or role-changed member is also notified in-app (revocation is
+  audit-only, no notification).
 
 Everything else on this page describes 0.3.
 :::

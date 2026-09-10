@@ -19,7 +19,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import BaseThrottle, ScopedRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import (
@@ -155,6 +155,23 @@ def _revive_revoked_membership(
 # ---------------------------------------------------------------------------
 
 
+class MembershipGrantThrottle(UserRateThrottle):
+    """Per-user rate limit on granting project/program membership (#3645).
+
+    Naming another account on a write is the same directory-shaped exposure
+    ``user_search`` (#815) and ``ResourceCatalogThrottle`` (#891) guard against on
+    reads — a workspace Admin reaches every active account via the reachable-
+    target queryset (#3641). Neither membership viewset set a ``throttle_scope``,
+    so ``create`` inherited the default ``user`` scope (1000/min). Shared by both
+    ``ProjectMembershipViewSet`` and ``ProgramMembershipViewSet`` — one 60/min
+    budget for the account, not one per resource type. The rate is set inline
+    (mirroring ``ResourceCatalogThrottle``) so no settings entry is required.
+    """
+
+    scope = "membership_grant"
+    rate = "60/min"
+
+
 class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProjectMembership]):
     """Nested CRUD for project memberships.
 
@@ -200,6 +217,17 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             # SOMEONE ELSE is re-asserted in the `destroy` body, where `is_self` exists.
             perms.append(IsProjectNotArchived())
         return perms
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        """Scope the directory-shaped-exposure throttle to ``create`` only (#3645).
+
+        ``partial_update``/``destroy`` name an account already on the roster —
+        the harvest concern ``MembershipGrantThrottle`` exists for is naming an
+        arbitrary reachable account on a grant, not re-touching a known row.
+        """
+        if self.action == "create":
+            return [MembershipGrantThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self) -> QuerySet[ProjectMembership]:
         project_pk = self.kwargs["project_pk"]
@@ -471,6 +499,42 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         project_id = str(project.pk)
         membership_id = str(instance.pk)
         user_id = str(user.pk)
+
+        # Audit + notify only on the success path reached above (#3645). Written
+        # synchronously — record_audit_event's own contract — so it rolls back
+        # with the request if anything after this point fails; DRF's
+        # exception_handler calls set_rollback() on every APIException, so a
+        # refusal can never reach here to begin with.
+        from trueppm_api.apps.notifications.models import NotificationEventType
+        from trueppm_api.apps.notifications.services import create_event_notifications
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        record_audit_event(
+            event_type=AuditEventType.MEMBER_ADDED,
+            actor=request.user,
+            target_type="member",
+            target_id=instance.pk,
+            target_label=_actor_label(user),
+            metadata={"project_id": project_id, "role": Role(new_role).label, "source": "grant"},
+        )
+        actor_label = _actor_label(request.user)
+        role_label = Role(new_role).label
+        subject = f"You were added to {project.name}"
+        body = f"{actor_label} added you to {project.name} as {role_label}."
+        # Snapshot to a plain value before the closure, not `user.pk` inline — the
+        # closure must never hold a live ORM instance (security-review, #3645).
+        recipient_id = user.pk
+        transaction.on_commit(
+            lambda: create_event_notifications(
+                event_type=NotificationEventType.MEMBERSHIP_GRANTED,
+                recipient_ids=[recipient_id],
+                subject=subject,
+                body=body,
+                project_id=project_id,
+            )
+        )
+
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(
@@ -499,6 +563,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         project = self._get_project_or_404()
         instance = self.get_object()
+        old_role = instance.role  # snapshot before serializer.save() mutates it in place
 
         serializer = ProjectMembershipUpdateSerializer(
             instance, data=request.data, partial=True, context={"request": request}
@@ -573,6 +638,47 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         membership_id = str(instance.pk)
         user_id = str(instance.user_id)
         role_val = instance.role
+
+        # Audit + notify only when the role actually changed (#3645) — a no-op
+        # PATCH (unchanged role) or a role_title-only PATCH must not fabricate a
+        # role-change event. Written synchronously, same rationale as `create`.
+        if new_role is not None and new_role != old_role:
+            from trueppm_api.apps.notifications.models import NotificationEventType
+            from trueppm_api.apps.notifications.services import create_event_notifications
+            from trueppm_api.apps.workspace.models import AuditEventType
+            from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+            record_audit_event(
+                event_type=AuditEventType.MEMBER_ROLE_CHANGED,
+                actor=request.user,
+                target_type="member",
+                target_id=instance.pk,
+                target_label=_actor_label(instance.user),
+                metadata={
+                    "project_id": project_id,
+                    "old_role": Role(old_role).label,
+                    "new_role": Role(new_role).label,
+                },
+            )
+            actor_label = _actor_label(request.user)
+            old_role_label = Role(old_role).label
+            new_role_label = Role(new_role).label
+            target_user_id = instance.user_id
+            subject = f"Your role changed on {project.name}"
+            body = (
+                f"{actor_label} changed your role on {project.name} from "
+                f"{old_role_label} to {new_role_label}."
+            )
+            transaction.on_commit(
+                lambda: create_event_notifications(
+                    event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED,
+                    recipient_ids=[target_user_id],
+                    subject=subject,
+                    body=body,
+                    project_id=project_id,
+                )
+            )
+
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(
@@ -640,6 +746,26 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 instance.soft_delete()
         else:
             instance.soft_delete()
+
+        # Audit the revocation (#3645) — written synchronously after the
+        # soft_delete() above succeeds, same rationale as create/partial_update.
+        # No notification: the issue scopes notify to "added or role-changed",
+        # not removed.
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        record_audit_event(
+            event_type=AuditEventType.MEMBER_REMOVED,
+            actor=request.user,
+            target_type="member",
+            target_id=instance.pk,
+            target_label=_actor_label(instance.user),
+            metadata={
+                "project_id": str(project.pk),
+                "role": Role(instance.role).label,
+                "self_removal": is_self,
+            },
+        )
 
         project_id = str(project.pk)
         membership_id = str(instance.pk)
@@ -1365,6 +1491,16 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             perms.append(IsProgramAdmin())
         return perms
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        """Scope the directory-shaped-exposure throttle to ``create`` only (#3645).
+
+        See the project twin (``ProjectMembershipViewSet.get_throttles``) — one
+        shared ``membership_grant`` budget across both membership surfaces.
+        """
+        if self.action == "create":
+            return [MembershipGrantThrottle()]
+        return super().get_throttles()
+
     def get_queryset(self) -> QuerySet[ProgramMembership]:
         program_pk = self.kwargs["program_pk"]
         return ProgramMembership.objects.select_related("program", "user").filter(
@@ -1523,6 +1659,45 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                         {"detail": "User is already a member of this program."},
                         status=status.HTTP_409_CONFLICT,
                     )
+
+        # Audit + notify only on the success path reached above (#3645) — see the
+        # project twin's create() for the full rationale. A program has no owning
+        # project, so the notification's ``project_id`` is deliberately None: the
+        # inbox row is still recipient-scoped and readable without one (only the
+        # ADR-0663 scheduled digests were expected to omit it before this).
+        from trueppm_api.apps.notifications.models import NotificationEventType
+        from trueppm_api.apps.notifications.services import create_event_notifications
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        record_audit_event(
+            event_type=AuditEventType.MEMBER_ADDED,
+            actor=request.user,
+            target_type="member",
+            target_id=instance.pk,
+            target_label=_actor_label(user),
+            metadata={
+                "program_id": str(program.pk),
+                "role": Role(new_role).label,
+                "source": "grant",
+            },
+        )
+        actor_label = _actor_label(request.user)
+        role_label = Role(new_role).label
+        program_name = program.name
+        subject = f"You were added to {program_name}"
+        body = f"{actor_label} added you to {program_name} as {role_label}."
+        recipient_id = user.pk
+        transaction.on_commit(
+            lambda: create_event_notifications(
+                event_type=NotificationEventType.MEMBERSHIP_GRANTED,
+                recipient_ids=[recipient_id],
+                subject=subject,
+                body=body,
+                project_id=None,
+            )
+        )
+
         return Response(
             ProgramMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
@@ -1541,6 +1716,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         program = self._get_program_or_404()
         instance = self.get_object()
+        old_role = instance.role  # snapshot before serializer.save() mutates it in place
 
         serializer = ProgramMembershipUpdateSerializer(
             instance, data=request.data, partial=True, context={"request": request}
@@ -1607,6 +1783,47 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             else:
                 serializer.save()
 
+        # Audit + notify only when the role actually changed (#3645) — a
+        # role_title-only PATCH (Admin+ tier) must not fabricate a role-change
+        # event. See the project twin's partial_update() for the full rationale.
+        if new_role is not None and new_role != old_role:
+            from trueppm_api.apps.notifications.models import NotificationEventType
+            from trueppm_api.apps.notifications.services import create_event_notifications
+            from trueppm_api.apps.workspace.models import AuditEventType
+            from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+            record_audit_event(
+                event_type=AuditEventType.MEMBER_ROLE_CHANGED,
+                actor=request.user,
+                target_type="member",
+                target_id=instance.pk,
+                target_label=_actor_label(instance.user),
+                metadata={
+                    "program_id": str(program.pk),
+                    "old_role": Role(old_role).label,
+                    "new_role": Role(new_role).label,
+                },
+            )
+            actor_label = _actor_label(request.user)
+            old_role_label = Role(old_role).label
+            new_role_label = Role(new_role).label
+            program_name = program.name
+            target_user_id = instance.user_id
+            subject = f"Your role changed on {program_name}"
+            body = (
+                f"{actor_label} changed your role on {program_name} from "
+                f"{old_role_label} to {new_role_label}."
+            )
+            transaction.on_commit(
+                lambda: create_event_notifications(
+                    event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED,
+                    recipient_ids=[target_user_id],
+                    subject=subject,
+                    body=body,
+                    project_id=None,
+                )
+            )
+
         return Response(ProgramMembershipReadSerializer(instance).data)
 
     @extend_schema(
@@ -1651,5 +1868,23 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                 instance.soft_delete()
         else:
             instance.soft_delete()
+
+        # Audit the revocation (#3645) — see the project twin's destroy() for the
+        # full rationale. No notification: scoped to "added or role-changed".
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        record_audit_event(
+            event_type=AuditEventType.MEMBER_REMOVED,
+            actor=request.user,
+            target_type="member",
+            target_id=instance.pk,
+            target_label=_actor_label(instance.user),
+            metadata={
+                "program_id": str(program.pk),
+                "role": Role(instance.role).label,
+                "self_removal": is_self,
+            },
+        )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

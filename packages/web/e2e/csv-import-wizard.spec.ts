@@ -30,6 +30,10 @@ const PREVIEW_BODY = {
   row_count: 12,
   truncated_rows: 0,
   task_count: 12,
+  existing_task_count: 0,
+  projected_task_count: 12,
+  recommended_task_ceiling: 1_000,
+  exceeds_recommended_ceiling: false,
   resource_count: 3,
   row_errors: [{ row: 4, message: 'Duration is not a number' }],
   error_count: 1,
@@ -328,6 +332,56 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await expect(dialog.getByText(/Row 4/)).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toBeVisible();
     expect(captured.commitContentType).toContain('multipart/form-data');
+  });
+
+  test('warns above the ~1,000-task ceiling but still imports (#3388)', async ({ page }) => {
+    await gotoSchedule(page);
+    const overCeiling = {
+      ...PREVIEW_BODY,
+      task_count: 1_200,
+      existing_task_count: 0,
+      projected_task_count: 1_200,
+      recommended_task_ceiling: 1_000,
+      exceeds_recommended_ceiling: true,
+    };
+    await routeImport(page, {
+      preview: { status: 200, body: overCeiling },
+      commit: true,
+    });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Step 2 — mapping: the warning is shown, and does not block Next.
+    const notice = dialog.getByRole('region', { name: 'Schedule size warning' });
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText('1,200 tasks');
+    await expect(notice).toContainText('~1,000-task ceiling');
+    await expect(dialog.getByRole('button', { name: 'Next' })).toBeEnabled();
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Step 3 — confirm: repeated, and Import still proceeds — "warn, do not
+    // block" is the entire point of #3388.
+    await expect(dialog.getByRole('region', { name: 'Schedule size warning' })).toBeVisible();
+    await dialog.getByRole('button', { name: /Import 1,200 tasks/ }).click();
+
+    await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
+  });
+
+  test('under the ceiling, no warning shows (#3388)', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, { preview: { status: 200, body: PREVIEW_BODY }, commit: true });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    await expect(
+      dialog.getByRole('region', { name: 'Schedule size warning' }),
+    ).toHaveCount(0);
   });
 
   test('Undo import removes the result and hides View schedule (#2756)', async ({ page }) => {

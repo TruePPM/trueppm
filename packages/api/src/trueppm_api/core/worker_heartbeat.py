@@ -66,13 +66,19 @@ def heartbeat_file() -> Path:
 def _touch(path: Path) -> None:
     """Create ``path`` if absent and bump its mtime to now.
 
+    Opens with ``O_NOFOLLOW`` and mode ``0600`` rather than ``Path.touch()``:
+    ``/tmp`` is world-writable (Sonar python:S5443), so a symlink planted at
+    this path by another process on the same filesystem must not be followed,
+    and the file must not be readable/writable by anyone but this process.
+
     Errors are logged, never raised: a failure to write the heartbeat file
     must not crash task processing — it should only ever show up as the
     readiness probe going stale, which is the correct, visible failure mode.
     """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch(exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
         os.utime(path, None)
     except OSError:
         logger.warning("worker_heartbeat: could not touch %s", path, exc_info=True)
