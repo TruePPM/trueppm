@@ -75,7 +75,10 @@ env:
   # with a named error if you set neither, so nothing is lost by leaving them out.
 
   # Public origin of the web app. Without it, notification emails omit the task
-  # deep-links entirely — they still send, so this fails quietly.
+  # deep-links entirely (they still send, so this fails quietly), and the OIDC
+  # callback falls back to a same-origin relative redirect instead of pointing
+  # explicitly at the SPA — correct only while the SPA and the API share one
+  # Ingress host, which is this chart's default topology.
   #   TRUEPPM_FRONTEND_BASE_URL: "https://trueppm.example.com"
   TRUEPPM_FRONTEND_BASE_URL: ""
 

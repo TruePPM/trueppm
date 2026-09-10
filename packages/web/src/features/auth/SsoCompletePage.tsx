@@ -42,7 +42,7 @@ const ERROR_COPY: Record<string, ErrorCopy> = {
   sso_no_member: {
     title: "You're verified, but not a member yet",
     subtitle:
-      'Your identity provider signed you in, but your account is not a member of this workspace yet. Ask a workspace admin to invite you, then sign in again.',
+      'Your identity provider signed you in, but no TruePPM account with that email address is a member of this workspace yet. Ask a workspace admin to invite the exact email address your identity provider verified for you, then complete the invite before signing in with SSO again.',
     code: 'SSO_NO_MEMBER',
   },
   access_denied: {

@@ -1,7 +1,17 @@
 ---
 title: Unified data model
 description: How one task hierarchy powers Waterfall, Agile, and Hybrid workflows without translation layers or duplicate data.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+One section on this page — **The scheduling fields are empty unless the task is
+scheduled** — describes behavior that lands in **TruePPM 0.4**. Through 0.3, a task
+that left the schedule (moved to the Backlog, converted to an epic, or made
+recurring) kept the Start, Finish and Float it carried when it was last scheduled, so
+those fields could still show values that no longer described anything. Everything
+else on this page describes released behavior.
+:::
 
 Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
 
@@ -89,6 +99,12 @@ The **same tree** is the source for every view:
 | **Overview** | Aggregate rollups | burndown, velocity, CPM forecast, Monte Carlo P80 |
 
 No data is copied between views. When the Board is grouped into phase swimlanes (an optional grouping), those lanes are WBS phases. The Schedule view's bars are the same rows the Board's cards render. The sprint burndown reads `remaining_points` from the same rows the Schedule view uses for float.
+
+### The scheduling fields are empty unless the task is scheduled
+
+Because one row serves every view, a task can sit outside the schedule entirely — a card in the Backlog rail, an epic used purely as a grouping node, or a recurring task. The scheduler skips all three, so the eight CPM output fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `scheduled_start`, `total_float`, `free_float`, `is_critical`) are **null** on those rows, and the API reports them as null.
+
+This is a contract, not a coincidence: a value in those fields means the engine computed it for that task, so an empty Start or Finish on a backlog card means "not in the plan" rather than "not calculated yet". Move the task back into the plan and the next recalculation fills them in again. `duration` is not one of these fields — it is your estimate, so it stays whatever you set it to whether or not the task is scheduled.
 
 ## How each methodology uses the model
 

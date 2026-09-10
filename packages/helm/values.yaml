@@ -792,10 +792,14 @@ env:
   # mountPath.
   STATIC_ROOT: /app/staticfiles
   # Public origin the web app is served from, e.g. "https://trueppm.example.com".
-  # Used to build absolute task deep-links in notification emails (ADR-0143, #1158).
-  # Leave empty to omit the link line (emails still carry blocker type/age/actor).
-  # No trailing slash, no path. Standardized on the TRUEPPM_ prefix pre-0.3
-  # (#1355); the legacy bare FRONTEND_BASE_URL still works as a fallback.
+  # Used to build absolute task deep-links in notification emails (ADR-0143, #1158)
+  # AND the page the OIDC callback sends the browser to once sign-in completes.
+  # Leave empty on a single-origin Ingress (the default this chart renders) —
+  # emails omit the link line (blocker type/age/actor still ride along) and the
+  # OIDC callback falls back to a same-origin relative redirect, which resolves
+  # correctly because the SPA and the API share one Ingress host. No trailing
+  # slash, no path. Standardized on the TRUEPPM_ prefix pre-0.3 (#1355); the
+  # legacy bare FRONTEND_BASE_URL still works as a fallback.
   TRUEPPM_FRONTEND_BASE_URL: ""
   # Public origin of the API itself, e.g. "https://trueppm.example.com". Pins the
   # two absolute URLs the API would otherwise derive from the request's Host

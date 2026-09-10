@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import date
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connections
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -466,6 +468,34 @@ def test_update_role_last_owner_guard(
     assert owner_membership.role == Role.OWNER
 
 
+@pytest.mark.django_db
+def test_update_role_last_owner_guard_passes_with_a_second_owner(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """Demoting an Owner succeeds when another Owner remains (#3438).
+
+    Pins the widened lock filter added for the last-Owner guard: `partial_update`
+    now folds every current Owner's row into the SAME up-front locked statement
+    as {actor, instance} whenever a role change is requested, so the guard's own
+    `select_for_update()` call only re-locks rows already held. With two Owners
+    on the roster the guard must still find one survivor and let the demotion
+    through — a bug in the widened filter (e.g. excluding a real Owner row) would
+    turn this into an incorrect 400.
+    """
+    second_owner = User.objects.create_user(username="second_owner", password="pw")
+    second_owner_membership = ProjectMembership.objects.create(
+        project=project, user=second_owner, role=Role.OWNER
+    )
+
+    resp = owner_client.patch(_url(project, owner_membership.pk), {"role": Role.ADMIN})
+
+    assert resp.status_code == 200, resp.data
+    owner_membership.refresh_from_db()
+    assert owner_membership.role == Role.ADMIN
+    second_owner_membership.refresh_from_db()
+    assert second_owner_membership.role == Role.OWNER
+
+
 # ---------------------------------------------------------------------------
 # Member management is Owner-only — the roles between Member and Owner must be
 # blocked too (#1508). The suite tested only Owner-allowed and Member-403, so a
@@ -915,6 +945,11 @@ def test_insert_race_answers_409_not_500(
     branch and the database raises a genuine IntegrityError. That is what makes
     the savepoint load-bearing — the connection is really poisoned, and without it
     the 409 response could not be written and ATOMIC_REQUESTS could not commit.
+
+    Blinding *every* ``select_for_update()`` call (as this used to) now also
+    blinds the actor-row lock `create` added for #3438, which would misread the
+    owner as not a member. Excluding only the racer's row keeps the actor lookup
+    real while still hiding the racer's existing row from the combined lock.
     """
     racer = User.objects.create_user(username="racer", password="pw")
     ProjectMembership.objects.create(project=project, user=racer, role=Role.MEMBER)
@@ -922,7 +957,9 @@ def test_insert_race_answers_409_not_500(
     with patch.object(
         ProjectMembership.objects,
         "select_for_update",
-        return_value=ProjectMembership.objects.none(),
+        side_effect=lambda *args, **kwargs: ProjectMembership.objects.exclude(
+            user=racer
+        ).select_for_update(*args, **kwargs),
     ):
         resp = owner_client.post(_url(project), {"user": str(racer.pk), "role": Role.VIEWER})
 
@@ -1349,3 +1386,117 @@ def test_patch_still_changes_a_role(
     assert resp.status_code == 200, resp.data
     member_membership.refresh_from_db()
     assert member_membership.role == Role.SCHEDULER
+
+
+# ---------------------------------------------------------------------------
+# #3438: create() reads the actor's role ceiling under the same lock discipline
+# as partial_update, closing the TOCTOU window a concurrent demotion opened.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_create_ceiling_check_serializes_against_concurrent_actor_demotion() -> None:
+    """The actor's role is read from the row `create` locks, not a stale cache.
+
+    A second, genuinely separate connection holds ``SELECT ... FOR UPDATE`` on the
+    acting Owner's own membership row — standing in for an in-flight
+    ``partial_update`` demoting them — while this thread's ``create()`` call is in
+    flight. Before #3438, `create` read the actor's role via the request-cached,
+    unlocked ``_membership_role()``, so it would have used the stale (pre-demotion)
+    OWNER role regardless of what the concurrent demotion did. With the fix,
+    `create` must block on that same row and, once the other connection commits
+    the demotion and releases the lock, re-read the now-lower role.
+
+    For `create` specifically, OWNER is both the required floor and the ceiling
+    (the caller may only assign a role strictly below their own, and OWNER is the
+    top ordinal) — so a demotion away from OWNER trips the re-verified floor check
+    first (403), before the ceiling comparison (`new_role >= actor_role`, 400)
+    would even run. That is a stricter outcome than the escalation this issue
+    names, not a different bug: either way, the stale pre-demotion role can no
+    longer authorize the grant.
+
+    Needs ``transaction=True``: a genuinely separate connection only sees rows
+    the test has actually committed, not ones sitting in the default
+    ``django_db`` wrapper's uncommitted, rolled-back-at-the-end transaction.
+    """
+    project = Project.objects.create(name="Concurrency", start_date=date(2026, 1, 1))
+    owner = User.objects.create_user(username="conc_owner", password="pw")
+    owner_membership = ProjectMembership.objects.create(
+        project=project, user=owner, role=Role.OWNER
+    )
+    # Workspace ADMIN so the write serializer's reachable-account gate (#3641)
+    # doesn't 400 before the actor-role lock this test targets is ever reached.
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=owner, role=WorkspaceRole.ADMIN
+    )
+    new_user = User.objects.create_user(username="conc_new", password="pw")
+
+    table = ProjectMembership._meta.db_table
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+
+    def _hold_lock_then_demote() -> None:
+        # Django forbids sharing a connection across threads (validate_thread_
+        # sharing), so the connection must be created INSIDE the thread that
+        # uses it — a genuinely separate session standing in for the concurrent
+        # `partial_update` demotion.
+        other = connections.create_connection("default")
+        try:
+            with other.cursor() as cursor:
+                cursor.execute("BEGIN")
+                cursor.execute(
+                    f"SELECT id FROM {table} WHERE id = %s FOR UPDATE",
+                    [str(owner_membership.pk)],
+                )
+                lock_acquired.set()
+                release_lock.wait(timeout=5)
+                cursor.execute(
+                    f"UPDATE {table} SET role = %s WHERE id = %s",
+                    [int(Role.ADMIN), str(owner_membership.pk)],
+                )
+                cursor.execute("COMMIT")
+        finally:
+            other.close()
+
+    holder = threading.Thread(target=_hold_lock_then_demote)
+    holder.start()
+    try:
+        assert lock_acquired.wait(timeout=5), "the competing connection never acquired its lock"
+
+        result: dict[str, Any] = {}
+
+        def _create() -> None:
+            client = APIClient()
+            client.force_authenticate(user=owner)
+            try:
+                result["resp"] = client.post(
+                    _url(project), {"user": str(new_user.pk), "role": Role.ADMIN}, format="json"
+                )
+            finally:
+                # This thread opened its own DB connection (Django connections are
+                # thread-local); close it explicitly rather than leaving it for
+                # test-database teardown to trip over.
+                connections.close_all()
+
+        creator = threading.Thread(target=_create)
+        creator.start()
+        try:
+            # create() should be blocked waiting on the same row the demotion
+            # holds — confirm it has not returned before releasing the demotion.
+            creator.join(timeout=1)
+            assert creator.is_alive(), "create() did not block on the actor's locked row"
+        finally:
+            release_lock.set()
+            creator.join(timeout=5)
+    finally:
+        holder.join(timeout=5)
+
+    resp = result["resp"]
+    # Refused: by the time create() re-read the actor's row (post-commit), its
+    # role was ADMIN, below the OWNER floor `create` re-verifies under lock. A
+    # stale, cached OWNER read (the pre-#3438 behavior) would have let this
+    # through as a 201.
+    assert resp.status_code == 403, resp.data
+    assert not ProjectMembership.objects.filter(project=project, user=new_user).exists()
+    owner_membership.refresh_from_db()
+    assert owner_membership.role == Role.ADMIN
