@@ -130,6 +130,31 @@ def _revive_revoked_membership(
     membership.save(known_exists=True)
 
 
+# ---------------------------------------------------------------------------
+# Lock-acquisition order (#3438)
+# ---------------------------------------------------------------------------
+# `create` and `partial_update` on both membership viewsets, `_check_last_owner_
+# guard` (both viewsets), and `workspace.services.reconcile_group_access` all
+# take `SELECT ... FOR UPDATE` locks on ProjectMembership / ProgramMembership
+# rows inside a transaction. Whenever a request needs more than one such row —
+# `create` locks the actor's own row plus the target's existing row (if any);
+# `partial_update` locks the actor's own row plus the row it patches — they are
+# locked together, in a single statement, ordered by ascending `pk`.
+#
+# The rule is deliberately "ascending pk", not "actor row first" or "target row
+# first": a role-based order deadlocks the moment two requests have their actor
+# and target reversed on the same pair of rows (Owner A adds/patches Owner B
+# while Owner B concurrently adds/patches Owner A) — each transaction would
+# hold the row it locked first and block waiting on the other, forever.
+# Ordering by an intrinsic, row-level key instead of a role means every
+# transaction agrees on which row to lock first regardless of which side of
+# the request it is on, so the two requests serialize instead of deadlocking.
+# `_check_last_owner_guard` and `reconcile_group_access` each already take a
+# single multi-row lock; `order_by("pk")` there keeps them inside the same
+# convention rather than leaving their row order database-defined.
+# ---------------------------------------------------------------------------
+
+
 class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProjectMembership]):
     """Nested CRUD for project memberships.
 
@@ -278,7 +303,8 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         if exclude_pk:
             qs = qs.exclude(pk=exclude_pk)
         # select_for_update prevents concurrent removal of both owners simultaneously.
-        if not qs.select_for_update().exists():
+        # order_by("pk"): see the module-level "Lock-acquisition order" comment.
+        if not qs.order_by("pk").select_for_update().exists():
             raise drf_serializers.ValidationError(
                 {"detail": "Cannot remove or demote the last Owner of a project."}
             )
@@ -349,7 +375,6 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         )
         serializer.is_valid(raise_exception=True)
 
-        actor_role = _membership_role(request, project.pk)
         # Role is optional on add (ADR-0363, #157): fall back to the project's
         # configured default when the caller does not name one. The strictly-below-
         # your-own guard below then applies to the resolved role exactly as it does
@@ -357,9 +382,6 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         new_role = serializer.validated_data.get("role")
         if new_role is None:
             new_role = project.default_member_role
-        # Caller may only assign roles strictly below their own.
-        if actor_role is not None and new_role >= actor_role:
-            raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
 
         user = serializer.validated_data["user"]
         # The (project, user) unique constraint is unconditional, so the row a
@@ -375,13 +397,39 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         # select_for_update alongside select_related would lock the joined auth_user
         # row too, on every add. select_related is what stops the read serializer's
         # ``user_detail`` from lazy-loading the user the caller already named.
+        #
+        # The actor's own membership row is locked in the SAME statement (#3438):
+        # reading the actor's role ceiling via the request-cached, unlocked
+        # `_membership_role()` — as this endpoint did before — left a TOCTOU window
+        # where a concurrent demotion of the actor between the initial permission
+        # check and this write could let them grant at their pre-demotion ceiling.
+        # See the module-level "Lock-acquisition order" comment for why the two
+        # rows are locked together, ordered by pk, rather than "actor, then
+        # target".
+        actor_pk = request.user.pk
+        assert actor_pk is not None  # IsAuthenticated ensures a real user
         with transaction.atomic():
-            existing = (
-                ProjectMembership.objects.select_for_update(of=("self",))
-                .select_related("user")
-                .filter(project=project, user=user)
-                .first()
-            )
+            locked = {
+                m.user_id: m
+                for m in (
+                    ProjectMembership.objects.select_for_update(of=("self",))
+                    .select_related("user")
+                    .filter(project=project, user_id__in={actor_pk, user.pk})
+                    .order_by("pk")
+                )
+            }
+            actor_membership = locked.get(actor_pk)
+            if actor_membership is None or actor_membership.is_deleted:
+                raise PermissionDenied("You are not a member of this project.")
+            actor_role = actor_membership.role
+            if actor_role < Role.OWNER:
+                raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
+            # Caller may only assign roles strictly below their own — read from the
+            # row just locked, not the unlocked cache read this replaced.
+            if new_role >= actor_role:
+                raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
+
+            existing = locked.get(user.pk)
             if existing is not None and not existing.is_deleted:
                 return Response(
                     {"detail": "User is already a member of this project."},
@@ -461,15 +509,42 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
 
         # M4 fix: lock the actor's own membership row with SELECT FOR UPDATE inside
         # an atomic block to close the TOCTOU window where a concurrent demotion
-        # could allow the actor to assign a role >= their effective role at save time.
+        # could allow the actor to assign a role >= their effective role at save
+        # time. Locked together with `instance` (the row being patched), in one
+        # statement ordered by ascending pk — see the module-level
+        # "Lock-acquisition order" comment for why "actor row, then instance" can
+        # deadlock and pk order cannot.
+        #
+        # When a role change is requested, every current Owner's row is folded
+        # into this SAME statement too (security-review, #3438): a role change
+        # might trip the last-Owner guard below, which takes its own
+        # select_for_update() on the project's other Owner rows. Taking that as
+        # a SECOND, separate statement after this one reopens exactly the
+        # deadlock this comment warns about — this transaction would hold
+        # {actor, instance} and then reach for the Owner set, while a
+        # concurrent transaction with three or more Owners racing could be
+        # holding one of those Owner rows and reaching for {actor, instance} in
+        # the opposite order. Locking the superset up front, in one
+        # ascending-pk pass, means `_check_last_owner_guard`'s own query below
+        # only ever re-locks rows this statement already holds — a no-op, not a
+        # wait. We don't yet know under lock whether `instance` is actually an
+        # Owner, so this widens whenever a role change is requested at all,
+        # not only when the pre-lock `instance.role` looks like one; the
+        # over-inclusion when it turns out not to be a demotion is harmless.
         with transaction.atomic():
-            try:
-                actor_membership = ProjectMembership.objects.select_for_update().get(
-                    project=project,
-                    user=request.user,
-                    is_deleted=False,  # type: ignore[misc]
-                )
-            except ProjectMembership.DoesNotExist:
+            lock_filter = Q(pk=instance.pk) | Q(
+                project=project, user=request.user, is_deleted=False
+            )
+            if new_role is not None:
+                lock_filter |= Q(project=project, role=Role.OWNER, is_deleted=False)
+            locked_rows = list(
+                ProjectMembership.objects.select_for_update().filter(lock_filter).order_by("pk")
+            )
+            actor_membership = next(
+                (m for m in locked_rows if m.user_id == request.user.pk and not m.is_deleted),
+                None,
+            )
+            if actor_membership is None:
                 raise PermissionDenied("You are not a member of this project.") from None
 
             actor_role = actor_membership.role
@@ -481,6 +556,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 if new_role >= actor_role:
                     raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
                 # Last-Owner guard: if demoting an Owner, ensure another Owner exists.
+                # Its own select_for_update() only re-locks rows already held above.
                 if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(project.pk, exclude_pk=instance.pk)
                 # Stamp role_changed_at only on an actual role change (#590) so a
@@ -551,7 +627,13 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                     "You can only remove members with a role lower than your own."
                 )
 
-        # Last-Owner guard — atomic with select_for_update.
+        # Last-Owner guard — atomic with select_for_update, pk-ordered like every
+        # other multi-row lock on this table (see the module-level "Lock-
+        # acquisition order" comment). `destroy` never locks the actor's own row —
+        # unlike `create`/`partial_update` it does not assign a role, so there is
+        # no ceiling to protect from a concurrent demotion; the actor's removal
+        # *authority* (`actor_role` above) is read unlocked, same as before #3438,
+        # which is scoped to the role-ceiling TOCTOU on grants, not this one.
         if instance.role == Role.OWNER:
             with transaction.atomic():
                 self._check_last_owner_guard(project.pk, exclude_pk=instance.pk)
@@ -1319,7 +1401,8 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         )
         if exclude_pk:
             qs = qs.exclude(pk=exclude_pk)
-        if not qs.select_for_update().exists():
+        # order_by("pk"): see the module-level "Lock-acquisition order" comment.
+        if not qs.order_by("pk").select_for_update().exists():
             raise drf_serializers.ValidationError(
                 {"detail": "Cannot remove or demote the last Owner of a program."}
             )
@@ -1376,24 +1459,45 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         )
         serializer.is_valid(raise_exception=True)
 
-        actor_role = _program_membership_role(request, program.pk)
         new_role = serializer.validated_data["role"]
-        if actor_role is not None and new_role >= actor_role:
-            raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
-
         user = serializer.validated_data["user"]
         # Mirrors ProjectMembershipViewSet.create exactly — ProgramMembership
         # carries the same unconditional (program, user) constraint and therefore
         # carried the same 500 on re-adding a revoked member (#3410). See
         # ``_revive_revoked_membership`` for why the row is reused rather than
         # re-inserted, and what an offline client sees.
+        #
+        # The actor's own membership row is locked in the SAME statement (#3438),
+        # together with the target's existing row (if any), ordered by pk — see
+        # the module-level "Lock-acquisition order" comment. Reading the actor's
+        # role ceiling via the request-cached, unlocked `_program_membership_role()`
+        # — as this endpoint did before — left a TOCTOU window where a concurrent
+        # demotion of the actor between the initial permission check and this
+        # write could let them grant at their pre-demotion ceiling.
+        actor_pk = request.user.pk
+        assert actor_pk is not None  # IsAuthenticated ensures a real user
         with transaction.atomic():
-            existing = (
-                ProgramMembership.objects.select_for_update(of=("self",))
-                .select_related("user")
-                .filter(program=program, user=user)
-                .first()
-            )
+            locked = {
+                m.user_id: m
+                for m in (
+                    ProgramMembership.objects.select_for_update(of=("self",))
+                    .select_related("user")
+                    .filter(program=program, user_id__in={actor_pk, user.pk})
+                    .order_by("pk")
+                )
+            }
+            actor_membership = locked.get(actor_pk)
+            if actor_membership is None or actor_membership.is_deleted:
+                raise PermissionDenied("You are not a member of this program.")
+            actor_role = actor_membership.role
+            if actor_role < Role.OWNER:
+                raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
+            # Caller may only assign roles strictly below their own — read from the
+            # row just locked, not the unlocked cache read this replaced.
+            if new_role >= actor_role:
+                raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
+
+            existing = locked.get(user.pk)
             if existing is not None and not existing.is_deleted:
                 return Response(
                     {"detail": "User is already a member of this program."},
@@ -1458,15 +1562,30 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
 
         # Lock the actor's membership row inside an atomic block to close the
         # TOCTOU window where a concurrent demotion could let the actor assign
-        # a role >= their effective role at save time.
+        # a role >= their effective role at save time. Locked together with
+        # `instance` (the row being patched), in one statement ordered by
+        # ascending pk — see the module-level "Lock-acquisition order" comment
+        # for why "actor row, then instance" can deadlock and pk order cannot.
+        #
+        # See the project twin for why every current Owner's row is folded into
+        # this SAME statement whenever a role change is requested at all
+        # (security-review, #3438): `_check_last_owner_guard`'s own lock below
+        # would otherwise be a second, separately-ordered statement, reopening
+        # the deadlock this comment exists to close.
         with transaction.atomic():
-            try:
-                actor_membership = ProgramMembership.objects.select_for_update().get(
-                    program=program,
-                    user=request.user,
-                    is_deleted=False,  # type: ignore[misc]
-                )
-            except ProgramMembership.DoesNotExist:
+            lock_filter = Q(pk=instance.pk) | Q(
+                program=program, user=request.user, is_deleted=False
+            )
+            if new_role is not None:
+                lock_filter |= Q(program=program, role=Role.OWNER, is_deleted=False)
+            locked_rows = list(
+                ProgramMembership.objects.select_for_update().filter(lock_filter).order_by("pk")
+            )
+            actor_membership = next(
+                (m for m in locked_rows if m.user_id == request.user.pk and not m.is_deleted),
+                None,
+            )
+            if actor_membership is None:
                 raise PermissionDenied("You are not a member of this program.") from None
 
             actor_role = actor_membership.role
@@ -1523,6 +1642,9 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                     "You can only remove members with a role lower than your own."
                 )
 
+        # See the project twin: `destroy` never locks the actor's own row (no role
+        # is assigned here), so `_check_last_owner_guard`'s pk-ordered lock is the
+        # only one this path takes.
         if instance.role == Role.OWNER:
             with transaction.atomic():
                 self._check_last_owner_guard(program.pk, exclude_pk=instance.pk)
