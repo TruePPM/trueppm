@@ -522,10 +522,13 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         role_label = Role(new_role).label
         subject = f"You were added to {project.name}"
         body = f"{actor_label} added you to {project.name} as {role_label}."
+        # Snapshot to a plain value before the closure, not `user.pk` inline — the
+        # closure must never hold a live ORM instance (security-review, #3645).
+        recipient_id = user.pk
         transaction.on_commit(
             lambda: create_event_notifications(
                 event_type=NotificationEventType.MEMBERSHIP_GRANTED,
-                recipient_ids=[user.pk],
+                recipient_ids=[recipient_id],
                 subject=subject,
                 body=body,
                 project_id=project_id,
