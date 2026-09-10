@@ -67,14 +67,41 @@ describe('ScheduleDisplayMenu (#1741)', () => {
     expect(screen.getByRole('button', { name: 'Display, 1 active filter' })).toBeInTheDocument();
   });
 
-  it('caps the panel height and lets it scroll on a short viewport (#3109)', () => {
+  it('caps the panel height and lets it scroll on a short viewport (#3109, #3702)', () => {
     setup();
     const menu = openMenu();
     // Outline + View filters + Render filters can exceed a short viewport with no
     // scrollbar (#3109) — the panel must cap its own height and scroll rather than
-    // spill past the screen edge with the remaining options unreachable.
-    expect(menu.className).toMatch(/max-h-\[min\(70vh,32rem\)\]/);
+    // spill past the screen edge with the remaining options unreachable. Since #3702
+    // the cap is the real viewport gap computed by `useAnchoredPopover` (rule 351),
+    // delivered as an inline `maxHeight` rather than the old static
+    // `max-h-[min(70vh,32rem)]` class — the local `overflow-y-auto` is what the call
+    // site still owns.
     expect(menu.className).toMatch(/overflow-y-auto/);
+    expect(menu.style.maxHeight).not.toBe('');
+  });
+
+  it('clamps the popover to the viewport instead of clipping when the trigger sits near the left edge (#3702)', () => {
+    // The old `right-0` CSS anchor never accounted for available room, so a
+    // trigger near the left edge of a narrow toolbar rendered the popover with
+    // a negative left offset — clipped by the viewport/clipping ancestor.
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 20,
+      y: 100,
+      top: 100,
+      bottom: 128,
+      left: 20,
+      right: 90,
+      width: 70,
+      height: 28,
+      toJSON: () => {},
+    });
+    setup();
+    const menu = openMenu();
+    const left = Number.parseFloat(menu.style.left);
+    // rect.right (90) - width (280) = -190, clamped to the 8px viewport margin.
+    expect(left).toBe(8);
+    expect(left).toBeGreaterThanOrEqual(0);
   });
 
   it('opens the popover and toggles a filter in place (menu stays open)', () => {
