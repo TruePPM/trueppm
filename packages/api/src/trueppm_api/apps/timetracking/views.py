@@ -87,7 +87,13 @@ class TaskTimeEntryView(IdempotencyMixin, APIView):
     @extend_schema(
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="TaskTimeEntryListResponse",
+                    fields={
+                        "results": TimeEntrySerializer(many=True),
+                        "total_logged_minutes": serializers.IntegerField(),
+                    },
+                ),
                 description=(
                     "The caller's own time entries on this task plus their own "
                     "total: {results: [<entry>], total_logged_minutes: int}."

@@ -75,6 +75,22 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     # `submission` are per-week aggregates alongside the entry list. Declared
     # free-form until #3684 typed it for the first time.
     "/api/v1/me/time-entries/": "week-scoped rollup + aggregates, not paginated (ADR-0185/#3684)",
+    # Task-level history (#3683) is the task-scoped counterpart to the already-
+    # grandfathered project-level history feed — same pre-0.3 keyset-paging shape
+    # (#1882): `next`/`next_until` carry the keyset cursor, `count_truncated` flags
+    # a capped window. It was declared free-form until #3683 typed it for the first
+    # time; restyling the envelope itself is a breaking response-shape change and
+    # out of scope for a response-schema-only fix.
+    "/api/v1/projects/{project_pk}/tasks/{task_pk}/history/": (
+        "task-scoped keyset history, same family as /projects/{id}/history/ (#1882/#2844/#3683)"
+    ),
+    # The caller's own time-entry list plus their own total — never paginated
+    # (bounded to one contributor's entries on one task, ADR-0185), same
+    # "aggregate field alongside the list" pattern as /api/v1/me/work/. Declared
+    # free-form until #3683 typed it for the first time.
+    "/api/v1/tasks/{task_pk}/time-entries/": (
+        "caller-scoped unpaginated list + total_logged_minutes aggregate (#3683)"
+    ),
 }
 
 # Path segments that are not kebab-case. All pre-0.3; tracked in #2844.
