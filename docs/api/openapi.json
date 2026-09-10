@@ -26826,7 +26826,7 @@
                                 }
                             }
                         },
-                        "description": "Detected mapping, first 10 parsed rows, row-level warnings and the field catalog for the wizard's dropdown. Nothing is persisted. Also carries how the date order was settled and the evidence for it: `date_order_resolved`, `date_order_auto`, `date_order_ambiguous`, `date_order_evidence` ({row, column, value, reason}), `date_order_has_columns`, `values_matched`/`values_failed`, `date_preview` (per-row raw cell, reading and duration), and — only when the file identifies no convention — `date_order_readings`, both conventions with the duration each produces for one sample row."
+                        "description": "Detected mapping, first 10 parsed rows, row-level warnings and the field catalog for the wizard's dropdown. Nothing is persisted. Also carries how the date order was settled and the evidence for it: `date_order_resolved`, `date_order_auto`, `date_order_ambiguous`, `date_order_evidence` ({row, column, value, reason}), `date_order_has_columns`, `values_matched`/`values_failed`, `date_preview` (per-row raw cell, reading and duration), and — only when the file identifies no convention — `date_order_readings`, both conventions with the duration each produces for one sample row. `exceeds_recommended_ceiling` and its sibling fields warn (never block) when this project would land past the tested-comfortable Schedule size — see `administration/sizing.md`."
                     },
                     "400": {
                         "description": "Missing, oversized, or unreadable upload, or an unknown `date_order`."

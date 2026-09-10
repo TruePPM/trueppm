@@ -245,6 +245,49 @@ function FileNoticeList({ notices }: { notices: string[] }) {
   );
 }
 
+/**
+ * Ceiling warning (#3388): this project would land past the tested-comfortable
+ * Schedule size once this import lands — `administration/sizing.md` "Tested
+ * envelope" measures whole-project load at 1.85s at 1,000 tasks and a 60s
+ * cliff at 2,000. Advisory only, never a blocker (`Wanted` #1 is explicit:
+ * "Warn, do not block" — someone on better hardware may legitimately want a
+ * larger project), so this renders beside the plan summary rather than gating
+ * Next/Import. Shown on both the mapping step and the final confirm step —
+ * the last screen before an irreversible commit may never have been reached
+ * from a scroll on step 2, so the warning is repeated rather than assumed seen
+ * (mirrors `FileNoticeList`'s own "repeated on purpose" note below).
+ */
+function TaskCeilingNotice({ preview }: { preview: CsvPreview }) {
+  if (!preview.exceeds_recommended_ceiling) return null;
+  return (
+    <section
+      aria-label="Schedule size warning"
+      className="flex flex-col gap-1 rounded-card border border-neutral-border bg-neutral-surface-raised p-3"
+    >
+      <h4 className="flex items-center gap-1.5 text-xs font-semibold text-semantic-at-risk">
+        <WarningIcon aria-hidden="true" className="h-4 w-4 shrink-0" />
+        This project will be larger than TruePPM has been tested to hold
+      </h4>
+      <p className="text-xs text-neutral-text-primary">
+        This import brings the project to{' '}
+        <span className="font-medium">{preview.projected_task_count.toLocaleString()} tasks</span>
+        , past the ~{preview.recommended_task_ceiling.toLocaleString()}-task ceiling the Schedule
+        has been measured comfortable to. This will not stop the import — the Schedule may just
+        take much longer to open.
+      </p>
+      <a
+        href="https://docs.trueppm.com/administration/sizing"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs font-medium text-brand-primary underline-offset-2 hover:underline rounded
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      >
+        Read the deployment sizing guide
+      </a>
+    </section>
+  );
+}
+
 /** Copy for each confidence state, or null when the state needs no note. */
 const MAPPING_NOTES: Record<
   CsvMappingConfidence,
@@ -775,6 +818,8 @@ function MapStep({
                 how you read the sample rows just below them. */}
       <FileNoticeList notices={preview.warnings} />
 
+      <TaskCeilingNotice preview={preview} />
+
       {/* The only affordance that works on a wide sheet where the flagged
                 row is scrolled out of view. `role="status"` also makes it the
                 receipt for a "Re-check mapping" round-trip. */}
@@ -1033,6 +1078,8 @@ function ConfirmStep({
                 an irreversible commit, and the operator may never have scrolled
                 to it on the mapping step. */}
       <FileNoticeList notices={preview.warnings} />
+
+      <TaskCeilingNotice preview={preview} />
 
       {unmapped.length > 0 && (
         <p className="text-sm text-neutral-text-secondary">
