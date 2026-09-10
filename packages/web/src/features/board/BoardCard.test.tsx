@@ -257,6 +257,31 @@ describe('BoardCard', () => {
     expect(onMenuMove).toHaveBeenCalledWith(baseTask, 'COMPLETE');
   });
 
+  it('clamps the overflow menu to the viewport instead of clipping when the card sits near an edge (#3705)', () => {
+    // The old `right-0` CSS anchor never escaped the board column's
+    // `overflow-y-auto` ancestor and never accounted for the viewport, so a
+    // card near the top or an edge of a narrow column clipped this menu's
+    // content instead of flipping/clamping.
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 10,
+      y: 10,
+      top: 10,
+      bottom: 38,
+      left: 10,
+      right: 34,
+      width: 24,
+      height: 28,
+      toJSON: () => {},
+    } as DOMRect);
+    renderCard({});
+    fireEvent.click(screen.getByLabelText(`Actions for ${baseTask.name}`));
+    const menu = screen.getByRole('menu', { name: `Actions for ${baseTask.name}` });
+    const left = Number.parseFloat(menu.style.left);
+    // rect.right (34) - width (200) = -166, clamped to the 8px viewport margin.
+    expect(left).toBe(8);
+    expect(left).toBeGreaterThanOrEqual(0);
+  });
+
   it('supports keyboard navigation in the overflow menu (#838)', () => {
     renderCard({});
     const trigger = screen.getByLabelText(`Actions for ${baseTask.name}`);
