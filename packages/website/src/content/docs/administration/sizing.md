@@ -72,6 +72,23 @@ The re-measure is **not** scheduled for the 0.4 tag. Both issues that own this c
 
 **Past that point it is a cliff, not a slope.** Whole-project load goes from **1.85 s at 1,000 tasks to 60 s at 2,000** — a 32× jump for a 2× increase in data. Doubling from a comfortable project does not get you a slow project; it gets you one that reads as hung. That non-linearity is the single most important thing to know before committing a large plan to 0.4, and the mechanism behind it is [set out below](#why-the-whole-project-ceiling-is-where-it-is) rather than left as a bare number.
 
+:::note[Ships in 0.4 — the ceiling is now surfaced, not just documented]
+Nothing about the ceiling itself changes here — it is still a measured comfort line, not a
+correctness limit, and neither surface below blocks anything:
+
+- **CSV/Excel import preview** warns when the file being imported would carry a project past
+  this ~1,000-task line, naming the projected task count and linking this page. The import
+  still proceeds if you continue — someone with better hardware, or a plan that genuinely
+  needs the room, is not stopped.
+- **Opening the Schedule** on a project already past the ceiling shows a dismissible banner
+  saying so, computed from the task list the Schedule already loads (no extra request). It
+  explains a slow open rather than leaving it looking broken.
+
+Both are pure client/server-side UI with nothing transmitted anywhere — evaluating whether
+projects in TruePPM's market actually hit this ceiling often enough to matter is separate,
+tracked work ([#3388](https://gitlab.com/trueppm/trueppm/-/issues/3388)).
+:::
+
 ### Why the whole-project ceiling is where it is
 
 This is the number most likely to decide whether TruePPM fits your project, so here is the mechanism rather than just the figure. All measurements below are `EXPLAIN (ANALYZE, BUFFERS)` on a 4,000-task project, best of 3, recorded in [#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807).
@@ -159,7 +176,7 @@ These are **untested**, not unbounded. Do not read silence as a guarantee.
 | **Concurrent authenticated users** | **Not measured.** Three runs of the identical single-reader step returned 90 s, 12 s and 3 s for a read the task sweep measured at 1.3 s. The spread is contention on a shared developer workstation, and a ceiling asserted from it would be invented. Needs a quiet, dedicated host. Note that the shipped image runs **one uvicorn process**, so throughput scales by replica count — and [#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275) (`ATOMIC_REQUESTS` with no connection pooler) is the expected first constraint |
 | **Concurrent WebSocket connections per project** | **Not measured.** See [#2339](https://gitlab.com/trueppm/trueppm/-/issues/2339) — reconnect-storm scaling is a known open question |
 | **Monte Carlo iterations at the task ceiling** | **Not measured**, but **capped**: `MC_TASK_CAP` (default `5000`) bounds the tasks a simulation will accept, alongside `MC_SIMULATION_CAP`. Within that cap it is untested — and [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) means Monte Carlo runs on the request thread, so your gateway timeout binds before the cap does |
-| **Import size (rows)** | **Not measured here.** CSV/Excel import ships in 0.4 ([#743](https://gitlab.com/trueppm/trueppm/-/issues/743)); its 10 MB / 5,000-row limit is enforced at the parser, not derived from this run. Note that importing to the row limit puts a project well past the whole-project Schedule ceiling above |
+| **Import size (rows)** | **Not measured here.** CSV/Excel import ships in 0.4 ([#743](https://gitlab.com/trueppm/trueppm/-/issues/743)); its 10 MB / 5,000-row limit is enforced at the parser, not derived from this run. Note that importing to the row limit puts a project well past the whole-project Schedule ceiling above — the import preview warns when this would happen (see below), but does not block it |
 | **Board rendering at scale** | **Not measured.** [#1538](https://gitlab.com/trueppm/trueppm/-/issues/1538) / [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) — the board renders every card with no virtualization |
 | **Gantt interaction at scale** | **Not measured.** [#1540](https://gitlab.com/trueppm/trueppm/-/issues/1540) / [#1587](https://gitlab.com/trueppm/trueppm/-/issues/1587) — O(N) hit-test per `pointermove` |
 | **Sustained multi-day / multi-user soak** | **Not measured.** Every figure above is a point-in-time read sweep |
